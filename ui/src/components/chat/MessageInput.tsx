@@ -737,6 +737,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                   disabled={disabled}
                   autoFocus={!isMobile}
                   isMobile={isMobile}
+                  channelId={toolChannelId}
                   currentBotId={currentBotId}
                   currentSessionId={currentSessionId}
                   isMultiBot={isMultiBot}

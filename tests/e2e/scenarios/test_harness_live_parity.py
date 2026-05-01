@@ -1117,6 +1117,11 @@ async def test_live_harness_core_parity_controls_trace_and_context(
         context = await client.execute_slash_command("context", session_id=session_id)
         assert context["result_type"] == "harness_context_summary"
         assert context["payload"]["runtime"] == case.runtime
+        native_context = context["payload"].get("native_context") or {}
+        assert native_context.get("title"), context
+        assert native_context.get("status") in {"ok", "empty", "terminal_handoff", "unavailable", "error"}
+        assert "[object Object]" not in json.dumps(context)
+        assert "Spindrel bridge tools" not in context.get("fallback_text", "")
 
         marker = uuid.uuid4().hex[:12]
         result = await client.chat_session_stream(

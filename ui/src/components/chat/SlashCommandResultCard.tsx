@@ -7,6 +7,7 @@ import { useThemeTokens } from "../../theme/tokens";
 import { useSetSessionHarnessSettings } from "../../api/hooks/useApprovals";
 import { FindResultsRenderer } from "./renderers/FindResultsRenderer";
 import { SlashResultPanel } from "./renderers/SlashResultPanel";
+import { inlinePreviewValue } from "./slashPreviewValue";
 
 interface Props {
   message: Message;
@@ -483,6 +484,9 @@ function HarnessContextSummaryCard({
   payload: Record<string, any>;
   chatMode: "default" | "terminal";
 }) {
+  const nativeContext = payload.native_context && typeof payload.native_context === "object"
+    ? payload.native_context as Record<string, any>
+    : null;
   const tools = Array.isArray(payload.bridge_tools) ? payload.bridge_tools : [];
   const hints = Array.isArray(payload.hints) ? payload.hints : [];
   const bridgeStatus = payload.bridge_status_detail && typeof payload.bridge_status_detail === "object"
@@ -492,7 +496,7 @@ function HarnessContextSummaryCard({
   const explicitTools = Array.isArray(bridgeStatus.explicit_tool_names) ? bridgeStatus.explicit_tool_names : [];
   const taggedSkills = Array.isArray(bridgeStatus.tagged_skill_ids) ? bridgeStatus.tagged_skill_ids : [];
   const usage = payload.usage && typeof payload.usage === "object"
-    ? Object.entries(payload.usage).slice(0, 4).map(([k, v]) => `${k}: ${String(v)}`).join(" · ")
+    ? Object.entries(payload.usage).slice(0, 4).map(([k, v]) => `${k}: ${inlinePreviewValue(v)}`).join(" · ")
     : null;
   return (
     <SlashResultPanel
@@ -501,6 +505,31 @@ function HarnessContextSummaryCard({
       meta={String(payload.runtime || "harness")}
     >
       <div className="grid gap-2 p-3 text-[12px] text-text-muted">
+        {nativeContext && (
+          <div className="grid gap-1 rounded bg-surface-overlay/50 px-2 py-1.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-[10px] uppercase text-text-dim">Native runtime context</div>
+              <div className={nativeContext.status === "ok" ? "text-success-muted" : "text-warning-muted"}>
+                {String(nativeContext.status || "unknown")}
+              </div>
+            </div>
+            <div className="font-medium text-text">{String(nativeContext.title || "Native /context")}</div>
+            {nativeContext.detail && (
+              <div className="whitespace-pre-wrap leading-snug">{String(nativeContext.detail)}</div>
+            )}
+            {nativeContext.data && typeof nativeContext.data === "object" && Object.keys(nativeContext.data).length > 0 && (
+              <details className="rounded bg-surface-overlay/50 px-2 py-1">
+                <summary className="cursor-pointer text-[11px] text-text-dim">Native payload</summary>
+                <div className="mt-2 max-h-80 overflow-auto font-mono text-[11px] leading-5 text-text-muted whitespace-pre-wrap">
+                  {JSON.stringify(nativeContext.data, null, 2)}
+                </div>
+              </details>
+            )}
+          </div>
+        )}
+        <details className="rounded bg-surface-overlay/40 px-2 py-1.5">
+          <summary className="cursor-pointer text-[11px] text-text-dim">Spindrel host diagnostics</summary>
+          <div className="mt-2 grid gap-2">
         <div className="grid gap-1 sm:grid-cols-2">
           <div><span className="text-text-dim">Model</span> {payload.model || "runtime default"}</div>
           <div><span className="text-text-dim">Effort</span> {payload.effort || "default"}</div>
@@ -537,6 +566,8 @@ function HarnessContextSummaryCard({
         )}
         {payload.last_compacted_at && <div><span className="text-text-dim">Last compact reset</span> {payload.last_compacted_at}</div>}
         {usage && <div><span className="text-text-dim">Last usage</span> {usage}</div>}
+          </div>
+        </details>
       </div>
     </SlashResultPanel>
   );

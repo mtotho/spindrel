@@ -709,6 +709,13 @@ class Settings(BaseSettings):
     TOOL_RETRIEVAL_THRESHOLD: float = 0.35
     TOOL_RETRIEVAL_TOP_K: int = 10
 
+    # Heartbeat tool surface caps. Heartbeat surfaces are deterministic:
+    # pinned ∪ tagged ∪ injected always survive; enrolled tools are added in
+    # priority order while under both caps; retrieval narrows only the
+    # over-cap remainder. See `_compose_heartbeat_tool_surface()`.
+    HEARTBEAT_ENROLLED_TOOL_COUNT_CAP: int = 25
+    HEARTBEAT_ENROLLED_TOOL_TOKEN_CAP: int = 6000
+
     # Memory
     MEMORY_RETRIEVAL_LIMIT: int = 5
     MEMORY_SIMILARITY_THRESHOLD: float = 0.75

@@ -52,6 +52,8 @@ a shared fixed API/UI port in instructions or tests. Start with
 `.env.agent-e2e`, then keep using the `SPINDREL_E2E_URL` and `E2E_PORT` values
 from that env for helper commands, pytest, Playwright, and screenshots. Never
 restart another agent's native API/UI process.
+Use `set -a && source .env.agent-e2e && set +a`, not a plain `source`, whenever
+child Python/Node commands need those values.
 
 The default local dependency Compose project is `spindrel-local-e2e-runtime-deps`.
 It is the shared Postgres/SearXNG stack for native repo-dev agents and it
@@ -301,6 +303,11 @@ python -m scripts.screenshots stage --only project-workspace
 python -m scripts.screenshots capture --only project-workspace
 python -m scripts.screenshots check
 ```
+
+The Project Workspace bundle includes
+[`project-workspace-context-mentions.png`](../images/project-workspace-context-mentions.png),
+which opens a Project-bound channel, types through the real composer keyboard
+path, and verifies the `@` picker can surface a Project file context mention.
 
 Inspect changed images before calling the work done. Screenshot assertions prove
 that the scripted route rendered; visual review proves the UI is acceptable.

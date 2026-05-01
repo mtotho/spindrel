@@ -1405,6 +1405,180 @@ async def _inject_skill_working_set(
 # invoked when retrieval is actually running.
 
 
+def _estimate_schema_tokens(schema: dict) -> int:
+    """Rough token estimate for a single tool schema. ~4 chars/token."""
+    try:
+        return max(1, len(json.dumps(schema, ensure_ascii=False)) // 4)
+    except Exception:
+        return 200  # conservative fallback
+
+
+async def _compose_heartbeat_tool_surface(
+    *,
+    bot: BotConfig,
+    by_name: dict[str, dict],
+    enrolled_tool_names: list[str],
+    tagged_tool_names: list[str],
+    tagged_skill_names: list[str],
+    plan_mode_active: bool,
+    user_message: Any,
+    threshold: float,
+    ch_row: Any,
+) -> tuple[
+    list[dict[str, Any]],     # pre_selected_tools
+    set[str],                 # authorized_names
+    list[dict[str, Any]],     # retrieved (post-narrowing, possibly empty)
+    Any,                      # tool_sim
+    list,                     # tool_candidates
+    dict[str, Any],           # heartbeat_surface trace block
+]:
+    """Deterministic heartbeat tool-surface composition.
+
+    Order:
+      1. Always-included: bot.pinned_tools ∪ tagged_tool_names ∪ plan-mode pins.
+         These never compete in retrieval and never get dropped.
+      2. Budget-gated: enrolled_tool_names added in priority order while under
+         both count and token caps.
+      3. Retrieval narrowing: if step 2 dropped tools, run retrieve_tools()
+         and post-filter to only the dropped subset.
+
+    Discovery hatches (`get_tool_info`, `search_tools`,
+    `list_tool_signatures`) are intentionally NOT added here regardless of
+    headroom — heartbeat surfaces are configured, not discovered.
+    `run_script` IS added (it's composition, not discovery) when the bot
+    has tool_discovery enabled.
+    """
+    from app.agent.channel_overrides import (
+        AUTO_INJECTED_PIN_NAMES,
+        DISCOVERY_HATCH_TOOL_NAMES,
+    )
+
+    count_cap = max(1, int(settings.HEARTBEAT_ENROLLED_TOOL_COUNT_CAP or 25))
+    token_cap = max(500, int(settings.HEARTBEAT_ENROLLED_TOOL_TOKEN_CAP or 6000))
+
+    # --- Step 1: always-included pin set (deterministic order) ---
+    # Discovery hatches (get_tool_info / search_tools / list_tool_signatures)
+    # are filtered here. apply_auto_injections() pins get_tool_info on every
+    # bot with tool_retrieval=True for chat surfaces; heartbeats don't use
+    # discovery so we drop it.
+    pin_set: list[str] = []
+    seen: set[str] = set()
+
+    def _add(name: str) -> None:
+        if not name or name in seen or name not in by_name:
+            return
+        if name in DISCOVERY_HATCH_TOOL_NAMES:
+            return
+        pin_set.append(name)
+        seen.add(name)
+
+    for n in (bot.pinned_tools or []):
+        _add(n)
+    for n in tagged_tool_names:
+        _add(n)
+    if bot.tool_discovery:
+        _add("run_script")  # composition tool, not a discovery hatch
+    if tagged_skill_names:
+        _add("get_skill")
+        _add("get_skill_list")
+    if plan_mode_active:
+        for n in _PLAN_MODE_CONTROL_TOOLS:
+            _add(n)
+
+    pin_token_total = sum(_estimate_schema_tokens(by_name[n]) for n in pin_set)
+
+    # --- Step 2: enrolled tools, budget-gated, deterministic order ---
+    enrolled_included: list[str] = []
+    enrolled_dropped_for_budget: list[str] = []
+    enrolled_token_total = 0
+    for name in enrolled_tool_names:
+        if name in seen or name not in by_name:
+            continue
+        if len(enrolled_included) >= count_cap:
+            enrolled_dropped_for_budget.append(name)
+            continue
+        cost = _estimate_schema_tokens(by_name[name])
+        if enrolled_token_total + cost > token_cap:
+            enrolled_dropped_for_budget.append(name)
+            continue
+        enrolled_included.append(name)
+        enrolled_token_total += cost
+        seen.add(name)
+
+    # --- Step 3: retrieval narrowing over the dropped subset only ---
+    retrieved: list[dict[str, Any]] = []
+    tool_sim: float = 0.0
+    tool_candidates: list = []
+    enrolled_recovered: list[str] = []
+    if enrolled_dropped_for_budget:
+        retrieved, tool_sim, tool_candidates = await retrieve_tools(
+            user_message,
+            bot.local_tools,
+            bot.mcp_servers,
+            threshold=threshold,
+            discover_all=False,  # narrow only — no full-pool exploration
+        )
+        # Post-filter: keep only the over-cap dropped names. Pinned/tagged
+        # never compete; retrieval is purely a narrowing tool here.
+        dropped_set = set(enrolled_dropped_for_budget)
+        retrieved = [
+            r for r in retrieved
+            if (r.get("function") or {}).get("name") in dropped_set
+        ]
+        # Apply channel deny-list and policy gate the same way the chat
+        # path does, but scoped to retrieved-only.
+        ch_disabled = set(getattr(ch_row, "local_tools_disabled", None) or []) if ch_row else set()
+        if ch_disabled:
+            retrieved = [
+                r for r in retrieved
+                if (r.get("function") or {}).get("name") not in ch_disabled
+            ]
+        enrolled_recovered = [
+            (r.get("function") or {}).get("name") for r in retrieved
+        ]
+        enrolled_recovered = [n for n in enrolled_recovered if n]
+
+    # --- Build the final exposed list and authorized set ---
+    pinned_schemas = [by_name[n] for n in pin_set + enrolled_included]
+    client_only = get_client_tool_schemas(bot.client_tools)
+    pre_selected = _merge_tool_schemas(pinned_schemas, retrieved, client_only)
+
+    authorized_names = {t["function"]["name"] for t in pre_selected}
+
+    enrolled_dropped_after_retrieval = [
+        n for n in enrolled_dropped_for_budget if n not in set(enrolled_recovered)
+    ]
+
+    # "Curated" means an operator-set pin beyond the auto-injected baseline
+    # (skill/channel/self-inspect tools that apply_auto_injections adds to
+    # every bot). Without curation, the warning surfaces in the trace so
+    # the operator knows budget is being burned on system defaults.
+    operator_pinned = [
+        n for n in (bot.pinned_tools or []) if n not in AUTO_INJECTED_PIN_NAMES
+    ]
+    has_curated_pins = bool(operator_pinned) or bool(tagged_tool_names)
+    warning = (
+        "heartbeat_no_curated_pins"
+        if (enrolled_dropped_for_budget and not has_curated_pins)
+        else None
+    )
+
+    heartbeat_surface = {
+        "pin_set": list(pin_set),
+        "enrolled_included": list(enrolled_included),
+        "enrolled_dropped_for_budget": list(enrolled_dropped_for_budget),
+        "enrolled_recovered_via_retrieval": list(enrolled_recovered),
+        "enrolled_dropped_after_retrieval": list(enrolled_dropped_after_retrieval),
+        "budget_used_tokens": pin_token_total + enrolled_token_total,
+        "budget_count_cap": count_cap,
+        "budget_token_cap": token_cap,
+        "retrieval_ran": bool(enrolled_dropped_for_budget),
+        "warning": warning,
+    }
+
+    return pre_selected, authorized_names, retrieved, tool_sim, tool_candidates, heartbeat_surface
+
+
 async def _run_tool_retrieval(
     *,
     messages: list[dict],
@@ -1471,6 +1645,75 @@ async def _run_tool_retrieval(
         if bot.tool_similarity_threshold is not None
         else settings.TOOL_RETRIEVAL_THRESHOLD
     )
+
+    # Heartbeat surfaces are deterministic: pinned ∪ tagged ∪ injected always
+    # survive; enrolled tools fill remaining budget; retrieval only narrows
+    # the over-cap remainder; discovery hatches are suppressed entirely. See
+    # _compose_heartbeat_tool_surface() and the heartbeat-tool-surface entry
+    # in docs/architecture-decisions.md.
+    is_heartbeat_surface = (
+        getattr(context_profile, "name", None) == "heartbeat"
+    )
+
+    if is_heartbeat_surface and by_name:
+        (
+            pre_selected_tools,
+            _hb_authorized,
+            retrieved,
+            tool_sim,
+            tool_candidates,
+            heartbeat_trace,
+        ) = await _compose_heartbeat_tool_surface(
+            bot=bot,
+            by_name=by_name,
+            enrolled_tool_names=_enrolled_tool_names,
+            tagged_tool_names=tagged_tool_names,
+            tagged_skill_names=tagged_skill_names,
+            plan_mode_active=_plan_mode_active,
+            user_message=user_message,
+            threshold=th,
+            ch_row=ch_row,
+        )
+        _authorized_names = _hb_authorized
+        out_state["authorized_names"] = _authorized_names
+
+        if correlation_id is not None:
+            asyncio.create_task(_record_trace_event(
+                correlation_id=correlation_id,
+                session_id=session_id,
+                bot_id=bot.id,
+                client_id=client_id,
+                event_type="tool_retrieval",
+                count=len(retrieved),
+                data={
+                    "best_similarity": _safe_sim(tool_sim),
+                    "threshold": th,
+                    "selected": [t["function"]["name"] for t in retrieved],
+                    "skipped": None if heartbeat_trace["retrieval_ran"] else "pinned_sufficient",
+                    "heartbeat_surface": heartbeat_trace,
+                },
+            ))
+
+        out_state["tool_discovery_info"] = {
+            "tool_retrieval_enabled": True,
+            "tool_discovery_enabled": bool(bot.tool_discovery),
+            "threshold": th,
+            "pool_total": len(by_name),
+            "pinned": list(bot.pinned_tools or []),
+            "included": sorted(by_name.keys()),
+            "enrolled_working_set": list(_enrolled_tool_names),
+            "retrieved": [t["function"]["name"] for t in retrieved],
+            "retrieved_count": len(retrieved),
+            "tool_surface": _surface_policy,
+            "excluded_broad_pin_count": 0,
+            "top_candidates": tool_candidates[:5] if tool_candidates else [],
+            "best_similarity": _safe_sim(tool_sim),
+            "unretrieved_count": 0,
+            "heartbeat_surface": heartbeat_trace,
+        }
+        out_state["pre_selected_tools"] = pre_selected_tools
+        return
+
     retrieved, tool_sim, tool_candidates = await retrieve_tools(
         user_message,
         bot.local_tools,

@@ -11,7 +11,7 @@ from typing import Callable, Literal
 
 
 WaitKind = Literal["selector", "function", "network_idle", "pin_count"]
-ActionKind = Literal["click", "dblclick", "fill", "press", "select", "wait", "wait_for"]
+ActionKind = Literal["click", "dblclick", "fill", "type", "press", "select", "wait", "wait_for"]
 
 
 @dataclass
@@ -22,6 +22,7 @@ class Action:
       - click:     selector required; clicks the first match
       - dblclick:  selector required; double-clicks the first match
       - fill:      selector + value; clears and types value into an input
+      - type:      selector + value; sends keyboard text without clearing
       - press:     value required (e.g. "Escape", "Enter"); selector optional (page-level if omitted)
       - select:    selector + value; chooses an <option> by value
       - wait:      value required; waits that many milliseconds
@@ -4149,6 +4150,31 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "|| text.includes('memory was updated') "
             "|| text.includes('Project workspace screenshot memory fact')), "
             "detail: 'Memory tool transcript was not visible' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-context-mentions",
+        route="/channels/{project_workspace}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"chat-composer-drop-zone\"]') "
+            "&& document.body.innerText.includes('Project workspace demo')"
+        ),
+        output="project-workspace-context-mentions.png",
+        color_scheme="dark",
+        actions=[
+            Action(kind="wait", value="700"),
+            Action(kind="click", selector=".tiptap-chat-input [contenteditable=\"true\"]"),
+            Action(kind="type", selector=".tiptap-chat-input [contenteditable=\"true\"]", value="@README"),
+            Action(kind="wait", value="450"),
+        ],
+        assert_js=(
+            "const rows = [...document.querySelectorAll('[data-testid=\"llm-prompt-autocomplete-row\"]')];"
+            "const text = document.body.innerText;"
+            "return { ok: rows.some((row) => row.getAttribute('data-completion-value') === 'file:README.md') "
+            "&& text.includes('Project file'), "
+            "detail: 'Project file context completion did not appear in the composer @ picker' };"
         ),
     ),
 ]

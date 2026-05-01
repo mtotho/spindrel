@@ -39,6 +39,12 @@ class FileRestoreBody(BaseModel):
     version: str  # .bak filename from the versions listing
 
 
+class ContextCompletionItem(BaseModel):
+    value: str
+    label: str
+    description: str | None = None
+
+
 def _get_bot(bot_id: str):
     from app.agent.bots import get_bot
     return get_bot(bot_id)
@@ -110,6 +116,149 @@ async def read_workspace_file(
     if content is None:
         raise HTTPException(404, "File not found")
     return {"path": path, "content": content}
+
+
+_CONTEXT_SKIP_DIRS = {
+    ".git",
+    ".hg",
+    ".svn",
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".next",
+    "dist",
+    "build",
+    "coverage",
+}
+_CONTEXT_FILE_EXTENSIONS = {
+    ".cfg",
+    ".css",
+    ".env",
+    ".html",
+    ".ini",
+    ".js",
+    ".json",
+    ".jsx",
+    ".log",
+    ".md",
+    ".mdx",
+    ".py",
+    ".sh",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".txt",
+    ".xml",
+    ".yaml",
+    ".yml",
+}
+_CONTEXT_PRIORITY_NAMES = {
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "SKILL.md",
+}
+
+
+def _score_context_file(path: str, query: str) -> int:
+    if not query:
+        base = os.path.basename(path)
+        return 40 if base in _CONTEXT_PRIORITY_NAMES or "/.agents/" in f"/{path}" else 10
+    haystack = path.lower()
+    name = os.path.basename(path).lower()
+    q = query.lower()
+    if name == q or haystack == q:
+        return 100
+    if name.startswith(q):
+        return 80
+    if haystack.startswith(q):
+        return 70
+    if q in name:
+        return 60
+    if q in haystack:
+        return 50
+    pos = 0
+    for ch in q:
+        idx = haystack.find(ch, pos)
+        if idx < 0:
+            return 0
+        pos = idx + 1
+    return 20
+
+
+def _context_file_candidates(root: str, *, query: str, limit: int) -> list[ContextCompletionItem]:
+    root_real = os.path.realpath(root)
+    scored: list[tuple[int, str, int]] = []
+    max_scan = max(limit * 80, 1000)
+    scanned = 0
+
+    for dirpath, dirnames, filenames in os.walk(root_real, followlinks=False):
+        dirnames[:] = [
+            name for name in dirnames
+            if name not in _CONTEXT_SKIP_DIRS and not name.endswith(".egg-info")
+        ]
+        rel_dir = os.path.relpath(dirpath, root_real)
+        if rel_dir != "." and rel_dir.count(os.sep) > 8:
+            dirnames[:] = []
+            continue
+        for filename in filenames:
+            scanned += 1
+            if scanned > max_scan and query:
+                break
+            if filename.startswith(".") and filename not in {".env"}:
+                continue
+            ext = os.path.splitext(filename)[1].lower()
+            if ext and ext not in _CONTEXT_FILE_EXTENSIONS:
+                continue
+            path = os.path.relpath(os.path.join(dirpath, filename), root_real).replace(os.sep, "/")
+            if path.startswith("../"):
+                continue
+            score = _score_context_file(path, query)
+            if score <= 0:
+                continue
+            try:
+                size = os.path.getsize(os.path.join(root_real, path))
+            except OSError:
+                size = 0
+            scored.append((score, path, size))
+        if scanned > max_scan and query:
+            break
+
+    scored.sort(key=lambda item: (-item[0], item[1].lower()))
+    return [
+        ContextCompletionItem(
+            value=f"file:{path}",
+            label=path,
+            description=f"Project file · {size} bytes",
+        )
+        for _score, path, size in scored[:limit]
+    ]
+
+
+@router.get("/context-completions", response_model=list[ContextCompletionItem])
+async def workspace_context_completions(
+    channel_id: uuid.UUID,
+    q: str = Query("", description="Fuzzy search query"),
+    limit: int = Query(25, ge=1, le=80),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels:read")),
+):
+    """Return @-mention context items for the channel's active WorkSurface."""
+    channel, bot = await _require_channel_workspace(channel_id, db)
+    root, is_project_like = await _resolve_workspace_root(channel, bot, db)
+    items: list[ContextCompletionItem] = []
+    if is_project_like:
+        items.append(ContextCompletionItem(
+            value="project:dependencies",
+            label="Project dependencies",
+            description="Dependency stack status and tools",
+        ))
+    items.extend(_context_file_candidates(root, query=q.strip(), limit=limit))
+    return items[:limit]
 
 
 MIME_MAP = {

@@ -13,8 +13,10 @@ Use this skill before starting, continuing, reviewing, merging, or finalizing
 Project coding runs.
 
 If the user is doing ad hoc Project-bound code, test, e2e, screenshot, setup,
-or feedback-loop work without a formal Project coding run, load
-`workspace/project_development` instead.
+or feedback-loop work without a formal Project coding run, do not load a broad
+runtime Project skill. Ask the user to attach the relevant Project-local files
+or dependency context with composer mentions such as `@file:<path>` or
+`@project:dependencies`, then use normal shell/file tools in the Project root.
 
 If the user is still shaping a plan, issue list, or multi-part track, load
 `workspace/issue_intake` first and use `create_issue_work_packs` to publish

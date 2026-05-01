@@ -38,6 +38,10 @@ export function resolveComposerSubmitIntent<TFile = unknown>({
       availableSlashCommands,
     );
     if (slashCommand) {
+      const spec = slashCatalog.find((cmd) => cmd.id === slashCommand.id);
+      if (spec?.runtime_command_interaction_kind === "native_session") {
+        return { kind: "send", message, files: undefined };
+      }
       return {
         kind: "slash",
         id: slashCommand.id,

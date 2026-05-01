@@ -44,6 +44,8 @@ const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
   "tool-pack": { bg: "#14532d", fg: "#16a34a" },
   knowledge: { bg: "#3b0764", fg: "#7c3aed" },
   bot: { bg: "#1e3a5f", fg: "#38bdf8" },
+  file: { bg: "#3f3f46", fg: "#d4d4d8" },
+  project: { bg: "#1f2937", fg: "#93c5fd" },
 };
 
 // Skill packs (folder layout: skills/foo/index.md → id "foo", skills/foo/bar.md → id "foo/bar")
@@ -280,6 +282,7 @@ export function AutocompleteMenu({
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 10010 }} />
       <div
+        data-testid="llm-prompt-autocomplete-menu"
         className={[
           "fixed z-[10011] overflow-y-auto bg-surface-raised max-h-[240px]",
           isTerminal
@@ -309,6 +312,8 @@ export function AutocompleteMenu({
           return (
             <div
               key={item.value}
+              data-testid="llm-prompt-autocomplete-row"
+              data-completion-value={item.value}
               onMouseDown={(e) => { e.preventDefault(); onSelect(item); }}
               onMouseEnter={() => onHover(i)}
               className={[

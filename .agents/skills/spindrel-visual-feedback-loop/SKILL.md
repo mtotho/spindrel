@@ -11,11 +11,10 @@ UX changes. Run the browser scenario, capture screenshots, inspect the images,
 then record what changed and what still looks wrong.
 
 This is Project-local guidance, not a Spindrel runtime skill. If you are
-inside Spindrel working on this repository as a Project, first follow
-`workspace/project_development` for ad hoc Project-bound UI work or
-`workspace/project_coding_runs` for a formal coding/review run. Use this skill
-only for the Spindrel repository's own screenshot commands and artifact
-conventions.
+inside Spindrel working on this repository as a Project, treat this file as
+selected Project-local guidance for ad hoc UI work. For a formal coding/review
+run, use `workspace/project_coding_runs` first. Use this skill only for the
+Spindrel repository's own screenshot commands and artifact conventions.
 
 Screenshots are not decorative. They are the agent's feedback loop and the
 user-facing proof artifact. If a task asks for e2e evidence, workflow proof, or
@@ -204,6 +203,7 @@ docs/images/project-workspace-terminal.png
 docs/images/project-workspace-channels.png
 docs/images/project-workspace-channel-settings.png
 docs/images/project-workspace-memory-tool.png
+docs/images/project-workspace-context-mentions.png
 docs/images/project-factory-live-pr-smoke.png
 docs/images/project-factory-live-pr-smoke-receipts.png
 ```

@@ -10,6 +10,20 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### Heartbeat tool surfaces are deterministic, not retrieved
+**Decided 2026-05-01.** Heartbeat-origin turns assemble the LLM tool surface from configuration, not embedding retrieval. Discovery hatches (`get_tool_info`, `search_tools`, `list_tool_signatures`) are suppressed on heartbeat surfaces regardless of `tool_surface_policy`.
+
+**Load-bearing invariants.**
+- Always-included on heartbeat: `bot.pinned_tools` ∪ `tagged_tool_names` ∪ plan-mode control tools ∪ `run_script` (composition, not discovery). These never compete in retrieval and are never dropped.
+- Budget-gated additions: enrolled tools added in priority order while under both `HEARTBEAT_ENROLLED_TOOL_COUNT_CAP` (default 25) and `HEARTBEAT_ENROLLED_TOOL_TOKEN_CAP` (default 6000 tokens). Stop on the first tool that would exceed either cap.
+- Retrieval narrowing: only runs when budget gates dropped enrolled tools, and only over the dropped subset. Pinned/tagged tools never become retrieval candidates.
+- Discovery hatches are filtered out of pin_set even when `apply_auto_injections` adds `get_tool_info` for `tool_retrieval=True` bots. `run_script` is composition and stays.
+- Trace contract: every heartbeat assembly emits `tool_discovery_info.heartbeat_surface` containing `pin_set`, `enrolled_included`, `enrolled_dropped_for_budget`, `enrolled_recovered_via_retrieval`, `enrolled_dropped_after_retrieval`, `budget_used_tokens`, `budget_count_cap`, `budget_token_cap`, `retrieval_ran`, and `warning` (set to `"heartbeat_no_curated_pins"` when overflow happens on a bot with no operator-curated pins beyond the auto-injected baseline).
+
+**Why.** A heartbeat trace burning 22 LLM iterations and 751.5K tokens established that semantic retrieval cannot be the primary tool-selection mechanism for deterministic worker turns. The bot had `arr_heartbeat_snapshot` enrolled — a tool literally designed to answer the heartbeat in one call — but `focused_escape` mode dropped enrolled tools and retrieval ranked the snapshot below threshold (sim 0.49 < top-13 cutoff). The bot then spent four iterations rediscovering it through `list_tool_signatures(limit=200)` + `search_tools` + nine parallel `get_tool_info` calls. Heartbeats are scheduled, repeatable jobs whose tool needs are operator-knowable; the surface should be configured, not discovered. Chat surfaces keep `get_tool_info` and friends — this rule scopes only to heartbeat origin.
+
+**Implementation.** `_compose_heartbeat_tool_surface()` in `app/agent/context_assembly.py` does the assembly. The heartbeat branch in `_run_tool_retrieval()` selects it when `context_profile.name == "heartbeat"`. `AUTO_INJECTED_PIN_NAMES` and `DISCOVERY_HATCH_TOOL_NAMES` are exposed from `app/agent/channel_overrides.py` so the helper can distinguish operator-curated pins from baseline pins and filter discovery hatches in one place. Test coverage: `tests/unit/test_heartbeat_tool_surface.py` (10 tests) + the heartbeat-related cases in `tests/unit/test_assembly_budget.py`.
+
 ### WorkSurface is the security boundary for files, context, search, and execution
 **Decided 2026-04-30.** Spindrel's isolation model is not "bot workspace" or "channel folder" by itself. Every turn/tool should resolve to one `WorkSurface`: channel-only for casual channels, Project for shared Project work, or Project instance for isolated fresh runs. Project-bound channels intentionally share Project files/search/context. Fresh Project instances are the isolation mechanism when a run must not mutate shared Project state.
 

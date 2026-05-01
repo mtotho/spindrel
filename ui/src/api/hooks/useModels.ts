@@ -39,10 +39,17 @@ export function useDownloadEmbeddingModel() {
   });
 }
 
-export function useCompletions() {
+export function useCompletions(channelId?: string) {
   return useQuery({
-    queryKey: ["completions"],
-    queryFn: () => apiFetch<CompletionItem[]>("/api/v1/admin/completions"),
+    queryKey: ["completions", channelId ?? null],
+    queryFn: async () => {
+      const base = await apiFetch<CompletionItem[]>("/api/v1/admin/completions");
+      if (!channelId) return base;
+      const contextItems = await apiFetch<CompletionItem[]>(
+        `/api/v1/channels/${channelId}/workspace/context-completions?limit=80`
+      ).catch(() => []);
+      return [...contextItems, ...base];
+    },
     staleTime: 5 * 60 * 1000,
   });
 }

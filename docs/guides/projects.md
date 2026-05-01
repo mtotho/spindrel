@@ -282,6 +282,7 @@ artifacts, not ad hoc local captures:
 | [Review execution access](../images/project-workspace-review-execution-access.png) | Launching a review session can carry the same task-scoped e2e/machine grant for tests, screenshots, and merge verification. |
 | [Review finalized and merged](../images/project-workspace-review-finalized.png) | Accepted review provenance after merge: reviewed status, merged PR, check status, merge method, merge commit, review task, and handoff. |
 | [Project memory-tool transcript](../images/project-workspace-memory-tool.png) | Project-bound channels still render the memory tool result envelope with the expected `path` and completion message. |
+| [Project context mentions](../images/project-workspace-context-mentions.png) | A Project-bound channel composer can fuzzy-select a Project-local file through the `@` picker and attach it as explicit harness context. |
 | [Issue intake work-pack review](../images/spatial-check-issue-intake-work-packs.png) | Mission Control Issue Intake renders raw issue notes, Work Pack review controls, selected batch launch, source provenance, and Project/channel launch targets before coding-run launch. |
 | [Project terminal](../images/project-workspace-terminal.png) | Project-rooted terminal cwd resolves through the Project work surface. |
 | [Project channel settings](../images/project-workspace-channel-settings.png) | Non-harness channel settings bind to the Project primitive instead of a path-only workspace override. |
@@ -305,5 +306,17 @@ cwd. Bot memory is still owned by the memory system, not the Project root.
 If the Project binding or selected fresh instance cannot be resolved, file,
 exec, context, indexing, and harness paths fail visibly instead of falling back
 to a different workspace root.
+
+Existing Project-bound harness chats keep normal CLI-like behavior. Spindrel
+does not auto-load a broad Project-development skill for every ad hoc turn.
+When a user wants to point the agent at repo-local instructions, the composer
+`@` picker can attach Project files as `@file:<path>` mentions; the harness turn
+receives the Project-relative path plus a bounded preview and should inspect the
+file directly with normal tools before relying on details. Users can also
+attach `@project:dependencies` to provide the current Dependency Stack summary
+and remind the agent to use `get_project_dependency_stack` /
+`manage_project_dependency_stack` for Docker-backed services.
+
+![Project file context mention in the channel composer](../images/project-workspace-context-mentions.png)
 
 ![Memory tool transcript in a Project-bound channel](../images/project-workspace-memory-tool.png)

@@ -50,6 +50,10 @@ async def _run_actions(page, actions: list[Action]) -> None:
             if not a.selector or a.value is None:
                 raise ValueError("action kind='fill' requires selector and value")
             await page.fill(a.selector, a.value, timeout=WAIT_TIMEOUT_MS)
+        elif a.kind == "type":
+            if not a.selector or a.value is None:
+                raise ValueError("action kind='type' requires selector and value")
+            await page.type(a.selector, a.value, timeout=WAIT_TIMEOUT_MS)
         elif a.kind == "press":
             if a.value is None:
                 raise ValueError("action kind='press' requires value (key)")

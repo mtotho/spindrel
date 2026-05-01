@@ -18,6 +18,34 @@ class EffectiveTools:
     skills: list[SkillConfig] = field(default_factory=list)
 
 
+# Tools that `apply_auto_injections` may add to every bot's pin set as a
+# system baseline (skill access, channel awareness, agent self-inspection,
+# get_tool_info when tool_retrieval is on). Heartbeat surfaces use this to
+# distinguish operator-curated pins from baseline pins when deciding
+# whether to warn about uncurated overflow.
+AUTO_INJECTED_PIN_NAMES: frozenset[str] = frozenset({
+    "get_tool_info",
+    "get_skill",
+    "get_skill_list",
+    "list_agent_capabilities",
+    "run_agent_doctor",
+    "list_channels",
+    "read_conversation_history",
+    "list_sub_sessions",
+    "read_sub_session",
+})
+
+# Discovery hatches — escape tools the LLM uses to *find* other tools.
+# Suppressed from heartbeat surfaces; heartbeat tool selection is
+# operator-configured, not LLM-discovered. Keep `run_script` out of this
+# set: it's composition, not discovery.
+DISCOVERY_HATCH_TOOL_NAMES: frozenset[str] = frozenset({
+    "get_tool_info",
+    "search_tools",
+    "list_tool_signatures",
+})
+
+
 def apply_auto_injections(eff: EffectiveTools, bot: BotConfig) -> EffectiveTools:
     """Apply all auto-injected tools based on bot config.
 

@@ -488,6 +488,14 @@ Approval mapping intent (final values from schema):
   deltas, Spindrel appends that final text as a fallback. The replay parity
   scenario now asserts the tool-before-final-text order for the prompt that
   explicitly asks the runtime to call a tool and then answer.
+- 2026-05-01 native `/context` parity correction: harness `/context` is now
+  native-first instead of a Spindrel host diagnostics card wearing the native
+  command name. Claude Code dispatches `/context` through the SDK when a native
+  session exists; Codex reports an explicit terminal handoff because the
+  current app-server JSON-RPC surface does not expose a read-only context
+  command. Spindrel host diagnostics remain nested under a labeled
+  `host_context` payload for debugging, and context cards now format nested
+  usage values as field/item counts instead of `[object Object]`.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

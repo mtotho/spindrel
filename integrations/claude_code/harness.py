@@ -632,6 +632,78 @@ class ClaudeCodeRuntime:
             },
         )
 
+    async def context_status(
+        self,
+        *,
+        ctx: TurnContext,
+    ) -> HarnessRuntimeCommandResult:
+        from claude_agent_sdk import (  # type: ignore
+            AssistantMessage,
+            ClaudeAgentOptions,
+            ClaudeSDKClient,
+            ResultMessage,
+        )
+
+        if not ctx.harness_session_id:
+            return HarnessRuntimeCommandResult(
+                command_id="context",
+                title="Claude Code native /context",
+                detail="No native Claude session exists yet. Start a turn before asking for native /context.",
+                status="terminal_handoff",
+                payload={"native_slash": "/context", "suggested_command": "claude"},
+            )
+        options_kwargs: dict[str, Any] = {
+            "cwd": ctx.workdir,
+            "resume": ctx.harness_session_id,
+            "allowed_tools": _allowed_tools_for_mode(ctx.permission_mode),
+            "permission_mode": ctx.permission_mode,
+            "can_use_tool": _make_can_use_tool(ctx, runtime=self),
+        }
+        if cli_path := _resolve_claude_cli_path():
+            options_kwargs["cli_path"] = cli_path
+        if ctx.model:
+            options_kwargs["model"] = ctx.model
+        _set_effort_kwarg(ClaudeAgentOptions, options_kwargs, ctx.effort)
+        _set_env_kwarg(ClaudeAgentOptions, options_kwargs, ctx.env)
+        _set_partial_message_streaming_kwarg(ClaudeAgentOptions, options_kwargs)
+        _set_streaming_permission_hooks(ClaudeAgentOptions, options_kwargs)
+
+        text_parts: list[str] = []
+        usage: Any = None
+        try:
+            async with ClaudeSDKClient(options=ClaudeAgentOptions(**options_kwargs)) as client:
+                await client.query("/context")
+                async for msg in client.receive_response():
+                    if isinstance(msg, AssistantMessage):
+                        for block in getattr(msg, "content", ()) or ():
+                            text = getattr(block, "text", None)
+                            if isinstance(text, str) and text:
+                                text_parts.append(text)
+                    elif isinstance(msg, ResultMessage):
+                        usage = getattr(msg, "usage", None)
+        except Exception as exc:
+            logger.exception("claude-code native /context failed for session %s", ctx.spindrel_session_id)
+            return HarnessRuntimeCommandResult(
+                command_id="context",
+                title="Claude Code native /context failed",
+                detail=str(exc),
+                status="error",
+                payload={"native_slash": "/context", "suggested_command": "claude"},
+            )
+
+        detail = "".join(text_parts).strip()
+        return HarnessRuntimeCommandResult(
+            command_id="context",
+            title="Claude Code native /context",
+            detail=detail or "Claude Code returned no visible native /context text.",
+            status="ok" if detail else "empty",
+            payload={
+                "native_slash": "/context",
+                "text": detail,
+                "usage": usage if isinstance(usage, dict) else None,
+            },
+        )
+
     def auth_status(self) -> AuthStatus:
         path = _credential_path()
         cli_path = _resolve_claude_cli_path()

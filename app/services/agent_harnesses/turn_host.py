@@ -30,6 +30,10 @@ logger = logging.getLogger(__name__)
 
 _HARNESS_SKILL_TAG_RE = re.compile(r"(?<![<\w@])@skill:([A-Za-z_][\w\-\./]*)")
 _HARNESS_TOOL_TAG_RE = re.compile(r"(?<![<\w@])@tool:([A-Za-z_][\w\-\./]*)")
+_HARNESS_FILE_TAG_RE = re.compile(r"(?<![<\w@])@file:([^\s`'\"<>]+)")
+_HARNESS_PROJECT_TAG_RE = re.compile(r"(?<![<\w@])@project:([A-Za-z_][\w\-./]*)")
+_PROJECT_CONTEXT_MAX_INLINE_CHARS = 12_000
+_PROJECT_CONTEXT_PREVIEW_CHARS = 6_000
 
 
 def format_turn_exception(exc: Exception) -> str:
@@ -55,7 +59,7 @@ def parse_harness_explicit_tags(text: str) -> tuple[tuple[str, ...], tuple[str, 
         out: list[str] = []
         seen: set[str] = set()
         for value in matches:
-            value = value.rstrip(".,;:!?")
+            value = value.rstrip(".,;:!?)]}")
             if value and value not in seen:
                 seen.add(value)
                 out.append(value)
@@ -65,6 +69,90 @@ def parse_harness_explicit_tags(text: str) -> tuple[tuple[str, ...], tuple[str, 
         _unique([m.group(1) for m in _HARNESS_TOOL_TAG_RE.finditer(text or "")]),
         _unique([m.group(1) for m in _HARNESS_SKILL_TAG_RE.finditer(text or "")]),
     )
+
+
+def parse_harness_project_context_tags(text: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return explicit Project-local context tags from a harness user message."""
+
+    def _unique(matches: list[str]) -> tuple[str, ...]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for value in matches:
+            value = value.rstrip(".,;:!?)]}")
+            if value and value not in seen:
+                seen.add(value)
+                out.append(value)
+        return tuple(out)
+
+    return (
+        _unique([m.group(1) for m in _HARNESS_FILE_TAG_RE.finditer(text or "")]),
+        _unique([m.group(1) for m in _HARNESS_PROJECT_TAG_RE.finditer(text or "")]),
+    )
+
+
+def _project_file_context_hint_text(*, root: str, rel_path: str) -> str:
+    from pathlib import Path
+
+    from app.services.projects import WorkSurfaceResolutionError
+
+    root_real = os.path.realpath(root)
+    raw = rel_path.strip().lstrip("/")
+    target = os.path.realpath(os.path.join(root_real, raw))
+    if target != root_real and not target.startswith(root_real.rstrip(os.sep) + os.sep):
+        raise WorkSurfaceResolutionError("Project file mention escapes the active Project work surface")
+    if not os.path.isfile(target):
+        raise FileNotFoundError(raw)
+
+    size = os.path.getsize(target)
+    lines = [
+        "The user selected this Project-local file as relevant context for this turn.",
+        f"Path, relative to your current working directory: {raw}",
+        "Use your normal shell/file tools to inspect the file directly before relying on details.",
+        f"Size: {size} bytes.",
+    ]
+    try:
+        content = Path(target).read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        lines.append("Preview unavailable: file is not UTF-8 text.")
+        return "\n".join(lines)
+
+    if len(content) <= _PROJECT_CONTEXT_MAX_INLINE_CHARS:
+        lines.extend(["", "Selected file content:", "```", content, "```"])
+    else:
+        lines.extend([
+            "",
+            f"Selected file preview, first {_PROJECT_CONTEXT_PREVIEW_CHARS} chars:",
+            "```",
+            content[:_PROJECT_CONTEXT_PREVIEW_CHARS],
+            "```",
+            "Preview truncated; read the file directly if more detail is needed.",
+        ])
+    return "\n".join(lines)
+
+
+def _build_project_file_context_hints(*, root: str, file_paths: tuple[str, ...]) -> list["HarnessContextHint"]:
+    from app.services.agent_harnesses.base import HarnessContextHint
+
+    hints: list[HarnessContextHint] = []
+    now = datetime.now(timezone.utc).isoformat()
+    for rel_path in file_paths:
+        try:
+            text = _project_file_context_hint_text(root=root, rel_path=rel_path)
+        except Exception as exc:
+            text = (
+                "The user selected a Project-local file, but Spindrel could not attach a preview.\n"
+                f"Requested path: {rel_path}\n"
+                f"Error: {type(exc).__name__}: {str(exc)[:300]}\n"
+                "If the path looks correct, inspect it directly with your normal shell/file tools."
+            )
+        hints.append(HarnessContextHint(
+            kind="project_file",
+            source="composer",
+            created_at=now,
+            consume_after_next_turn=True,
+            text=text,
+        ))
+    return hints
 
 
 def merge_harness_turn_selections(
@@ -90,6 +178,59 @@ def merge_harness_turn_selections(
     return (
         _merge(prompt_tools, tool_names),
         _merge(prompt_skills, skill_ids),
+    )
+
+
+async def _project_dependencies_context_hint(
+    async_session_factory,
+    work_surface: Any,
+) -> "HarnessContextHint":
+    from app.services.agent_harnesses.base import HarnessContextHint
+
+    lines = [
+        "The user selected the active Project Dependency Stack context for this turn.",
+        "For Docker-backed databases, caches, search services, or similar dependencies, use the bridged tools `get_project_dependency_stack` and `manage_project_dependency_stack`.",
+        "Do not assume raw Docker access from the harness shell. Start app/dev servers yourself with native shell commands on an unused or assigned port.",
+    ]
+    project_id = getattr(work_surface, "project_id", None)
+    if not project_id:
+        lines.append("No active Project id was available for stack lookup.")
+    else:
+        try:
+            from app.services.project_dependency_stacks import get_project_dependency_stack
+            from app.db.models import Project
+
+            async with async_session_factory() as db:
+                project = await db.get(Project, project_id)
+                if project is None:
+                    lines.append("Project lookup failed; inspect Project settings before using dependency tools.")
+                else:
+                    payload = await get_project_dependency_stack(db, project, scope="project")
+                    spec = payload.get("spec") if isinstance(payload, dict) else {}
+                    instance = payload.get("instance") if isinstance(payload, dict) else None
+                    lines.append(f"Configured: {bool(payload.get('configured'))}")
+                    if isinstance(spec, dict):
+                        lines.append(f"Compose source: {spec.get('source_path') or '(none)'}")
+                        env = spec.get("env") if isinstance(spec.get("env"), dict) else {}
+                        commands = spec.get("commands") if isinstance(spec.get("commands"), dict) else {}
+                        lines.append(f"Declared env keys: {', '.join(sorted(env)) or '(none)'}")
+                        lines.append(f"Declared commands: {', '.join(sorted(commands)) or '(none)'}")
+                    if isinstance(instance, dict):
+                        lines.append(f"Current stack status: {instance.get('status') or 'unknown'}")
+                        runtime_env = instance.get("env") if isinstance(instance.get("env"), dict) else {}
+                        if runtime_env:
+                            lines.append(f"Runtime env keys available after prepare: {', '.join(sorted(runtime_env))}")
+                    else:
+                        lines.append("Current stack status: not prepared")
+        except Exception as exc:
+            lines.append(f"Stack lookup failed: {type(exc).__name__}: {str(exc)[:300]}")
+
+    return HarnessContextHint(
+        kind="project_dependencies",
+        source="composer",
+        created_at=datetime.now(timezone.utc).isoformat(),
+        consume_after_next_turn=True,
+        text="\n".join(lines),
     )
 
 
@@ -318,6 +459,7 @@ async def run_harness_turn(
         tool_names=harness_tool_names,
         skill_ids=harness_skill_ids,
     )
+    tagged_file_paths, tagged_project_context = parse_harness_project_context_tags(user_message)
     if tagged_skill_ids:
         from sqlalchemy import select
         from app.db.models import Skill
@@ -350,6 +492,49 @@ async def run_harness_turn(
                 text="\n".join(lines),
             )
         )
+    if tagged_file_paths:
+        from app.services.projects import is_project_like_surface
+
+        if is_project_like_surface(work_surface):
+            context_hints.extend(_build_project_file_context_hints(
+                root=work_surface.root_host_path,
+                file_paths=tagged_file_paths,
+            ))
+        else:
+            context_hints.append(
+                HarnessContextHint(
+                    kind="project_file",
+                    source="composer",
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                    consume_after_next_turn=True,
+                    text=(
+                        "The user selected Project-local file context, but this harness turn is not bound "
+                        "to a Project work surface. Ask the user to bind the channel/session to a Project "
+                        "or paste the needed file path/content."
+                    ),
+                )
+            )
+    if "dependencies" in tagged_project_context:
+        from app.services.projects import is_project_like_surface
+
+        if is_project_like_surface(work_surface):
+            context_hints.append(await _project_dependencies_context_hint(
+                async_session_factory,
+                work_surface,
+            ))
+        else:
+            context_hints.append(
+                HarnessContextHint(
+                    kind="project_dependencies",
+                    source="composer",
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                    consume_after_next_turn=True,
+                    text=(
+                        "The user selected Project dependency context, but this harness turn is not bound "
+                        "to a Project work surface. Project Dependency Stack tools require a Project-bound channel or task."
+                    ),
+                )
+            )
 
     input_manifest = _build_harness_input_manifest(
         tagged_skill_ids=tagged_skill_ids,

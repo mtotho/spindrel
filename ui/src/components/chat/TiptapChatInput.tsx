@@ -57,6 +57,7 @@ export interface TiptapChatInputProps {
   disabled?: boolean;
   autoFocus?: boolean;
   isMobile?: boolean;
+  channelId?: string;
   currentBotId?: string;
   currentSessionId?: string;
   /** When true (multi-bot channel), primary bot is NOT excluded from @-mentions */
@@ -79,13 +80,13 @@ export interface TiptapChatInputHandle {
 }
 
 export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInputProps>(
-  function TiptapChatInput({ text, onTextChange, onSubmit, onImagePaste, onSlashCommand, slashSurface = "channel", availableSlashCommands, disabled, autoFocus, isMobile, currentBotId, currentSessionId, isMultiBot, placeholder = "Type a message...", chatMode = "default", onEscapeDraft, onEscapeEmpty, onArrowUpEmpty }, ref) {
+  function TiptapChatInput({ text, onTextChange, onSubmit, onImagePaste, onSlashCommand, slashSurface = "channel", availableSlashCommands, disabled, autoFocus, isMobile, channelId, currentBotId, currentSessionId, isMultiBot, placeholder = "Type a message...", chatMode = "default", onEscapeDraft, onEscapeEmpty, onArrowUpEmpty }, ref) {
     // Phase 4: scope catalog by bot id so harness sessions get the
     // runtime-allowlisted slash list automatically.
     const slashCatalog = useSlashCommandList(currentBotId, currentSessionId);
     const { data: modelGroups } = useModelGroups();
     const t = useThemeTokens();
-    const { data: completions } = useCompletions();
+    const { data: completions } = useCompletions(channelId);
     const containerRef = useRef<HTMLDivElement>(null);
 
     // Stable refs for closure access (suggestion callbacks + extension shortcuts)

@@ -757,6 +757,20 @@ class HarnessRuntime(Protocol):
         """
         raise NotImplementedError
 
+    async def context_status(
+        self,
+        *,
+        ctx: TurnContext,
+    ) -> HarnessRuntimeCommandResult:
+        """Return the runtime-native context status, if programmatically available.
+
+        This is intentionally separate from Spindrel host diagnostics. If a
+        runtime cannot expose its native `/context` surface through the SDK or
+        app-server, it should return a terminal/session handoff instead of a
+        host-synthesized substitute.
+        """
+        raise NotImplementedError
+
     def auth_status(self) -> AuthStatus:
         """Report whether this harness is logged in / ready to run."""
         ...

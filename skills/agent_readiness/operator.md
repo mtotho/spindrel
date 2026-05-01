@@ -23,8 +23,9 @@ skills, setup, or stale settings.
 3. If `skills.recommended_now[*].first_action` is present, follow it before
    procedural work. Usually this means `get_skill("...")`.
 4. For broad Project-bound code, test, e2e, screenshot, or setup work outside
-   a formal Project coding run, load `workspace/project_development` before
-   editing or starting processes.
+   a formal Project coding run, use the current Project root normally and ask
+   the user to attach relevant Project-local files or dependency context with
+   composer mentions when special setup guidance is needed.
 5. For each proposed readiness action, call
    `preflight_agent_repair(action_id)` before applying or requesting anything.
 6. If preflight is `stale`, `noop`, or `blocked`, report the status and stop

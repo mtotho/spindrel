@@ -1,13 +1,22 @@
 ---
 tags: [spindrel, loose-ends, todo]
 status: active
-updated: 2026-04-26 (Resolved harness Bot model + dataclass wiring; harness bots now reuse standard workspace mount)
+updated: 2026-05-01 (Logged run_script auto-import gap + list_tool_signatures default-limit problem from heartbeat token-cost trace)
 ---
 # Loose Ends
 
 Active items only. Resolved bugs → [[fix-log]]. Architectural decisions → [[architecture-decisions]]. Track-specific work → `Track - *.md`. Untriaged review findings → [[open-issues]].
 
 ## Bugs — Open
+
+### `run_script` description claims auto-import but doesn't auto-import (2026-05-01)
+**Surfaced**: Heartbeat trace `e0874e14-…` burning 4 iterations on `provide_either_inline_script_or_stored_script_reference` and `NameError: tools is not defined`.
+- The `script` parameter description (`app/tools/local/run_script.py:51`) says: *"Auto-imports `from spindrel import tools`"*. This is false. `app/services/script_runner.py:write_script_files` writes the helper module next to the script but does not prepend any import. Bots that trust the description and skip the import line hit `NameError` on first dispatch.
+- The `script` vs `(skill_name + script_name)` mutex at `run_script.py:111` triggers when *either* `skill_name` or `script_name` is set alongside an inline `script`. Bots passing `skill_name="<bot-id>"` (string description metadata) plus an inline `script` get `provide_either_inline_script_or_stored_script_reference` with no hint about which arg was the offender. Mutex should require BOTH `skill_name` AND `script_name` to be set before treating it as stored-script mode, OR ignore one of them when an inline `script` is also provided.
+- Fix path: pick one — either implement the auto-import (prepend `from spindrel import tools` to the user's script source in `write_script_files`) and keep the description, or drop the auto-import claim from the description. Tighten the mutex check to `script_name and skill_name` AND emit a clearer error naming the offending arg pair.
+
+### `list_tool_signatures` default limit invites 12K-token catalog dumps (2026-05-01)
+**Surfaced**: Same heartbeat trace. Bot called `list_tool_signatures(limit=200)` and burned ~12K tokens enumerating tools that were already in its enrolled working set. Default is `50`, max `200` (`app/tools/local/discovery.py:519-522`). The Phase-1 heartbeat-surface fix (2026-05-01) suppresses this tool from heartbeats entirely so the original failure mode no longer fires there. Open question: whether to also reduce the default to `25` for chat surfaces and add a stronger nudge toward `category=` filtering. Defer until we see whether chat surfaces have the same problem.
 
 ### `spatial-checks` Mission Control Review captures time out on deck selector (2026-04-30)
 **Surfaced**: Spatial widget stewardship visual-feedback run against

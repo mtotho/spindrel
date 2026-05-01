@@ -132,6 +132,16 @@
   --tiptap-mention-text: #c4b5fd;
 }
 
+.tiptap-chat-input .tiptap .mention[data-type="file"] {
+  --tiptap-mention-bg: rgba(113, 113, 122, 0.2);
+  --tiptap-mention-text: #d4d4d8;
+}
+
+.tiptap-chat-input .tiptap .mention[data-type="project"] {
+  --tiptap-mention-bg: rgba(59, 130, 246, 0.16);
+  --tiptap-mention-text: #93c5fd;
+}
+
 /* Hard break — ensure it creates a visible line break */
 .tiptap-chat-input .tiptap br {
   display: block;

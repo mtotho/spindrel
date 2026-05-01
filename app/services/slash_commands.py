@@ -872,11 +872,8 @@ async def _execute_native_runtime_command(
     from app.agent.bots import get_bot
     from app.services.agent_harnesses import HARNESS_REGISTRY
     from app.services.agent_harnesses.approvals import load_session_mode
-    from app.services.agent_harnesses.context import build_turn_context
-    from app.services.agent_harnesses.project import resolve_harness_paths
     from app.services.agent_harnesses.session_state import load_latest_harness_metadata
     from app.services.agent_harnesses.settings import load_session_settings
-    from app.services.project_runtime import load_project_runtime_environment_for_id
 
     bot = get_bot(session.bot_id)
     runtime_name = getattr(bot, "harness_runtime", None)
@@ -899,31 +896,13 @@ async def _execute_native_runtime_command(
     settings = await load_session_settings(ctx.db, session.id)
     mode = await load_session_mode(ctx.db, session.id)
     harness_meta, _last_turn_at = await load_latest_harness_metadata(ctx.db, session.id)
-    paths = await resolve_harness_paths(
-        ctx.db,
-        channel_id=session.channel_id or session.parent_channel_id,
+    turn_ctx = await _build_harness_turn_context_for_session(
+        ctx,
+        session=session,
         bot=bot,
-    )
-    runtime_env = None
-    work_surface = getattr(paths, "work_surface", None)
-    from app.services.projects import is_project_like_surface
-
-    if is_project_like_surface(work_surface) and work_surface.project_id:
-        runtime_env = await load_project_runtime_environment_for_id(ctx.db, work_surface.project_id)
-    turn_ctx = build_turn_context(
-        spindrel_session_id=session.id,
-        bot_id=bot.id,
-        turn_id=uuid.uuid4(),
-        channel_id=session.channel_id or session.parent_channel_id,
-        workdir=paths.workdir,
-        env=dict(runtime_env.env) if runtime_env is not None else None,
-        harness_session_id=(harness_meta or {}).get("session_id") if harness_meta else None,
-        permission_mode=mode,
-        model=settings.model,
-        effort=settings.effort,
-        runtime_settings=settings.runtime_settings,
-        session_plan_mode=get_session_plan_mode(session),
-        harness_metadata=harness_meta or {},
+        settings=settings,
+        mode=mode,
+        harness_meta=harness_meta,
     )
     requires_approval = not bool(getattr(command_spec, "readonly", True))
     classifier = getattr(runtime, "native_command_requires_approval", None)
@@ -1011,6 +990,47 @@ async def _runtime_handler(ctx: SlashCommandContext) -> SlashCommandResult:
 
 def _session_belongs_to_channel(session: Session, channel_id: uuid.UUID) -> bool:
     return session.channel_id == channel_id or session.parent_channel_id == channel_id
+
+
+async def _build_harness_turn_context_for_session(
+    ctx: SlashCommandContext,
+    *,
+    session: Session,
+    bot,
+    settings,
+    mode: str,
+    harness_meta: dict[str, Any] | None,
+):
+    from app.services.agent_harnesses.context import build_turn_context
+    from app.services.agent_harnesses.project import resolve_harness_paths
+    from app.services.project_runtime import load_project_runtime_environment_for_id
+
+    paths = await resolve_harness_paths(
+        ctx.db,
+        channel_id=session.channel_id or session.parent_channel_id,
+        bot=bot,
+    )
+    runtime_env = None
+    work_surface = getattr(paths, "work_surface", None)
+    from app.services.projects import is_project_like_surface
+
+    if is_project_like_surface(work_surface) and work_surface.project_id:
+        runtime_env = await load_project_runtime_environment_for_id(ctx.db, work_surface.project_id)
+    return build_turn_context(
+        spindrel_session_id=session.id,
+        bot_id=bot.id,
+        turn_id=uuid.uuid4(),
+        channel_id=session.channel_id or session.parent_channel_id,
+        workdir=paths.workdir,
+        env=dict(runtime_env.env) if runtime_env is not None else None,
+        harness_session_id=(harness_meta or {}).get("session_id") if harness_meta else None,
+        permission_mode=mode,
+        model=settings.model,
+        effort=settings.effort,
+        runtime_settings=settings.runtime_settings,
+        session_plan_mode=get_session_plan_mode(session),
+        harness_metadata=harness_meta or {},
+    )
 
 
 async def _resolve_current_session(ctx: SlashCommandContext) -> Session:
@@ -1158,37 +1178,80 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
             lines.append(f"Estimated context remaining: {remaining_pct}%")
         if native_compaction:
             lines.append(f"Last native compact: {native_compaction.get('status')} at {native_compaction.get('created_at')}")
+        native_context: dict[str, Any] = {
+            "status": "unavailable",
+            "title": "Native /context unavailable",
+            "detail": "This runtime has not exposed native /context through its SDK/app-server adapter.",
+            "data": {},
+        }
+        if runtime is not None and hasattr(runtime, "context_status"):
+            try:
+                turn_ctx = await _build_harness_turn_context_for_session(
+                    ctx,
+                    session=session,
+                    bot=bot,
+                    settings=settings,
+                    mode=mode,
+                    harness_meta=harness_meta,
+                )
+                native_result = await runtime.context_status(ctx=turn_ctx)
+                native_context = {
+                    "status": native_result.status,
+                    "title": native_result.title,
+                    "detail": native_result.detail,
+                    "command": native_result.command_id,
+                    "data": dict(native_result.payload or {}),
+                }
+            except NotImplementedError:
+                pass
+            except Exception as exc:
+                logger.exception("harness native /context failed for %s", bot.harness_runtime)
+                native_context = {
+                    "status": "error",
+                    "title": "Native /context failed",
+                    "detail": str(exc),
+                    "data": {},
+                }
+        native_lines = [
+            f"Native /context ({bot.harness_runtime}): {native_context.get('status')}",
+            str(native_context.get("detail") or native_context.get("title") or "").strip(),
+        ]
+        host_context = {
+            "session_id": str(session.id),
+            "bot_id": bot.id,
+            "runtime": bot.harness_runtime,
+            "model": settings.model,
+            "effort": settings.effort,
+            "permission_mode": mode,
+            "harness_session_id": (harness_meta or {}).get("session_id") if harness_meta else None,
+            "pending_hint_count": len(hints),
+            "hints": [hint_preview(hint) for hint in hints],
+            "bridge_tools": bridge_tool_items,
+            "bridge_status": bridge_status.get("status") or ("enabled" if bridge_tool_items else "none_selected"),
+            "bridge_status_detail": {
+                **bridge_status,
+                **({"inventory_errors": [inventory_error]} if inventory_error else {}),
+            },
+            "native_token_budget_available": remaining_pct is not None,
+            "native_compaction_available": bool(getattr(caps, "native_compaction", False)) if caps else False,
+            "context_window_tokens": context_window_tokens,
+            "context_remaining_pct": remaining_pct,
+            "context_diagnostics": context_diagnostics,
+            "last_turn_at": last_turn_at.isoformat() if last_turn_at else None,
+            "last_compacted_at": reset_at if isinstance(reset_at, str) else None,
+            "native_compaction": native_compaction,
+            "usage": usage,
+            "input_manifest": input_manifest if isinstance(input_manifest, dict) else None,
+        }
         return SlashCommandResult(
             command_id="context",
             result_type="harness_context_summary",
             payload={
-                "session_id": str(session.id),
-                "bot_id": bot.id,
-                "runtime": bot.harness_runtime,
-                "model": settings.model,
-                "effort": settings.effort,
-                "permission_mode": mode,
-                "harness_session_id": (harness_meta or {}).get("session_id") if harness_meta else None,
-                "pending_hint_count": len(hints),
-                "hints": [hint_preview(hint) for hint in hints],
-                "bridge_tools": bridge_tool_items,
-                "bridge_status": bridge_status.get("status") or ("enabled" if bridge_tool_items else "none_selected"),
-                "bridge_status_detail": {
-                    **bridge_status,
-                    **({"inventory_errors": [inventory_error]} if inventory_error else {}),
-                },
-                "native_token_budget_available": remaining_pct is not None,
-                "native_compaction_available": bool(getattr(caps, "native_compaction", False)) if caps else False,
-                "context_window_tokens": context_window_tokens,
-                "context_remaining_pct": remaining_pct,
-                "context_diagnostics": context_diagnostics,
-                "last_turn_at": last_turn_at.isoformat() if last_turn_at else None,
-                "last_compacted_at": reset_at if isinstance(reset_at, str) else None,
-                "native_compaction": native_compaction,
-                "usage": usage,
-                "input_manifest": input_manifest if isinstance(input_manifest, dict) else None,
+                **host_context,
+                "native_context": native_context,
+                "host_context": host_context,
             },
-            fallback_text="\n".join(lines),
+            fallback_text="\n".join(part for part in native_lines if part),
         )
     return await _build_session_context_summary(session.id, ctx.db)
 

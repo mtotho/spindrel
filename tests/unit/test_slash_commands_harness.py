@@ -104,6 +104,19 @@ class _StubRuntime:
             payload={"workdir": ctx.workdir},
         )
 
+    async def context_status(self, *, ctx):
+        return HarnessRuntimeCommandResult(
+            command_id="context",
+            title="Stub native context",
+            detail="native context from runtime",
+            payload={
+                "usage": {
+                    "input_tokens": 26,
+                    "iterations": {"count": 2},
+                }
+            },
+        )
+
 
 @pytest.fixture(autouse=True)
 def _register_stub_runtime():
@@ -418,6 +431,38 @@ async def test_harness_plan_sets_session_plan_mode_not_approval_mode(db_session)
     await db_session.refresh(session)
     assert get_session_plan_mode(session) == "planning"
     assert await load_session_mode(db_session, session.id) == "bypassPermissions"
+
+
+async def test_harness_context_is_native_first_with_host_diagnostics_nested(db_session, monkeypatch):
+    bot, channel, session = await _make_harness_setup(db_session)
+
+    async def fake_resolve_harness_paths(db, *, channel_id, bot):
+        return type("Paths", (), {
+            "workdir": "/effective/project",
+            "bot_workspace_dir": "/bot/workspace",
+            "project_dir": None,
+            "work_surface": None,
+        })()
+
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.project.resolve_harness_paths",
+        fake_resolve_harness_paths,
+    )
+
+    result = await execute_slash_command(
+        command_id="context",
+        channel_id=channel.id,
+        session_id=None,
+        db=db_session,
+        args=[],
+    )
+
+    assert result.result_type == "harness_context_summary"
+    assert result.payload["native_context"]["title"] == "Stub native context"
+    assert result.payload["native_context"]["detail"] == "native context from runtime"
+    assert result.payload["host_context"]["runtime"] == _RUNTIME_NAME
+    assert "native context from runtime" in result.fallback_text
+    assert "Spindrel bridge tools" not in result.fallback_text
 
 
 async def test_harness_model_rejects_oversized(db_session):

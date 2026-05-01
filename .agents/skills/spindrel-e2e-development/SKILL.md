@@ -7,10 +7,10 @@ description: Use when developing Spindrel features that need local fresh e2e sta
 
 This is a repo-dev skill. It is not imported into Spindrel runtime skills.
 If you are reading this from inside Spindrel while working on this repository
-as a Project, treat it as Project-local guidance only. First follow the generic
-runtime skill for your context: `workspace/project_development` for ad hoc
-Project-bound development, or `workspace/project_coding_runs` for a formal
-Project coding/review run.
+as a Project, treat it as Project-local guidance only. For ad hoc development,
+use the Project root normally and ask the user to attach relevant files with
+composer file mentions when needed. For formal Project coding/review runs, use
+the runtime skill `workspace/project_coding_runs`.
 
 ## Start Here
 
@@ -30,8 +30,8 @@ Project coding/review run.
   API/UI yourself from this checkout on unused ports.
 - **Spindrel dev mode** means Codex/Claude running inside a Project-bound
   channel or Project coding run. It uses native shell/edit tools for
-  Project-root code work only, and it must obey the generic runtime Project
-  skill before applying this repo-specific guidance.
+  Project-root code work only, and it should treat this file as selected
+  Project-local guidance rather than global runtime behavior.
 - Harness agents must use task-granted Spindrel tools for e2e, screenshots,
   server/machine actions, Docker/compose dependency control, and receipts.
 - In Spindrel dev mode, if Docker-backed dependencies, dev-target ports,
@@ -66,6 +66,8 @@ a shared fixed API/UI port in instructions or tests. Start with
 `.env.agent-e2e`, then keep using the `SPINDREL_E2E_URL` and `E2E_PORT` values
 from that env for helper commands, pytest, Playwright, and screenshots. Never
 restart another agent's native API/UI process.
+Use `set -a && source .env.agent-e2e && set +a`, not a plain `source`, whenever
+child Python/Node commands need those values.
 
 The default local dependency Compose project is `spindrel-local-e2e-runtime-deps`.
 It is the shared Postgres/SearXNG stack for native repo-dev agents and it

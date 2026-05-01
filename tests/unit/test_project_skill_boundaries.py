@@ -6,7 +6,6 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_generic_runtime_project_skills_do_not_reference_spindrel_repo_dev_details():
     runtime_paths = [
-        ROOT / "skills" / "workspace" / "project_development.md",
         ROOT / "skills" / "workspace" / "project_coding_runs.md",
         ROOT / "skills" / "agent_readiness" / "operator.md",
     ]
@@ -35,14 +34,14 @@ def test_repo_local_spindrel_skills_document_inside_spindrel_project_handoff():
         ROOT / ".agents" / "skills" / "agentic-readiness" / "SKILL.md"
     ).read_text()
 
-    assert "workspace/project_development" in e2e
     assert "workspace/project_coding_runs" in e2e
     assert "Project-local guidance" in e2e
+    assert "composer file mentions" in e2e
     normalized_e2e = " ".join(e2e.split())
     assert "ask the user to configure the Project settings" in normalized_e2e
 
-    assert "workspace/project_development" in visual
     assert "Project-local guidance" in visual
+    assert "selected Project-local guidance" in visual
     assert "confirm the Project exposes the needed dev" in visual
 
     assert "In-Spindrel repo-dev AX" in readiness

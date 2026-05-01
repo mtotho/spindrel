@@ -437,7 +437,14 @@ class TestAssemblyBudgetTight:
         assert result.context_profile == "task_none"
 
     @pytest.mark.asyncio
-    async def test_heartbeat_focused_escape_excludes_broad_pinned_tools(self):
+    async def test_heartbeat_keeps_broad_pinned_drops_discovery_hatches(self):
+        """Heartbeat surfaces include operator-pinned tools and suppress
+        discovery hatches (`get_tool_info`, `search_tools`,
+        `list_tool_signatures`). Retrieval doesn't run when the pin set is
+        sufficient (no enrolled overflow), so the retrieval-only candidate
+        (`web_search` here) does not appear. See
+        `tests/unit/test_heartbeat_tool_surface.py` for the full contract.
+        """
         bot = _minimal_bot(
             local_tools=["web_search", "file", "exec_command"],
             pinned_tools=["file", "exec_command"],
@@ -469,12 +476,13 @@ class TestAssemblyBudgetTight:
             )
         }
 
+        retrieve_mock = AsyncMock(return_value=(
+            [mock_schemas["web_search"]], 0.8, [("web_search", 0.8)],
+        ))
         patches = _assembly_patches() + [
             patch("app.agent.context_assembly._all_tool_schemas_by_name", new_callable=AsyncMock, return_value=mock_schemas),
             patch("app.agent.context_assembly.get_local_tool_schemas", side_effect=lambda names: [mock_schemas[n] for n in names if n in mock_schemas]),
-            patch("app.agent.context_assembly.retrieve_tools", new_callable=AsyncMock, return_value=(
-                [mock_schemas["web_search"]], 0.8, [("web_search", 0.8)],
-            )),
+            patch("app.agent.context_assembly.retrieve_tools", retrieve_mock),
             patch("app.agent.context_assembly.get_client_tool_schemas", return_value=[]),
             patch("app.agent.context_assembly.get_mcp_server_for_tool", return_value=None),
         ]
@@ -504,15 +512,20 @@ class TestAssemblyBudgetTight:
                 p.stop()
 
         exposed = {t["function"]["name"] for t in result.pre_selected_tools or []}
-        assert "web_search" in exposed
-        assert "get_tool_info" in exposed
-        assert "search_tools" in exposed
-        assert "list_tool_signatures" in exposed
+        # Operator-pinned tools survive (broad pin no longer dropped).
+        assert "file" in exposed
+        assert "exec_command" in exposed
+        # `run_script` is composition, kept on heartbeat.
         assert "run_script" in exposed
-        assert "file" not in exposed
-        assert "exec_command" not in exposed
-        assert result.tool_discovery_info["tool_surface"] == "focused_escape"
-        assert result.tool_discovery_info["excluded_broad_pin_count"] >= 2
+        # Discovery hatches suppressed.
+        assert "get_tool_info" not in exposed
+        assert "search_tools" not in exposed
+        assert "list_tool_signatures" not in exposed
+        # Retrieval skipped when pin set is sufficient — `web_search` was
+        # only available via retrieval, so it does not appear.
+        assert "web_search" not in exposed
+        retrieve_mock.assert_not_called()
+        assert result.tool_discovery_info["heartbeat_surface"]["retrieval_ran"] is False
 
     @pytest.mark.asyncio
     async def test_heartbeat_full_tool_surface_keeps_broad_pinned_tools(self):
@@ -567,9 +580,15 @@ class TestAssemblyBudgetTight:
                 p.stop()
 
         exposed = {t["function"]["name"] for t in result.pre_selected_tools or []}
-        assert "web_search" in exposed
+        # `tool_surface_policy="full"` is overridden by the heartbeat
+        # context profile — heartbeat surfaces are deterministic regardless
+        # of surface policy. `file` is operator-pinned and survives;
+        # `web_search` was retrieval-only and retrieval is skipped because
+        # the pin set is sufficient (no enrolled overflow).
         assert "file" in exposed
+        assert "web_search" not in exposed
         assert result.tool_discovery_info["tool_surface"] == "full"
+        assert "heartbeat_surface" in result.tool_discovery_info
 
     @pytest.mark.asyncio
     async def test_plan_mode_control_tools_survive_focused_tool_surface(self):
@@ -649,10 +668,18 @@ class TestAssemblyBudgetTight:
                 p.stop()
 
         exposed = {t["function"]["name"] for t in result.pre_selected_tools or []}
-        assert "web_search" in exposed
-        assert "get_tool_info" in exposed
-        assert "file" not in exposed
-        assert "exec_command" not in exposed
+        # Plan-mode control tools survive heartbeat surface composition
+        # because `_compose_heartbeat_tool_surface` adds them when plan mode
+        # is active. Discovery hatches and retrieval-only candidates are
+        # suppressed on heartbeats; operator-pinned tools survive.
+        assert "ask_plan_questions" in exposed
+        assert "publish_plan" in exposed
+        assert "record_plan_progress" in exposed
+        assert "request_plan_replan" in exposed
+        assert "file" in exposed  # operator-pinned, no longer dropped
+        assert "exec_command" in exposed
+        assert "get_tool_info" not in exposed  # discovery hatch suppressed
+        assert "web_search" not in exposed  # retrieval-only, retrieval skipped
         assert {
             "ask_plan_questions",
             "publish_plan",

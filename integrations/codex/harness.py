@@ -644,6 +644,28 @@ class CodexRuntime:
             payload=payload,
         )
 
+    async def context_status(
+        self,
+        *,
+        ctx: TurnContext,
+    ) -> HarnessRuntimeCommandResult:
+        detail = (
+            "Codex app-server does not currently expose a read-only native /context "
+            "method through the JSON-RPC surface Spindrel uses. Open the native "
+            "Codex terminal session and run /context there."
+        )
+        return HarnessRuntimeCommandResult(
+            command_id="context",
+            title="Codex native /context",
+            detail=detail,
+            status="terminal_handoff",
+            payload={
+                "native_slash": "/context",
+                "suggested_command": "codex",
+                "cwd": ctx.workdir,
+            },
+        )
+
     def auth_status(self) -> AuthStatus:
         cached = _AUTH_STATUS_CACHE.get(self.name)
         if cached and (time.monotonic() - cached[0]) < _AUTH_STATUS_TTL:

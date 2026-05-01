@@ -291,10 +291,10 @@ def test_skill_opportunities_recommend_issue_intake_for_project_planning():
     assert work_pack["model_support"] == "recommended_for_small_models"
 
 
-def test_skill_opportunities_recommend_project_development_for_ad_hoc_project_work():
+def test_skill_opportunities_do_not_recommend_broad_project_development_for_ad_hoc_project_work():
     manifest = {
         "skills": {"bot_enrolled": [], "channel_enrolled": []},
-        "widgets": {"readiness": "ready", "missing_skills": []},
+        "widgets": {"readiness": "unknown", "missing_skills": []},
         "integrations": {"summary": {}},
         "coding_run": {"readiness": "needs_project"},
         "project": {"attached": True},
@@ -306,15 +306,7 @@ def test_skill_opportunities_recommend_project_development_for_ad_hoc_project_wo
     payload = agent_capabilities._skill_opportunity_payload(manifest)
 
     by_feature = {entry["feature_id"]: entry for entry in payload["recommended_now"]}
-    project_dev = by_feature["project_development"]
-    assert project_dev["skill_ids"] == [
-        "workspace/project_development",
-        "workspace/files",
-        "workspace/member",
-    ]
-    assert project_dev["first_action"] == 'get_skill("workspace/project_development")'
-    assert project_dev["labels"]["workspace/project_development"] == "Project development"
-    assert project_dev["coverage_status"] == "covered"
+    assert "project_development" not in by_feature
     assert "project_coding_run" not in by_feature
 
 
