@@ -1,85 +1,150 @@
-import { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { useGoBack } from "@/src/hooks/useGoBack";
-import { ArrowLeft, ArrowRight, Check } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
-import { useBots } from "@/src/api/hooks/useBots";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
-  useCreateChannel,
-  useGlobalActivatableIntegrations,
+  ArrowLeft,
+  Bot,
+  Check,
+  ChevronRight,
+  Hash,
+  Lock,
+  Plug,
+  Sparkles,
+  UserRound,
+} from "lucide-react";
+
+import { useBots, useCreateBot } from "@/src/api/hooks/useBots";
+import {
   useAvailableIntegrations,
   useChannelCategories,
+  useCreateChannel,
+  useGlobalActivatableIntegrations,
 } from "@/src/api/hooks/useChannels";
-import { Section, TextInput, Toggle } from "@/src/components/shared/FormControls";
-import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
-import { BotPicker } from "@/src/components/shared/BotPicker";
-import { UserSelect } from "@/src/components/shared/UserSelect";
-import { IntegrationActivationList } from "@/src/components/channels/IntegrationActivationList";
-import {
-  BindableIntegrationsList,
-  type PendingBinding,
-} from "@/src/components/channels/BindableIntegrationsList";
 import { apiFetch } from "@/src/api/client";
+import { BindableIntegrationsList, type PendingBinding } from "@/src/components/channels/BindableIntegrationsList";
+import { IntegrationActivationList } from "@/src/components/channels/IntegrationActivationList";
+import { PageHeader } from "@/src/components/layout/PageHeader";
+import { BotPicker } from "@/src/components/shared/BotPicker";
+import { FormRow, TextInput, Toggle } from "@/src/components/shared/FormControls";
+import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
+import {
+  ActionButton,
+  InfoBanner,
+  QuietPill,
+  SettingsControlRow,
+  SettingsGroupLabel,
+  SettingsSegmentedControl,
+} from "@/src/components/shared/SettingsControls";
+import { UserSelect } from "@/src/components/shared/UserSelect";
+import {
+  botIdFromName,
+  buildChannelCreatePayload,
+  buildNewBotCreatePayload,
+  type NewChannelBotMode,
+  validateNewBotDraft,
+} from "@/src/lib/newChannelCreate";
+import { useGoBack } from "@/src/hooks/useGoBack";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
 
-type WizardStep = "basics" | "integrations";
+type WizardStep = "details" | "integrations";
+
+function shortModel(model: string | undefined): string {
+  if (!model) return "No model";
+  const parts = model.split("/");
+  return parts[parts.length - 1] || model;
+}
+
+function mutationMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
 
 export default function NewChannelScreen() {
   const navigate = useNavigate();
   const goBack = useGoBack("/");
-  const theme = useThemeTokens();
+  const [searchParams] = useSearchParams();
+  const requestedBotId = searchParams.get("bot_id") ?? "";
+
   const { data: bots } = useBots();
   const { data: activatableIntegrations } = useGlobalActivatableIntegrations();
   const { data: availableIntegrations } = useAvailableIntegrations();
   const { data: existingCategories } = useChannelCategories();
   const createChannel = useCreateChannel();
-
-  const bindableIntegrations = useMemo(
-    () => (availableIntegrations ?? []).filter((i) => i.binding),
-    [availableIntegrations],
-  );
+  const createBot = useCreateBot();
 
   const isAdmin = useIsAdmin();
-  const currentUserId = useAuthStore((s) => s.user?.id);
+  const currentUser = useAuthStore((s) => s.user);
+  const currentUserId = currentUser?.id;
 
-  // Form state
-  const [step, setStep] = useState<WizardStep>("basics");
+  const botList = bots ?? [];
+  const existingBotIds = useMemo(() => botList.map((candidate) => candidate.id), [botList]);
+  const requestedBotExists = requestedBotId && existingBotIds.includes(requestedBotId);
+
+  const [step, setStep] = useState<WizardStep>("details");
+  const [botMode, setBotMode] = useState<NewChannelBotMode>("existing");
+  const [botId, setBotId] = useState(requestedBotId);
   const [name, setName] = useState("");
-  const [selectedModel, setSelectedModel] = useState("");
-  const [useBotMode, setUseBotMode] = useState(false);
-  const [botId, setBotId] = useState("default");
   const [category, setCategory] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
+  const [ownerUserId, setOwnerUserId] = useState<string | null>(currentUserId ?? null);
+  const [newBotName, setNewBotName] = useState("");
+  const [newBotId, setNewBotId] = useState("");
+  const [newBotIdTouched, setNewBotIdTouched] = useState(false);
+  const [newBotModel, setNewBotModel] = useState("");
+  const [newBotModelProviderId, setNewBotModelProviderId] = useState<string | null | undefined>(undefined);
   const [enabledIntegrations, setEnabledIntegrations] = useState<string[]>([]);
   const [pendingBindings, setPendingBindings] = useState<Record<string, PendingBinding>>({});
-  const [memberBotIds, setMemberBotIds] = useState<string[]>([]);
-  // Admin can reassign owner at create time. Non-admins always own what they
-  // create (backend auto-populates user_id from the auth user when omitted).
-  const [ownerUserId, setOwnerUserId] = useState<string | null>(currentUserId ?? null);
+  const [localError, setLocalError] = useState<string | null>(null);
 
-  const botOptions = useMemo(
-    () => (bots ?? []).map((b) => ({ label: b.name, value: b.id })),
-    [bots],
+  useEffect(() => {
+    if (requestedBotExists) setBotId(requestedBotId);
+  }, [requestedBotExists, requestedBotId]);
+
+  useEffect(() => {
+    if (!newBotIdTouched) setNewBotId(botIdFromName(newBotName));
+  }, [newBotIdTouched, newBotName]);
+
+  const selectedBot = botList.find((candidate) => candidate.id === botId) ?? null;
+  const bindableIntegrations = useMemo(
+    () => (availableIntegrations ?? []).filter((integration) => integration.binding),
+    [availableIntegrations],
   );
-
-  // Category autocomplete suggestions
-  const categorySuggestions = useMemo(() => {
-    if (!existingCategories || !category) return [];
-    return existingCategories.filter(
-      (c) => c.toLowerCase().includes(category.toLowerCase()) && c !== category,
-    );
-  }, [existingCategories, category]);
-
   const hasActivatable = (activatableIntegrations?.length ?? 0) > 0;
   const hasBindable = bindableIntegrations.length > 0;
   const hasIntegrationStep = hasActivatable || hasBindable;
 
-  const handleToggleIntegration = (intType: string) => {
+  const categorySuggestions = useMemo(() => {
+    const trimmed = category.trim().toLowerCase();
+    if (!existingCategories || !trimmed) return [];
+    return existingCategories.filter(
+      (candidate) => candidate.toLowerCase().includes(trimmed) && candidate !== category,
+    );
+  }, [category, existingCategories]);
+
+  const newBotError = botMode === "create"
+    ? validateNewBotDraft({
+      id: newBotId,
+      name: newBotName,
+      model: newBotModel,
+      existingBotIds,
+    })
+    : null;
+  const channelNameError = name.trim() ? null : "Name the channel.";
+  const selectedBotError = botMode === "existing" && !selectedBot ? "Choose a bot for this channel." : null;
+  const cannotCreateReason = channelNameError ?? selectedBotError ?? newBotError;
+  const canCreate = !cannotCreateReason;
+  const isCreating = createChannel.isPending || createBot.isPending;
+  const errorMessage = localError
+    ?? (createBot.isError ? mutationMessage(createBot.error, "Failed to create bot") : null)
+    ?? (createChannel.isError ? mutationMessage(createChannel.error, "Failed to create channel") : null);
+  const ownerLabel = ownerUserId && ownerUserId === currentUserId
+    ? currentUser?.display_name || currentUser?.email || ownerUserId
+    : ownerUserId;
+
+  const handleToggleIntegration = (integrationType: string) => {
     setEnabledIntegrations((prev) =>
-      prev.includes(intType)
-        ? prev.filter((x) => x !== intType)
-        : [...prev, intType],
+      prev.includes(integrationType)
+        ? prev.filter((item) => item !== integrationType)
+        : [...prev, integrationType],
     );
   };
 
@@ -95,34 +160,6 @@ export default function NewChannelScreen() {
     });
   };
 
-  /** Build shared request body from common fields */
-  const buildBody = () => {
-    const body: Parameters<typeof createChannel.mutateAsync>[0] = {
-      name: name.trim(),
-      bot_id: useBotMode ? botId : "default",
-      private: isPrivate,
-    };
-    if (!useBotMode && selectedModel) {
-      body.model_override = selectedModel;
-    }
-    if (category.trim()) {
-      body.category = category.trim();
-    }
-    if (memberBotIds.length > 0) {
-      body.member_bot_ids = memberBotIds;
-    }
-    if (isAdmin && ownerUserId) {
-      body.user_id = ownerUserId;
-    }
-    return body;
-  };
-
-  /** Sequentially bind any pending bindings after channel creation.
-   *
-   * Failures are logged but do not block navigation — a successfully-created
-   * channel with a missing binding is recoverable in channel settings; a
-   * hard failure here would leave the user stranded on the wizard.
-   */
   const applyPendingBindings = async (channelId: string) => {
     for (const [integrationType, pending] of Object.entries(pendingBindings)) {
       try {
@@ -132,10 +169,9 @@ export default function NewChannelScreen() {
             integration_type: integrationType,
             client_id: pending.clientId,
             display_name: pending.displayName || undefined,
-            dispatch_config:
-              Object.keys(pending.dispatchConfig).length > 0
-                ? pending.dispatchConfig
-                : undefined,
+            dispatch_config: Object.keys(pending.dispatchConfig).length > 0
+              ? pending.dispatchConfig
+              : undefined,
           }),
         });
       } catch (err) {
@@ -145,409 +181,363 @@ export default function NewChannelScreen() {
     }
   };
 
-  const handleQuickCreate = async () => {
-    if (!name.trim() || createChannel.isPending) return;
-    try {
-      const channel = await createChannel.mutateAsync(buildBody());
-      navigate(`/channels/${channel.id}`);
-    } catch {
-      // mutation error handled by react-query
-    }
+  const createPrimaryBotIfNeeded = async (): Promise<string> => {
+    if (botMode === "existing") return botId;
+    const payload = buildNewBotCreatePayload({
+      id: newBotId,
+      name: newBotName,
+      model: newBotModel,
+      modelProviderId: newBotModelProviderId,
+      ownerUserId,
+      isAdmin,
+    });
+    const bot = await createBot.mutateAsync(payload);
+    setBotMode("existing");
+    setBotId(bot.id);
+    return bot.id;
   };
 
-  const handleSubmit = async () => {
-    if (!name.trim() || createChannel.isPending) return;
+  const createChannelWithOptions = async ({ includeIntegrations }: { includeIntegrations: boolean }) => {
+    if (!canCreate || isCreating) return;
+    setLocalError(null);
+    let resolvedBotId = botId;
     try {
-      const body = buildBody();
-      if (enabledIntegrations.length > 0) {
-        body.activate_integrations = enabledIntegrations;
-      }
+      resolvedBotId = await createPrimaryBotIfNeeded();
+    } catch (err) {
+      setLocalError(mutationMessage(err, "Failed to create bot"));
+      return;
+    }
+
+    try {
+      const body = buildChannelCreatePayload({
+        name,
+        botId: resolvedBotId,
+        isPrivate,
+        category,
+        ownerUserId,
+        isAdmin,
+        enabledIntegrations: includeIntegrations ? enabledIntegrations : [],
+      });
       const channel = await createChannel.mutateAsync(body);
-      await applyPendingBindings(channel.id);
+      if (includeIntegrations) await applyPendingBindings(channel.id);
       navigate(`/channels/${channel.id}`);
-    } catch {
-      // mutation error handled by react-query
+    } catch (err) {
+      setLocalError(mutationMessage(err, "Failed to create channel"));
     }
   };
 
-  const canProceed = name.trim().length > 0;
-
-  const errorBanner = createChannel.isError ? (
-    <span style={{ color: "#f87171", fontSize: 12, marginTop: 8, display: "block" }}>
-      {createChannel.error instanceof Error ? createChannel.error.message : "Failed to create channel"}
-    </span>
-  ) : null;
+  const primaryActionLabel = isCreating ? "Creating..." : "Create channel";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", backgroundColor: theme.surface }}>
-      {/* Header */}
-      <div style={{
-        display: "flex", flexDirection: "row", alignItems: "center", gap: 12,
-        padding: "12px 16px",
-        borderBottom: `1px solid ${theme.surfaceBorder}`,
-      }}>
-        <button
-          type="button"
-          className="header-icon-btn"
-          onClick={goBack}
-          style={{ width: 44, height: 44 }}
-        >
-          <ArrowLeft size={20} color={theme.textMuted} />
-        </button>
-        <span style={{ flex: 1, color: theme.text, fontWeight: 600, fontSize: 14 }}>New Channel</span>
-        {/* Step indicator */}
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
-          {(["basics", "integrations"] as WizardStep[])
-            .filter((s) => s !== "integrations" || hasIntegrationStep)
-            .map((s) => (
-              <div
-                key={s}
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: step === s ? theme.accent : theme.surfaceBorder,
-                }}
-              />
-            ))}
-        </div>
-      </div>
+    <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-surface">
+      <PageHeader
+        variant="detail"
+        title="New Channel"
+        subtitle="Choose the bot first, then name the workspace thread."
+        parentLabel="Channels"
+        onBack={goBack}
+        chrome="flow"
+      />
 
-      {/* Step 1: Basics */}
-      {step === "basics" && (
-        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-          {/* Scrollable form content */}
-          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-            <div style={{ padding: 20, maxWidth: 560, width: "100%", boxSizing: "border-box" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                <Section title="Channel Name">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-28 pt-4 sm:px-6 lg:px-8 lg:pb-8">
+        <div className="mx-auto grid w-full max-w-[1180px] gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <main className="flex min-w-0 flex-col gap-6">
+            <section className="rounded-md bg-surface-raised/35 p-4 sm:p-5">
+              <SettingsGroupLabel label="Primary bot" icon={<Bot size={13} className="text-accent" />} />
+              <div className="mt-2 flex flex-col gap-4">
+                <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <h2 className="text-[18px] font-semibold leading-tight text-text">Who should run this channel?</h2>
+                    <p className="mt-1 max-w-[62ch] text-[13px] leading-relaxed text-text-muted">
+                      Every channel has one primary bot. You can add member bots later from channel settings.
+                    </p>
+                  </div>
+                  <SettingsSegmentedControl
+                    value={botMode}
+                    onChange={(next) => {
+                      setBotMode(next);
+                      setLocalError(null);
+                    }}
+                    options={[
+                      { value: "existing", label: "Existing", icon: <Bot size={13} /> },
+                      ...(isAdmin ? [{ value: "create" as const, label: "Create bot", icon: <Sparkles size={13} /> }] : []),
+                    ]}
+                    className="self-start"
+                  />
+                </div>
+
+                {botMode === "existing" ? (
+                  <div className="grid gap-3">
+                    <FormRow label="Bot" description={requestedBotId && !requestedBotExists ? `The requested bot "${requestedBotId}" is not available.` : undefined}>
+                      <BotPicker
+                        value={botId}
+                        onChange={(next) => {
+                          setBotId(next);
+                          setLocalError(null);
+                        }}
+                        bots={botList}
+                        placeholder="Choose a primary bot..."
+                      />
+                    </FormRow>
+                    {selectedBot ? (
+                      <SettingsControlRow
+                        leading={<Bot size={15} />}
+                        title={selectedBot.name}
+                        description={`${selectedBot.id} · ${shortModel(selectedBot.model)}`}
+                        meta={
+                          <span className="flex items-center gap-1.5">
+                            {(selectedBot.local_tools?.length ?? 0) > 0 && <QuietPill label={`${selectedBot.local_tools?.length ?? 0} tools`} tone="info" />}
+                            {(selectedBot.skills?.length ?? 0) > 0 && <QuietPill label={`${selectedBot.skills?.length ?? 0} skills`} />}
+                          </span>
+                        }
+                        active
+                      />
+                    ) : (
+                      <InfoBanner variant="info" icon={<ChevronRight size={14} />}>
+                        Pick an existing bot before creating the channel.
+                      </InfoBanner>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid gap-4">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <FormRow label="Bot name">
+                        <TextInput
+                          value={newBotName}
+                          onChangeText={(value) => {
+                            setNewBotName(value);
+                            if (!name.trim()) setName(value);
+                            setLocalError(null);
+                          }}
+                          placeholder="Kitchen Assistant"
+                        />
+                      </FormRow>
+                      <FormRow label="Primary model">
+                        <LlmModelDropdown
+                          value={newBotModel}
+                          selectedProviderId={newBotModelProviderId}
+                          onChange={(model, providerId) => {
+                            setNewBotModel(model);
+                            setNewBotModelProviderId(providerId);
+                            setLocalError(null);
+                          }}
+                          allowClear={false}
+                        />
+                      </FormRow>
+                    </div>
+                    <FormRow
+                      label="Bot ID"
+                      description="Stable id used by APIs and channel settings. It is generated from the name until you edit it."
+                    >
+                      <TextInput
+                        value={newBotId}
+                        onChangeText={(value) => {
+                          setNewBotIdTouched(true);
+                          setNewBotId(value);
+                          setLocalError(null);
+                        }}
+                        placeholder="kitchen-assistant"
+                      />
+                    </FormRow>
+                    {newBotError && <InfoBanner variant="warning">{newBotError}</InfoBanner>}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="flex flex-col gap-4">
+              <SettingsGroupLabel label="Channel details" icon={<Hash size={13} className="text-text-dim" />} />
+              <div className="grid gap-4 rounded-md bg-surface-raised/30 p-4 sm:p-5">
+                <FormRow label="Channel name">
                   <TextInput
                     value={name}
-                    onChangeText={setName}
-                    placeholder="my-channel"
+                    onChangeText={(value) => {
+                      setName(value);
+                      setLocalError(null);
+                    }}
+                    placeholder="kitchen"
                   />
-                </Section>
+                </FormRow>
 
-                {/* Model picker */}
-                {!useBotMode && (
-                  <Section title="Model">
-                    <LlmModelDropdown
-                      value={selectedModel}
-                      onChange={(modelId) => setSelectedModel(modelId)}
-                      placeholder="Default (from bot)"
-                      allowClear
+                <div className="grid gap-4 md:grid-cols-2">
+                  <FormRow label="Category" description="Optional grouping for the channel list.">
+                    <TextInput
+                      value={category}
+                      onChangeText={setCategory}
+                      placeholder="Home, Work, Projects"
                     />
-                  </Section>
-                )}
+                    {categorySuggestions.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {categorySuggestions.slice(0, 5).map((candidate) => (
+                          <button
+                            key={candidate}
+                            type="button"
+                            onClick={() => setCategory(candidate)}
+                            className="rounded-full bg-surface-overlay px-2 py-1 text-[11px] font-medium text-text-muted transition-colors hover:text-text"
+                          >
+                            {candidate}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </FormRow>
 
-                {/* Bot mode toggle */}
-                <button
-                  type="button"
-                  onClick={() => setUseBotMode(!useBotMode)}
-                  style={{
-                    display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-                    background: "none", border: "none", cursor: "pointer", padding: 0,
-                    font: "inherit",
-                  }}
-                >
-                  <span style={{ color: theme.textMuted, fontSize: 12, textDecoration: "underline" }}>
-                    {useBotMode ? "Pick a model instead" : "Or use an existing bot"}
-                  </span>
-                </button>
-
-                {useBotMode && (
-                  <Section title="Bot">
-                    <BotPicker
-                      value={botId}
-                      onChange={setBotId}
-                      bots={bots ?? []}
-                    />
-                  </Section>
-                )}
-
-                {/* Category */}
-                <Section title="Category (optional)">
-                  <TextInput
-                    value={category}
-                    onChangeText={setCategory}
-                    placeholder="e.g. Work, Personal, Projects"
-                  />
-                  {categorySuggestions.length > 0 && (
-                    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                      {categorySuggestions.slice(0, 5).map((cat) => (
-                        <button
-                          type="button"
-                          key={cat}
-                          onClick={() => setCategory(cat)}
-                          style={{
-                            backgroundColor: theme.surfaceBorder,
-                            padding: "3px 8px",
-                            borderRadius: 4,
-                            border: "none",
-                            cursor: "pointer",
-                            font: "inherit",
-                            fontSize: 11,
-                            color: theme.textMuted,
-                          }}
-                        >
-                          {cat}
-                        </button>
-                      ))}
-                    </div>
+                  {isAdmin && (
+                    <FormRow label="Owner" description="Also used as the owner for an inline-created bot.">
+                      <UserSelect value={ownerUserId} onChange={setOwnerUserId} />
+                    </FormRow>
                   )}
-                </Section>
+                </div>
 
                 <Toggle
                   value={isPrivate}
                   onChange={setIsPrivate}
                   label="Private"
-                  description="Only the owner and admins can see this channel"
+                  description="Only the owner and admins can see this channel."
                 />
-
-                {isAdmin && (
-                  <Section title="Owner" description="Admins can assign a different user as the owner.">
-                    <UserSelect
-                      value={ownerUserId}
-                      onChange={setOwnerUserId}
-                    />
-                  </Section>
-                )}
-
-                {/* Member bots (multi-bot channel) */}
-                {(bots ?? []).filter((b) => b.id !== (useBotMode ? botId : "default")).length > 0 && (
-                  <Section title="Member Bots (optional)" description="Add additional bots that can participate when @-mentioned">
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {(bots ?? [])
-                        .filter((b) => b.id !== (useBotMode ? botId : "default"))
-                        .map((b) => {
-                          const selected = memberBotIds.includes(b.id);
-                          return (
-                            <button
-                              type="button"
-                              key={b.id}
-                              onClick={() => setMemberBotIds((prev) =>
-                                selected ? prev.filter((x) => x !== b.id) : [...prev, b.id]
-                              )}
-                              style={{
-                                display: "flex",
-                                flexDirection: "row",
-                                alignItems: "center",
-                                gap: 8,
-                                padding: "6px 10px",
-                                borderRadius: 6,
-                                border: `1px solid ${selected ? theme.accent : theme.surfaceBorder}`,
-                                background: selected ? `${theme.accent}10` : "transparent",
-                                cursor: "pointer",
-                                font: "inherit",
-                                textAlign: "left",
-                                color: "inherit",
-                              }}
-                            >
-                              {selected && <Check size={14} color={theme.accent} />}
-                              <span style={{ fontSize: 13, color: theme.text, flex: 1 }}>{b.name}</span>
-                              <span style={{ fontSize: 11, color: theme.textDim }}>{b.id}</span>
-                            </button>
-                          );
-                        })}
-                    </div>
-                  </Section>
-                )}
               </div>
-            </div>
-          </div>
+            </section>
 
-          {/* Sticky footer — always visible */}
-          <div
-            style={{
-              borderTop: `1px solid ${theme.surfaceBorder}`,
-              padding: "14px 20px",
-              maxWidth: 560,
-              width: "100%",
-              boxSizing: "border-box",
-            }}
-          >
-            {errorBanner}
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {hasIntegrationStep ? (
-                <button
-                  type="button"
-                  onClick={() => canProceed && setStep("integrations")}
-                  disabled={!canProceed}
-                  style={{
-                    backgroundColor: canProceed ? theme.accent : theme.surfaceBorder,
-                    padding: "12px 20px",
-                    borderRadius: 8,
-                    display: "flex", flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 8,
-                    opacity: canProceed ? 1 : 0.5,
-                    border: "none",
-                    cursor: canProceed ? "pointer" : "default",
-                    font: "inherit",
-                  }}
-                >
-                  <span style={{ color: canProceed ? "#fff" : theme.textDim, fontSize: 14, fontWeight: 600 }}>
-                    Continue
-                  </span>
-                  <ArrowRight size={16} color={canProceed ? "#fff" : theme.textDim} />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleQuickCreate}
-                  disabled={!canProceed || createChannel.isPending}
-                  style={{
-                    backgroundColor: canProceed ? theme.accent : theme.surfaceBorder,
-                    padding: "12px 20px",
-                    borderRadius: 8,
-                    display: "flex", flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 8,
-                    opacity: canProceed && !createChannel.isPending ? 1 : 0.5,
-                    border: "none",
-                    cursor: canProceed && !createChannel.isPending ? "pointer" : "default",
-                    font: "inherit",
-                  }}
-                >
-                  <Check size={16} color={canProceed ? "#fff" : theme.textDim} />
-                  <span style={{ color: canProceed ? "#fff" : theme.textDim, fontSize: 14, fontWeight: 600 }}>
-                    {createChannel.isPending ? "Creating..." : "Create Channel"}
-                  </span>
-                </button>
+            {hasIntegrationStep && step === "integrations" && (
+              <section className="flex flex-col gap-4">
+                <SettingsGroupLabel label="Optional integrations" icon={<Plug size={13} className="text-text-dim" />} />
+                <div className="grid gap-5 rounded-md bg-surface-raised/30 p-4 sm:p-5">
+                  {hasBindable && (
+                    <div className="flex flex-col gap-3">
+                      <div>
+                        <h3 className="text-[13px] font-semibold text-text">Connect external service</h3>
+                        <p className="mt-1 max-w-[65ch] text-[12px] leading-relaxed text-text-dim">
+                          Route this channel to Slack, messaging, voice, or another external surface. You can add this later.
+                        </p>
+                      </div>
+                      <BindableIntegrationsList
+                        integrations={bindableIntegrations}
+                        pending={pendingBindings}
+                        onSubmit={handleBindingSubmit}
+                        onRemove={handleBindingRemove}
+                      />
+                    </div>
+                  )}
+
+                  {hasActivatable && (
+                    <div className="flex flex-col gap-3">
+                      <div>
+                        <h3 className="text-[13px] font-semibold text-text">Activate integrations</h3>
+                        <p className="mt-1 max-w-[65ch] text-[12px] leading-relaxed text-text-dim">
+                          Add integration tools and skills to the channel at creation time.
+                        </p>
+                      </div>
+                      <IntegrationActivationList
+                        integrations={activatableIntegrations ?? []}
+                        enabled={enabledIntegrations}
+                        onToggle={handleToggleIntegration}
+                      />
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+          </main>
+
+          <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-4 lg:self-start">
+            <section className="rounded-md bg-surface-raised/35 p-4">
+              <SettingsGroupLabel label="Create summary" icon={<Check size={13} className={canCreate ? "text-success" : "text-text-dim"} />} />
+              <div className="mt-3 flex flex-col gap-2">
+                <SettingsControlRow
+                  compact
+                  leading={<Bot size={14} />}
+                  title={botMode === "create" ? (newBotName || "New bot") : (selectedBot?.name ?? "No bot selected")}
+                  description={botMode === "create" ? `${newBotId || "bot-id"} · ${shortModel(newBotModel)}` : selectedBot ? `${selectedBot.id} · ${shortModel(selectedBot.model)}` : "Required"}
+                  active={!!(botMode === "create" ? !newBotError : selectedBot)}
+                />
+                <SettingsControlRow
+                  compact
+                  leading={<Hash size={14} />}
+                  title={name.trim() || "No channel name"}
+                  description={category.trim() || "No category"}
+                  active={!!name.trim()}
+                />
+                <SettingsControlRow
+                  compact
+                  leading={isPrivate ? <Lock size={14} /> : <UserRound size={14} />}
+                  title={isPrivate ? "Private" : "Visible"}
+                  description={ownerLabel && isAdmin ? `Owner ${ownerLabel}` : "Default owner"}
+                />
+              </div>
+
+              {errorMessage && (
+                <div className="mt-3">
+                  <InfoBanner variant="danger">{errorMessage}</InfoBanner>
+                </div>
               )}
 
-              {hasIntegrationStep && (
-                <button
-                  type="button"
-                  onClick={handleQuickCreate}
-                  disabled={!canProceed || createChannel.isPending}
-                  style={{
-                    border: `1px solid ${theme.surfaceBorder}`,
-                    padding: "10px 20px",
-                    borderRadius: 8,
-                    textAlign: "center",
-                    cursor: canProceed && !createChannel.isPending ? "pointer" : "default",
-                    background: "none",
-                    font: "inherit",
-                    color: theme.textMuted,
-                    fontSize: 14,
-                  }}
-                >
-                  {createChannel.isPending ? "Creating..." : "Quick Create (skip setup)"}
-                </button>
+              {!canCreate && (
+                <div className="mt-3">
+                  <InfoBanner variant="info">{cannotCreateReason}</InfoBanner>
+                </div>
               )}
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Step 2: Integrations — scrollable content + sticky footer */}
-      {step === "integrations" && (
-        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-            <div style={{ padding: 20, maxWidth: 560, width: "100%", boxSizing: "border-box" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-                {hasBindable && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    <div>
-                      <span style={{ color: theme.text, fontWeight: 600, fontSize: 14, display: "block" }}>
-                        Connect External Service
-                      </span>
-                      <span style={{ color: theme.textMuted, fontSize: 12, marginTop: 4, display: "block" }}>
-                        Route this channel to a Slack channel, iMessage chat, voice satellite, or other external service. Optional — you can add this later in channel settings.
-                      </span>
-                    </div>
-                    <BindableIntegrationsList
-                      integrations={bindableIntegrations}
-                      pending={pendingBindings}
-                      onSubmit={handleBindingSubmit}
-                      onRemove={handleBindingRemove}
-                    />
-                  </div>
-                )}
-
-                {hasActivatable && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    <div>
-                      <span style={{ color: theme.text, fontWeight: 600, fontSize: 14, display: "block" }}>
-                        Activate Integrations
-                      </span>
-                      <span style={{ color: theme.textMuted, fontSize: 12, marginTop: 4, display: "block" }}>
-                        Integrations inject specialized tools and skills into your channel.
-                      </span>
-                    </div>
-
-                    <IntegrationActivationList
-                      integrations={activatableIntegrations ?? []}
-                      enabled={enabledIntegrations}
-                      onToggle={handleToggleIntegration}
-                    />
-                  </div>
+              <div className="mt-4 flex flex-col gap-2">
+                <ActionButton
+                  label={primaryActionLabel}
+                  icon={<Check size={14} />}
+                  disabled={!canCreate || isCreating}
+                  onPress={() => void createChannelWithOptions({ includeIntegrations: step === "integrations" })}
+                />
+                {hasIntegrationStep && (
+                  <ActionButton
+                    label={step === "integrations" ? "Skip integrations" : "Set up integrations"}
+                    variant="secondary"
+                    icon={step === "integrations" ? <ArrowLeft size={14} /> : <Plug size={14} />}
+                    disabled={!canCreate || isCreating}
+                    onPress={() => {
+                      if (step === "integrations") {
+                        void createChannelWithOptions({ includeIntegrations: false });
+                      } else {
+                        setStep("integrations");
+                      }
+                    }}
+                  />
                 )}
               </div>
-            </div>
-          </div>
+            </section>
 
-          {/* Sticky footer */}
-          <div
-            style={{
-              borderTop: `1px solid ${theme.surfaceBorder}`,
-              padding: "14px 20px",
-              maxWidth: 560,
-              width: "100%",
-              boxSizing: "border-box",
-            }}
-          >
-            {errorBanner}
-            <div style={{ display: "flex", flexDirection: "row", gap: 10 }}>
-              <button
-                type="button"
-                onClick={() => setStep("basics")}
-                style={{
-                  border: `1px solid ${theme.surfaceBorder}`,
-                  padding: "10px 20px",
-                  borderRadius: 8,
-                  textAlign: "center",
-                  flex: 1,
-                  cursor: "pointer",
-                  background: "none",
-                  font: "inherit",
-                  color: theme.textMuted,
-                  fontSize: 14,
-                }}
-              >
-                Back
-              </button>
-
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={createChannel.isPending}
-                style={{
-                  backgroundColor: theme.accent,
-                  padding: "12px 20px",
-                  borderRadius: 8,
-                  display: "flex", flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                  flex: 1,
-                  border: "none",
-                  cursor: createChannel.isPending ? "default" : "pointer",
-                  font: "inherit",
-                }}
-              >
-                <Check size={16} color="#fff" />
-                <span style={{ color: "#fff", fontSize: 14, fontWeight: 600 }}>
-                  {createChannel.isPending ? "Creating..." : "Create Channel"}
-                </span>
-              </button>
-            </div>
-          </div>
+            <section className="rounded-md bg-surface-raised/25 p-4">
+              <SettingsGroupLabel label="What happens next" />
+              <div className="mt-2 space-y-2 text-[12px] leading-relaxed text-text-muted">
+                <p>The channel opens immediately with its primary bot and an active session.</p>
+                <p>Member bots, prompts, permissions, and integrations can be tuned from channel settings after creation.</p>
+              </div>
+            </section>
+          </aside>
         </div>
-      )}
+      </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-surface-border bg-surface/95 px-4 py-3 backdrop-blur lg:hidden">
+        <div className="mx-auto flex max-w-[1180px] items-center gap-2">
+          <ActionButton
+            label={primaryActionLabel}
+            icon={<Check size={14} />}
+            disabled={!canCreate || isCreating}
+            onPress={() => void createChannelWithOptions({ includeIntegrations: step === "integrations" })}
+          />
+          {hasIntegrationStep && (
+            <ActionButton
+              label={step === "integrations" ? "Skip" : "Integrations"}
+              variant="secondary"
+              icon={<Plug size={14} />}
+              disabled={!canCreate || isCreating}
+              onPress={() => {
+                if (step === "integrations") {
+                  void createChannelWithOptions({ includeIntegrations: false });
+                } else {
+                  setStep("integrations");
+                }
+              }}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }

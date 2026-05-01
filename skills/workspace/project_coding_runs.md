@@ -29,6 +29,9 @@ the user explicitly asked to launch a coding run.
    Project run receipt rather than opening an empty PR.
 4. Treat each schedule fire as a normal Project coding run: inspect state,
    prepare the branch, run verification, and hand off evidence.
+5. When recurring work needs adjustment, edit/resume the existing schedule
+   rather than creating a duplicate. Concrete schedule fires remain normal
+   Project coding runs and should be reviewed through the Project Runs cockpit.
 
 ## Implementation Runs
 

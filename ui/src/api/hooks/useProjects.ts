@@ -147,6 +147,32 @@ export function useCreateProjectCodingRunSchedule(projectId: string | undefined)
   });
 }
 
+export function useUpdateProjectCodingRunSchedule(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      scheduleId: string;
+      channel_id?: string;
+      title?: string;
+      request?: string;
+      scheduled_at?: string | null;
+      recurrence?: string;
+      enabled?: boolean;
+      machine_target_grant?: MachineTargetGrant | null;
+    }) => {
+      const { scheduleId, ...body } = data;
+      return apiFetch<ProjectCodingRunSchedule>(`/api/v1/projects/${projectId}/coding-run-schedules/${scheduleId}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-run-schedules"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+    },
+  });
+}
+
 export function useRunProjectCodingRunScheduleNow(projectId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({

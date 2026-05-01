@@ -201,7 +201,7 @@ async def fire_project_coding_run_schedule(
         raise ValueError("project not found")
     if not _is_project_coding_run_schedule(project, schedule):
         raise ValueError("coding-run schedule not found")
-    if schedule.status != "active" and advance:
+    if schedule.status != "active":
         return None
     channel_id = _uuid_from_config(schedule.channel_id)
     if channel_id is None:
@@ -253,7 +253,7 @@ async def list_project_coding_run_schedules(
         .order_by(Task.created_at.desc())
     )).scalars().all())
     schedules = [task for task in candidates if _is_project_coding_run_schedule(project, task)]
-    last_runs: dict[str, dict[str, Any]] = {}
+    recent_runs: dict[str, list[dict[str, Any]]] = {}
     if schedules:
         run_candidates = list((await db.execute(
             select(Task)
@@ -262,19 +262,21 @@ async def list_project_coding_run_schedules(
         )).scalars().all())
         for run in run_candidates:
             sid = str(run.parent_task_id)
-            if sid not in last_runs and isinstance(run.execution_config, dict):
-                cfg = run.execution_config.get("project_coding_run") or {}
-                last_runs[sid] = {
-                    "id": str(run.id),
-                    "task_id": str(run.id),
-                    "status": run.status,
-                    "created_at": run.created_at.isoformat() if run.created_at else None,
-                    "branch": cfg.get("branch") if isinstance(cfg, dict) else None,
-                }
-    return [await _coding_run_schedule_row(db, task, last_runs.get(str(task.id))) for task in schedules]
+            rows = recent_runs.setdefault(sid, [])
+            if len(rows) >= 3 or not isinstance(run.execution_config, dict):
+                continue
+            cfg = run.execution_config.get("project_coding_run") or {}
+            rows.append({
+                "id": str(run.id),
+                "task_id": str(run.id),
+                "status": run.status,
+                "created_at": run.created_at.isoformat() if run.created_at else None,
+                "branch": cfg.get("branch") if isinstance(cfg, dict) else None,
+            })
+    return [await _coding_run_schedule_row(db, task, recent_runs.get(str(task.id), [])) for task in schedules]
 
 
-async def _coding_run_schedule_row(db: AsyncSession, task: Task, last_run: dict[str, Any] | None = None) -> dict[str, Any]:
+async def _coding_run_schedule_row(db: AsyncSession, task: Task, recent_runs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     from app.services.machine_task_grants import task_machine_grant_payload
 
     cfg = _project_schedule_config(task)
@@ -289,7 +291,8 @@ async def _coding_run_schedule_row(db: AsyncSession, task: Task, last_run: dict[
         "scheduled_at": task.scheduled_at.isoformat() if task.scheduled_at else None,
         "recurrence": task.recurrence,
         "run_count": task.run_count or 0,
-        "last_run": last_run,
+        "last_run": (recent_runs or [None])[0],
+        "recent_runs": recent_runs or [],
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "machine_target_grant": await task_machine_grant_payload(db, task),
     }

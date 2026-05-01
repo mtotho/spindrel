@@ -1734,6 +1734,13 @@ export interface ProjectCodingRunSchedule {
     created_at?: string | null;
     branch?: string | null;
   } | null;
+  recent_runs?: Array<{
+    id?: string;
+    task_id?: string;
+    status?: string;
+    created_at?: string | null;
+    branch?: string | null;
+  }>;
   created_at?: string | null;
   machine_target_grant?: ProjectCodingRunTask["machine_target_grant"];
 }

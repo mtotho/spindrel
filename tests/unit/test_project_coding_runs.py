@@ -25,6 +25,9 @@ from app.services.project_coding_runs import (
     list_project_coding_run_schedules,
     project_coding_run_defaults,
     ProjectCodingRunScheduleCreate,
+    ProjectCodingRunScheduleUpdate,
+    disable_project_coding_run_schedule,
+    update_project_coding_run_schedule,
 )
 from app.services.project_runtime import load_project_runtime_environment_for_id
 from app.services.project_run_handoff import CommandResult
@@ -355,6 +358,71 @@ async def test_project_coding_run_schedule_fires_concrete_run_with_provenance(db
     assert rows[0]["id"] == str(schedule.id)
     assert rows[0]["run_count"] == 1
     assert rows[0]["last_run"]["task_id"] == str(run.id)
+    assert rows[0]["recent_runs"][0]["task_id"] == str(run.id)
+
+
+@pytest.mark.asyncio
+async def test_project_coding_run_schedule_can_be_edited_resumed_and_blocks_disabled_run_now(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel-schedule-edit",
+        root_path="common/projects/spindrel",
+        metadata_={"blueprint_snapshot": {"repos": [{"path": "spindrel", "branch": "development"}]}},
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    schedule = await create_project_coding_run_schedule(
+        db_session,
+        project,
+        ProjectCodingRunScheduleCreate(
+            channel_id=channel_id,
+            title="Nightly review",
+            request="Review.",
+            recurrence="+1d",
+        ),
+    )
+
+    disabled = await disable_project_coding_run_schedule(db_session, project, schedule.id)
+    assert disabled.status == "cancelled"
+    assert await fire_project_coding_run_schedule(db_session, disabled, advance=False) is None
+
+    resumed = await update_project_coding_run_schedule(
+        db_session,
+        project,
+        schedule.id,
+        ProjectCodingRunScheduleUpdate(
+            title="Weekly architecture review",
+            request="Review architecture and publish a receipt.",
+            recurrence="+1w",
+            enabled=True,
+        ),
+    )
+    assert resumed.status == "active"
+    assert resumed.title == "Weekly architecture review"
+    assert resumed.prompt == "Review architecture and publish a receipt."
+    assert resumed.recurrence == "+1w"
+
+    run = await fire_project_coding_run_schedule(db_session, resumed, advance=False)
+    assert run is not None
+    rows = await list_project_coding_run_schedules(db_session, project)
+    assert rows[0]["enabled"] is True
+    assert rows[0]["request"] == "Review architecture and publish a receipt."
+    assert rows[0]["last_run"]["task_id"] == str(run.id)
+    assert rows[0]["recent_runs"][0]["task_id"] == str(run.id)
 
 
 @pytest.mark.asyncio

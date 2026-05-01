@@ -3077,6 +3077,13 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
             created_at: "2026-04-30T15:28:00Z",
             branch: "screenshot/project-coding-run"
           },
+          recent_runs: [{
+            id: "screenshot-project-coding-run-task",
+            task_id: "screenshot-project-coding-run-task",
+            status: "complete",
+            created_at: "2026-04-30T15:28:00Z",
+            branch: "screenshot/project-coding-run"
+          }],
           created_at: "2026-04-30T15:20:00Z",
           machine_target_grant: {
             provider_id: "ssh",
@@ -3084,7 +3091,7 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
             capabilities: ["inspect", "exec"],
             allow_agent_tools: true,
             provider_label: "E2E Codex Target",
-            target_label: "spindrel-bot :8000 / :18000",
+            target_label: "Spindrel e2e target",
             diagnostics: []
           }
         }), {
@@ -3133,7 +3140,7 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
               provider_label: "E2E Codex Target",
               target_id: "e2e-8000",
               driver: "ssh",
-              label: "spindrel-bot :8000 / :18000",
+              label: "Spindrel e2e target",
               hostname: "10.10.30.208",
               platform: "linux",
               ready: true,
@@ -3174,6 +3181,19 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
             created_at: "2026-04-30T15:28:00Z",
             branch: "screenshot/project-coding-run"
           },
+          recent_runs: [{
+            id: "screenshot-project-coding-run-task",
+            task_id: "screenshot-project-coding-run-task",
+            status: "complete",
+            created_at: "2026-04-30T15:28:00Z",
+            branch: "screenshot/project-coding-run"
+          }, {
+            id: "screenshot-project-coding-run-task-previous",
+            task_id: "screenshot-project-coding-run-task-previous",
+            status: "reviewed",
+            created_at: "2026-04-23T15:28:00Z",
+            branch: "screenshot/project-coding-run-previous"
+          }],
           created_at: "2026-04-30T15:20:00Z",
           machine_target_grant: {
             provider_id: "ssh",
@@ -3181,9 +3201,36 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
             capabilities: ["inspect", "exec"],
             allow_agent_tools: true,
             provider_label: "E2E Codex Target",
-            target_label: "spindrel-bot :8000 / :18000",
+            target_label: "Spindrel e2e target",
             diagnostics: []
           }
+        }, {
+          id: "screenshot-project-coding-run-schedule-paused",
+          project_id: scheduleMatch[1],
+          channel_id: null,
+          title: "Paused dependency sweep",
+          request: "Check dependency drift and publish a receipt.",
+          status: "cancelled",
+          enabled: false,
+          scheduled_at: "2026-05-02T13:00:00Z",
+          recurrence: "+1d",
+          run_count: 1,
+          last_run: {
+            id: "screenshot-project-coding-run-task-paused",
+            task_id: "screenshot-project-coding-run-task-paused",
+            status: "blocked",
+            created_at: "2026-04-29T15:28:00Z",
+            branch: "screenshot/dependency-sweep"
+          },
+          recent_runs: [{
+            id: "screenshot-project-coding-run-task-paused",
+            task_id: "screenshot-project-coding-run-task-paused",
+            status: "blocked",
+            created_at: "2026-04-29T15:28:00Z",
+            branch: "screenshot/dependency-sweep"
+          }],
+          created_at: "2026-04-29T15:20:00Z",
+          machine_target_grant: null
         }]), {
           status: 200,
           headers: { "Content-Type": "application/json" }
@@ -3870,6 +3917,10 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "&& text.includes('+1w') "
             "&& text.includes('3 runs') "
             "&& text.includes('Last run: complete') "
+            "&& text.includes('RECENT RUNS') "
+            "&& text.includes('Paused dependency sweep') "
+            "&& text.includes('Resume') "
+            "&& text.includes('Edit') "
             "&& text.includes('Execution access: E2E Codex Target') "
             "&& text.includes('Run now') "
             "&& text.includes('Disable'), "
@@ -3894,14 +3945,14 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "const trigger = root && root.querySelector('button[aria-haspopup=\"listbox\"]');"
             "if (trigger) trigger.click();"
             "await new Promise((resolve) => setTimeout(resolve, 120));"
-            "const option = [...document.querySelectorAll('[role=\"option\"]')].find((item) => /spindrel-bot/.test(item.textContent || ''));"
+            "const option = [...document.querySelectorAll('[role=\"option\"]')].find((item) => /Spindrel e2e target/.test(item.textContent || ''));"
             "if (option) option.click();"
             "await new Promise((resolve) => setTimeout(resolve, 160));"
         ),
         assert_js=(
             "const text = document.body.innerText;"
             "return { ok: text.includes('Execution access') "
-            "&& text.includes('spindrel-bot :8000 / :18000') "
+            "&& text.includes('Spindrel e2e target') "
             "&& text.includes('inspect') "
             "&& text.includes('exec') "
             "&& text.includes('Agent tools') "
@@ -3968,7 +4019,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "const trigger = access && access.querySelector('button[aria-haspopup=\"listbox\"]');"
             "if (trigger) trigger.click();"
             "await new Promise((resolve) => setTimeout(resolve, 120));"
-            "const option = [...document.querySelectorAll('[role=\"option\"]')].find((item) => /spindrel-bot/.test(item.textContent || ''));"
+            "const option = [...document.querySelectorAll('[role=\"option\"]')].find((item) => /Spindrel e2e target/.test(item.textContent || ''));"
             "if (option) option.click();"
             "if (access) access.scrollIntoView({ block: 'center' });"
             "await new Promise((resolve) => setTimeout(resolve, 160));"
@@ -3978,7 +4029,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "return { ok: text.includes('1 selected') "
             "&& text.includes('Review session prompt') "
             "&& text.includes('Execution access') "
-            "&& text.includes('spindrel-bot :8000 / :18000') "
+            "&& text.includes('Spindrel e2e target') "
             "&& text.includes('Task-scoped existing target grant') "
             "&& text.includes('Start review'), "
             "detail: 'Project review launch did not expose task-scoped e2e machine access' };"

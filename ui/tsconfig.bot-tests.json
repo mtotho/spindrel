@@ -10,6 +10,8 @@
     "types": ["node"]
   },
   "include": [
+    "src/lib/newChannelCreate.ts",
+    "src/lib/newChannelCreate.test.ts",
     "src/lib/botEditorPayload.test.ts",
     "app/(app)/admin/bots/[botId]/workspaceSectionContract.test.ts"
   ]

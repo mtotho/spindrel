@@ -339,6 +339,7 @@ class ProjectCodingRunScheduleOut(BaseModel):
     recurrence: str | None = None
     run_count: int = 0
     last_run: dict | None = None
+    recent_runs: list[dict] = Field(default_factory=list)
     created_at: str | None = None
     machine_target_grant: dict | None = None
 
