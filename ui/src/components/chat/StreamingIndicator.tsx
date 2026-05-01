@@ -10,6 +10,65 @@ import { OrderedTranscript } from "./OrderedTranscript";
 import { buildAssistantTurnBodyItems } from "./toolTranscriptModel";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
+const STREAMING_RENDER_THROTTLE_CHARS = 8_000;
+const STREAMING_RENDER_THROTTLE_MS = 100;
+
+export function shouldThrottleStreamingRenderSize(charCount: number): boolean {
+  return charCount > STREAMING_RENDER_THROTTLE_CHARS;
+}
+
+function assistantTurnBodyTextLength(body: AssistantTurnBody): number {
+  return body.items.reduce((total, item) => {
+    if (item.kind !== "text") return total;
+    return total + item.text.length;
+  }, 0);
+}
+
+function useThrottledStreamingValue<T>(value: T, enabled: boolean): T {
+  const [rendered, setRendered] = useState(value);
+  const latestRef = useRef(value);
+  const lastFlushRef = useRef(0);
+  const timerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    latestRef.current = value;
+
+    if (!enabled) {
+      if (timerRef.current != null) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      lastFlushRef.current = Date.now();
+      setRendered(value);
+      return;
+    }
+
+    const now = Date.now();
+    const elapsed = now - lastFlushRef.current;
+    if (elapsed >= STREAMING_RENDER_THROTTLE_MS) {
+      lastFlushRef.current = now;
+      setRendered(value);
+      return;
+    }
+
+    if (timerRef.current != null) return;
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      lastFlushRef.current = Date.now();
+      setRendered(latestRef.current);
+    }, STREAMING_RENDER_THROTTLE_MS - elapsed);
+  }, [enabled, value]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current != null) {
+        window.clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
+
+  return rendered;
+}
 
 function TerminalThinkingStatus({
   color,
@@ -340,13 +399,21 @@ export function StreamingIndicator({
   const t = useThemeTokens();
   const isTerminalMode = chatMode === "terminal";
   const nameColor = isTerminalMode ? t.accent : bg;
+  const renderedContent = useThrottledStreamingValue(
+    content,
+    shouldThrottleStreamingRenderSize(content.length),
+  );
+  const renderedAssistantTurnBody = useThrottledStreamingValue(
+    assistantTurnBody,
+    shouldThrottleStreamingRenderSize(assistantTurnBodyTextLength(assistantTurnBody)),
+  );
 
   // Trim trailing whitespace/newlines to prevent empty spacer divs from markdown parser
-  const displayContent = content.trim();
+  const displayContent = renderedContent.trim();
   const displayThinking = thinkingContent?.trim() ?? "";
-  const hasAssistantTurnBody = assistantTurnBody.items.length > 0;
+  const hasAssistantTurnBody = renderedAssistantTurnBody.items.length > 0;
   const orderedTurnBodyItems = hasAssistantTurnBody
-    ? buildAssistantTurnBodyItems({ assistantTurnBody, toolCalls, renderMode: chatMode })
+    ? buildAssistantTurnBodyItems({ assistantTurnBody: renderedAssistantTurnBody, toolCalls, renderMode: chatMode })
     : [];
   const hasVisibleActivity =
     !!displayThinking ||

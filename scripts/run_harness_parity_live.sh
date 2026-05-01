@@ -268,7 +268,7 @@ PY
     fi
 }
 
-if [[ -z "${PLAYWRIGHT_WS_URL:-}" ]] && is_local_e2e_host && command -v docker >/dev/null 2>&1; then
+if [[ "${HARNESS_PARITY_NATIVE_APP:-0}" != "1" && -z "${PLAYWRIGHT_WS_URL:-}" ]] && is_local_e2e_host && command -v docker >/dev/null 2>&1; then
     browser_ip="$(docker inspect "$HARNESS_PARITY_PLAYWRIGHT_CONTAINER" \
         --format '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null || true)"
     if [[ -n "$browser_ip" ]]; then

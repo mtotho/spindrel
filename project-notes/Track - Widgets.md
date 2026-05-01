@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dx]
 status: active
-updated: 2026-04-30 (channel widget projection + dashboard canvas polish)
+updated: 2026-05-01 (widget stream load-shedding)
 ---
 # Track — Widget System DX + Robustness
 
@@ -31,6 +31,7 @@ Reference doc: [[Widget Authoring]]. Implementation artifact: plan file at `~/.c
 
 ## Follow-ups (extracted from P0-1 / P1-1 shipping)
 
+- **Widget stream load-shedding shipped** (2026-05-01) — HTML widgets now prefer the host channel stream broker even during iframe startup by waiting briefly before direct SSE fallback, and the broker clears stale same-iframe subscriptions on probe plus replaces duplicate sub ids. Direct fallback still works for standalone/no-host widgets but clears reconnect timers on unsubscribe. Large active chat streams also throttle live markdown/transcript rendering past 8k chars so token bursts do not force full markdown reparses every frame. New invariant: channel dashboards should have one host channel SSE plus broker fan-out, not one direct `/widget-actions/stream` socket per pinned iframe.
 - **Spatial widget stewardship exact-preview guard shipped** (2026-04-30) — bot-owned Spatial Canvas widget tools now enforce the full loop: inspect the scene, preview the exact intended pin/move/resize/remove operation, then mutate only if the previewed action/target/widget and material parameters match. This closes the "bot made a pile of useless widgets" gap by making the skill/preset/tooling prove its intended visual change before creating or moving channel-orbit widgets.
 - **Channel widget projection + dashboard canvas polish shipped** (2026-04-30) — channel-associated widgets now auto-project across the channel dashboard and Spatial Canvas in both directions, with paired delete/unpin semantics and shared native widget instances where applicable. The channel dashboard canvas keeps grid-cell persistence but makes interaction more spatial: deeper/slower zoom, click-only spatial handoff, exact Spatial Canvas backdrop, a dedicated Frame dashboard control, fixed-size move handles for narrow tiles, live resize preview, stable guide labeling, and farther/clearer nearby-channel ghosts.
 - **Channel dashboard freeform canvas shipped** (2026-04-29) — desktop channel dashboards now render on a spatial-style pan/zoom canvas with current-size max zoom, fit/actual-size controls, freeform placement outside the guided header/rail/dock lanes, a one-time `grid_config.canvas_mode=freeform_v1` origin marker so existing layouts do not jump, viewport-centered placement for newly added widgets, and an explicit click-only handoff to the Spatial Canvas after deep zoom-out. The canvas reuses the Spatial Canvas starfield/grid background, keeps nearby channel ghosts outside the guided frame with real channel names/colors, and the pin host exposes compact header-lane chips plus a larger edit-mode move handle for narrow or iframe-heavy widgets. The refreshed `channel-widget-usefulness` screenshot bundle captures the freeform dashboard surface.

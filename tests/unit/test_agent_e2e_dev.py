@@ -285,6 +285,27 @@ def test_prepare_deps_starts_only_dependency_services(monkeypatch, tmp_path, cap
     assert "own unused port" in out
 
 
+def test_prepare_deps_retries_marked_for_removal_containers(monkeypatch):
+    calls: list[list[str]] = []
+    removed: list[str] = []
+    sleeps: list[int] = []
+
+    def fake_run(cmd, *, env=None, timeout=600):
+        calls.append(cmd)
+        if len(calls) == 1:
+            raise SystemExit("Error response from daemon: container is marked for removal and cannot be started")
+
+    monkeypatch.setattr(agent_e2e_dev, "_run", fake_run)
+    monkeypatch.setattr(agent_e2e_dev, "_remove_compose_service_containers", removed.append)
+    monkeypatch.setattr(agent_e2e_dev.time, "sleep", sleeps.append)
+
+    agent_e2e_dev._start_dependency_services({}, [])
+
+    assert len(calls) == 2
+    assert removed == ["postgres", "searxng"]
+    assert sleeps == [2]
+
+
 def test_native_api_process_env_uses_host_dependency_urls(monkeypatch, tmp_path):
     env_path = tmp_path / ".env.agent-e2e"
     monkeypatch.setattr(agent_e2e_dev, "LOCAL_ENV", env_path)
@@ -306,9 +327,12 @@ def test_native_api_process_env_uses_host_dependency_urls(monkeypatch, tmp_path)
     )
 
     assert native_env["API_KEY"] == "test-key"
+    assert native_env["SPINDREL_E2E_URL"] == "http://localhost:19000"
+    assert native_env["SPINDREL_UI_URL"] == "http://localhost:19000"
     assert native_env["DATABASE_URL"] == "postgresql+asyncpg://agent:agent@localhost:16432/agentdb"
     assert native_env["SEARXNG_URL"] == "http://localhost:19080"
     assert native_env["DOCKER_STACKS_ENABLED"] == "false"
+    assert native_env["CONFIG_STATE_FILE"] == ""
     assert native_env["LITELLM_BASE_URL"] == "https://example.invalid/v1"
     assert native_env["LITELLM_API_KEY"] == "llm-key"
     assert native_env["DEFAULT_MODEL"] == "gpt-test"
@@ -333,6 +357,7 @@ def test_start_api_prepares_deps_and_starts_native_server(monkeypatch, tmp_path)
         argparse.Namespace(
             api_url="http://localhost:19000",
             api_key="",
+            build_ui=False,
             startup_timeout=1,
             allow_production=False,
         )
@@ -421,6 +446,10 @@ def test_prepare_harness_parity_sets_up_local_runtimes_channels_and_env(monkeypa
                     {"name": "claude-code", "ok": True, "detail": "Logged in"},
                 ]
             }
+        if url.endswith("/api/v1/projects") and method == "GET":
+            return []
+        if url.endswith("/api/v1/projects") and method == "POST":
+            return {"id": "project-1", "slug": "harness-parity-project", "root_path": body["root_path"]}
         if "/api/v1/admin/bots/" in url and method == "GET":
             raise RuntimeError(f"{method} {url} returned HTTP 404: missing")
         if url.endswith("/api/v1/channels") and method == "POST":
@@ -445,6 +474,7 @@ def test_prepare_harness_parity_sets_up_local_runtimes_channels_and_env(monkeypa
             skip_setup=False,
             skip_live_auth_check=True,
             no_build=True,
+            skip_ui_build=True,
             docker_app=False,
             startup_timeout=1,
             runtime_timeout=1,
@@ -469,12 +499,23 @@ def test_prepare_harness_parity_sets_up_local_runtimes_channels_and_env(monkeypa
         if method == "PATCH" and "/api/v1/admin/channels/" in url and url.endswith("/settings")
     ]
     assert settings_patches == [
-        {"bot_id": "harness-parity-codex", "project_path": "common/projects"},
-        {"bot_id": "harness-parity-claude", "project_path": "common/projects"},
+        {
+            "bot_id": "harness-parity-codex",
+            "project_id": "project-1",
+            "project_workspace_id": "",
+            "project_path": "",
+        },
+        {
+            "bot_id": "harness-parity-claude",
+            "project_id": "project-1",
+            "project_workspace_id": "",
+            "project_path": "",
+        },
     ]
     body = harness_env.read_text()
     assert "HARNESS_PARITY_LOCAL=1" in body
     assert "HARNESS_PARITY_NATIVE_APP=1" in body
+    assert "HARNESS_PARITY_PROJECT_ID=project-1" in body
     assert "HARNESS_PARITY_CODEX_CHANNEL_ID=channel-1" in body
     assert "HARNESS_PARITY_CLAUDE_CHANNEL_ID=channel-2" in body
     assert "HARNESS_PARITY_AGENT_CONTAINER=\n" in body
@@ -495,6 +536,7 @@ def test_harness_parity_env_preserves_runtime_ids_when_preparing_subset(monkeypa
         api_url="http://localhost:18000",
         api_key="test-key",
         channel_ids_by_runtime={"claude-code": "new-claude-channel"},
+        project_id="project-1",
         project_path="common/projects",
         native_app=True,
     )

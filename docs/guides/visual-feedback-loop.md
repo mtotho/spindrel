@@ -47,6 +47,28 @@ the same workspace/user context. If screenshots show unrelated live channels,
 empty attention lanes after staged attention was created, or route state from a
 prior run, treat the bundle as failed even if some DOM assertions pass.
 
+## Evidence Artifact Rule
+
+Screenshots serve two jobs:
+
+- They are the agent feedback loop. Open or inspect them and use what you see to
+  decide whether the UI works, renders the right state, and looks acceptable.
+- They are proof for review. Durable proof images belong in source-controlled
+  `docs/images/` and must be referenced from the relevant guide or feature doc.
+
+Temporary `/tmp` or `scratch/` captures are useful while iterating, but they are
+not final evidence. Before claiming a UI/e2e workflow is verified, copy or
+capture the proof images into `docs/images/`, add markdown references to the
+relevant docs, and run:
+
+```bash
+python -m scripts.screenshots check
+```
+
+For workflow e2e, capture the workflow surfaces, not just the final output. A
+Project run proof should include the Project/Runs/Channels page or channel
+session transcript plus generated app/browser output as applicable.
+
 ## When To Add Or Update A Scenario
 
 Add a screenshot scenario when a visual behavior should not regress:
@@ -77,8 +99,9 @@ For any UI pass using screenshots, the session log or final answer must state:
 
 - the screenshot bundle run;
 - whether staging and capture succeeded;
-- which artifact files changed;
-- what visual inspection confirmed;
+- which `docs/images` files changed;
+- which docs reference those screenshots;
+- what visual inspection confirmed from the images;
 - remaining visual issues, if any.
 
 For UI code changes, also run:

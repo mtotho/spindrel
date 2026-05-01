@@ -1210,18 +1210,38 @@ function spindrelBootstrap(
   // --- Broker probe/ack. If the host mounts WidgetStreamBroker on this page
   // it answers stream_ready_probe with stream_ready_ack, letting us piggyback
   // on the host's channel SSE instead of opening our own fetch. See
-  // ui/src/api/hooks/useWidgetStreamBroker.ts. Probe is best-effort — widgets
-  // that call stream() before the ack lands transparently fall through to
-  // the direct-fetch path below. Once the ack arrives, subsequent stream()
-  // calls use the broker and we stop spawning /widget-actions/stream sockets.
+  // ui/src/api/hooks/useWidgetStreamBroker.ts.
+  const __STREAM_BROKER_SETTLE_MS = 75;
   let __streamBrokerReady = false;
   let __streamBrokerChannelId = null;
+  let __directStreamCount = 0;
+  function __streamPerfDebugEnabled() {
+    try {
+      return window.localStorage.getItem("spindrelPerfDebug") === "1" ||
+        new URLSearchParams(window.location.search).get("perf") === "1";
+    } catch (_) {
+      return false;
+    }
+  }
+  function __streamPerfLog(message, extra) {
+    if (!__streamPerfDebugEnabled()) return;
+    try {
+      console.debug("[spindrel:perf] widget stream", Object.assign({
+        message: message,
+        channelId: channelId,
+        directStreams: __directStreamCount,
+        brokerReady: __streamBrokerReady,
+        brokerChannelId: __streamBrokerChannelId,
+      }, extra || {}));
+    } catch (_) {}
+  }
   window.addEventListener("message", function (e) {
     const msg = e && e.data;
     if (!msg || typeof msg !== "object" || msg.__spindrel !== true) return;
     if (msg.type === "stream_ready_ack") {
       __streamBrokerReady = true;
       __streamBrokerChannelId = msg.channelId || null;
+      __streamPerfLog("broker ack");
     }
   });
   if (channelId) {
@@ -1239,12 +1259,12 @@ function spindrelBootstrap(
   }
   function stream(a, b, c) {
     const args = __streamNormalizeArgs(a, b, c);
-    // Broker path: host has acknowledged and the requested channel matches
-    // ours. The host fans out matching events via postMessage and holds the
-    // single SSE connection for every widget on the page.
-    if (__streamBrokerReady && args.channelId === __streamBrokerChannelId) {
+    let stopped = false;
+    let activeUnsub = null;
+    let settleTimer = null;
+
+    function startBroker() {
       const subId = __newStreamSubId();
-      let stopped = false;
       function onBrokerMsg(e) {
         const msg = e && e.data;
         if (stopped || !msg || typeof msg !== "object") return;
@@ -1273,10 +1293,9 @@ function spindrelBootstrap(
           kinds: args.kinds,
           channelId: args.channelId,
         }, "*");
+        __streamPerfLog("broker subscribe", { subId: subId, kinds: args.kinds });
       } catch (_) { /* host unreachable — unsubscribe still cleans up */ }
       return function unsubscribe() {
-        if (stopped) return;
-        stopped = true;
         window.removeEventListener("message", onBrokerMsg);
         try {
           window.parent.postMessage({
@@ -1287,77 +1306,123 @@ function spindrelBootstrap(
         } catch (_) {}
       };
     }
-    // Fallback: direct /widget-actions/stream SSE (dev sandbox, standalone
-    // viewers, widgets whose channelId differs from the host's, or calls made
-    // before the broker ack landed).
-    const controller = new AbortController();
-    let stopped = false;
-    let retry = 0;
-    let lastSeq = args.since;
-    async function connect() {
-      if (stopped) return;
-      const params = new URLSearchParams();
-      params.set("channel_id", args.channelId);
-      if (args.kinds && args.kinds.length) params.set("kinds", args.kinds.join(","));
-      if (typeof lastSeq === "number") params.set("since", String(lastSeq));
-      const url = "/api/v1/widget-actions/stream?" + params.toString();
-      let resp;
-      try {
-        resp = await apiFetch(url, { signal: controller.signal, headers: { Accept: "text/event-stream" } });
-      } catch (err) {
-        if (stopped || controller.signal.aborted) return;
-        scheduleReconnect();
-        return;
-      }
-      if (!resp.ok || !resp.body) {
-        if (stopped) return;
-        scheduleReconnect();
-        return;
-      }
-      retry = 0;
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      try {
-        while (true) {
-          const chunk = await reader.read();
-          if (chunk.done || stopped) break;
-          buffer += decoder.decode(chunk.value, { stream: true });
-          const lines = buffer.split("\\n");
-          buffer = lines.pop() || "";
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            let event;
-            try { event = JSON.parse(line.slice(6)); }
-            catch (_) { continue; }
-            if (typeof event.seq === "number") lastSeq = event.seq;
-            if (event.kind === "shutdown") { stopped = true; return; }
-            if (event.kind === "replay_lapsed") {
-              try { notify("warn", "Stream replay lapsed — some events may be missing."); } catch (_) {}
-              // Fall through — the widget also sees it via cb so it can refetch.
-            }
-            if (args.filter) {
-              let keep = true;
-              try { keep = !!args.filter(event); }
-              catch (err) { console.error("spindrel.stream filter threw:", err); keep = false; }
-              if (!keep) continue;
-            }
-            try { args.cb(event); }
-            catch (err) { console.error("spindrel.stream handler threw:", err); }
-          }
+
+    function startDirect() {
+      const controller = new AbortController();
+      let retry = 0;
+      let lastSeq = args.since;
+      let reconnectTimer = null;
+      let counted = true;
+      __directStreamCount += 1;
+      __streamPerfLog("direct subscribe", { kinds: args.kinds });
+      function closeDirect() {
+        if (counted) {
+          counted = false;
+          __directStreamCount = Math.max(0, __directStreamCount - 1);
+          __streamPerfLog("direct unsubscribe", { kinds: args.kinds });
         }
-      } catch (_) { /* reader error — fall through to reconnect */ }
-      if (!stopped) scheduleReconnect();
+        if (reconnectTimer != null) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        try { controller.abort(); } catch (_) {}
+      }
+      async function connect() {
+        if (stopped) return;
+        const params = new URLSearchParams();
+        params.set("channel_id", args.channelId);
+        if (args.kinds && args.kinds.length) params.set("kinds", args.kinds.join(","));
+        if (typeof lastSeq === "number") params.set("since", String(lastSeq));
+        const url = "/api/v1/widget-actions/stream?" + params.toString();
+        let resp;
+        try {
+          resp = await apiFetch(url, { signal: controller.signal, headers: { Accept: "text/event-stream" } });
+        } catch (err) {
+          if (stopped || controller.signal.aborted) return;
+          scheduleReconnect();
+          return;
+        }
+        if (!resp.ok || !resp.body) {
+          if (stopped) return;
+          scheduleReconnect();
+          return;
+        }
+        retry = 0;
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        try {
+          while (true) {
+            const chunk = await reader.read();
+            if (chunk.done || stopped) break;
+            buffer += decoder.decode(chunk.value, { stream: true });
+            const lines = buffer.split("\\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              let event;
+              try { event = JSON.parse(line.slice(6)); }
+              catch (_) { continue; }
+              if (typeof event.seq === "number") lastSeq = event.seq;
+              if (event.kind === "shutdown") { stopped = true; closeDirect(); return; }
+              if (event.kind === "replay_lapsed") {
+                try { notify("warn", "Stream replay lapsed — some events may be missing."); } catch (_) {}
+                // Fall through — the widget also sees it via cb so it can refetch.
+              }
+              if (args.filter) {
+                let keep = true;
+                try { keep = !!args.filter(event); }
+                catch (err) { console.error("spindrel.stream filter threw:", err); keep = false; }
+                if (!keep) continue;
+              }
+              try { args.cb(event); }
+              catch (err) { console.error("spindrel.stream handler threw:", err); }
+            }
+          }
+        } catch (_) { /* reader error — fall through to reconnect */ }
+        if (!stopped) scheduleReconnect();
+      }
+      function scheduleReconnect() {
+        if (stopped || reconnectTimer != null) return;
+        const delay = Math.min(1000 * Math.pow(2, retry), 30000);
+        retry = Math.min(retry + 1, 10);
+        reconnectTimer = setTimeout(function () {
+          reconnectTimer = null;
+          if (!stopped) connect();
+        }, delay);
+      }
+      connect();
+      return closeDirect;
     }
-    function scheduleReconnect() {
-      const delay = Math.min(1000 * Math.pow(2, retry), 30000);
-      retry = Math.min(retry + 1, 10);
-      setTimeout(function () { if (!stopped) connect(); }, delay);
+
+    function brokerMatches() {
+      return __streamBrokerReady && args.channelId === __streamBrokerChannelId;
     }
-    connect();
+
+    function startBestAvailable() {
+      if (stopped || activeUnsub) return;
+      activeUnsub = brokerMatches() ? startBroker() : startDirect();
+    }
+
+    if (brokerMatches()) {
+      startBestAvailable();
+    } else if (channelId && args.channelId === channelId && !__streamBrokerReady) {
+      settleTimer = setTimeout(startBestAvailable, __STREAM_BROKER_SETTLE_MS);
+    } else {
+      startBestAvailable();
+    }
+
     return function unsubscribe() {
+      if (stopped) return;
       stopped = true;
-      try { controller.abort(); } catch (_) {}
+      if (settleTimer != null) {
+        clearTimeout(settleTimer);
+        settleTimer = null;
+      }
+      if (activeUnsub) {
+        try { activeUnsub(); } catch (_) {}
+        activeUnsub = null;
+      }
     };
   }
 

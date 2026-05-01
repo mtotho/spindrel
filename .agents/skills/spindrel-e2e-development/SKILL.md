@@ -48,6 +48,7 @@ Prepare a local e2e env:
 ```bash
 python scripts/agent_e2e_dev.py write-env
 python scripts/agent_e2e_dev.py prepare-deps
+python scripts/agent_e2e_dev.py start-api --build-ui
 python scripts/agent_e2e_dev.py doctor
 python scripts/agent_e2e_dev.py commands
 ```
@@ -57,13 +58,17 @@ repeat browser/device-code OAuth. Normal `prepare-deps` preserves the local e2e
 DB and only starts shared dependencies. Start the Spindrel app/API/UI from this
 checkout on your own unused ports while iterating. The explicit DB reset
 command is `python scripts/agent_e2e_dev.py wipe-db --yes`.
+If the default Docker compose project has stale/dead containers that Docker
+cannot remove, use `E2E_COMPOSE_PROJECT=<unique-name>` with alternate
+`E2E_POSTGRES_PORT` / `E2E_SEARXNG_PORT` values instead of deleting provider
+state.
 
 Use `python scripts/agent_e2e_dev.py prepare` only when you intentionally need
-the older full local Docker e2e stack with an app container. Normal harness
-parity setup now uses Docker for dependencies only and runs the API natively
-from this checkout.
+the full local Docker e2e stack with an app container. Normal harness parity
+setup now uses Docker for dependencies only and runs the API natively from this
+checkout.
 
-The legacy app-container path can still mount native harness auth:
+The containerized app fallback can still mount native harness auth:
 
 ```bash
 python scripts/agent_e2e_dev.py write-auth-override
@@ -87,6 +92,10 @@ from this checkout on an unused port, reuses host `~/.codex` / `~/.claude`
 runtime auth, creates stable local harness bots/channels, and writes
 `scratch/agent-e2e/native-api.env` plus
 `scratch/agent-e2e/harness-parity.env`.
+The channels are Project-bound through `project_id` to the real `Harness Parity
+Project` at `common/projects/harness-parity`; do not treat the old path field
+as the source of truth. Native mode builds `ui/dist` so the API can serve the
+UI same-origin for Playwright screenshots.
 For Claude Code, it also runs a tiny live auth smoke because `claude auth
 status` can report logged-in even when the first SDK turn will 401. If it
 fails, refresh the mounted auth with:
@@ -95,8 +104,8 @@ fails, refresh the mounted auth with:
 claude auth login
 ```
 
-Use `prepare-harness-parity --docker-app` only for the legacy containerized app
-flow.
+Use `prepare-harness-parity --docker-app` only for the containerized app
+fallback.
 
 Use `run_harness_parity_local_batch.sh` for fast iteration: `smoke` is the
 cheap confidence pass, `fast` covers core/plan/skills/replay, and `deep` is for
@@ -111,6 +120,39 @@ python -m scripts.screenshots stage --only project-workspace
 python -m scripts.screenshots capture --only project-workspace
 python -m scripts.screenshots check
 ```
+
+## Screenshot Evidence Contract
+
+Every e2e proof that touches UI, Project runs, harness sessions, browser output,
+or user-reviewable workflow state needs screenshot evidence. Treat screenshots
+as both:
+
+- **Feedback for you**: inspect the images before closing the task. Confirm the
+  expected route, server, Project/channel/session, data, and visual state are
+  actually rendered. If the image shows a spinner, stale route, wrong channel,
+  empty fixture, clipped content, overlap, or confusing layout, the e2e proof is
+  not done even if pytest passed.
+- **Proof for the user**: durable evidence images belong in source-controlled
+  `docs/images/` and must be referenced from the relevant guide or track doc.
+  Temporary scratch images are fine during iteration, but they are not enough
+  for final proof.
+
+Required closeout flow for UI/e2e evidence:
+
+1. Run the relevant e2e or live scenario against the intended server.
+2. Capture the product UI surfaces that prove the workflow happened, not only a
+   terminal log or generated output. For Project work this usually means the
+   Project page/Runs page/channel/session transcript plus any generated app or
+   browser result.
+3. Open or inspect every new/changed screenshot. Use the images to decide
+   whether rendering, layout, data binding, and workflow state are correct.
+4. Copy durable proof images to `docs/images/` with stable names.
+5. Reference those images from the relevant doc, usually
+   `docs/guides/agent-e2e-development.md` or
+   `docs/guides/visual-feedback-loop.md`.
+6. Run `python -m scripts.screenshots check` and leave it passing.
+7. In the final answer, list the e2e command, screenshot files, what visual
+   inspection confirmed, and any remaining gaps.
 
 Project Factory contract check:
 
@@ -197,6 +239,19 @@ and review notes.
   owns the compose source; coding runs get task-scoped dependency instances so
   parallel runs do not restart the same database/services. App/dev servers are
   native per-agent processes outside the dependency stack.
+- Native local parity sets `CONFIG_STATE_FILE=` by default so source-mode API
+  startup does not replay exported config into a fresh e2e DB. Opt into config
+  restore explicitly only when that is the thing under test.
+- Native local parity uses the repo-seeded `default` bot for e2e health checks;
+  the compose-only `e2e` bot is not available unless a containerized app run
+  mounts `tests/e2e/bot.e2e.yaml`.
+- If the default compose project gets stuck in Docker removal state, verify
+  with a unique `E2E_COMPOSE_PROJECT` and alternate Postgres/SearXNG ports.
+  Do not delete the durable default DB/auth state to unblock a proof run.
+- Native Project parity dogfood requires both product UI evidence and the
+  generated app screenshot. Capture and link the Project detail, Project
+  channels binding, Codex session transcript, and generated app artifacts
+  instead of stopping at the static app image.
 
 ## Completion Standard
 
@@ -205,6 +260,7 @@ Report:
 - which target was used and how it was verified;
 - which e2e tests ran;
 - which screenshot bundle ran;
-- which artifact files changed;
-- whether visual inspection happened;
+- which screenshot/artifact files were added or changed under `docs/images`;
+- which docs now reference those screenshots;
+- what visual inspection confirmed from the screenshots;
 - any missing task grants or auth.

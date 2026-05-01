@@ -10,6 +10,12 @@ typechecks or DOM assertions is not enough for canvas, Starboard, hub, or mobile
 UX changes. Run the browser scenario, capture screenshots, inspect the images,
 then record what changed and what still looks wrong.
 
+Screenshots are not decorative. They are the agent's feedback loop and the
+user-facing proof artifact. If a task asks for e2e evidence, workflow proof, or
+visual validation, do not stop at test output. Capture the relevant UI surfaces,
+inspect them, keep durable proof images in `docs/images/`, reference them from
+the relevant doc, and run `python -m scripts.screenshots check`.
+
 ## Start Here
 
 1. Work from the repository root.
@@ -237,6 +243,33 @@ Good screenshot scenarios:
 - Avoid brittle implementation assertions unless they protect an explicit UX
   anti-pattern, such as side-stripe chrome or duplicate selected labels.
 
+## Evidence Artifacts
+
+Use two classes of screenshots deliberately:
+
+- **Iteration screenshots** can live in `/tmp` or `scratch/agent-e2e/` while
+  diagnosing a problem. Open them and use them to decide what to fix.
+- **Proof screenshots** must be copied or captured under `docs/images/` with a
+  stable filename, then referenced from the relevant guide or track doc. A final
+  answer should never say the UI/e2e proof is good when the only evidence is a
+  temporary file path.
+
+For workflow e2e, capture the UI surfaces a reviewer would use to trust the
+result. Examples: Project detail/Runs/Channels pages, the channel session
+transcript that shows the agent action, receipt rows, review finalization
+state, and the generated app/browser output. A screenshot of only the final app
+is incomplete when the claim is that Spindrel launched, ran, reviewed, or
+recorded the workflow.
+
+After adding or refreshing proof images:
+
+```bash
+python -m scripts.screenshots check
+```
+
+That command verifies docs references are resolvable. It does not replace visual
+inspection.
+
 ## Completion Standard
 
 A UI pass using this skill is not complete until the final response or session
@@ -244,8 +277,9 @@ log states:
 
 - which screenshot bundle ran;
 - whether capture succeeded;
-- which artifact files changed;
-- what the screenshots visibly confirm;
+- which `docs/images` proof files changed;
+- which docs reference those proof files;
+- what the screenshots visibly confirm after inspection;
 - any visual issues that remain.
 
 For UI code changes, also run:

@@ -3,6 +3,32 @@ import {
   useChannelEventSubscription,
   type ChannelEventFrame,
 } from "./useChannelEvents";
+import {
+  resetWidgetStreamSubscriptionsForSource,
+  upsertWidgetStreamSubscription,
+  type WidgetStreamSubscription,
+} from "./widgetStreamBrokerState";
+
+function isPerfDebugEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return (
+      window.localStorage.getItem("spindrelPerfDebug") === "1" ||
+      new URLSearchParams(window.location.search).get("perf") === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function debugBroker(channelId: string, message: string, count: number): void {
+  if (!isPerfDebugEnabled()) return;
+  console.debug("[spindrel:perf] widget broker", {
+    channelId,
+    message,
+    subscriptions: count,
+  });
+}
 
 /**
  * Host-side widget stream broker.
@@ -30,16 +56,12 @@ import {
  * widget outside a broker-hosting page).
  */
 export function useWidgetStreamBroker(channelId: string | undefined): void {
-  type Subscription = {
-    source: Window;
-    subId: string;
-    kinds: string[] | null;
-  };
-  const subsRef = useRef<Subscription[]>([]);
+  const subsRef = useRef<WidgetStreamSubscription[]>([]);
 
   // Handle inbound probe/subscribe/unsubscribe from any iframe on the page.
   useEffect(() => {
     if (!channelId) return;
+    const brokerChannelId = channelId;
     function onMessage(ev: MessageEvent) {
       const msg = ev.data;
       if (!msg || typeof msg !== "object") return;
@@ -49,9 +71,14 @@ export function useWidgetStreamBroker(channelId: string | undefined): void {
       const type = (msg as { type?: unknown }).type;
 
       if (type === "stream_ready_probe") {
+        subsRef.current = resetWidgetStreamSubscriptionsForSource(
+          subsRef.current,
+          source,
+        );
+        debugBroker(brokerChannelId, "source probe reset", subsRef.current.length);
         try {
           source.postMessage(
-            { __spindrel: true, type: "stream_ready_ack", channelId },
+            { __spindrel: true, type: "stream_ready_ack", channelId: brokerChannelId },
             "*",
           );
         } catch {
@@ -62,7 +89,7 @@ export function useWidgetStreamBroker(channelId: string | undefined): void {
 
       if (type === "stream_subscribe") {
         const claimed = (msg as { channelId?: unknown }).channelId;
-        if (typeof claimed === "string" && claimed !== channelId) {
+        if (typeof claimed === "string" && claimed !== brokerChannelId) {
           // Subscription scoped to a different channel — not ours to serve.
           return;
         }
@@ -72,7 +99,12 @@ export function useWidgetStreamBroker(channelId: string | undefined): void {
         const kinds = Array.isArray(rawKinds)
           ? rawKinds.filter((k): k is string => typeof k === "string")
           : null;
-        subsRef.current.push({ source, subId, kinds });
+        subsRef.current = upsertWidgetStreamSubscription(subsRef.current, {
+          source,
+          subId,
+          kinds,
+        });
+        debugBroker(brokerChannelId, "subscribe", subsRef.current.length);
         return;
       }
 
@@ -82,6 +114,7 @@ export function useWidgetStreamBroker(channelId: string | undefined): void {
         subsRef.current = subsRef.current.filter(
           (s) => !(s.subId === subId && s.source === source),
         );
+        debugBroker(brokerChannelId, "unsubscribe", subsRef.current.length);
         return;
       }
     }

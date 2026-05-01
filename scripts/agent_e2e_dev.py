@@ -32,12 +32,14 @@ SCREENSHOT_ENV = REPO_ROOT / "scripts" / "screenshots" / ".env"
 DEFAULT_API_KEY = "e2e-test-key-12345"
 DEFAULT_PORT = 18000
 DEFAULT_IMAGE = "spindrel:e2e"
-COMPOSE_PROJECT = "spindrel-local-e2e"
+COMPOSE_PROJECT = os.environ.get("E2E_COMPOSE_PROJECT", "spindrel-local-e2e")
 COMPOSE_FILE = REPO_ROOT / "tests" / "e2e" / "docker-compose.e2e.yml"
 SUBSCRIPTION_DUMMY_BASE_URL = "http://127.0.0.1:9/v1"
 SUBSCRIPTION_DEFAULT_MODEL = "gpt-5.4-mini"
 PROJECT_FACTORY_SECRET_NAME = "PROJECT_FACTORY_SMOKE_GITHUB_TOKEN"
-HARNESS_PARITY_PROJECT_PATH = "common/projects"
+HARNESS_PARITY_PROJECT_SLUG = "harness-parity-project"
+HARNESS_PARITY_PROJECT_NAME = "Harness Parity Project"
+HARNESS_PARITY_PROJECT_PATH = "common/projects/harness-parity"
 HARNESS_PARITY_DEFAULT_RUNTIMES = ("codex", "claude-code")
 HARNESS_PARITY_LOCAL_TOOLS = (
     "get_tool_info",
@@ -347,6 +349,9 @@ def _native_api_process_env(env: dict[str, str], *, api_url: str, api_key: str) 
     native_env["E2E_HOST"] = parsed.hostname or "localhost"
     native_env["E2E_PORT"] = str(parsed.port or DEFAULT_PORT)
     native_env["SPINDREL_E2E_URL"] = api_url.rstrip("/")
+    native_env["SPINDREL_UI_URL"] = api_url.rstrip("/")
+    native_env["SPINDREL_BROWSER_URL"] = api_url.rstrip("/")
+    native_env["SPINDREL_BROWSER_API_URL"] = api_url.rstrip("/")
     native_env["DATABASE_URL"] = env.get("DATABASE_URL") or _native_database_url(env)
     native_env["SEARXNG_URL"] = env.get("SEARXNG_URL") or _native_searxng_url(env)
     if env.get("E2E_LLM_BASE_URL"):
@@ -368,6 +373,7 @@ def _native_api_process_env(env: dict[str, str], *, api_url: str, api_key: str) 
     native_env.setdefault("CONTEXT_BUDGET_ENABLED", "false")
     native_env.setdefault("RAG_RERANK_ENABLED", "false")
     native_env.setdefault("TOOL_POLICY_ENABLED", "false")
+    native_env.setdefault("CONFIG_STATE_FILE", "")
     native_env.setdefault("FASTEMBED_CACHE_DIR", str(SCRATCH_DIR / "fastembed-cache"))
     native_env.setdefault("LOG_LEVEL", "WARNING")
     return native_env
@@ -382,6 +388,7 @@ def _write_native_api_env(api_url: str, api_key: str, env: dict[str, str]) -> No
         f"E2E_PORT={parsed.port or DEFAULT_PORT}",
         f"E2E_API_KEY={api_key}",
         f"SPINDREL_E2E_URL={api_url.rstrip('/')}",
+        f"SPINDREL_UI_URL={api_url.rstrip('/')}",
         f"SPINDREL_BROWSER_URL={api_url.rstrip('/')}",
         f"SPINDREL_BROWSER_API_URL={api_url.rstrip('/')}",
         f"DATABASE_URL={env.get('DATABASE_URL') or _native_database_url(env)}",
@@ -496,6 +503,15 @@ def _restart_native_api(api_url: str, api_key: str, env: dict[str, str], *, time
     return _start_native_api(api_url, api_key, env, startup_timeout=timeout)
 
 
+def _ensure_built_ui() -> None:
+    """Build the source checkout UI so the native API can serve it same-origin."""
+    ui_dir = REPO_ROOT / "ui"
+    if not ui_dir.is_dir():
+        raise SystemExit(f"UI directory was not found: {ui_dir}")
+    print("building Spindrel UI for same-origin native e2e")
+    _run(["npm", "--prefix", str(ui_dir), "run", "build"], timeout=600)
+
+
 def _run(cmd: list[str], *, env: dict[str, str] | None = None, timeout: int = 600) -> None:
     result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout)
     if result.returncode == 0:
@@ -505,7 +521,10 @@ def _run(cmd: list[str], *, env: dict[str, str] | None = None, timeout: int = 60
 
 
 def _run_best_effort(cmd: list[str], *, env: dict[str, str] | None = None, timeout: int = 120) -> None:
-    subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout)
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return
 
 
 def _remove_compose_service_containers(service: str) -> None:
@@ -528,6 +547,26 @@ def _remove_compose_service_containers(service: str) -> None:
     ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     if ids:
         _run_best_effort(["docker", "rm", "-f", *ids], timeout=60)
+
+
+def _start_dependency_services(compose_env: dict[str, str], overrides: list[Path]) -> None:
+    cmd = _compose_cmd(overrides, "up", "-d", "--remove-orphans", "postgres", "searxng")
+    last_exc: SystemExit | None = None
+    for attempt in range(4):
+        try:
+            _run(cmd, env=compose_env, timeout=180)
+            return
+        except SystemExit as exc:
+            message = str(exc)
+            if "marked for removal" not in message and "No such container" not in message:
+                raise
+            last_exc = exc
+        print("dependency containers were in a transient Docker removal state; draining stale containers")
+        _remove_compose_service_containers("postgres")
+        _remove_compose_service_containers("searxng")
+        time.sleep(2 + attempt)
+    assert last_exc is not None
+    raise last_exc
 
 
 def _prepare_stack(
@@ -567,11 +606,7 @@ def _prepare_stack(
         )
 
     print(f"starting Spindrel e2e dependencies on {api_url}")
-    _run(
-        _compose_cmd(overrides, "up", "-d", "--remove-orphans", "postgres", "searxng"),
-        env=compose_env,
-        timeout=180,
-    )
+    _start_dependency_services(compose_env, overrides)
     print("recreating Spindrel e2e app container from current image")
     _run_best_effort(_compose_cmd(overrides, "stop", "spindrel"), env=compose_env)
     _run_best_effort(_compose_cmd(overrides, "rm", "-f", "spindrel"), env=compose_env)
@@ -610,11 +645,7 @@ def _prepare_dependencies_only(
 
     compose_env = _compose_env(env, api_url=api_url, api_key=api_key)
     overrides = _compose_overrides(env)
-    _run(
-        _compose_cmd(overrides, "up", "-d", "--remove-orphans", "postgres", "searxng"),
-        env=compose_env,
-        timeout=180,
-    )
+    _start_dependency_services(compose_env, overrides)
     postgres_port = compose_env.get("E2E_POSTGRES_PORT", "15432")
     searxng_port = compose_env.get("E2E_SEARXNG_PORT", "18080")
     print("Spindrel e2e dependencies are running")
@@ -678,6 +709,8 @@ def cmd_start_api(args: argparse.Namespace) -> int:
     api_url = (args.api_url or _base_url(env)).rstrip("/")
     _require_non_production(api_url, allow_production=args.allow_production)
     api_key = args.api_key or _api_key(env)
+    if args.build_ui:
+        _ensure_built_ui()
     api_url = _ensure_native_api(
         api_url=api_url,
         api_key=api_key,
@@ -947,6 +980,58 @@ def _ensure_harness_parity_bot(
     print(f"updated harness parity bot {bot_id!r}")
 
 
+def _project_dev_targets() -> list[dict]:
+    return [
+        {
+            "key": "app",
+            "label": "App",
+            "port_env": "SPINDREL_DEV_APP_PORT",
+            "url_env": "SPINDREL_DEV_APP_URL",
+            "port_range": [31000, 31999],
+        }
+    ]
+
+
+def _ensure_project(
+    api_url: str,
+    api_key: str,
+    *,
+    slug: str,
+    name: str,
+    root_path: str,
+    metadata: dict | None = None,
+) -> dict:
+    metadata = metadata or {}
+    projects = _request_json("GET", f"{api_url}/api/v1/projects", api_key=api_key, timeout=60)
+    existing = next(
+        (
+            project for project in projects
+            if isinstance(project, dict) and str(project.get("slug") or "") == slug
+        ),
+        None,
+    )
+    body = {
+        "name": name,
+        "slug": slug,
+        "root_path": root_path,
+        "metadata_": metadata,
+    }
+    if existing:
+        project_id = str(existing["id"])
+        project = _request_json(
+            "PATCH",
+            f"{api_url}/api/v1/projects/{project_id}",
+            api_key=api_key,
+            body=body,
+            timeout=60,
+        )
+        print(f"updated project {slug!r}: {project_id}")
+        return project
+    project = _request_json("POST", f"{api_url}/api/v1/projects", api_key=api_key, body=body, timeout=60)
+    print(f"created project {slug!r}: {project.get('id')}")
+    return project
+
+
 def _ensure_harness_parity_channel(
     api_url: str,
     api_key: str,
@@ -954,7 +1039,7 @@ def _ensure_harness_parity_channel(
     client_id: str,
     name: str,
     bot_id: str,
-    project_path: str,
+    project_id: str,
 ) -> str:
     channel = _request_json(
         "POST",
@@ -976,7 +1061,12 @@ def _ensure_harness_parity_channel(
         "PATCH",
         f"{api_url}/api/v1/admin/channels/{channel_id}/settings",
         api_key=api_key,
-        body={"bot_id": bot_id, "project_path": project_path},
+        body={
+            "bot_id": bot_id,
+            "project_id": project_id,
+            "project_workspace_id": "",
+            "project_path": "",
+        },
         timeout=60,
     )
     print(f"ensured harness parity channel {name!r}: {channel_id}")
@@ -988,6 +1078,7 @@ def _write_harness_parity_env(
     api_url: str,
     api_key: str,
     channel_ids_by_runtime: dict[str, str],
+    project_id: str,
     project_path: str,
     native_app: bool,
 ) -> None:
@@ -1001,10 +1092,11 @@ def _write_harness_parity_env(
         f"E2E_HOST={host}",
         f"E2E_PORT={port}",
         f"E2E_API_KEY={api_key}",
-        "E2E_BOT_ID=e2e",
+        f"E2E_BOT_ID={'default' if native_app else 'e2e'}",
         "E2E_KEEP_RUNNING=1",
         "HARNESS_PARITY_LOCAL=1",
         f"HARNESS_PARITY_NATIVE_APP={1 if native_app else 0}",
+        f"HARNESS_PARITY_PROJECT_ID={project_id}",
         f"HARNESS_PARITY_PROJECT_PATH={project_path}",
         (
             "HARNESS_PARITY_AGENT_CONTAINER="
@@ -1043,6 +1135,8 @@ def cmd_prepare_harness_parity(args: argparse.Namespace) -> int:
         _ensure_auth_override()
         env = _merged_env()
     if not args.skip_setup:
+        if native_app and not args.skip_ui_build:
+            _ensure_built_ui()
         if native_app:
             api_url = _ensure_native_api(
                 api_url=api_url,
@@ -1080,6 +1174,21 @@ def cmd_prepare_harness_parity(args: argparse.Namespace) -> int:
             timeout=args.startup_timeout,
         )
 
+    project = _ensure_project(
+        api_url,
+        api_key,
+        slug=HARNESS_PARITY_PROJECT_SLUG,
+        name=HARNESS_PARITY_PROJECT_NAME,
+        root_path=args.project_path,
+        metadata={
+            "scenario": "harness_parity",
+            "dev_targets": _project_dev_targets(),
+        },
+    )
+    project_id = str(project.get("id") or "")
+    if not project_id:
+        raise SystemExit(f"project create/update response did not include an id: {project}")
+
     channel_ids: dict[str, str] = {}
     for runtime in runtimes:
         config = HARNESS_PARITY_RUNTIME_CONFIG[runtime]
@@ -1108,13 +1217,14 @@ def cmd_prepare_harness_parity(args: argparse.Namespace) -> int:
             client_id=str(config["channel_client_id"]),
             name=str(config["channel_name"]),
             bot_id=str(config["bot_id"]),
-            project_path=args.project_path,
+            project_id=project_id,
         )
 
     _write_harness_parity_env(
         api_url=api_url,
         api_key=api_key,
         channel_ids_by_runtime=channel_ids,
+        project_id=project_id,
         project_path=args.project_path,
         native_app=native_app,
     )
@@ -1465,6 +1575,7 @@ def build_parser() -> argparse.ArgumentParser:
     start_api = sub.add_parser("start-api")
     start_api.add_argument("--api-url", default="")
     start_api.add_argument("--api-key", default="")
+    start_api.add_argument("--build-ui", action="store_true")
     start_api.add_argument("--startup-timeout", type=int, default=180)
     start_api.add_argument("--allow-production", action="store_true")
     start_api.set_defaults(func=cmd_start_api)
@@ -1558,10 +1669,11 @@ def build_parser() -> argparse.ArgumentParser:
     harness.add_argument("--project-path", default=HARNESS_PARITY_PROJECT_PATH)
     harness.add_argument("--skip-setup", action="store_true")
     harness.add_argument("--no-build", action="store_true")
+    harness.add_argument("--skip-ui-build", action="store_true")
     harness.add_argument(
         "--docker-app",
         action="store_true",
-        help="Use the legacy local Docker app container instead of starting the API natively.",
+        help="Use the containerized local app fallback instead of starting the API from this checkout.",
     )
     harness.add_argument("--skip-live-auth-check", action="store_true")
     harness.add_argument("--startup-timeout", type=int, default=180)

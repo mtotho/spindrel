@@ -264,24 +264,28 @@ async def serve_integration_ui(integration_id: str, path: str = ""):
 
 
 # ---------------------------------------------------------------------------
-# Main UI — serve built React SPA from ui-dist/ (baked into Docker image)
+# Main UI — serve built React SPA from ui-dist/ or ui/dist/.
 # ---------------------------------------------------------------------------
 # IMPORTANT: We cannot use app.mount("/", ...) because Starlette Mounts at "/"
 # swallow ALL requests including API routes. Instead, we add a lowest-priority
 # middleware that serves static files only when no API route matched (404).
-_UI_DIST = Path(__file__).resolve().parent.parent / "ui-dist"
-if _UI_DIST.is_dir():
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_UI_DIST_CANDIDATES = (_REPO_ROOT / "ui-dist", _REPO_ROOT / "ui" / "dist")
+_UI_DIST = next(
+    (candidate for candidate in _UI_DIST_CANDIDATES if (candidate / "index.html").is_file()),
+    _UI_DIST_CANDIDATES[0],
+)
+_UI_INDEX = _UI_DIST / "index.html"
+if _UI_INDEX.is_file():
     import mimetypes
     from starlette.responses import FileResponse, Response
     from starlette.types import Receive, Scope, Send
-
-    _UI_INDEX = _UI_DIST / "index.html"
 
     class SPAFallbackMiddleware:
         """ASGI middleware that serves the SPA when the app returns 404.
 
         Only intercepts GET requests — API POSTs etc. pass through untouched.
-        Serves exact file matches from ui-dist/, falls back to index.html
+        Serves exact file matches from the built UI directory, falls back to index.html
         for client-side routing.
         """
         def __init__(self, app):

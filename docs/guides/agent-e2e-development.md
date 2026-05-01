@@ -51,6 +51,7 @@ Then have the helper start the shared local dependencies:
 
 ```bash
 python scripts/agent_e2e_dev.py prepare-deps
+python scripts/agent_e2e_dev.py start-api --build-ui
 python scripts/agent_e2e_dev.py doctor
 ```
 
@@ -63,6 +64,10 @@ iterating. Future agents should run `doctor` first; if it reports
 `write-env` also writes stable local `ENCRYPTION_KEY` and `JWT_SECRET` values.
 Do not remove those while keeping the durable Postgres volume; encrypted
 provider/OAuth rows cannot boot under a different key.
+If Docker leaves the default compose project with stale/dead containers that it
+cannot remove, use `E2E_COMPOSE_PROJECT=<unique-name>` with alternate
+`E2E_POSTGRES_PORT` / `E2E_SEARXNG_PORT` values. Do not wipe provider/OAuth
+state just to get unstuck.
 
 Use `python scripts/agent_e2e_dev.py prepare` only when you intentionally need
 the full Docker app-container e2e stack for a fixture that explicitly expects
@@ -99,7 +104,7 @@ silently talk to a stale container on `:18000`. If the subscription provider is
 already connected, the command skips the browser/device-code flow and only
 repairs the e2e bot provider bindings.
 
-For native Codex/Claude harness auth in the legacy local e2e app container:
+For native Codex/Claude harness auth in the containerized local app fallback:
 
 ```bash
 python scripts/agent_e2e_dev.py write-auth-override
@@ -127,14 +132,20 @@ Docker-backed dependencies are running, starts or reuses a native `uvicorn` API
 process from this checkout on an unused port, enables the Codex/Claude
 integrations, installs their declared dependencies, verifies
 `/admin/harnesses`, and creates stable local harness bots/channels attached to
-`common/projects`. It writes native API settings to
+the real Project `Harness Parity Project` at
+`common/projects/harness-parity`. It writes native API settings to
 `scratch/agent-e2e/native-api.env` and channel ids/runner settings to
 `scratch/agent-e2e/harness-parity.env`. The helper restarts the native API
 after dependency installation so newly installed harness packages are imported
-before runtime readiness is checked.
+before runtime readiness is checked. In native mode it also builds `ui/dist`
+so the API can serve the UI same-origin without a separate Vite process.
 The parity bots are seeded with the baseline Spindrel bridge tools required by
 the live scenarios, including `get_tool_info`, channel history, memory, and
 skill lookup tools.
+Native local parity sets `CONFIG_STATE_FILE=` by default so source-mode startup
+does not replay exported config into a fresh e2e DB. It also uses the
+repo-seeded `default` bot for e2e harness health checks; the compose-only
+`e2e` bot exists only when the app container mounts `tests/e2e/bot.e2e.yaml`.
 
 Claude Code readiness includes a tiny live auth smoke. Native
 `claude auth status` can still report logged-in when the first SDK turn returns
@@ -146,7 +157,7 @@ claude auth login
 ```
 
 Use `python scripts/agent_e2e_dev.py prepare-harness-parity --docker-app` only
-when a legacy app-container run is explicitly required.
+when a containerized app fallback run is explicitly required.
 
 Focused local runs reuse the deployed parity scenarios:
 
@@ -200,6 +211,21 @@ python -m scripts.screenshots check
 
 Inspect changed images before calling the work done. Screenshot assertions prove
 that the scripted route rendered; visual review proves the UI is acceptable.
+
+For workflow e2e, screenshots are part of the acceptance contract. Capture the
+screens a reviewer would use to trust the run: the Project or channel surface
+that launched work, the session transcript or Runs/Receipts rows that show what
+the agent did, and any generated app/browser output. Use temporary screenshots
+while debugging, but final proof artifacts must live under `docs/images/`, be
+referenced from this guide or the relevant feature guide, and pass:
+
+```bash
+python -m scripts.screenshots check
+```
+
+Do not report a workflow as visually verified when the screenshot only shows
+the final generated page. If the claim is that Spindrel created, ran, reviewed,
+or recorded work, include Spindrel UI screenshots proving that path.
 
 Screenshot staging should be deterministic for documentation artifacts. If a
 capture needs a transcript, inject fixture messages or seed durable rows instead
@@ -267,6 +293,19 @@ artifact to capture local UI evidence. The current docs artifacts are:
 ![Project Factory live PR smoke run](../images/project-factory-live-pr-smoke.png)
 
 ![Project Factory live PR smoke receipts](../images/project-factory-live-pr-smoke-receipts.png)
+
+## Native Project Parity Evidence
+
+The native local parity proof should include both product UI evidence and the
+generated app screenshot. The current checked-in proof artifacts are:
+
+![Project parity Project files](../images/project-parity-project-detail.png)
+
+![Project parity channel binding](../images/project-parity-project-channels.png)
+
+![Project parity Codex session transcript](../images/project-parity-codex-session.png)
+
+![Project parity generated app](../images/project-parity-generated-app.png)
 
 After UI-affecting Project Factory changes, refresh and inspect the Project
 Workspace screenshot bundle:

@@ -603,10 +603,12 @@ async def _assert_browser_runtime_live_diagnostics(
 ) -> None:
     stacks = await client.list_docker_stacks()
     browser_stacks = [s for s in stacks if s.get("integration_id") == "browser_automation"]
-    if os.environ.get("HARNESS_PARITY_LOCAL") == "1" and not browser_stacks:
-        if require_shared_runtime:
+    if os.environ.get("HARNESS_PARITY_LOCAL") == "1":
+        running_browser_stacks = [s for s in browser_stacks if s.get("status") == "running"]
+        if not browser_stacks and require_shared_runtime:
             pytest.skip("local harness parity stack does not expose browser_automation docker stacks")
-        return
+        if not require_shared_runtime and not running_browser_stacks:
+            return
     assert browser_stacks, "browser_automation docker stack is not registered"
     stack = browser_stacks[0]
     assert stack.get("status") == "running", f"browser_automation stack is not running: {stack}"
@@ -644,20 +646,17 @@ async def _assert_browser_runtime_live_diagnostics(
     )
 
 
-def _start_container_http_server(directory: str) -> tuple[subprocess.Popen, int]:
-    if not shutil.which("docker"):
-        pytest.skip("docker CLI is not available for project screenshot diagnostics")
-
+def _start_project_http_server(directory: str) -> tuple[subprocess.Popen, str]:
     container = os.environ.get("HARNESS_PARITY_AGENT_CONTAINER", "")
-    if not container:
-        pytest.skip("native local harness parity has no app container for project screenshot diagnostics")
     base_port = int(os.environ.get("HARNESS_PARITY_APP_PORT_BASE", "18500"))
     offset = int(uuid.uuid4().hex[:4], 16) % 200
     last_error = ""
     for index in range(20):
         port = base_port + offset + index
-        proc = subprocess.Popen(
-            [
+        if container:
+            if not shutil.which("docker"):
+                pytest.skip("docker CLI is not available for project screenshot diagnostics")
+            cmd = [
                 "docker",
                 "exec",
                 container,
@@ -669,11 +668,40 @@ def _start_container_http_server(directory: str) -> tuple[subprocess.Popen, int]
                 "0.0.0.0",
                 "--directory",
                 directory,
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+            ]
+            probe_cmd = [
+                "docker",
+                "exec",
+                container,
+                "python",
+                "-c",
+                (
+                    "import urllib.request; "
+                    f"urllib.request.urlopen('http://127.0.0.1:{port}/', timeout=1).read(32)"
+                ),
+            ]
+            url = f"http://agent-server:{port}/"
+        else:
+            cmd = [
+                "python",
+                "-m",
+                "http.server",
+                str(port),
+                "--bind",
+                "127.0.0.1",
+                "--directory",
+                directory,
+            ]
+            probe_cmd = [
+                "python",
+                "-c",
+                (
+                    "import urllib.request; "
+                    f"urllib.request.urlopen('http://127.0.0.1:{port}/', timeout=1).read(32)"
+                ),
+            ]
+            url = f"http://127.0.0.1:{port}/"
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
             if proc.poll() is not None:
@@ -681,17 +709,7 @@ def _start_container_http_server(directory: str) -> tuple[subprocess.Popen, int]
                 last_error = stderr or f"server exited with code {proc.returncode}"
                 break
             probe = subprocess.run(
-                [
-                    "docker",
-                    "exec",
-                    container,
-                    "python",
-                    "-c",
-                    (
-                        "import urllib.request; "
-                        f"urllib.request.urlopen('http://127.0.0.1:{port}/', timeout=1).read(32)"
-                    ),
-                ],
+                probe_cmd,
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -699,7 +717,7 @@ def _start_container_http_server(directory: str) -> tuple[subprocess.Popen, int]
                 check=False,
             )
             if probe.returncode == 0:
-                return proc, port
+                return proc, url
             last_error = probe.stderr
             time.sleep(0.25)
         if proc.poll() is None:
@@ -708,7 +726,7 @@ def _start_container_http_server(directory: str) -> tuple[subprocess.Popen, int]
                 proc.wait(timeout=3)
             if proc.poll() is None:
                 proc.kill()
-    raise AssertionError(f"could not start container HTTP server for {directory!r}: {last_error}")
+    raise AssertionError(f"could not start project HTTP server for {directory!r}: {last_error}")
 
 
 async def _capture_project_screenshot(*, url: str, out_path: Path, marker: str) -> None:
@@ -1052,6 +1070,9 @@ async def _assert_harness_project_cwd(
     assert "/opt/thoth-server" not in effective_cwd, status
 
     settings = await client.get_channel_settings(channel_id)
+    expected_project_id = os.environ.get("HARNESS_PARITY_PROJECT_ID", "").strip()
+    if expected_project_id:
+        assert str(settings.get("project_id") or "") == expected_project_id
     assert settings.get("project_path") == expected_project_path
     assert settings.get("resolved_project_workspace_id") == project_dir.get("workspace_id")
     return status
@@ -2209,8 +2230,7 @@ async def test_live_harness_project_plan_build_and_screenshot(
             expected_project_path=expected_project_path,
         )
         server_dir = f"{final_status['effective_cwd'].rstrip('/')}/{app_rel}"
-        server_proc, port = _start_container_http_server(server_dir)
-        screenshot_url = f"http://agent-server:{port}/"
+        server_proc, screenshot_url = _start_project_http_server(server_dir)
         screenshot_path = _artifact_root() / marker / f"{case.name}-project.png"
         await _capture_project_screenshot(
             url=screenshot_url,
