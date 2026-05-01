@@ -1710,6 +1710,56 @@ async def test_live_harness_claude_native_todo_progress_persists(
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)
 @pytest.mark.asyncio
+async def test_live_harness_claude_native_toolsearch_persists(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("skills")
+    if case.name != "claude":
+        pytest.skip("Claude Code-specific ToolSearch SDK surface")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    await client.execute_slash_command(
+        "model",
+        session_id=session_id,
+        args=["claude-sonnet-4-5"],
+    )
+    await client.set_session_approval_mode(session_id, "bypassPermissions")
+    marker = uuid.uuid4().hex[:10]
+
+    result = await client.chat_session_stream(
+        (
+            "Claude SDK ToolSearch parity. Use ToolSearch exactly once to search "
+            "for the native tool named TodoWrite. Do not call TodoWrite, Bash, "
+            "Read, Write, Edit, Agent, or Task. After ToolSearch returns, reply "
+            f"exactly: toolsearch ok {marker}"
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert f"toolsearch ok {marker}" in result.response_text.lower()
+    assert any(
+        event.type == "tool_start" and event.data.get("tool") == "ToolSearch"
+        for event in result.events
+    ), "Claude did not emit a native ToolSearch tool_start"
+
+    messages = await client.get_session_messages(session_id, limit=20)
+    assistants = _assistant_messages(messages)
+    toolsearch_messages = [
+        message for message in assistants
+        if _message_mentions_any_tool(message, ("ToolSearch",))
+    ]
+    assert toolsearch_messages, "Claude ToolSearch did not persist in assistant transcript"
+    assert any(_has_persisted_tool_result_envelope(message) for message in toolsearch_messages), (
+        "Claude ToolSearch did not persist a renderable discovery result envelope"
+    )
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
 async def test_live_harness_claude_native_subagent_persists(
     client: E2EClient,
     case: HarnessCase,

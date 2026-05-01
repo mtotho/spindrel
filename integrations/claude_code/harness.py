@@ -96,6 +96,7 @@ _BYPASS_ALLOWED: tuple[str, ...] = (
 _RESTRICTED_ALLOWED: tuple[str, ...] = ("Read", "Glob", "Grep", "WebSearch")
 _TEXT_RESULT_TOOLS: frozenset[str] = frozenset({"Read", "Bash", "Glob", "Grep"})
 _PROGRESS_RESULT_TOOLS: frozenset[str] = frozenset({"TodoWrite"})
+_DISCOVERY_RESULT_TOOLS: frozenset[str] = frozenset({"ToolSearch"})
 _SUBAGENT_RESULT_TOOLS: frozenset[str] = frozenset({"Agent", "Task"})
 
 
@@ -1373,7 +1374,11 @@ def _bridge_message(
                     if (
                         not block.is_error
                         and envelope is None
-                        and tool_name in (_PROGRESS_RESULT_TOOLS | _SUBAGENT_RESULT_TOOLS)
+                        and tool_name in (
+                            _PROGRESS_RESULT_TOOLS
+                            | _DISCOVERY_RESULT_TOOLS
+                            | _SUBAGENT_RESULT_TOOLS
+                        )
                     ):
                         rich = _build_claude_structured_tool_result(
                             tool_name=tool_name,
@@ -1550,6 +1555,23 @@ def _build_claude_structured_tool_result(
                 for item in todos
                 if isinstance(item, dict)
             ][:20]
+        return envelope, summary
+
+    if tool_name in _DISCOVERY_RESULT_TOOLS:
+        query = str(tool_input.get("query") or tool_input.get("pattern") or "").strip()
+        label = f"Tool search: {query}" if query else "Tool search"
+        preview = raw_summary or label
+        envelope, summary = build_text_tool_result(
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+            body=preview,
+            label=label,
+            summary_kind="discovery",
+            subject_type="tool",
+            preview_text=preview,
+        )
+        if query:
+            summary["query"] = query
         return envelope, summary
 
     if tool_name in _SUBAGENT_RESULT_TOOLS:

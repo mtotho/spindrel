@@ -619,6 +619,7 @@ def _sdk_deep_specs(
     image_session_id: str | None = None,
     instruction_session_id: str | None = None,
     todo_session_id: str | None = None,
+    toolsearch_session_id: str | None = None,
     subagent_session_id: str | None = None,
 ) -> list[CaptureSpec]:
     specs: list[CaptureSpec] = []
@@ -665,6 +666,19 @@ def _sdk_deep_specs(
                 "&& document.body.innerText.includes('TodoWrite')"
             ),
             contains=("todo progress ok", "TodoWrite"),
+            theme="dark",
+            channel_id=target.channel_id,
+            chat_mode="terminal",
+        ))
+    if toolsearch_session_id:
+        specs.append(CaptureSpec(
+            name="harness-claude-toolsearch-discovery",
+            route=f"{ui_url}/channels/{target.channel_id}/session/{toolsearch_session_id}",
+            wait_js=(
+                "document.body.innerText.toLowerCase().includes('toolsearch ok') "
+                "&& document.body.innerText.includes('ToolSearch')"
+            ),
+            contains=("toolsearch ok", "ToolSearch"),
             theme="dark",
             channel_id=target.channel_id,
             chat_mode="terminal",
@@ -808,11 +822,12 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                 sdk_names = (
                     *sdk_names,
                     "harness-claude-todowrite-progress",
+                    "harness-claude-toolsearch-discovery",
                     "harness-claude-native-subagent",
                 )
             if _should_include(args.only, *sdk_names):
                 stream_session = image_session = instruction_session = None
-                todo_session = subagent_session = None
+                todo_session = toolsearch_session = subagent_session = None
                 if _should_include(args.only, f"harness-{target.name}-streaming-deltas"):
                     stream_session = await _find_session(
                         client,
@@ -841,6 +856,13 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                         label_fragment="todo progress ok",
                     )
                     sessions[(target.name, "todowrite")] = todo_session
+                if target.name == "claude" and _should_include(args.only, "harness-claude-toolsearch-discovery"):
+                    toolsearch_session = await _find_session(
+                        client,
+                        channel_id=target.channel_id,
+                        label_fragment="toolsearch ok",
+                    )
+                    sessions[(target.name, "toolsearch")] = toolsearch_session
                 if target.name == "claude" and _should_include(args.only, "harness-claude-native-subagent"):
                     subagent_session = await _find_session(
                         client,
@@ -855,6 +877,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                     image_session_id=image_session,
                     instruction_session_id=instruction_session,
                     todo_session_id=todo_session,
+                    toolsearch_session_id=toolsearch_session,
                     subagent_session_id=subagent_session,
                 ))
 

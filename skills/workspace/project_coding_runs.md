@@ -12,6 +12,11 @@ category: workspace
 Use this skill before starting, continuing, reviewing, merging, or finalizing
 Project coding runs.
 
+If the user is still shaping a plan, issue list, or multi-part track, load
+`workspace/issue_intake` first and use `create_issue_work_packs` to publish
+proposed work packs for review. Do not skip straight to implementation unless
+the user explicitly asked to launch a coding run.
+
 ## Scheduled Runs
 
 1. Use `schedule_project_coding_run` when the operator asks for recurring

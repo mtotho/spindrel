@@ -61,6 +61,7 @@ PRESETS: dict[str, tuple[Slice, ...]] = {
         Slice("skills", "native_image_semantic_reasoning"),
         Slice("project", "project_instruction_file_discovery"),
         Slice("skills", "claude and claude_native_todo_progress_persists"),
+        Slice("skills", "claude and claude_native_toolsearch_persists"),
         Slice("skills", "claude and claude_native_subagent_persists"),
     ),
     "ui": (
@@ -94,6 +95,7 @@ PRESETS: dict[str, tuple[Slice, ...]] = {
         Slice("skills", "claude_project_local_native_skill_invocation"),
         Slice("project", "project_instruction_file_discovery"),
         Slice("skills", "claude and claude_native_todo_progress_persists"),
+        Slice("skills", "claude and claude_native_toolsearch_persists"),
         Slice("skills", "claude and claude_native_subagent_persists"),
         Slice("replay", "persisted_tool_replay_survives_refetch"),
     ),
@@ -133,6 +135,7 @@ _SELECTOR_SCREENSHOT_RULES: tuple[tuple[str, str], ...] = (
         "harness-claude-native-custom-skill-result-dark",
     ),
     ("claude_native_todo_progress_persists", "harness-claude-todowrite-progress"),
+    ("claude_native_toolsearch_persists", "harness-claude-toolsearch-discovery"),
     ("claude_native_subagent_persists", "harness-claude-native-subagent"),
 )
 

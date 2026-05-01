@@ -358,6 +358,13 @@ Approval mapping intent (final values from schema):
   keeping `AskUserQuestion` out of the allowlist so the durable Spindrel
   question-card bridge still owns user prompts. Static unit coverage guards
   the allowlist even when `claude_agent_sdk` is not installed locally.
+- 2026-05-01 Claude ToolSearch parity follow-up: added a live SDK scenario for
+  Claude-native `ToolSearch` and fixed the Claude adapter to persist ToolSearch
+  results as renderable discovery envelopes instead of losing the result body on
+  refresh. The scenario uses Sonnet because the Claude Agent SDK ToolSearch
+  docs require Sonnet 4+ / Opus 4+ for that surface, captures
+  `docs/images/harness-claude-toolsearch-discovery.png`, and is now part of the
+  local `sdk`/`deep` presets.
 - 2026-05-01 screenshot follow-up: local harness parity now runs from an
   agent-owned native API on `E2E_PORT` and the shell runners resolve
   `SPINDREL_AGENT_E2E_STATE_DIR` before loading `native-api.env` and

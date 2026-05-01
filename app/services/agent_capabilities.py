@@ -107,6 +107,7 @@ SKILL_OPPORTUNITY_SKILL_LABELS: dict[str, str] = {
     "workspace": "Workspace operations",
     "workspace/files": "Workspace files",
     "workspace/project_coding_runs": "Project coding runs",
+    "workspace/issue_intake": "Issue intake",
     "workspace/member": "Workspace member",
     "context_mastery": "Context mastery",
     "history_and_memory/session_history": "Session history",
@@ -171,6 +172,17 @@ RUNTIME_SKILL_COVERAGE_AUDIT: dict[str, dict[str, Any]] = {
         ],
         "why_skill_shaped": "Project coding runs are ordered implementation/review workflows over Project work surfaces, repo-local commands, dependency stacks, dev targets, screenshots, handoff receipts, and finalization tools.",
         "small_model_reason": "Smaller models need the Project run procedure and review manifest before editing a Project root or finalizing PRs.",
+        "suggested_owner": "existing_runtime_skill",
+    },
+    "project_work_pack_creation": {
+        "coverage_status": "covered",
+        "nearest_existing_skill_ids": [
+            "workspace/issue_intake",
+            "planning/native_session",
+            "workspace/project_coding_runs",
+        ],
+        "why_skill_shaped": "Conversational work-pack creation is an LLM grouping workflow over an existing planning conversation and the create_issue_work_packs tool.",
+        "small_model_reason": "Smaller models need explicit rules to group discrete work, mark vague ideas as needs-info or non-code, and avoid launching coding runs.",
         "suggested_owner": "existing_runtime_skill",
     },
     "context_pressure": {
@@ -1932,6 +1944,17 @@ def _skill_opportunity_payload(manifest: dict[str, Any]) -> dict[str, Any]:
         ))
 
     planning = manifest.get("planning") or {}
+    project = manifest.get("project") or {}
+    if planning.get("active") and project.get("attached"):
+        recommendations.append(_skill_recommendation(
+            feature_id="project_work_pack_creation",
+            feature_label="Project work-pack creation",
+            skill_ids=["workspace/issue_intake"],
+            reason="A Project-bound planning session can be converted into proposed Issue Work Packs with the existing conversational work-pack tool.",
+            when_to_load="Before turning a planning conversation, rough issue list, or multi-part track into proposed Project work packs.",
+            enrolled=enrolled,
+        ))
+
     if planning.get("active"):
         recommendations.append(_skill_recommendation(
             feature_id="native_session_planning",

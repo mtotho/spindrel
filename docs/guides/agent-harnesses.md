@@ -115,6 +115,8 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 
 ![Claude Code project-local native skill invocation rendered in chat](../images/harness-claude-native-custom-skill-result-dark.png)
 
+![Claude Code native ToolSearch discovery rendered in terminal mode](../images/harness-claude-toolsearch-discovery.png)
+
 ![Codex bridge tool result in default chat mode](../images/harness-codex-bridge-default.png)
 
 ![Claude Code bridge tool result in default chat mode](../images/harness-claude-bridge-default.png)

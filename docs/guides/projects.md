@@ -188,6 +188,12 @@ more proposed work packs from the current conversation and automatically creates
 backing issue-intake source records when the agent does not provide existing
 source item ids. `report_issue_work_packs` stays reserved for scheduled
 issue-intake triage tasks.
+Agent Capabilities recommends the `workspace/issue_intake` runtime skill during
+Project-bound planning sessions so ordinary Codex/Claude agents can use the LLM
+to group a plan or rough issue list into proposed packs without a separate
+triage bot. The work-pack launch prompt should carry enough verification
+expectations for a later coding run: repo-local tests, screenshots when
+relevant, handoff/PR intent, and receipt evidence.
 
 Work Packs are reviewed before launch from the Issue Intake workspace. The
 review cockpit lets an operator refine title, summary, category, confidence,

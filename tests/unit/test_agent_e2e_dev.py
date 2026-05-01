@@ -1,12 +1,33 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
+import subprocess
+import sys
 import urllib.error
 
 import pytest
 
 from scripts import agent_e2e_dev
+
+
+def test_agent_e2e_dev_direct_invocation_finds_repo_imports_without_pythonpath():
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    proc = subprocess.run(
+        [sys.executable, "scripts/agent_e2e_dev.py", "--help"],
+        cwd=agent_e2e_dev.REPO_ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=20,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert "prepare-harness-parity" in proc.stdout
 
 
 def test_project_run_guard_blocks_repo_dev_bootstrap(monkeypatch):

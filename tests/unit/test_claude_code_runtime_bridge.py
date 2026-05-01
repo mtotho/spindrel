@@ -807,6 +807,54 @@ def test_todo_write_result_persists_progress_summary():
     assert result_call["envelope"]["tool_call_id"] == "tu_todo"
 
 
+def test_toolsearch_result_persists_discovery_summary():
+    emitter = _RecordingEmitter()
+    result_meta: dict = {}
+    tool_name_by_use_id: dict[str, str] = {}
+    msg_start = AssistantMessage(
+        content=[
+            ToolUseBlock(
+                id="tu_search",
+                name="ToolSearch",
+                input={"query": "TodoWrite"},
+            )
+        ],
+        model="claude-sonnet-4-6",
+    )
+    msg_result = UserMessage(
+        content=[ToolResultBlock(
+            tool_use_id="tu_search",
+            content="Found tool: TodoWrite",
+            is_error=False,
+        )]
+    )
+
+    _bridge_message(
+        msg_start,
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id=tool_name_by_use_id,
+        final_text_parts=[],
+        result_meta=result_meta,
+    )
+    _bridge_message(
+        msg_result,
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id=tool_name_by_use_id,
+        final_text_parts=[],
+        result_meta=result_meta,
+    )
+
+    result_call = [call for call in emitter.calls if call[0] == "tool_result"][-1][1]
+    assert result_call["tool_name"] == "ToolSearch"
+    assert result_call["surface"] == "rich_result"
+    assert result_call["summary"]["kind"] == "discovery"
+    assert result_call["summary"]["subject_type"] == "tool"
+    assert result_call["summary"]["query"] == "TodoWrite"
+    assert result_call["envelope"]["tool_call_id"] == "tu_search"
+
+
 def test_claude_task_result_persists_subagent_summary():
     emitter = _RecordingEmitter()
     result_meta: dict = {}

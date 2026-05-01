@@ -98,11 +98,13 @@ def test_harness_parity_local_batch_sdk_preset_covers_deep_sdk_scenarios() -> No
     assert "HARNESS_PARITY_SCREENSHOT_ONLY=harness-\\*-image-semantic-reasoning" in proc.stdout
     assert "HARNESS_PARITY_SCREENSHOT_ONLY=harness-\\*-project-instruction-discovery" in proc.stdout
     assert "HARNESS_PARITY_SCREENSHOT_ONLY=harness-claude-todowrite-progress" in proc.stdout
+    assert "HARNESS_PARITY_SCREENSHOT_ONLY=harness-claude-toolsearch-discovery" in proc.stdout
     assert "HARNESS_PARITY_SCREENSHOT_ONLY=harness-claude-native-subagent" in proc.stdout
     assert "--tier core --screenshots docs -k core_streams_partial_text_before_final" in proc.stdout
     assert "--tier skills --screenshots docs -k native_image_semantic_reasoning" in proc.stdout
     assert "--tier project --screenshots docs -k project_instruction_file_discovery" in proc.stdout
     assert "--tier skills --screenshots docs -k claude\\ and\\ claude_native_todo_progress_persists" in proc.stdout
+    assert "--tier skills --screenshots docs -k claude\\ and\\ claude_native_toolsearch_persists" in proc.stdout
     assert "--tier skills --screenshots docs -k claude\\ and\\ claude_native_subagent_persists" in proc.stdout
 
 

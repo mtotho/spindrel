@@ -238,9 +238,9 @@ focused selectors for parallel runs; full tier sweeps still create enough
 shared channel pressure that they should be run sequentially.
 Use the `sdk` preset when expanding documented Codex/Claude SDK parity surfaces;
 it covers streaming deltas, image reasoning, project instruction discovery, and
-Claude-native progress/subagent transcript persistence. With `--screenshots
-docs`, the harness screenshot runner also captures the matching transcript
-fixtures into `docs/images`.
+Claude-native progress/discovery/subagent transcript persistence. With
+`--screenshots docs`, the harness screenshot runner also captures the matching
+transcript fixtures into `docs/images`.
 
 Current SDK parity proof images:
 
@@ -249,7 +249,7 @@ Current SDK parity proof images:
 | Streaming deltas | ![Codex streaming deltas](../images/harness-codex-streaming-deltas.png) | ![Claude streaming deltas](../images/harness-claude-streaming-deltas.png) |
 | Image semantic reasoning | ![Codex image semantic reasoning](../images/harness-codex-image-semantic-reasoning.png) | ![Claude image semantic reasoning](../images/harness-claude-image-semantic-reasoning.png) |
 | Project instruction discovery | ![Codex project instruction discovery](../images/harness-codex-project-instruction-discovery.png) | ![Claude project instruction discovery](../images/harness-claude-project-instruction-discovery.png) |
-| Native progress/subagent persistence | | ![Claude TodoWrite progress persistence](../images/harness-claude-todowrite-progress.png) ![Claude native subagent persistence](../images/harness-claude-native-subagent.png) |
+| Native progress/discovery/subagent persistence | | ![Claude TodoWrite progress persistence](../images/harness-claude-todowrite-progress.png) ![Claude ToolSearch discovery persistence](../images/harness-claude-toolsearch-discovery.png) ![Claude native subagent persistence](../images/harness-claude-native-subagent.png) |
 
 Before calling local harness parity done, run the sequential full-suite preset:
 
@@ -281,9 +281,10 @@ strict `all` preset will fail on unexpected skips rather than hiding them.
 Current SDK parity coverage includes Project cwd instruction discovery
 (`AGENTS.md` for Codex, `CLAUDE.md` for Claude), mid-stream text deltas, native
 image semantic reasoning, Claude `TodoWrite` progress persistence, and Claude
-`Agent`/`Task` subagent result persistence. When adding coverage from provider
-SDK docs, prefer one focused live scenario plus adapter-level persistence tests
-so failures separate runtime behavior from transcript rendering.
+`ToolSearch` discovery persistence, and Claude `Agent`/`Task` subagent result
+persistence. When adding coverage from provider SDK docs, prefer one focused
+live scenario plus adapter-level persistence tests so failures separate runtime
+behavior from transcript rendering.
 
 ## Screenshots
 

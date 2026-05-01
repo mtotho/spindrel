@@ -19,13 +19,16 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from tests.e2e.harness.parity_runner import (
     HARNESS_PARITY_DEFAULT_RUNTIMES,
     HARNESS_PARITY_RUNTIME_CONFIG,
 )
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 LOCAL_ENV = REPO_ROOT / ".env.agent-e2e"
 DEFAULT_PORT = 18100
 DEFAULT_SCRATCH_DIR = REPO_ROOT / "scratch" / "agent-e2e"

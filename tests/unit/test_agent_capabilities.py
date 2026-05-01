@@ -266,6 +266,31 @@ def test_skill_opportunities_recommend_native_planning_runtime_skill():
     assert planning["missing_skill_ids"] == ["planning/native_session"]
 
 
+def test_skill_opportunities_recommend_issue_intake_for_project_planning():
+    manifest = {
+        "skills": {"bot_enrolled": [], "channel_enrolled": []},
+        "widgets": {"readiness": "ready", "missing_skills": []},
+        "integrations": {"summary": {}},
+        "coding_run": {"readiness": "needs_project"},
+        "project": {"attached": True},
+        "runtime_context": {"recommendation": "continue"},
+        "doctor": {"findings": [], "pending_repair_requests": []},
+        "planning": {"active": True, "mode": "executing"},
+    }
+
+    payload = agent_capabilities._skill_opportunity_payload(manifest)
+
+    assert payload["creation_candidates"] == []
+    by_feature = {entry["feature_id"]: entry for entry in payload["recommended_now"]}
+    work_pack = by_feature["project_work_pack_creation"]
+    assert work_pack["skill_ids"] == ["workspace/issue_intake"]
+    assert work_pack["first_action"] == 'get_skill("workspace/issue_intake")'
+    assert work_pack["coverage_status"] == "covered"
+    assert work_pack["suggested_owner"] == "existing_runtime_skill"
+    assert work_pack["missing_skill_ids"] == ["workspace/issue_intake"]
+    assert work_pack["model_support"] == "recommended_for_small_models"
+
+
 def test_planning_payload_exposes_active_plan_mode_without_new_api_state():
     session = Session(
         id=uuid.uuid4(),

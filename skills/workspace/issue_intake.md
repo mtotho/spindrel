@@ -29,12 +29,21 @@ launchable Project work packs.
 
 1. Use `create_issue_work_packs` when the user asks you to convert the current
    conversation, plan, rough notes, or track into proposed implementation units.
-2. Create one pack per discrete unit of work. Use `needs_info` or
-   `not_code_work` for ideas/planning items that should not launch directly.
-3. You do not need to create or track source issue IDs first. If you omit
+2. Use the LLM to group the conversation into the smallest useful discrete
+   work units. Do not invent a separate triage process when the conversation
+   already has enough detail.
+3. Use `needs_info` for vague items that need another user answer. Use
+   `not_code_work` for planning, research, future ideas, or operator decisions
+   that should not launch a coding run directly.
+4. For code packs, write `launch_prompt` as the prompt a later Project coding
+   run should receive. Include expected repo-local tests, screenshot/evidence
+   needs, handoff/PR expectations, and receipt requirements when they matter.
+5. Prefer one `create_issue_work_packs` call containing the full proposed set,
+   so the review surface receives one coherent grouping decision.
+6. You do not need to create or track source issue IDs first. If you omit
    `source_item_ids`, Spindrel creates backing conversation intake items and
    links the work packs to them.
-4. Work-pack creation does not launch a Project coding run. The operator or a
+7. Work-pack creation does not launch a Project coding run. The operator or a
    later explicit action chooses which proposed packs to launch.
 
 ## Boundaries
