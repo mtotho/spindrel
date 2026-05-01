@@ -30,6 +30,11 @@ export function shouldShowPinnedWidgetIframeSkeleton(input) {
         return false;
     return input.preloadElapsedMs < input.preloadWatchdogMs;
 }
+export function shouldMountPinnedInteractiveIframe(input) {
+    if (!input.isHtmlInteractive)
+        return true;
+    return input.hasEverBeenVisible;
+}
 export function widgetRefreshJitterMs(key, maxMs = 1_500) {
     if (maxMs <= 0)
         return 0;

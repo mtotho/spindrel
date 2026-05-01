@@ -413,7 +413,7 @@ export function CommandPaletteContent({
           gap: 10,
           padding: isMobile ? "12px 12px" : "14px 16px",
           paddingTop: isMobile ? "max(12px, env(safe-area-inset-top))" : 14,
-          borderBottom: `1px solid ${t.surfaceBorder}`,
+          background: variant === "inline" ? t.surfaceRaised : "transparent",
         }}
       >
         <span
@@ -740,7 +740,7 @@ export function CommandPaletteContent({
             alignItems: "center",
             gap: 16,
             padding: "8px 16px",
-            borderTop: `1px solid ${t.surfaceBorder}`,
+            background: t.surfaceRaised,
             fontSize: 11,
             color: t.textDim,
           }}

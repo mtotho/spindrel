@@ -6,7 +6,6 @@ import { useGoBack } from "@/src/hooks/useGoBack";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { OmniPanel } from "./OmniPanel";
-import { WidgetDockRight } from "./WidgetDockRight";
 import { MobileChannelDrawer } from "./MobileChannelDrawer";
 import { ChannelFileViewer } from "./ChannelFileViewer";
 import { MobileFileViewerSlide } from "./MobileFileViewerSlide";
@@ -46,7 +45,6 @@ import { shouldGroup, formatDateSeparator, isDifferentDay, getTurnMessages, getT
 import { ChatMessageArea, DateSeparator } from "@/src/components/chat/ChatMessageArea";
 import { ChannelPendingApprovals } from "./ChannelPendingApprovals";
 import { ChannelHeader } from "./ChannelHeader";
-import { ChannelHeaderChip } from "./ChannelHeaderChip";
 import { ChannelChatPaneGroup } from "./ChannelChatPaneGroup";
 import { ChannelSessionInlinePicker, ChannelSessionTabStrip } from "./ChannelSessionTabs";
 import {
@@ -93,8 +91,6 @@ const TerminalPanel = lazy(() =>
   import("@/src/components/terminal/TerminalPanel").then((m) => ({ default: m.TerminalPanel })),
 );
 
-const COLLAPSED_PANEL_SPINE_WIDTH_PX = 44;
-const HEADER_RAIL_EDGE_INSET_PX = 12;
 const CENTER_PANEL_GUTTER_PX = 6;
 
 /** Collapsed panel spine: the closed panel still occupies an honest slot in
@@ -286,26 +282,16 @@ export default function ChatScreen() {
     setSplitMode,
     toggleSplit,
     panelPrefs,
-    railPins,
-    headerChipPins,
-    dockPins,
-    hasHeaderChips,
     focusOrRestorePanels,
     showFileViewer,
     showRailZone,
-    showHeaderChips,
-    showDockZone,
     dashboardOnly,
-    dockBlockedByFileViewer,
     panelLayout,
     showExplorer,
-    showRightDock,
     overlayPanelOpen,
     closeOverlayPanels,
     leftPanelResizeMax,
-    rightPanelResizeMax,
     leftSpineActions,
-    rightSpineActions,
     toggleExplorer,
     openBrowseFiles,
     displayName,
@@ -1241,54 +1227,6 @@ export default function ChatScreen() {
     </div>
   );
 
-  // Header-zone chip strip — rendered as an absolute overlay centered over
-  // the top of the three-column row so it floats without consuming vertical
-  // space. Desktop only; mobile surfaces these in the drawer's Widgets tab.
-  // The overlay spans the real center track between the left and right
-  // panels, but remains transparent/click-through outside the actual widgets.
-  const headerChipOverlay =
-    !isMobile && channelId && hasHeaderChips && showHeaderChips ? (
-      <div
-        className="absolute top-1 z-20 pointer-events-none"
-        style={{
-          left:
-            panelLayout.left.mode === "push"
-              ? panelLayout.left.width + HEADER_RAIL_EDGE_INSET_PX + CENTER_PANEL_GUTTER_PX
-              : panelLayout.left.mode === "closed" && !isSystemChannel && showRailZone
-                ? COLLAPSED_PANEL_SPINE_WIDTH_PX + HEADER_RAIL_EDGE_INSET_PX + CENTER_PANEL_GUTTER_PX
-                : HEADER_RAIL_EDGE_INSET_PX + CENTER_PANEL_GUTTER_PX,
-          right:
-            dockBlockedByFileViewer && !isSystemChannel && showDockZone && dockPins.length > 0
-              ? COLLAPSED_PANEL_SPINE_WIDTH_PX + HEADER_RAIL_EDGE_INSET_PX + CENTER_PANEL_GUTTER_PX
-              : panelLayout.right.mode === "push"
-                ? panelLayout.right.width + HEADER_RAIL_EDGE_INSET_PX + CENTER_PANEL_GUTTER_PX
-                : panelLayout.right.mode === "closed" && !isSystemChannel && showDockZone && dockPins.length > 0
-                ? COLLAPSED_PANEL_SPINE_WIDTH_PX + HEADER_RAIL_EDGE_INSET_PX + CENTER_PANEL_GUTTER_PX
-                : HEADER_RAIL_EDGE_INSET_PX + CENTER_PANEL_GUTTER_PX,
-        }}
-      >
-        {panelPrefs.topChromeCollapsed ? (
-          <div className="pointer-events-auto mx-auto flex h-7 w-fit items-center gap-2 rounded-md border border-surface-border bg-surface-raised/90 px-2 text-[11px] text-text-dim shadow-sm">
-            <button
-              type="button"
-              onClick={() => patchChannelPanelPrefs(channelId, { topChromeCollapsed: false, focusModePrior: null })}
-              className="text-text-dim hover:text-text"
-            >
-              Show top widgets
-            </button>
-            <span>{headerChipPins.length}</span>
-          </div>
-        ) : (
-        <div className="w-full">
-          <ChannelHeaderChip
-            channelId={channelId}
-            backdropMode={channel?.config?.header_backdrop_mode ?? "glass"}
-          />
-        </div>
-        )}
-      </div>
-    ) : null;
-
   const outerChildren = (
     <>
       {/* Mobile: header at top, then content stack. */}
@@ -1351,7 +1289,6 @@ export default function ChatScreen() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
           {channelHeaderBlock}
         <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden", position: "relative", minHeight: 0 }}>
-          {headerChipOverlay}
           {overlayPanelOpen && (
             <button
               type="button"
@@ -1556,46 +1493,6 @@ export default function ChatScreen() {
               </div>
             )}
           </div>
-
-          {!isMobile && channelId && !isSystemChannel && showDockZone && dockPins.length > 0 && (panelLayout.right.mode === "closed" || dockBlockedByFileViewer) && (
-            <CollapsedPanelSpine
-              side="right"
-              title={dockBlockedByFileViewer ? "Right dock unavailable" : "Open right dock"}
-              actions={rightSpineActions}
-              statusLabel={dockBlockedByFileViewer ? "Dock Locked" : undefined}
-            />
-          )}
-
-          {/* Right-side widget dock — surfaces channel-dashboard pins whose
-              left edge sits in the dock-right band. Hidden on system channels
-              (no channel dashboard) and when the band is empty. Outer
-              `pr-2.5 py-2.5` mirrors the left dock's `pl-2.5 py-2.5` so the
-              floating-card gap is symmetric on both sides. */}
-          {!isMobile && channelId && !isSystemChannel && showRightDock && showDockZone && (
-            <div
-              className="pr-2.5 py-2.5 flex"
-              style={panelLayout.right.mode === "overlay"
-                ? {
-                    position: "absolute",
-                    right: 0,
-                    top: 0,
-                    bottom: 0,
-                    zIndex: 30,
-                    backgroundColor: t.surface,
-                    boxShadow: "-18px 0 36px rgba(0,0,0,0.28)",
-                  }
-                : undefined}
-            >
-              <WidgetDockRight
-                channelId={channelId}
-                dashboardHref={channelDashboardHref}
-                width={panelLayout.right.width}
-                maxWidth={rightPanelResizeMax}
-                onWidthChange={(width) => patchChannelPanelPrefs(channelId, { rightWidth: width })}
-                onCollapse={() => patchChannelPanelPrefs(channelId, { rightOpen: false })}
-              />
-            </div>
-          )}
 
           {/* Findings panel — pipelines awaiting user approval (system channels only) */}
           {!isMobile && isSystemChannel && findingsPanelOpen && channelId && (

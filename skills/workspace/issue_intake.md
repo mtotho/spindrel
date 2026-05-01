@@ -40,6 +40,10 @@ launchable Project work packs.
    needs, handoff/PR expectations, and receipt requirements when they matter.
 5. Prefer one `create_issue_work_packs` call containing the full proposed set,
    so the review surface receives one coherent grouping decision.
+   Include a top-level `triage_receipt` on that same call with a concise
+   summary, grouping rationale, launch-readiness notes, follow-up questions,
+   and excluded/not-code items. This receipt is the audit trail a later
+   operator uses to understand why the packs exist.
 6. You do not need to create or track source issue IDs first. If you omit
    `source_item_ids`, Spindrel creates backing conversation intake items and
    links the work packs to them.

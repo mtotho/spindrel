@@ -123,9 +123,12 @@ _SELECTOR_SCREENSHOT_RULES: tuple[tuple[str, str], ...] = (
     ("project_instruction_file_discovery", "harness-*-project-instruction-discovery"),
     (
         "codex and native_slash_direct_commands",
-        "harness-native-slash-picker-dark,harness-codex-native-plugins-result-dark,harness-codex-native-resume-result-dark",
+        "harness-native-slash-picker-dark,harness-codex-native-plugins-result-dark,harness-codex-native-resume-result-dark,harness-codex-native-agents-result-dark",
     ),
-    ("claude and native_slash_direct_commands", "harness-claude-native-skills-result-dark"),
+    (
+        "claude and native_slash_direct_commands",
+        "harness-claude-native-skills-result-dark,harness-claude-native-agents-result-dark,harness-claude-native-hooks-result-dark,harness-claude-native-status-result-dark,harness-claude-native-doctor-result-dark",
+    ),
     (
         "native_slash_mutating_commands_handoff",
         "harness-codex-native-plugin-install-handoff-dark",

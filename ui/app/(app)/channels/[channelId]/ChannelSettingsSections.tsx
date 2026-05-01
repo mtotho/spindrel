@@ -537,30 +537,16 @@ export function PresentationSection({
         </FormRow>
         <FormRow
           label="Chat screen layout"
-          description="Controls which dashboard zones render on the chat screen. Mobile still exposes everything in the drawer."
+          description="Controls whether chat includes the channel workbench. Widgets use one workbench surface; dashboard zones only affect the dashboard editor."
         >
           <SelectInput
             value={(form.layout_mode ?? "full") as string}
             onChange={(v) => patch("layout_mode", v as ChannelSettings["layout_mode"])}
             options={[
-              { label: "Full — rail + header chips + chat + right dock", value: "full" },
-              { label: "Rail + header + chat — no right dock", value: "rail-header-chat" },
-              { label: "Rail + chat — no header chips, no right dock", value: "rail-chat" },
+              { label: "Workbench + chat", value: "full" },
+              { label: "Workbench + chat, compact", value: "rail-header-chat" },
+              { label: "Chat with workbench", value: "rail-chat" },
               { label: "Dashboard only — chat replaced by dashboard link", value: "dashboard-only" },
-            ]}
-          />
-        </FormRow>
-        <FormRow
-          label="Header strip shell"
-          description="Controls the host shell behind top-center header widgets. Glass is the default; Surface uses the solid host shell, and Clear removes the shell fill."
-        >
-          <SelectInput
-            value={(form.header_backdrop_mode ?? "glass") as string}
-            onChange={(v) => patch("header_backdrop_mode", v as ChannelSettings["header_backdrop_mode"])}
-            options={[
-              { label: "Glass", value: "glass" },
-              { label: "Surface", value: "default" },
-              { label: "Clear", value: "clear" },
             ]}
           />
         </FormRow>

@@ -72,6 +72,13 @@ async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClie
         bot_id=client.default_bot_id,
         channel_id=channel["id"],
         arguments={
+            "triage_receipt": {
+                "summary": "Conversational planning produced a needs-info pack for later review.",
+                "grouping_rationale": "The note is a planning idea, not launch-ready code work.",
+                "launch_readiness": "Hold until the operator clarifies scope.",
+                "follow_up_questions": ["What concrete user-visible change should launch first?"],
+                "excluded_items": ["Future scheduling ideas were kept out of launch flow."],
+            },
             "packs": [{
                 "title": f"Factory E2E conversational pack {suffix}",
                 "summary": "A normal Project-bound agent can turn a planning conversation into a proposed work pack.",
@@ -85,6 +92,8 @@ async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClie
     conversational_pack = conversational["result"]["work_packs"][0]
     assert conversational_pack["status"] == "needs_info"
     assert conversational_pack["metadata"]["source"] == "conversation"
+    assert conversational_pack["triage_receipt_id"].startswith("issue-triage-receipt:")
+    assert conversational_pack["triage_receipt"]["summary"] == "Conversational planning produced a needs-info pack for later review."
     assert conversational_pack["source_item_ids"]
 
     code_pack = await client.create_issue_work_pack({

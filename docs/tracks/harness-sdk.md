@@ -417,6 +417,23 @@ Approval mapping intent (final values from schema):
   agent-owned native API at port `18102`, captured
   `docs/images/harness-codex-native-resume-result-dark.png`, and verified the
   harness guide's screenshot references.
+- 2026-05-01 native `/agents` proof follow-up: added durable docs screenshots
+  for Codex and Claude Code `/agents`. Codex routes `/agents` through the
+  app-server thread/history surface and renders a summarized payload card;
+  Claude runs the native `claude agents list` path and renders active built-in
+  and plugin agents when the installed CLI supports it, with terminal handoff
+  still accepted for other non-interactive management reads. Focused local
+  parity passed on port `18102`, and the captured images were visually
+  inspected:
+  `docs/images/harness-codex-native-agents-result-dark.png` and
+  `docs/images/harness-claude-native-agents-result-dark.png`.
+- 2026-05-01 Claude native management proof follow-up: added durable docs
+  screenshots for `/hooks`, `/status`, and `/doctor`. On the current installed
+  Claude Code CLI these commands do not finish inside the chat command timeout,
+  so the correct first-class behavior is a terminal handoff card with the exact
+  native command (`claude hooks list`, `claude status`, `claude doctor`) rather
+  than fake success. Focused local parity passed on port `18102`, the guide refs
+  validated, and all three images were visually inspected.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

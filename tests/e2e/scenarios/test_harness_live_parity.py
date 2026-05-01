@@ -1189,7 +1189,9 @@ async def test_live_harness_core_native_slash_direct_commands(
         if case.name == "codex" and runtime_command in {"apps", "hooks", "approvals"}:
             assert result["payload"]["status"] in {"ok", "terminal_handoff"}
             continue
-        if case.name == "claude" and runtime_command in {"agents", "hooks", "status", "doctor"}:
+        if case.name == "claude" and runtime_command in {
+            "plugins", "mcp", "agents", "hooks", "status", "doctor",
+        }:
             assert result["payload"]["status"] in {"ok", "terminal_handoff"}
         else:
             assert result["payload"]["status"] == expected_status

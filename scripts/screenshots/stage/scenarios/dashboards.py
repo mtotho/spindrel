@@ -104,14 +104,25 @@ def pin_chat_rail_widgets(
     existing = {p.get("display_label"): p for p in client.list_pins(dashboard_key=dashboard_key)}
 
     specs = [
-        ("Rail notes", env.notes(), {"x": 0, "y": 0, "w": 12, "h": 8}),
-        ("Rail todos", env.todos(), {"x": 0, "y": 8, "w": 12, "h": 8}),
+        ("Notes", env.notes(), {"x": 0, "y": 0, "w": 12, "h": 8}),
+        ("Todos", env.todos(), {"x": 0, "y": 8, "w": 12, "h": 8}),
     ]
+    legacy_labels = {
+        "Notes": "Rail notes",
+        "Todos": "Rail todos",
+    }
     ids: list[str] = []
     layout_patches: list[dict] = []
     for label, envelope, grid in specs:
         if label in existing:
             pin_id = str(existing[label]["id"])
+            ids.append(pin_id)
+            layout_patches.append({"id": pin_id, "zone": "rail", **grid})
+            continue
+        legacy = existing.get(legacy_labels[label])
+        if legacy:
+            pin_id = str(legacy["id"])
+            client.rename_pin(pin_id, label)
             ids.append(pin_id)
             layout_patches.append({"id": pin_id, "zone": "rail", **grid})
             continue

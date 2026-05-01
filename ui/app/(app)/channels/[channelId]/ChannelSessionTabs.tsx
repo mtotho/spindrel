@@ -593,8 +593,8 @@ function SortableSessionTab({
         "group relative flex h-8 shrink-0 touch-pan-x items-center gap-1 rounded-md px-1.5 text-left transition-colors",
         tab.kind === "split" ? "max-w-[360px]" : "max-w-[260px]",
         tab.active
-          ? "bg-accent/[0.08] text-text"
-          : "text-text-muted hover:bg-surface-overlay/60 hover:text-text",
+          ? "bg-surface-overlay/60 text-text"
+          : "text-text-muted hover:bg-surface-overlay/45 hover:text-text",
         isDragging ? "z-10 opacity-30" : "",
         pending ? "bg-accent/[0.06]" : "",
       ].join(" ")}
@@ -610,11 +610,11 @@ function SortableSessionTab({
         setMenuPosition({ x: event.clientX, y: event.clientY });
       }}
       {...attributes}
-      {...listeners}
     >
       <span
         aria-hidden="true"
-        className="flex h-6 w-4 shrink-0 cursor-grab items-center justify-center rounded text-text-dim/60 transition-colors group-hover:bg-surface-overlay group-hover:text-text group-active:cursor-grabbing"
+        className="flex h-6 w-4 shrink-0 cursor-grab items-center justify-center rounded text-text-dim/40 opacity-0 transition-colors group-hover:bg-surface-overlay group-hover:text-text group-hover:opacity-100 group-focus-within:opacity-100 group-active:cursor-grabbing"
+        {...listeners}
       >
         <GripVertical size={12} aria-hidden="true" />
       </span>
@@ -638,7 +638,7 @@ function SortableSessionTab({
                 index === 0 ? "rounded-l-md" : "",
                 index === tab.panes.length - 1 ? "rounded-r-md" : "",
                 pane.focused
-                  ? "bg-accent/[0.10] text-text"
+                  ? "bg-surface-overlay/80 text-text"
                   : "bg-surface/60 text-text-muted hover:bg-surface-overlay/70 hover:text-text",
               ].join(" ")}
             >
@@ -703,7 +703,7 @@ function SortableSessionTab({
       <span
         className={[
           "absolute inset-x-2 bottom-0 h-px rounded-full transition-colors",
-          tab.active ? "bg-accent/80" : "bg-transparent",
+          tab.active ? "bg-accent/70" : "bg-transparent",
         ].join(" ")}
         aria-hidden="true"
       />
@@ -716,7 +716,7 @@ function SortableSessionTab({
           event.stopPropagation();
           onClose(tab);
         }}
-        className="ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-dim opacity-70 transition-colors hover:bg-surface-overlay hover:text-text group-hover:opacity-100"
+        className="ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-dim opacity-0 transition-colors hover:bg-surface-overlay hover:text-text group-hover:opacity-100 focus-visible:opacity-100"
       >
         <X size={12} />
       </button>

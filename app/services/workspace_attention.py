@@ -1255,7 +1255,7 @@ def _issue_intake_triage_prompt(items: list[WorkspaceAttentionItem], channel_nam
         "- Create code work packs only when the evidence points to concrete implementation work.\n"
         "- Put config/setup/environment/user-decision/non-code items into non-code categories instead of forcing them into Project runs.\n"
         "- If an item is too vague, mark it needs_info and say what is missing.\n"
-        "- Use report_issue_work_packs before your final response.\n"
+        "- Use report_issue_work_packs before your final response, including a triage_receipt with the grouping rationale, launch readiness, follow-up questions, and excluded/not-code items.\n"
         "- Do not launch Project coding runs. Humans approve launches later.\n\n"
         "Work pack categories: code_bug, test_failure, config_issue, environment_issue, user_decision, not_code_work, needs_info, other.\n"
         "Confidence: low, medium, high.\n\n"
@@ -1734,6 +1734,12 @@ async def serialize_issue_work_pack(db: AsyncSession, pack: IssueWorkPack) -> di
     metadata = pack.metadata_ or {}
     review_actions = metadata.get("review_actions") if isinstance(metadata, dict) else None
     latest_review_action = review_actions[-1] if isinstance(review_actions, list) and review_actions else None
+    triage_receipt = metadata.get("triage_receipt") if isinstance(metadata, dict) else None
+    triage_receipt_id = (
+        str(metadata.get("triage_receipt_id") or "")
+        if isinstance(metadata, dict) and metadata.get("triage_receipt_id")
+        else None
+    )
     return {
         "id": str(pack.id),
         "title": pack.title,
@@ -1752,6 +1758,8 @@ async def serialize_issue_work_pack(db: AsyncSession, pack: IssueWorkPack) -> di
         "launched_task_status": launched_task.status if launched_task else None,
         "source_items": source_items,
         "metadata": metadata,
+        "triage_receipt_id": triage_receipt_id,
+        "triage_receipt": triage_receipt if isinstance(triage_receipt, dict) else None,
         "latest_review_action": latest_review_action,
         "created_at": pack.created_at.isoformat() if pack.created_at else None,
         "updated_at": pack.updated_at.isoformat() if pack.updated_at else None,
@@ -1826,6 +1834,57 @@ def _append_issue_work_pack_review_action(
     metadata["latest_review_action"] = entry
     pack.metadata_ = metadata
     flag_modified(pack, "metadata_")
+
+
+def _clip_issue_receipt_text(value: Any, limit: int = 4000) -> str | None:
+    text = str(value or "").strip()
+    return text[:limit] if text else None
+
+
+def _normalize_issue_triage_receipt(
+    raw: dict[str, Any] | None,
+    *,
+    source: str,
+    bot_id: str | None,
+    session_id: uuid.UUID | None = None,
+    task_id: uuid.UUID | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
+    if raw is not None and not isinstance(raw, dict):
+        raise ValidationError("triage_receipt must be an object.")
+    payload = dict(raw or {})
+    summary = _clip_issue_receipt_text(payload.get("summary"), 4000)
+    grouping_rationale = _clip_issue_receipt_text(
+        payload.get("grouping_rationale") or payload.get("rationale"),
+        4000,
+    )
+    launch_readiness = _clip_issue_receipt_text(payload.get("launch_readiness"), 4000)
+    follow_up_questions = [
+        str(item).strip()[:1000]
+        for item in (payload.get("follow_up_questions") or payload.get("questions") or [])
+        if str(item or "").strip()
+    ][:20]
+    excluded_items = [
+        str(item).strip()[:1000]
+        for item in (payload.get("excluded_items") or payload.get("not_code_items") or [])
+        if str(item or "").strip()
+    ][:20]
+    if not any([summary, grouping_rationale, launch_readiness, follow_up_questions, excluded_items]):
+        return None
+    timestamp = now or _now()
+    return {
+        "id": f"issue-triage-receipt:{uuid.uuid4()}",
+        "source": source,
+        "bot_id": bot_id,
+        "session_id": str(session_id) if session_id else None,
+        "task_id": str(task_id) if task_id else None,
+        "created_at": timestamp.isoformat(),
+        "summary": summary,
+        "grouping_rationale": grouping_rationale,
+        "launch_readiness": launch_readiness,
+        "follow_up_questions": follow_up_questions,
+        "excluded_items": excluded_items,
+    }
 
 
 async def update_issue_work_pack(
@@ -2411,6 +2470,11 @@ async def create_manual_issue_work_pack(
             "actor": actor,
             "updated_at": now.isoformat(),
         })
+        receipt = (metadata or {}).get("triage_receipt")
+        receipt_id = (metadata or {}).get("triage_receipt_id")
+        if isinstance(receipt, dict) and receipt_id:
+            triage["triage_receipt_id"] = receipt_id
+            triage["triage_receipt_summary"] = receipt.get("summary")
         evidence["issue_triage"] = triage
         item.evidence = evidence
         item.updated_at = now
@@ -2430,6 +2494,7 @@ async def create_conversational_issue_work_packs(
     task_id: uuid.UUID | None = None,
     project_id: uuid.UUID | None = None,
     latest_correlation_id: uuid.UUID | None = None,
+    triage_receipt: dict[str, Any] | None = None,
 ) -> list[IssueWorkPack]:
     if not bot_id:
         raise ValidationError("bot_id is required.")
@@ -2445,6 +2510,15 @@ async def create_conversational_issue_work_packs(
     if default_project_id and await db.get(Project, default_project_id) is None:
         raise ValidationError("Project not found.")
 
+    now = _now()
+    receipt = _normalize_issue_triage_receipt(
+        triage_receipt,
+        source="conversation",
+        bot_id=bot_id,
+        session_id=session_id,
+        task_id=task_id,
+        now=now,
+    )
     created: list[IssueWorkPack] = []
     for raw_pack in packs:
         pack = dict(raw_pack or {})
@@ -2519,6 +2593,9 @@ async def create_conversational_issue_work_packs(
                 "summary": str(pack.get("conversation_summary") or pack.get("planning_summary") or "").strip()[:4000] or None,
             },
         }
+        if receipt:
+            metadata["triage_receipt_id"] = receipt["id"]
+            metadata["triage_receipt"] = receipt
         work_pack = await create_manual_issue_work_pack(
             db,
             actor=f"bot:{bot_id}",
@@ -2544,6 +2621,7 @@ async def report_issue_work_packs(
     triage_task_id: uuid.UUID | None,
     packs: list[dict[str, Any]],
     item_outcomes: list[dict[str, Any]] | None = None,
+    triage_receipt: dict[str, Any] | None = None,
 ) -> list[IssueWorkPack]:
     if not triage_task_id:
         raise ValidationError("Issue work-pack reporting requires a triage task context.")
@@ -2560,6 +2638,14 @@ async def report_issue_work_packs(
         for raw_id in ((task.callback_config or {}).get("attention_item_ids") or [])
     }
     now = _now()
+    receipt = _normalize_issue_triage_receipt(
+        triage_receipt,
+        source="scheduled_triage",
+        bot_id=bot_id,
+        session_id=task.session_id,
+        task_id=task.id,
+        now=now,
+    )
     created: list[IssueWorkPack] = []
     item_pack_ids: dict[str, list[str]] = {}
 
@@ -2590,6 +2676,17 @@ async def report_issue_work_packs(
                 "Use the linked issue intake as evidence. Start with a regression test where applicable, "
                 "fix the root cause, run focused verification, and publish a Project run receipt."
             )
+        metadata = {
+            "rationale": str(pack.get("rationale") or "").strip()[:4000] or None,
+            "target_project_hint": str(pack.get("target_project_hint") or pack.get("project_hint") or "").strip()[:300] or None,
+            "target_channel_hint": str(pack.get("target_channel_hint") or pack.get("channel_hint") or "").strip()[:300] or None,
+            "non_code_reason": str(pack.get("non_code_reason") or "").strip()[:2000] or None,
+            "reported_by": bot_id,
+            "reported_at": now.isoformat(),
+        }
+        if receipt:
+            metadata["triage_receipt_id"] = receipt["id"]
+            metadata["triage_receipt"] = receipt
         work_pack = IssueWorkPack(
             title=title[:500],
             summary=summary[:8000],
@@ -2599,14 +2696,7 @@ async def report_issue_work_packs(
             source_item_ids=source_ids,
             launch_prompt=launch_prompt[:12000],
             triage_task_id=task.id,
-            metadata_={
-                "rationale": str(pack.get("rationale") or "").strip()[:4000] or None,
-                "target_project_hint": str(pack.get("target_project_hint") or pack.get("project_hint") or "").strip()[:300] or None,
-                "target_channel_hint": str(pack.get("target_channel_hint") or pack.get("channel_hint") or "").strip()[:300] or None,
-                "non_code_reason": str(pack.get("non_code_reason") or "").strip()[:2000] or None,
-                "reported_by": bot_id,
-                "reported_at": now.isoformat(),
-            },
+            metadata_=metadata,
             created_at=now,
             updated_at=now,
         )
@@ -2648,6 +2738,9 @@ async def report_issue_work_packs(
             "reported_by": bot_id,
             "reported_at": now.isoformat(),
         })
+        if receipt:
+            triage["triage_receipt_id"] = receipt["id"]
+            triage["triage_receipt_summary"] = receipt.get("summary")
         evidence["issue_triage"] = triage
         item.evidence = evidence
         item.assignment_status = "reported"

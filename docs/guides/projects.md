@@ -194,6 +194,13 @@ to group a plan or rough issue list into proposed packs without a separate
 triage bot. The work-pack launch prompt should carry enough verification
 expectations for a later coding run: repo-local tests, screenshots when
 relevant, handoff/PR intent, and receipt evidence.
+Each grouping pass should also publish a triage receipt. Conversational
+`create_issue_work_packs` calls and scheduled `report_issue_work_packs` calls
+store `triage_receipt_id` / `triage_receipt` on the created packs and mirror the
+receipt summary back to source item `evidence.issue_triage`. The receipt is
+provenance, not approval: it explains why items were grouped, what is
+launch-ready, what needs info, and what was excluded or classified as non-code
+work.
 
 Work Packs are reviewed before launch from the Issue Intake workspace. The
 review cockpit lets an operator refine title, summary, category, confidence,

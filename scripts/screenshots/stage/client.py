@@ -719,6 +719,19 @@ class SpindrelClient:
         if r.status_code not in (200, 204, 404):
             r.raise_for_status()
 
+    def rename_pin(self, pin_id: str, display_label: str) -> dict:
+        if self._dry_run:
+            logger.info("DRY-RUN PATCH /pins/%s display_label=%s", pin_id, display_label)
+            return {"id": pin_id, "display_label": display_label, "dry_run": True}
+        r = self._http.patch(
+            f"/api/v1/widgets/dashboard/pins/{pin_id}",
+            json={"display_label": display_label},
+        )
+        if r.status_code >= 400:
+            logger.error("PATCH /pins/%s -> %s body=%s", pin_id, r.status_code, r.text[:500])
+        r.raise_for_status()
+        return r.json()
+
     def patch_pins_layout(
         self,
         *,

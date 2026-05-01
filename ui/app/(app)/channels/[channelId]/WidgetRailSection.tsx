@@ -1,6 +1,6 @@
 /**
- * WidgetRailSection — shared single-column RGL grid used by both chat-mode
- * widget rails (left `OmniPanel` Widgets tab + right `WidgetDockRight`). Each
+ * WidgetRailSection — shared single-column RGL grid used by the channel
+ * workbench's Widgets tab. Each
  * widget renders in dashboard scope + railMode so it fills its RGL tile height
  * instead of the channel-scope 350px cap. Drag + resize write back to the
  * channel dashboard via the shared `applyLayout` store action, preserving
@@ -60,8 +60,9 @@ interface WidgetRailSectionProps {
   applyLayout: (
     items: Array<{ id: string; x: number; y: number; w: number; h: number }>,
   ) => Promise<void>;
-  /** Host-zone classification for the widgets in this rail — ``"rail"`` for
-   *  the left OmniPanel column, ``"dock"`` for the right WidgetDockRight.
+  /** Host-zone classification forwarded to widget runtimes. Chat uses the
+   *  workbench as a rail-like layout even when pins came from other dashboard
+   *  zones.
    *  Forwarded to each PinnedToolWidget as ``layout`` so interactive iframes
    *  receive ``window.spindrel.layout``. */
   widgetLayout: WidgetLayout;

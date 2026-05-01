@@ -1,16 +1,12 @@
 /**
- * OmniPanel — dual-section left side panel for a channel.
+ * OmniPanel — channel workbench side panel.
  *
- *   Top:    File explorer (collapsible, only when a workspace exists)
- *   Divider
- *   Bottom: Widgets — a scaled view onto the leftmost half ("rail zone")
- *           of the channel's full dashboard. Pins keep their dashboard grid
- *           coordinates; we render them in a CSS-Grid templated to
- *           `railZoneCols` columns so relative position and size round-trip
- *           between the dashboard and the sidebar.
+ *   Widgets: all channel dashboard pins in a single in-chat surface.
+ *   Files:   workspace/project file browser.
+ *   Jump:    channel-prioritized command palette.
  *
- * Editing happens on the full dashboard page (`/widgets/channel/:id`).
- * The OmniPanel is read-only; one source of truth.
+ * Editing happens on the full dashboard page (`/widgets/channel/:id`). Chat
+ * intentionally has one widget surface; dashboard zones stay authoring data.
  */
 import { useCallback, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
@@ -62,8 +58,8 @@ interface OmniPanelProps {
   onCollapse?: () => void;
 }
 
-/** Top-to-bottom, then left-to-right — matches the visual scan order of the
- *  dashboard's left half so the mini-grid reads the same way. */
+/** Top-to-bottom, then left-to-right — matches the dashboard scan order so
+ *  the workbench reads predictably even when it flattens dashboard zones. */
 function sortByGridYX(a: WidgetDashboardPin, b: WidgetDashboardPin): number {
   const al = a.grid_layout as GridLayoutItem | undefined;
   const bl = b.grid_layout as GridLayoutItem | undefined;
@@ -74,6 +70,17 @@ function sortByGridYX(a: WidgetDashboardPin, b: WidgetDashboardPin): number {
   const bx = bl?.x ?? 0;
   if (ax !== bx) return ax - bx;
   return a.position - b.position;
+}
+
+function uniquePins(pins: WidgetDashboardPin[]): WidgetDashboardPin[] {
+  const seen = new Set<string>();
+  const out: WidgetDashboardPin[] = [];
+  for (const pin of pins) {
+    if (seen.has(pin.id)) continue;
+    seen.add(pin.id);
+    out.push(pin);
+  }
+  return out;
 }
 
 export function OmniPanel({
@@ -123,13 +130,14 @@ export function OmniPanel({
     [dashboardRow?.grid_config],
   );
 
-  // The rail subset: any pin whose left edge sits in the leftmost
-  // `railZoneCols` columns. Resolved via the shared zone classifier so OmniPanel
-  // shares one source of truth with WidgetDockRight + ChannelHeaderChip.
-  const { rail: railBucket } = useChannelChatZones(channelId);
+  // Chat has one widget surface. Keep dashboard zones for the full dashboard,
+  // but aggregate every pin here so users do not have to remember whether a
+  // widget lives in header/rail/dock/grid.
+  const { rail: railBucket, header: headerBucket, dock: dockBucket } = useChannelChatZones(channelId);
+  const allPins = useDashboardPinsStore((s) => s.pins);
   const railPins = useMemo(
-    () => [...railBucket].sort(sortByGridYX),
-    [railBucket],
+    () => uniquePins([...headerBucket, ...railBucket, ...dockBucket, ...allPins]).sort(sortByGridYX),
+    [allPins, dockBucket, headerBucket, railBucket],
   );
 
   // Auto-hydrate when the slug we want differs from the one the store is
@@ -308,7 +316,7 @@ function EmptyWidgets({
     <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 gap-3">
       <Layers size={22} className="text-text-muted opacity-30" />
       <span className="text-center text-xs leading-relaxed text-text-muted/70">
-        Drop widgets into the left half of the channel dashboard to surface them here.
+        Pin widgets on the channel dashboard to surface them in this workbench.
       </span>
       <Link
         to={dashboardHref}

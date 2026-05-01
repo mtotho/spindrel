@@ -458,7 +458,39 @@ def _native_slash_specs(
         "document.body.innerText.toLowerCase().includes('codex resume') "
         "|| document.body.innerText.toLowerCase().includes('runtime command completed')"
     )
+    codex_agents_wait = (
+        "document.body.innerText.toLowerCase().includes('codex agents') "
+        "|| document.body.innerText.toLowerCase().includes('codex native command failed')"
+    )
     claude_result_wait = "document.body.innerText.toLowerCase().includes('claude code skills')"
+    claude_agents_wait = (
+        "document.body.innerText.toLowerCase().includes('claude code agents') "
+        "|| document.body.innerText.toLowerCase().includes('open terminal for native command')"
+    )
+
+    def claude_management_wait(command: str) -> str:
+        return (
+            f"document.body.innerText.toLowerCase().includes('claude code {command}') "
+            "|| document.body.innerText.toLowerCase().includes('open terminal for native command')"
+        )
+
+    def claude_management_spec(command: str) -> CaptureSpec:
+        return CaptureSpec(
+            name=f"harness-claude-native-{command}-result-dark",
+            route=claude_route,
+            wait_js=claude_management_wait(command),
+            contains=("Claude Code", command),
+            theme="dark",
+            channel_id=claude_channel_id,
+            chat_mode="default",
+            slash_query=f"/{command}",
+            submit_slash=True,
+            submit_ready_js=(
+                f"document.body.innerText.toLowerCase().includes('/{command}') "
+                f"|| document.body.innerText.toLowerCase().includes('{command}')"
+            ),
+        )
+
     return [
         CaptureSpec(
             name="harness-native-slash-picker-dark",
@@ -511,6 +543,21 @@ def _native_slash_specs(
             ),
         ),
         CaptureSpec(
+            name="harness-codex-native-agents-result-dark",
+            route=codex_route,
+            wait_js=codex_agents_wait,
+            contains=("Codex", "agents"),
+            theme="dark",
+            channel_id=codex_channel_id,
+            chat_mode="default",
+            slash_query="/agents",
+            submit_slash=True,
+            submit_ready_js=(
+                "document.body.innerText.toLowerCase().includes('/agents') "
+                "|| document.body.innerText.toLowerCase().includes('agents')"
+            ),
+        ),
+        CaptureSpec(
             name="harness-claude-native-skills-result-dark",
             route=claude_route,
             wait_js=claude_result_wait,
@@ -522,6 +569,24 @@ def _native_slash_specs(
             submit_slash=True,
             submit_ready_js=claude_picker_wait,
         ),
+        CaptureSpec(
+            name="harness-claude-native-agents-result-dark",
+            route=claude_route,
+            wait_js=claude_agents_wait,
+            contains=("Claude Code", "agents"),
+            theme="dark",
+            channel_id=claude_channel_id,
+            chat_mode="default",
+            slash_query="/agents",
+            submit_slash=True,
+            submit_ready_js=(
+                "document.body.innerText.toLowerCase().includes('/agents') "
+                "|| document.body.innerText.toLowerCase().includes('agents')"
+            ),
+        ),
+        claude_management_spec("hooks"),
+        claude_management_spec("status"),
+        claude_management_spec("doctor"),
     ]
 
 
@@ -915,7 +980,12 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             "harness-codex-native-plugins-result-dark",
             "harness-codex-native-plugin-install-handoff-dark",
             "harness-codex-native-resume-result-dark",
+            "harness-codex-native-agents-result-dark",
             "harness-claude-native-skills-result-dark",
+            "harness-claude-native-agents-result-dark",
+            "harness-claude-native-hooks-result-dark",
+            "harness-claude-native-status-result-dark",
+            "harness-claude-native-doctor-result-dark",
         )
         if _should_include(args.only, *native_slash_names):
             codex_native_names = (
@@ -923,8 +993,15 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                 "harness-codex-native-plugins-result-dark",
                 "harness-codex-native-plugin-install-handoff-dark",
                 "harness-codex-native-resume-result-dark",
+                "harness-codex-native-agents-result-dark",
             )
-            claude_native_names = ("harness-claude-native-skills-result-dark",)
+            claude_native_names = (
+                "harness-claude-native-skills-result-dark",
+                "harness-claude-native-agents-result-dark",
+                "harness-claude-native-hooks-result-dark",
+                "harness-claude-native-status-result-dark",
+                "harness-claude-native-doctor-result-dark",
+            )
             codex_native_session = (
                 await _create_channel_session(client, channel_id=args.codex_channel_id)
                 if _should_include(args.only, *codex_native_names)

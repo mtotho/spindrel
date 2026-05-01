@@ -6,9 +6,8 @@
  *
  *   [Widgets (N)] [Files] [Jump]
  *
- * Widgets: every channel-dashboard pin grouped by zone (Header / Rail /
- *          Dock / Grid), so mobile users see the full dashboard contents
- *          regardless of the zone each pin lives in on desktop.
+ * Widgets: every channel-dashboard pin in one mobile workbench list, so users
+ *          do not have to understand desktop dashboard zones.
  *
  * Files:   passes through to `FilesTabPanel`. Tapping a file hands the path
  *          back to the page; the parent owns closing the drawer and opening
@@ -39,6 +38,7 @@ import { FilesTabPanel } from "./FilesTabPanel";
 import { PinnedToolWidget } from "./PinnedToolWidget";
 import { widgetPinHref } from "@/src/lib/hubRoutes";
 import type {
+  GridLayoutItem,
   PinnedWidget,
   ToolResultEnvelope,
   WidgetDashboardPin,
@@ -84,6 +84,29 @@ function parseChannelIdFromPaletteItem(item: PaletteItem): string | null {
   return match?.[1] ?? null;
 }
 
+function sortByGridYX(a: WidgetDashboardPin, b: WidgetDashboardPin): number {
+  const al = a.grid_layout as GridLayoutItem | undefined;
+  const bl = b.grid_layout as GridLayoutItem | undefined;
+  const ay = al?.y ?? a.position;
+  const by = bl?.y ?? b.position;
+  if (ay !== by) return ay - by;
+  const ax = al?.x ?? 0;
+  const bx = bl?.x ?? 0;
+  if (ax !== bx) return ax - bx;
+  return a.position - b.position;
+}
+
+function uniquePins(pins: WidgetDashboardPin[]): WidgetDashboardPin[] {
+  const seen = new Set<string>();
+  const out: WidgetDashboardPin[] = [];
+  for (const pin of pins) {
+    if (seen.has(pin.id)) continue;
+    seen.add(pin.id);
+    out.push(pin);
+  }
+  return out;
+}
+
 export function MobileChannelDrawer({
   open,
   onClose,
@@ -125,13 +148,11 @@ export function MobileChannelDrawer({
   const unpin = useDashboardPinsStore((s) => s.unpinWidget);
   const updateEnvelope = useDashboardPinsStore((s) => s.updateEnvelope);
 
-  // Grid pins aren't in the chat-zone buckets — pull directly from the store.
-  const gridPins = useMemo(
-    () => allPins.filter((p) => p.zone === "grid"),
-    [allPins],
+  const widgetPins = useMemo(
+    () => uniquePins([...header, ...rail, ...dock, ...allPins]).sort(sortByGridYX),
+    [allPins, dock, header, rail],
   );
-
-  const totalWidgets = rail.length + header.length + dock.length + gridPins.length;
+  const totalWidgets = widgetPins.length;
   const hasWorkspace = !!workspaceId;
 
   // Lock body scroll while the drawer is open so iOS doesn't leak overscroll
@@ -216,8 +237,8 @@ export function MobileChannelDrawer({
       {/* Tab strip — three segmented pills. `Jump` is the default on first
           open so the drawer's ambient behavior = today's palette. */}
       <div
-        className="flex items-center gap-1 px-2 py-1.5 border-b"
-        style={{ borderColor: t.surfaceBorder }}
+        className="flex items-center gap-1 px-2 py-1.5"
+        style={{ backgroundColor: t.surfaceRaised }}
       >
         <DrawerTab
           label="Widgets"
@@ -259,10 +280,7 @@ export function MobileChannelDrawer({
           <WidgetsTab
             channelId={channelId}
             dashboardHref={dashboardHref}
-            rail={rail}
-            header={header}
-            dock={dock}
-            grid={gridPins}
+            pins={widgetPins}
             onUnpin={handleUnpin}
             onEnvelopeUpdate={handleEnvelopeUpdate}
             onOpenWidget={handleOpenWidget}
@@ -303,10 +321,7 @@ export function MobileChannelDrawer({
 interface WidgetsTabProps {
   channelId: string;
   dashboardHref?: string;
-  rail: WidgetDashboardPin[];
-  header: WidgetDashboardPin[];
-  dock: WidgetDashboardPin[];
-  grid: WidgetDashboardPin[];
+  pins: WidgetDashboardPin[];
   onUnpin: (id: string) => void;
   onEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
   onOpenWidget: (pinId: string) => void;
@@ -318,10 +333,7 @@ interface WidgetsTabProps {
 function WidgetsTab({
   channelId,
   dashboardHref,
-  rail,
-  header,
-  dock,
-  grid,
+  pins,
   onUnpin,
   onEnvelopeUpdate,
   onOpenWidget,
@@ -330,54 +342,15 @@ function WidgetsTab({
   onExpandedWidgetChange,
 }: WidgetsTabProps) {
   const t = useThemeTokens();
-  const total = rail.length + header.length + dock.length + grid.length;
-  if (total === 0) {
+  if (pins.length === 0) {
     return <EmptyWidgetsMessage channelId={channelId} dashboardHref={dashboardHref} />;
   }
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-4">
-      {/* Render header pins as chips (matching their desktop form). Full-tile
-          rendering inflated them into big empty blocks with only the inner
-          chip's content centered inside — the subtitle reads "Chips shown
-          above the chat", so the mobile form should look like a chip too. */}
       <ZoneSection
-        title="Header"
-        subtitle="Chips shown above the chat"
-        pins={header}
-        channelId={channelId}
-        chipMode
-        onUnpin={onUnpin}
-        onEnvelopeUpdate={onEnvelopeUpdate}
-        onOpenWidget={onOpenWidget}
-        expandedWidgetId={expandedWidgetId}
-        onExpandedWidgetChange={onExpandedWidgetChange}
-      />
-      <ZoneSection
-        title="Rail"
-        subtitle="Left sidebar widgets"
-        pins={rail}
-        channelId={channelId}
-        onUnpin={onUnpin}
-        onEnvelopeUpdate={onEnvelopeUpdate}
-        onOpenWidget={onOpenWidget}
-        expandedWidgetId={expandedWidgetId}
-        onExpandedWidgetChange={onExpandedWidgetChange}
-      />
-      <ZoneSection
-        title="Dock"
-        subtitle="Right-side widgets"
-        pins={dock}
-        channelId={channelId}
-        onUnpin={onUnpin}
-        onEnvelopeUpdate={onEnvelopeUpdate}
-        onOpenWidget={onOpenWidget}
-        expandedWidgetId={expandedWidgetId}
-        onExpandedWidgetChange={onExpandedWidgetChange}
-      />
-      <ZoneSection
-        title="Grid"
-        subtitle="Full channel dashboard"
-        pins={grid}
+        title="Pinned widgets"
+        subtitle="Channel dashboard"
+        pins={pins}
         channelId={channelId}
         onUnpin={onUnpin}
         onEnvelopeUpdate={onEnvelopeUpdate}
@@ -451,10 +424,10 @@ function ZoneSection({
           return (
             <div
               key={p.id}
-              className="rounded-lg border overflow-hidden"
+              className="overflow-hidden rounded-md"
               style={{
-                borderColor: expanded ? `${t.accent}66` : t.surfaceBorder,
-                background: expanded ? t.surfaceRaised : "transparent",
+                border: expanded ? `1px solid ${t.surfaceBorder}` : "1px solid transparent",
+                background: expanded ? t.surfaceRaised : t.surfaceRaised,
               }}
             >
               <button

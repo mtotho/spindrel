@@ -5,10 +5,8 @@ import {
   FolderOpen,
   LayoutDashboard as LayoutDashboardIcon,
   Layers,
-  Lock as LockIcon,
   MessageCircle,
   PanelLeft as PanelLeftIcon,
-  PanelRight as PanelRightIcon,
   Search,
   Settings as SettingsIcon,
   StickyNote,
@@ -148,6 +146,7 @@ export function useChannelWorkbenchController({
 
   const { rail: railPins, header: headerChipPins, dock: dockPins } = useChannelChatZones(channelId ?? "");
   const hasHeaderChips = headerChipPins.length > 0;
+  const workbenchWidgetCount = railPins.length + headerChipPins.length + dockPins.length;
 
   const openLeftPanelTab = useCallback((tab: OmniPanelTab) => {
     if (!channelId) return;
@@ -190,22 +189,22 @@ export function useChannelWorkbenchController({
         return {
           focusModePrior: {
             leftOpen: current.leftOpen,
-            rightOpen: current.rightOpen,
+            rightOpen: false,
             topChromeCollapsed: current.topChromeCollapsed,
           },
           leftOpen: false,
-          rightOpen: false,
+          rightOpen: current.rightOpen,
           topChromeCollapsed: true,
         };
       }
       return {
         leftOpen: current.focusModePrior?.leftOpen ?? true,
-        rightOpen: current.focusModePrior?.rightOpen ?? (dockPins.length > 0),
+        rightOpen: current.rightOpen,
         topChromeCollapsed: current.focusModePrior?.topChromeCollapsed ?? false,
         focusModePrior: null,
       };
     });
-  }, [channelId, dockPins.length, patchChannelPanelPrefs]);
+  }, [channelId, patchChannelPanelPrefs]);
 
   useEffect(() => {
     const handler = () => focusOrRestorePanels();
@@ -247,8 +246,8 @@ export function useChannelWorkbenchController({
 
   const showFileViewer = activeFile !== null;
   const showRailZone = layoutMode !== "dashboard-only";
-  const showHeaderChips = layoutMode === "full" || layoutMode === "rail-header-chat";
-  const showDockZone = layoutMode === "full";
+  const showHeaderChips = false;
+  const showDockZone = false;
   const dashboardOnly = layoutMode === "dashboard-only";
   const dockBlockedByFileViewer = showFileViewer && !splitMode;
   const panelLayout = resolveChannelPanelLayout({
@@ -256,7 +255,7 @@ export function useChannelWorkbenchController({
     isMobile,
     layoutMode,
     hasLeftPanel: !!channelId && !isSystemChannel && showRailZone,
-    hasRightPanel: !!channelId && !isSystemChannel && showDockZone && dockPins.length > 0 && !dockBlockedByFileViewer,
+    hasRightPanel: false,
     leftOpen: panelPrefs.leftOpen,
     rightOpen: panelPrefs.rightOpen,
     leftPinned: panelPrefs.leftPinned,
@@ -267,7 +266,7 @@ export function useChannelWorkbenchController({
   const showExplorer = isMobile
     ? panelPrefs.mobileDrawerOpen
     : panelLayout.left.mode !== "closed";
-  const showRightDock = !isMobile && panelLayout.right.mode !== "closed";
+  const showRightDock = false;
   const overlayPanelOpen = panelLayout.left.mode === "overlay" || panelLayout.right.mode === "overlay";
 
   const panelResizeMax = useCallback((side: "left" | "right") => {
@@ -311,7 +310,7 @@ export function useChannelWorkbenchController({
       {
         id: "widgets",
         label: "Widgets",
-        hint: railPins.length > 0 ? String(railPins.length) : undefined,
+        hint: workbenchWidgetCount > 0 ? String(workbenchWidgetCount) : undefined,
         icon: <Layers size={15} />,
         onSelect: () => openLeftPanelTab("widgets"),
       },
@@ -331,19 +330,9 @@ export function useChannelWorkbenchController({
       onSelect: () => openLeftPanelTab("jump"),
     });
     return actions;
-  }, [fileWorkspaceId, openLeftPanelTab, railPins.length]);
+  }, [fileWorkspaceId, openLeftPanelTab, workbenchWidgetCount]);
 
-  const rightSpineActions = useMemo<PanelSpineAction[]>(() => [
-    {
-      id: "dock",
-      label: "Dock",
-      hint: dockBlockedByFileViewer ? undefined : (dockPins.length > 0 ? String(dockPins.length) : undefined),
-      icon: dockBlockedByFileViewer ? <LockIcon size={14} /> : <PanelRightIcon size={15} />,
-      onSelect: () => channelId && patchChannelPanelPrefs(channelId, { rightOpen: true, focusModePrior: null }),
-      disabled: dockBlockedByFileViewer,
-      disabledReason: dockBlockedByFileViewer ? "Close file or enter split view to open dock." : undefined,
-    },
-  ], [channelId, dockBlockedByFileViewer, dockPins.length, patchChannelPanelPrefs]);
+  const rightSpineActions = useMemo<PanelSpineAction[]>(() => [], []);
 
   const displayName = channel?.display_name || channel?.name || channel?.client_id || "Chat";
 
@@ -399,8 +388,8 @@ export function useChannelWorkbenchController({
       });
       actions.push({
         id: `channel:${channelId}:open-widgets`,
-        label: "Open panel: Widgets",
-        hint: railPins.length > 0 ? `${railPins.length} widget${railPins.length === 1 ? "" : "s"}` : channelLabel,
+        label: "Open workbench: Widgets",
+        hint: workbenchWidgetCount > 0 ? `${workbenchWidgetCount} widget${workbenchWidgetCount === 1 ? "" : "s"}` : channelLabel,
         icon: PanelLeftIcon,
         category: "This Channel",
         onSelect: () => openLeftPanelTab("widgets"),
@@ -408,7 +397,7 @@ export function useChannelWorkbenchController({
       if (fileWorkspaceId) {
         actions.push({
           id: `channel:${channelId}:open-files`,
-          label: "Open panel: Files",
+          label: "Open workbench: Files",
           hint: channelLabel,
           icon: FolderOpen,
           category: "This Channel",
@@ -417,7 +406,7 @@ export function useChannelWorkbenchController({
       }
       actions.push({
         id: `channel:${channelId}:open-jump`,
-        label: "Open panel: Jump",
+        label: "Open workbench: Jump",
         hint: channelLabel,
         icon: PanelLeftIcon,
         category: "This Channel",
@@ -425,7 +414,7 @@ export function useChannelWorkbenchController({
       });
       actions.push({
         id: `channel:${channelId}:toggle-left-panel`,
-        label: panelPrefs.leftOpen ? "Hide left workbench" : "Show left workbench",
+        label: panelPrefs.leftOpen ? "Hide workbench" : "Show workbench",
         hint: channelLabel,
         icon: PanelLeftIcon,
         category: "This Channel",
@@ -433,33 +422,15 @@ export function useChannelWorkbenchController({
       });
       actions.push({
         id: `channel:${channelId}:pin-left-panel`,
-        label: panelPrefs.leftPinned ? "Unpin left workbench" : "Pin left workbench open",
+        label: panelPrefs.leftPinned ? "Unpin workbench" : "Pin workbench open",
         hint: channelLabel,
         icon: PanelLeftIcon,
         category: "This Channel",
         onSelect: () => patchChannelPanelPrefs(channelId, { leftPinned: !panelPrefs.leftPinned, leftOpen: true }),
       });
-      if (dockPins.length > 0 && layoutMode === "full") {
-        actions.push({
-          id: `channel:${channelId}:toggle-right-dock`,
-          label: panelPrefs.rightOpen ? "Hide right dock" : "Show right dock",
-          hint: `${dockPins.length} widget${dockPins.length === 1 ? "" : "s"}`,
-          icon: PanelRightIcon,
-          category: "This Channel",
-          onSelect: () => toggleRightDockPanel(),
-        });
-        actions.push({
-          id: `channel:${channelId}:pin-right-dock`,
-          label: panelPrefs.rightPinned ? "Unpin right dock" : "Pin right dock open",
-          hint: `${dockPins.length} widget${dockPins.length === 1 ? "" : "s"}`,
-          icon: PanelRightIcon,
-          category: "This Channel",
-          onSelect: () => patchChannelPanelPrefs(channelId, { rightPinned: !panelPrefs.rightPinned, rightOpen: true }),
-        });
-      }
       actions.push({
         id: `channel:${channelId}:focus-mode`,
-        label: panelPrefs.leftOpen || panelPrefs.rightOpen || !panelPrefs.topChromeCollapsed ? "Focus chat panes" : "Restore panels",
+        label: panelPrefs.leftOpen ? "Focus chat panes" : "Restore workbench",
         hint: channelLabel,
         icon: LayoutDashboardIcon,
         category: "This Channel",
@@ -497,7 +468,7 @@ export function useChannelWorkbenchController({
         id: `channel:${channelId}:findings`,
         label: "Findings",
         hint: findingsCount > 0 ? `${findingsCount} pending` : channelLabel,
-        icon: PanelRightIcon,
+        icon: PanelLeftIcon,
         category: "This Channel",
         onSelect: () => setFindingsPanelOpen((p) => !p),
       });
@@ -512,7 +483,6 @@ export function useChannelWorkbenchController({
     findingsCount,
     channel?.bot_id,
     channelDashboardHref,
-    dockPins.length,
     focusOrRestorePanels,
     fileRootPath,
     navigate,
@@ -522,12 +492,9 @@ export function useChannelWorkbenchController({
     openSplitOverlay,
     openTerminalAtPath,
     panelPrefs.leftOpen,
-    panelPrefs.rightOpen,
     panelPrefs.topChromeCollapsed,
     panelPrefs.leftPinned,
-    panelPrefs.rightPinned,
-    railPins.length,
-    layoutMode,
+    workbenchWidgetCount,
     patchChannelPanelPrefs,
     projectPath,
     registerPaletteActions,

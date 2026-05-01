@@ -409,6 +409,13 @@ async def test_create_conversational_issue_work_packs_auto_creates_source_intake
         bot_id="codex",
         channel_id=channel_id,
         session_id=session_id,
+        triage_receipt={
+            "summary": "Grouped the planning conversation into one launchable Project Factory pack.",
+            "grouping_rationale": "The requested work is one coherent implementation unit.",
+            "launch_readiness": "Ready after human review; requires tests and screenshots.",
+            "follow_up_questions": ["Confirm final UI copy before launch."],
+            "excluded_items": ["Future scheduler ideas stay out of this pack."],
+        },
         packs=[{
             "title": "Split Project Factory into work units",
             "summary": "Create proposed work packs from the planning conversation.",
@@ -428,6 +435,11 @@ async def test_create_conversational_issue_work_packs_auto_creates_source_intake
     assert pack.metadata_["created_by"] == "bot:codex"
     assert pack.metadata_["conversation"]["bot_id"] == "codex"
     assert pack.metadata_["conversation"]["session_id"] == str(session_id)
+    assert pack.metadata_["triage_receipt_id"].startswith("issue-triage-receipt:")
+    assert pack.metadata_["triage_receipt"]["summary"] == "Grouped the planning conversation into one launchable Project Factory pack."
+    serialized = await serialize_issue_work_pack(db_session, pack)
+    assert serialized["triage_receipt_id"] == pack.metadata_["triage_receipt_id"]
+    assert serialized["triage_receipt"]["launch_readiness"] == "Ready after human review; requires tests and screenshots."
     assert pack.source_item_ids and len(pack.source_item_ids) == 1
 
     source = await db_session.get(WorkspaceAttentionItem, uuid.UUID(pack.source_item_ids[0]))
@@ -436,6 +448,8 @@ async def test_create_conversational_issue_work_packs_auto_creates_source_intake
     assert source.evidence["issue_triage"]["state"] == "packed"
     assert source.evidence["issue_triage"]["source"] == "conversation"
     assert source.evidence["issue_triage"]["work_pack_ids"] == [str(pack.id)]
+    assert source.evidence["issue_triage"]["triage_receipt_id"] == pack.metadata_["triage_receipt_id"]
+    assert source.evidence["issue_triage"]["triage_receipt_summary"] == pack.metadata_["triage_receipt"]["summary"]
 
 
 @pytest.mark.asyncio
@@ -496,12 +510,13 @@ async def test_create_issue_work_packs_tool_uses_normal_agent_channel_context(
         "summary": "A normal Project-bound agent should be able to publish this pack.",
         "category": "code_bug",
         "confidence": "medium",
-    }])
+    }], triage_receipt={"summary": "One coherent Project-bound work pack."})
     payload = json.loads(raw)
 
     assert payload["count"] == 1
     assert payload["work_packs"][0]["metadata"]["source"] == "conversation"
     assert payload["work_packs"][0]["project_id"] == str(project_id)
+    assert payload["work_packs"][0]["triage_receipt"]["summary"] == "One coherent Project-bound work pack."
 
 
 @pytest.mark.asyncio
@@ -670,6 +685,12 @@ async def test_report_issue_work_packs_groups_intake_and_marks_items(db_session)
         db_session,
         bot_id="orchestrator",
         triage_task_id=task.id,
+        triage_receipt={
+            "summary": "Grouped two review-surface issues into one implementation pack.",
+            "grouping_rationale": "Both notes concern the Project review cockpit evidence framing.",
+            "launch_readiness": "Ready for human review before launch.",
+            "follow_up_questions": ["Confirm whether copy changes should be included."],
+        },
         packs=[{
             "title": "Improve Project review evidence framing",
             "summary": "The Project review cockpit should frame launch and merge evidence clearly.",
@@ -685,9 +706,11 @@ async def test_report_issue_work_packs_groups_intake_and_marks_items(db_session)
     assert packs[0].source_item_ids == [str(first.id), str(second.id)]
     refreshed = await db_session.get(IssueWorkPack, packs[0].id)
     assert refreshed is not None
+    assert refreshed.metadata_["triage_receipt"]["summary"] == "Grouped two review-surface issues into one implementation pack."
     refreshed_first = await db_session.get(type(first), first.id)
     assert refreshed_first.evidence["issue_triage"]["state"] == "packed"
     assert refreshed_first.evidence["issue_triage"]["work_pack_ids"] == [str(packs[0].id)]
+    assert refreshed_first.evidence["issue_triage"]["triage_receipt_id"] == refreshed.metadata_["triage_receipt_id"]
 
 
 @pytest.mark.asyncio

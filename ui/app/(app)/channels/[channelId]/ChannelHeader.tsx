@@ -234,8 +234,8 @@ export function ChannelHeader({
   const showCanvasState = resolvedChromeMode === "canvas";
   const sessionButtonLabel = "Sessions";
   const showFindingsInline = !isMobile && showFindingsButton;
-  const showSettingsInline = !isMobile;
-  const showDashboardInline = !isMobile;
+  const showSettingsInline = false;
+  const showDashboardInline = false;
   const resolvedMetrics = resolveHeaderMetrics(
     contextBudget,
     sessionHeaderStats,
@@ -449,8 +449,8 @@ export function ChannelHeader({
       </span>
     ) : null,
   ].filter(Boolean);
-  const mobileOverflowActions = [
-    showFindingsButton
+  const overflowActions = [
+    isMobile && showFindingsButton
       ? {
           key: "findings",
           label: findingsCount > 0 ? `Findings (${findingsCount})` : "Findings",
@@ -460,7 +460,7 @@ export function ChannelHeader({
           danger: false,
         }
       : null,
-    channelId && onOpenSessions
+    isMobile && channelId && onOpenSessions
       ? {
           key: "sessions",
           label: sessionButtonLabel,
@@ -505,10 +505,34 @@ export function ChannelHeader({
           disabled: false,
         }
       : null,
+    !isMobile
+      ? {
+          key: "spatial",
+          label: "Open in Spatial",
+          icon: Sparkles,
+          onClick: () => {
+            if (channelId) {
+              try {
+                sessionStorage.setItem(
+                  "spatial.beamFromChannel",
+                  JSON.stringify({ channelId, ts: Date.now() }),
+                );
+              } catch {
+                // sessionStorage unavailable (private mode, etc.) — swallow;
+                // the mount-time dive cooldown still catches the loop.
+              }
+            }
+            navigate("/spatial");
+          },
+          active: false,
+          danger: false,
+          disabled: false,
+        }
+      : null,
     showDashboardButton
       ? {
           key: "widgets",
-          label: "Widgets",
+          label: isMobile ? "Workbench" : "Channel dashboard",
           icon: LayoutDashboard,
           onClick: isMobile
             ? () => toggleDrawerToWidgets(channelId)
@@ -527,7 +551,7 @@ export function ChannelHeader({
     danger: boolean;
     disabled?: boolean;
   }>;
-  const showMobileOverflow = isMobile && mobileOverflowActions.length > 0;
+  const showOverflow = overflowActions.length > 0;
   const titleOpensContext =
     !isMobile &&
     !isSystemChannel &&
@@ -943,7 +967,6 @@ export function ChannelHeader({
         </div>
       )}
 
-      {/* Settings — primary chrome. */}
       {showSettingsInline && channelId && (
         <button
           className="header-icon-btn"
@@ -955,44 +978,6 @@ export function ChannelHeader({
         </button>
       )}
 
-      {/* Beam to spatial canvas — sits to the LEFT of the dashboard switch
-          so the dashboard button stays the rightmost slot (mirrors the
-          chat button's position on the dashboard top bar). Sparkles glyph
-          carries the "beam me up" transport vibe. Desktop-only for now.
-
-          The sessionStorage handoff lets the canvas recenter on this channel's
-          tile at a safe overview zoom on mount — without it, the camera state
-          loaded from localStorage can re-trigger the push-through dive
-          immediately and suck the user back into the channel they just left. */}
-      {!isMobile && (
-        <button
-          className="header-icon-btn"
-          style={{ width: iconSize, height: iconSize }}
-          onClick={() => {
-            if (channelId) {
-              try {
-                sessionStorage.setItem(
-                  "spatial.beamFromChannel",
-                  JSON.stringify({ channelId, ts: Date.now() }),
-                );
-              } catch {
-                // sessionStorage unavailable (private mode, etc.) — swallow;
-                // the mount-time dive cooldown still catches the loop.
-              }
-            }
-            navigate("/spatial");
-          }}
-          title="Beam to spatial canvas"
-          aria-label="Beam to spatial canvas"
-        >
-          <Sparkles size={16} color={t.textDim} />
-        </button>
-      )}
-
-      {/* Switch to dashboard — rightmost button, mirrors the "Switch to chat"
-          button at the same spatial slot on the dashboard's top bar. Same
-          pixel on both views. Shown on both mobile and desktop so users can
-          pivot without hunting through menus. */}
       {showDashboardInline && showDashboardButton && (
         <button
           className="header-icon-btn"
@@ -1017,7 +1002,7 @@ export function ChannelHeader({
         </button>
       )}
 
-      {showMobileOverflow && (
+      {showOverflow && (
         <div
           ref={mobileOverflowRef}
           style={{ position: "relative", flexShrink: 0 }}
@@ -1063,7 +1048,7 @@ export function ChannelHeader({
               zIndex: 50001,
             }}
           >
-            {mobileOverflowActions.map((action) => {
+            {overflowActions.map((action) => {
               const Icon = action.icon;
               const color = action.danger
                 ? t.danger

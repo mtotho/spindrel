@@ -66,6 +66,39 @@ import type { AttentionDeckMode } from "../../lib/hubRoutes";
 
 type DeckMode = AttentionDeckMode;
 
+type TriageReceiptSummary = NonNullable<IssueWorkPack["triage_receipt"]> & {
+  id: string;
+  packCount: number;
+  proposedCount: number;
+  needsInfoCount: number;
+  notCodeCount: number;
+};
+
+function buildTriageReceiptSummaries(packs: IssueWorkPack[]): TriageReceiptSummary[] {
+  const byId = new Map<string, TriageReceiptSummary>();
+  for (const pack of packs) {
+    const receipt = pack.triage_receipt;
+    const id = pack.triage_receipt_id || receipt?.id;
+    if (!receipt || !id) continue;
+    const current = byId.get(id) ?? {
+      ...receipt,
+      id,
+      packCount: 0,
+      proposedCount: 0,
+      needsInfoCount: 0,
+      notCodeCount: 0,
+      follow_up_questions: receipt.follow_up_questions ?? [],
+      excluded_items: receipt.excluded_items ?? [],
+    };
+    current.packCount += 1;
+    if (pack.status === "proposed") current.proposedCount += 1;
+    if (pack.status === "needs_info") current.needsInfoCount += 1;
+    if (pack.category === "not_code_work") current.notCodeCount += 1;
+    byId.set(id, current);
+  }
+  return Array.from(byId.values()).slice(0, 3);
+}
+
 interface AttentionCommandDeckProps {
   loading?: boolean;
   items: WorkspaceAttentionItem[];
@@ -790,6 +823,7 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
   const batchLaunchablePacks = activePacks.filter((pack) => pack.status === "proposed");
   const launchedPacks = workPacks.filter((pack) => pack.status === "launched");
   const dismissedPacks = workPacks.filter((pack) => pack.status === "dismissed");
+  const triageReceipts = useMemo(() => buildTriageReceiptSummaries(workPacks), [workPacks]);
   const reviewPack = workPacks.find((pack) => pack.id === reviewPackId) ?? null;
   const [selectedPackIds, setSelectedPackIds] = useState<string[]>([]);
 
@@ -921,6 +955,37 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
             </select>
           </div>
         </div>
+        {!!triageReceipts.length && (
+          <div className="mb-3 space-y-2" data-testid="issue-triage-receipts">
+            {triageReceipts.map((receipt) => (
+              <div key={receipt.id} className="rounded-md bg-surface-overlay/25 px-3 py-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">
+                      <MessageSquare size={13} />
+                      <span>Triage receipt</span>
+                      {receipt.source && <span>{receipt.source.replaceAll("_", " ")}</span>}
+                    </div>
+                    <div className="mt-1 text-sm font-medium text-text">{receipt.summary || receipt.grouping_rationale || "Work packs grouped for review"}</div>
+                    {receipt.grouping_rationale && <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-muted">{receipt.grouping_rationale}</p>}
+                    {receipt.launch_readiness && <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-muted">{receipt.launch_readiness}</p>}
+                  </div>
+                  <div className="grid min-w-44 grid-cols-2 gap-2 text-xs text-text-muted">
+                    <div className="rounded bg-surface-overlay/35 px-2 py-1"><span className="text-text">{receipt.packCount}</span> packs</div>
+                    <div className="rounded bg-surface-overlay/35 px-2 py-1"><span className="text-success">{receipt.proposedCount}</span> launchable</div>
+                    <div className="rounded bg-surface-overlay/35 px-2 py-1"><span className="text-warning">{receipt.needsInfoCount}</span> needs info</div>
+                    <div className="rounded bg-surface-overlay/35 px-2 py-1"><span className="text-text-dim">{receipt.notCodeCount}</span> not code</div>
+                  </div>
+                </div>
+                {!!receipt.follow_up_questions?.length && (
+                  <div className="mt-2 text-xs text-text-muted">
+                    Follow-up: {receipt.follow_up_questions.slice(0, 2).join(" · ")}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
         {reviewPack && (
           <WorkPackReviewEditor
             pack={reviewPack}

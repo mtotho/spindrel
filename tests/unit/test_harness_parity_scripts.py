@@ -115,9 +115,14 @@ def test_harness_parity_local_batch_slash_preset_targets_native_slash_screenshot
     assert (
         "HARNESS_PARITY_SCREENSHOT_ONLY="
         "harness-native-slash-picker-dark\\,harness-codex-native-plugins-result-dark\\,"
-        "harness-codex-native-resume-result-dark"
+        "harness-codex-native-resume-result-dark\\,harness-codex-native-agents-result-dark"
     ) in proc.stdout
-    assert "HARNESS_PARITY_SCREENSHOT_ONLY=harness-claude-native-skills-result-dark" in proc.stdout
+    assert (
+        "HARNESS_PARITY_SCREENSHOT_ONLY="
+        "harness-claude-native-skills-result-dark\\,harness-claude-native-agents-result-dark\\,"
+        "harness-claude-native-hooks-result-dark\\,harness-claude-native-status-result-dark\\,"
+        "harness-claude-native-doctor-result-dark"
+    ) in proc.stdout
     assert "HARNESS_PARITY_SCREENSHOT_ONLY=harness-codex-native-plugin-install-handoff-dark" in proc.stdout
     assert "HARNESS_PARITY_SCREENSHOT_ONLY=harness-claude-native-custom-skill-result-dark" in proc.stdout
     assert "-k native_slash_mutating_commands_handoff" in proc.stdout

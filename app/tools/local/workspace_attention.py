@@ -183,6 +183,17 @@ CREATE_ISSUE_WORK_PACKS_SCHEMA = {
                     "type": "string",
                     "description": "Optional Project id for all packs. Defaults to the current channel's Project.",
                 },
+                "triage_receipt": {
+                    "type": "object",
+                    "description": "Audit receipt for this grouping pass: what was grouped, why, launch readiness, follow-up questions, and excluded/not-code items.",
+                    "properties": {
+                        "summary": {"type": "string"},
+                        "grouping_rationale": {"type": "string"},
+                        "launch_readiness": {"type": "string"},
+                        "follow_up_questions": {"type": "array", "items": {"type": "string"}},
+                        "excluded_items": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
                 "packs": {
                     "type": "array",
                     "items": {
@@ -274,6 +285,17 @@ REPORT_ISSUE_WORK_PACKS_SCHEMA = {
                         "required": ["item_id", "disposition"],
                     },
                 },
+                "triage_receipt": {
+                    "type": "object",
+                    "description": "Audit receipt for this triage run: what was grouped, why, launch readiness, follow-up questions, and excluded/not-code items.",
+                    "properties": {
+                        "summary": {"type": "string"},
+                        "grouping_rationale": {"type": "string"},
+                        "launch_readiness": {"type": "string"},
+                        "follow_up_questions": {"type": "array", "items": {"type": "string"}},
+                        "excluded_items": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
             },
             "required": ["packs"],
         },
@@ -361,7 +383,11 @@ async def publish_issue_intake(
 
 
 @register(CREATE_ISSUE_WORK_PACKS_SCHEMA, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
-async def create_issue_work_packs(packs: list[dict], project_id: str | None = None) -> str:
+async def create_issue_work_packs(
+    packs: list[dict],
+    project_id: str | None = None,
+    triage_receipt: dict | None = None,
+) -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
         return json.dumps({"error": "No bot context available."})
@@ -383,6 +409,7 @@ async def create_issue_work_packs(packs: list[dict], project_id: str | None = No
                 task_id=current_task_id.get(),
                 project_id=parsed_project_id,
                 latest_correlation_id=current_correlation_id.get(),
+                triage_receipt=triage_receipt,
             )
             payload = [await serialize_issue_work_pack(db, row) for row in rows]
         except (NotFoundError, ValidationError) as exc:
@@ -391,7 +418,11 @@ async def create_issue_work_packs(packs: list[dict], project_id: str | None = No
 
 
 @register(REPORT_ISSUE_WORK_PACKS_SCHEMA, safety_tier="mutating", requires_bot_context=True)
-async def report_issue_work_packs(packs: list[dict], item_outcomes: list[dict] | None = None) -> str:
+async def report_issue_work_packs(
+    packs: list[dict],
+    item_outcomes: list[dict] | None = None,
+    triage_receipt: dict | None = None,
+) -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
         return json.dumps({"error": "No bot context available."})
@@ -404,6 +435,7 @@ async def report_issue_work_packs(packs: list[dict], item_outcomes: list[dict] |
                 triage_task_id=current_task_id.get(),
                 packs=packs,
                 item_outcomes=item_outcomes or [],
+                triage_receipt=triage_receipt,
             )
             payload = [await serialize_issue_work_pack(db, row) for row in rows]
         except (NotFoundError, ValidationError) as exc:

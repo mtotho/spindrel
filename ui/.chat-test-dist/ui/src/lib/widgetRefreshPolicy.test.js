@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isWidgetRefreshCapable, shouldSchedulePinnedInitialRefresh, shouldShowPinnedWidgetIframeSkeleton, shouldShowPinnedWidgetRefreshOverlay, shouldRenderPinnedWidgetLoadShell, shouldRunWidgetAutoRefresh, widgetRefreshJitterMs, } from "./widgetRefreshPolicy.js";
+import { isWidgetRefreshCapable, shouldSchedulePinnedInitialRefresh, shouldMountPinnedInteractiveIframe, shouldShowPinnedWidgetIframeSkeleton, shouldShowPinnedWidgetRefreshOverlay, shouldRenderPinnedWidgetLoadShell, shouldRunWidgetAutoRefresh, widgetRefreshJitterMs, } from "./widgetRefreshPolicy.js";
 test("refresh capability follows state_poll contract when old envelopes omit refreshable", () => {
     assert.equal(isWidgetRefreshCapable({ refreshable: false }, { refresh_model: "state_poll" }), true);
     assert.equal(isWidgetRefreshCapable({ refreshable: true }, { refresh_model: "none" }), true);
@@ -60,6 +60,20 @@ test("interactive iframe preload skeleton has a watchdog cutoff", () => {
         preloadElapsedMs: 2500,
         preloadWatchdogMs: 2500,
     }), false);
+});
+test("interactive HTML iframes wait until the tile has been visible", () => {
+    assert.equal(shouldMountPinnedInteractiveIframe({
+        isHtmlInteractive: false,
+        hasEverBeenVisible: false,
+    }), true);
+    assert.equal(shouldMountPinnedInteractiveIframe({
+        isHtmlInteractive: true,
+        hasEverBeenVisible: false,
+    }), false);
+    assert.equal(shouldMountPinnedInteractiveIframe({
+        isHtmlInteractive: true,
+        hasEverBeenVisible: true,
+    }), true);
 });
 test("refresh jitter is deterministic and bounded", () => {
     const first = widgetRefreshJitterMs("pin-a", 1000);

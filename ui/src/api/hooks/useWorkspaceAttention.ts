@@ -241,6 +241,20 @@ export interface IssueWorkPack {
     channel_name?: string | null;
     evidence?: Record<string, unknown>;
   }>;
+  triage_receipt_id?: string | null;
+  triage_receipt?: {
+    id?: string;
+    source?: string;
+    summary?: string | null;
+    grouping_rationale?: string | null;
+    launch_readiness?: string | null;
+    follow_up_questions?: string[];
+    excluded_items?: string[];
+    created_at?: string | null;
+    bot_id?: string | null;
+    session_id?: string | null;
+    task_id?: string | null;
+  } | null;
   latest_review_action?: Record<string, unknown> | null;
   metadata?: Record<string, unknown>;
   created_at?: string | null;

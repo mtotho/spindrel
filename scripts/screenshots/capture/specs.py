@@ -79,18 +79,20 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
         route="/channels/{chat_main}",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
-        # Pin count alone fires before messages paint — chat area then
-        # captures with `bg-skeleton/[0.04] animate-pulse` placeholders.
-        # Gate on (a) pins mounted, (b) at least one real message bubble
-        # rendered (≥40 chars of non-whitespace text in the chat surface,
-        # which the skeleton placeholder bars never satisfy), and (c)
-        # chat skeleton has finished animating away.
+        # Chat widgets now live behind the left workbench, so the main chat
+        # capture gates on the transcript/header, not mounted pin count.
         wait_arg=(
-            'window.__spindrel_pin_count() >= 2 '
-            '&& document.querySelectorAll(\'[class*="bg-skeleton"]\').length === 0 '
-            '&& document.body.innerText.length > 800'
+            'document.querySelectorAll(\'[class*="bg-skeleton"]\').length === 0 '
+            '&& document.body.innerText.includes("Evening check-in") '
+            '&& document.body.innerText.length > 600'
         ),
         output="chat-main.png",
+        assert_js=(
+            "if (!document.querySelector('[aria-label=\"More actions\"]')) throw new Error('channel header overflow menu missing');"
+            "if (document.querySelector('[aria-label=\"Beam to spatial canvas\"]')) throw new Error('spatial action should live in overflow, not header chrome');"
+            "if (document.querySelector('[aria-label=\"Switch to dashboard view\"]')) throw new Error('dashboard action should live in overflow, not header chrome');"
+            "if (document.querySelector('[aria-label=\"Open right dock\"]')) throw new Error('right widget dock should not surface in chat');"
+        ),
     ),
     ScreenshotSpec(
         name="widget-dashboard",
@@ -165,6 +167,11 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
         # aria-label="Channel menu". Wait for that portal to mount.
         wait_arg='!!document.querySelector(\'[role="dialog"][aria-label="Channel menu"]\')',
         output="omnipanel-mobile.png",
+        assert_js=(
+            "const text = document.body.innerText;"
+            "if (!text.includes('Pinned widgets')) throw new Error('mobile workbench did not show unified widget section');"
+            "if (/\\bRail\\b|\\bDock\\b|Chips shown above the chat/.test(text)) throw new Error('mobile drawer leaked desktop widget-zone language');"
+        ),
         # Init script is parameterized at resolve time with the chat_main
         # channel id so the Zustand ui store hydrates with mobileDrawerOpen=true
         # and leftTab="widgets" for that channel.
@@ -1330,9 +1337,31 @@ _ATTENTION_REVIEW_DECK_ENDPOINT_INIT = """
         }
       ],
       metadata: {
+        triage_receipt_id: "issue-triage-receipt:screenshot",
+        triage_receipt: {
+          id: "issue-triage-receipt:screenshot",
+          source: "scheduled_triage",
+          summary: "Grouped review evidence issues into launch-ready Project work packs.",
+          grouping_rationale: "The selected notes all concern Project Factory review evidence and can be verified together.",
+          launch_readiness: "Two packs are launchable after operator review; planning-only items stay out of launch.",
+          follow_up_questions: ["Confirm whether the evidence copy should mention screenshots explicitly."],
+          excluded_items: ["Future scheduling controls were left for a later track slice."],
+          created_at: now
+        },
         target_project_hint: "Spindrel",
         target_channel_hint: "Spindrel Development",
         review_actions: [{ action: "edited", actor: "user:operator", at: now, prior_status: "proposed", status: "proposed" }]
+      },
+      triage_receipt_id: "issue-triage-receipt:screenshot",
+      triage_receipt: {
+        id: "issue-triage-receipt:screenshot",
+        source: "scheduled_triage",
+        summary: "Grouped review evidence issues into launch-ready Project work packs.",
+        grouping_rationale: "The selected notes all concern Project Factory review evidence and can be verified together.",
+        launch_readiness: "Two packs are launchable after operator review; planning-only items stay out of launch.",
+        follow_up_questions: ["Confirm whether the evidence copy should mention screenshots explicitly."],
+        excluded_items: ["Future scheduling controls were left for a later track slice."],
+        created_at: now
       },
       latest_review_action: { action: "edited", actor: "user:operator", at: now, prior_status: "proposed", status: "proposed" },
       created_at: now,
@@ -1365,9 +1394,31 @@ _ATTENTION_REVIEW_DECK_ENDPOINT_INIT = """
         evidence: issueOne.evidence
       }],
       metadata: {
+        triage_receipt_id: "issue-triage-receipt:screenshot",
+        triage_receipt: {
+          id: "issue-triage-receipt:screenshot",
+          source: "scheduled_triage",
+          summary: "Grouped review evidence issues into launch-ready Project work packs.",
+          grouping_rationale: "The selected notes all concern Project Factory review evidence and can be verified together.",
+          launch_readiness: "Two packs are launchable after operator review; planning-only items stay out of launch.",
+          follow_up_questions: ["Confirm whether the evidence copy should mention screenshots explicitly."],
+          excluded_items: ["Future scheduling controls were left for a later track slice."],
+          created_at: now
+        },
         target_project_hint: "Spindrel",
         target_channel_hint: "Spindrel Development",
         review_actions: [{ action: "edited", actor: "user:operator", at: now, prior_status: "proposed", status: "proposed" }]
+      },
+      triage_receipt_id: "issue-triage-receipt:screenshot",
+      triage_receipt: {
+        id: "issue-triage-receipt:screenshot",
+        source: "scheduled_triage",
+        summary: "Grouped review evidence issues into launch-ready Project work packs.",
+        grouping_rationale: "The selected notes all concern Project Factory review evidence and can be verified together.",
+        launch_readiness: "Two packs are launchable after operator review; planning-only items stay out of launch.",
+        follow_up_questions: ["Confirm whether the evidence copy should mention screenshots explicitly."],
+        excluded_items: ["Future scheduling controls were left for a later track slice."],
+        created_at: now
       },
       latest_review_action: { action: "edited", actor: "user:operator", at: now, prior_status: "proposed", status: "proposed" },
       created_at: now,
@@ -1717,9 +1768,15 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
-            "!!document.querySelector('[data-testid=\"issue-intake-workspace\"]')"
-            " && document.body.innerText.includes('Improve Project review evidence framing')"
-            " && document.body.innerText.includes('Spindrel Development')"
+            "(() => {"
+            "const text = document.body.innerText;"
+            "const lower = text.toLowerCase();"
+            "return !!document.querySelector('[data-testid=\"issue-intake-workspace\"]')"
+            " && text.includes('Improve Project review evidence framing')"
+            " && lower.includes('triage receipt')"
+            " && text.includes('Grouped review evidence issues')"
+            " && text.includes('Spindrel Development');"
+            "})()"
         ),
         output="spatial-check-issue-intake-work-packs.png",
         color_scheme="dark",
