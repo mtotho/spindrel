@@ -251,6 +251,7 @@ Current SDK parity proof images:
 | Streaming deltas | ![Codex streaming deltas](../images/harness-codex-streaming-deltas.png) | ![Claude streaming deltas](../images/harness-claude-streaming-deltas.png) |
 | Image semantic reasoning | ![Codex image semantic reasoning](../images/harness-codex-image-semantic-reasoning.png) | ![Claude image semantic reasoning](../images/harness-claude-image-semantic-reasoning.png) |
 | Project instruction discovery | ![Codex project instruction discovery](../images/harness-codex-project-instruction-discovery.png) | ![Claude project instruction discovery](../images/harness-claude-project-instruction-discovery.png) |
+| Native `/context` result | ![Codex native context result](../images/harness-codex-native-context-result-dark.png) | ![Claude native context result](../images/harness-claude-native-context-result-dark.png) |
 | Native progress/discovery/subagent persistence | | ![Claude TodoWrite progress persistence](../images/harness-claude-todowrite-progress.png) ![Claude ToolSearch discovery persistence](../images/harness-claude-toolsearch-discovery.png) ![Claude native subagent persistence](../images/harness-claude-native-subagent.png) |
 
 Before calling local harness parity done, run the sequential full-suite preset:
@@ -445,6 +446,32 @@ lock while the stack service opens another session to start the same stack. The
 fix is to commit the Project runtime's stack link/source metadata before
 calling the stack lifecycle service, not to switch to a private local compose
 project.
+
+## Full-Live Project Factory Dogfood
+
+Use this opt-in scenario when validating the actual conversational path: a
+Project-bound Codex/Claude chat creates Work Packs, launches one, runs
+Project-local commands, publishes evidence, and finalizes review provenance.
+
+```bash
+set -a && source .env.agent-e2e && set +a
+PROJECT_FACTORY_DOGFOOD_LIVE=1 \
+PROJECT_FACTORY_DOGFOOD_RUNTIME=codex \
+E2E_MODE=external \
+E2E_HOST=$E2E_HOST \
+E2E_PORT=$E2E_PORT \
+E2E_API_KEY=e2e-test-key-12345 \
+E2E_BOT_ID=default \
+E2E_KEEP_RUNNING=1 \
+pytest tests/e2e/scenarios/test_project_factory_dogfood_live.py -v -s
+```
+
+The scenario writes `scratch/agent-e2e/project-factory-dogfood-live.json` with
+the Project, channel, Work Pack, task, review task, receipt, and dev-target
+ids. It is intentionally opt-in because it depends on a real harness model.
+The deterministic planning transcript screenshot is:
+
+![Project Factory dogfood planning chat](../images/project-factory-dogfood-planning.png)
 
 ## Native Project Parity Evidence
 

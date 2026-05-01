@@ -204,6 +204,7 @@ docs/images/project-workspace-channels.png
 docs/images/project-workspace-channel-settings.png
 docs/images/project-workspace-memory-tool.png
 docs/images/project-workspace-context-mentions.png
+docs/images/project-factory-dogfood-planning.png
 docs/images/project-factory-live-pr-smoke.png
 docs/images/project-factory-live-pr-smoke-receipts.png
 ```

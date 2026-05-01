@@ -283,6 +283,7 @@ artifacts, not ad hoc local captures:
 | [Review finalized and merged](../images/project-workspace-review-finalized.png) | Accepted review provenance after merge: reviewed status, merged PR, check status, merge method, merge commit, review task, and handoff. |
 | [Project memory-tool transcript](../images/project-workspace-memory-tool.png) | Project-bound channels still render the memory tool result envelope with the expected `path` and completion message. |
 | [Project context mentions](../images/project-workspace-context-mentions.png) | A Project-bound channel composer can fuzzy-select a Project-local file through the `@` picker and attach it as explicit harness context. |
+| [Project Factory dogfood planning](../images/project-factory-dogfood-planning.png) | A Project-bound planning chat uses explicit Project file/dependency context and records `create_issue_work_packs` output before launch. |
 | [Issue intake work-pack review](../images/spatial-check-issue-intake-work-packs.png) | Mission Control Issue Intake renders raw issue notes, Work Pack review controls, selected batch launch, source provenance, and Project/channel launch targets before coding-run launch. |
 | [Project terminal](../images/project-workspace-terminal.png) | Project-rooted terminal cwd resolves through the Project work surface. |
 | [Project channel settings](../images/project-workspace-channel-settings.png) | Non-harness channel settings bind to the Project primitive instead of a path-only workspace override. |
@@ -318,5 +319,7 @@ and remind the agent to use `get_project_dependency_stack` /
 `manage_project_dependency_stack` for Docker-backed services.
 
 ![Project file context mention in the channel composer](../images/project-workspace-context-mentions.png)
+
+![Project Factory dogfood planning chat](../images/project-factory-dogfood-planning.png)
 
 ![Memory tool transcript in a Project-bound channel](../images/project-workspace-memory-tool.png)

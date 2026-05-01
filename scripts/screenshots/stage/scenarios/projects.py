@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 PROJECT_BOT_ID = "screenshot-projects"
 PROJECT_CHANNEL_CLIENT_ID = "screenshot:project-workspace"
 PROJECT_ATTACH_CLIENT_ID = "screenshot:project-workspace-attachable"
+PROJECT_DOGFOOD_CHANNEL_CLIENT_ID = "screenshot:project-factory-dogfood"
 PROJECT_SLUG = "screenshot-project-workspace"
 PROJECT_NAME = "Screenshot Project Workspace"
 PROJECT_ROOT = "common/projects/spindrel-screenshot"
@@ -224,6 +225,15 @@ def stage_project_workspace(
     channel_id = str(channel["id"])
     state.channels["project_workspace"] = channel_id
 
+    dogfood_channel = client.ensure_channel(
+        client_id=PROJECT_DOGFOOD_CHANNEL_CLIENT_ID,
+        bot_id=PROJECT_BOT_ID,
+        name="Project factory dogfood planning",
+        category="Showcase",
+    )
+    dogfood_channel_id = str(dogfood_channel["id"])
+    state.channels["project_factory_dogfood"] = dogfood_channel_id
+
     client.ensure_channel(
         client_id=PROJECT_ATTACH_CLIENT_ID,
         bot_id=PROJECT_BOT_ID,
@@ -237,10 +247,21 @@ def stage_project_workspace(
         chat_mode="terminal",
         tool_output_display="expanded",
     )
+    client.update_channel_settings(
+        dogfood_channel_id,
+        project_id=project_id,
+        chat_mode="terminal",
+        tool_output_display="expanded",
+    )
     client.write_workspace_file(
         workspace_id,
         f"{PROJECT_ROOT}/README.md",
         "# Screenshot Project Workspace\n\nThis file is rooted at the shared Project, not the channel workspace.\n",
+    )
+    client.write_channel_workspace_file(
+        dogfood_channel_id,
+        ".spindrel/factory-plan.md",
+        "# Project Factory Dogfood Plan\n\nUse this Project-local note to create one launchable code Work Pack and one needs-info planning Work Pack.\n",
     )
     existing_runs = client.list_project_coding_runs(project_id)
     coding_run = next((run for run in existing_runs if run.get("request") == CODING_RUN_REQUEST), None)
@@ -359,10 +380,34 @@ def stage_project_workspace(
         source="screenshot-fixture",
     )
 
+    client.reset_channel(dogfood_channel_id)
+    client.inject_channel_message(
+        channel_id=dogfood_channel_id,
+        role="user",
+        content=(
+            "Use @file:.spindrel/factory-plan.md and @project:dependencies to turn this planning chat "
+            "into proposed Project Factory Work Packs. Create one launchable code pack and one needs-info "
+            "planning pack."
+        ),
+        source="screenshot-fixture",
+    )
+    client.inject_channel_message(
+        channel_id=dogfood_channel_id,
+        role="assistant",
+        content=(
+            "`create_issue_work_packs` `tool_result`\n"
+            "Created 2 proposed Work Packs.\n"
+            "- Dogfood code pack: launch-ready with tests, screenshot evidence, receipt, and review handoff.\n"
+            "- Dogfood needs-info pack: future visual polish requires operator scope before launch.\n"
+            "Triage receipt: grouped coding work separately from planning work."
+        ),
+        source="screenshot-fixture",
+    )
+
     return state
 
 
 def teardown_project_workspace(client: SpindrelClient) -> None:
     for ch in client.list_channels():
-        if ch.get("client_id") in {PROJECT_CHANNEL_CLIENT_ID, PROJECT_ATTACH_CLIENT_ID}:
+        if ch.get("client_id") in {PROJECT_CHANNEL_CLIENT_ID, PROJECT_ATTACH_CLIENT_ID, PROJECT_DOGFOOD_CHANNEL_CLIENT_ID}:
             client.delete_channel(ch["id"])

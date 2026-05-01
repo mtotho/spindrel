@@ -663,6 +663,39 @@ def _mobile_context_specs(ui_url: str, target: RuntimeTarget, session_id: str) -
     ]
 
 
+def _native_context_specs(ui_url: str, target: RuntimeTarget, session_id: str) -> list[CaptureSpec]:
+    route = f"{ui_url}/channels/{target.channel_id}/session/{session_id}"
+    if target.name == "claude":
+        wait = (
+            "document.body.innerText.toLowerCase().includes('native runtime context') "
+            "&& document.body.innerText.toLowerCase().includes('claude code native /context')"
+        )
+        contains = ("Native runtime context", "Claude Code native /context")
+    else:
+        wait = (
+            "document.body.innerText.toLowerCase().includes('native runtime context') "
+            "&& document.body.innerText.toLowerCase().includes('codex native /context')"
+        )
+        contains = ("Native runtime context", "Codex native /context", "app-server")
+    return [
+        CaptureSpec(
+            name=f"harness-{target.name}-native-context-result-dark",
+            route=route,
+            wait_js=wait,
+            contains=contains,
+            theme="dark",
+            channel_id=target.channel_id,
+            chat_mode="default",
+            slash_query="/context",
+            submit_slash=True,
+            submit_ready_js=(
+                "document.body.innerText.toLowerCase().includes('/context') "
+                "|| document.body.innerText.toLowerCase().includes('context')"
+            ),
+        ),
+    ]
+
+
 def _plan_mode_switcher_specs(ui_url: str, target: RuntimeTarget, session_id: str) -> list[CaptureSpec]:
     route = f"{ui_url}/channels/{target.channel_id}/session/{session_id}"
     return [
@@ -1067,6 +1100,33 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                 claude_channel_id=args.claude_channel_id,
                 claude_session_id=claude_native_session,
             ))
+
+        context_names = (
+            "harness-codex-native-context-result-dark",
+            "harness-claude-native-context-result-dark",
+        )
+        if _should_include(args.only, *context_names):
+            for target in targets:
+                context_name = f"harness-{target.name}-native-context-result-dark"
+                if not _should_include(args.only, context_name):
+                    continue
+                context_session = await _create_channel_session(client, channel_id=target.channel_id)
+                sessions[(target.name, "native_context")] = context_session
+                settings = await _api(client, "GET", f"/api/v1/admin/channels/{target.channel_id}/settings")
+                marker = uuid.uuid4().hex[:8]
+                await _post_chat_and_wait_for_text(
+                    client,
+                    channel_id=target.channel_id,
+                    session_id=context_session,
+                    bot_id=str(settings.get("bot_id") or "default"),
+                    message=(
+                        f"Native context screenshot bootstrap {marker}. "
+                        "Do not use tools. Reply exactly: "
+                        f"context screenshot ready {marker}"
+                    ),
+                    needle=f"context screenshot ready {marker}",
+                )
+                specs.extend(_native_context_specs(browser_url, target, context_session))
 
         custom_skill_names = ("harness-claude-native-custom-skill-result-dark",)
         if _should_include(args.only, *custom_skill_names):

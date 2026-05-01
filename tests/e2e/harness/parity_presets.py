@@ -118,6 +118,10 @@ _SELECTOR_SCREENSHOT_RULES: tuple[tuple[str, str], ...] = (
     ("memory_hint_requires_explicit_read", "__off__"),
     ("terminal_tool_output_is_sequential", "__off__"),
     ("persisted_tool_replay_survives_refetch", "__off__"),
+    (
+        "core_parity_controls_trace_and_context",
+        "harness-codex-native-context-result-dark,harness-claude-native-context-result-dark",
+    ),
     ("core_streams_partial_text_before_final", "harness-*-streaming-deltas"),
     ("native_image_semantic_reasoning", "harness-*-image-semantic-reasoning"),
     ("project_instruction_file_discovery", "harness-*-project-instruction-discovery"),

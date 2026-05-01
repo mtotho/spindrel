@@ -4177,6 +4177,27 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "detail: 'Project file context completion did not appear in the composer @ picker' };"
         ),
     ),
+    ScreenshotSpec(
+        name="project-factory-dogfood-planning",
+        route="/channels/{project_factory_dogfood}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "document.body.innerText.includes('Project factory dogfood planning') "
+            "&& document.body.innerText.includes('Created 2 proposed Work Packs') "
+            "&& document.body.innerText.includes('Dogfood code pack')"
+        ),
+        output="project-factory-dogfood-planning.png",
+        color_scheme="dark",
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('@file:.spindrel/factory-plan.md') "
+            "&& text.includes('@project:dependencies') "
+            "&& text.includes('Triage receipt') "
+            "&& text.includes('needs-info'), "
+            "detail: 'Dogfood planning transcript did not show explicit context and Work Pack creation' };"
+        ),
+    ),
 ]
 
 

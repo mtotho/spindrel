@@ -72,6 +72,7 @@ from scripts.screenshots.stage.scenarios.projects import (
     BLUEPRINT_PROJECT_SLUG,
     BLUEPRINT_SLUG,
     PROJECT_CHANNEL_CLIENT_ID,
+    PROJECT_DOGFOOD_CHANNEL_CLIENT_ID,
     PROJECT_SLUG,
     stage_project_workspace,
     teardown_project_workspace,
@@ -512,6 +513,8 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
                     "screenshot-blueprint-project Project not found. Run `stage --only project-workspace` first."
                 )
             placeholders["project_workspace"] = str(ch["id"])
+            dogfood_ch = all_channels.get(PROJECT_DOGFOOD_CHANNEL_CLIENT_ID)
+            placeholders["project_factory_dogfood"] = str(dogfood_ch["id"]) if dogfood_ch else "missing"
             placeholders["project_workspace_project"] = str(project["id"])
             placeholders["project_workspace_blueprint"] = str(blueprint["id"])
             placeholders["project_workspace_blueprint_project"] = str(blueprint_project["id"])

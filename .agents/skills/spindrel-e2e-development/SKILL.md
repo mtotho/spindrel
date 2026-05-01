@@ -334,6 +334,25 @@ to capture Product UI proof from the Project Runs page, session transcript, and
 served fixture app, then place durable images in `docs/images/` and reference
 them from the relevant guide.
 
+Full-live Project Factory dogfood (opt-in, real planning chat plus run/review):
+
+```bash
+set -a && source .env.agent-e2e && set +a
+PROJECT_FACTORY_DOGFOOD_LIVE=1 \
+PROJECT_FACTORY_DOGFOOD_RUNTIME=codex \
+E2E_MODE=external \
+E2E_HOST=$E2E_HOST \
+E2E_PORT=$E2E_PORT \
+E2E_API_KEY=e2e-test-key-12345 \
+E2E_BOT_ID=default \
+E2E_KEEP_RUNNING=1 \
+pytest tests/e2e/scenarios/test_project_factory_dogfood_live.py -v -s
+```
+
+It writes `scratch/agent-e2e/project-factory-dogfood-live.json`. Use it when
+you need to prove the actual user path from Project-bound planning chat to Work
+Packs, launch, receipt evidence, and review provenance.
+
 ## Lessons Learned
 
 - Run `doctor` first. If subscription bootstrap is already connected, do not

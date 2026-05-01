@@ -1114,14 +1114,14 @@ async def test_live_harness_core_parity_controls_trace_and_context(
             assert result["payload"]["status"] in {"ok", "error", "terminal_handoff"}
             assert result["payload"].get("detail") or result.get("fallback_text")
 
-        context = await client.execute_slash_command("context", session_id=session_id)
-        assert context["result_type"] == "harness_context_summary"
-        assert context["payload"]["runtime"] == case.runtime
-        native_context = context["payload"].get("native_context") or {}
-        assert native_context.get("title"), context
-        assert native_context.get("status") in {"ok", "empty", "terminal_handoff", "unavailable", "error"}
-        assert "[object Object]" not in json.dumps(context)
-        assert "Spindrel bridge tools" not in context.get("fallback_text", "")
+        initial_context = await client.execute_slash_command("context", session_id=session_id)
+        assert initial_context["result_type"] == "harness_context_summary"
+        assert initial_context["payload"]["runtime"] == case.runtime
+        initial_native_context = initial_context["payload"].get("native_context") or {}
+        assert initial_native_context.get("title"), initial_context
+        assert initial_native_context.get("status") in {"ok", "empty", "terminal_handoff", "unavailable", "error"}
+        assert "[object Object]" not in json.dumps(initial_context)
+        assert "Spindrel bridge tools" not in initial_context.get("fallback_text", "")
 
         marker = uuid.uuid4().hex[:12]
         result = await client.chat_session_stream(
@@ -1158,6 +1158,19 @@ async def test_live_harness_core_parity_controls_trace_and_context(
         assert inspector.get("runtime") == case.runtime
         assert inspector.get("native_session_id") == status["harness_session_id"]
         assert inspector.get("cwd") == status.get("effective_cwd")
+
+        native_context = await client.execute_slash_command("context", session_id=session_id)
+        assert native_context["result_type"] == "harness_context_summary"
+        assert native_context["payload"]["runtime"] == case.runtime
+        post_turn_native_context = native_context["payload"].get("native_context") or {}
+        assert post_turn_native_context.get("title"), native_context
+        assert "[object Object]" not in json.dumps(native_context)
+        assert "Spindrel bridge tools" not in native_context.get("fallback_text", "")
+        if case.runtime == "claude-code":
+            assert post_turn_native_context.get("status") in {"ok", "empty"}, native_context
+            assert post_turn_native_context.get("data", {}).get("native_slash") == "/context"
+        elif case.runtime == "codex":
+            assert post_turn_native_context.get("status") == "terminal_handoff", native_context
         assert isinstance((inspector.get("input_manifest") or {}), dict)
         _assert_bridge_baseline(status)
         if model:

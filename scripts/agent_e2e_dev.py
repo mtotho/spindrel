@@ -1599,6 +1599,11 @@ def cmd_commands(args: argparse.Namespace) -> int:
         "--runtime codex --github-repo mtotho/vault --base-branch master --seed-github-token-from-gh"
     )
     print("  PROJECT_FACTORY_LIVE_PR=1 E2E_KEEP_RUNNING=1 pytest tests/e2e/scenarios/test_project_factory_live_pr_smoke.py -v -s")
+    print("project factory dogfood live loop:")
+    print(
+        "  PROJECT_FACTORY_DOGFOOD_LIVE=1 PROJECT_FACTORY_DOGFOOD_RUNTIME=codex "
+        "E2E_KEEP_RUNNING=1 pytest tests/e2e/scenarios/test_project_factory_dogfood_live.py -v -s"
+    )
     return 0
 
 

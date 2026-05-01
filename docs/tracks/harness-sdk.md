@@ -496,6 +496,12 @@ Approval mapping intent (final values from schema):
   command. Spindrel host diagnostics remain nested under a labeled
   `host_context` payload for debugging, and context cards now format nested
   usage values as field/item counts instead of `[object Object]`.
+- 2026-05-01 `/context` verification hardening: the live core parity scenario
+  now checks `/context` again after a native harness session id exists, so
+  Claude proves SDK-dispatched native `/context` instead of only the pre-turn
+  handoff path. The local harness screenshot runner can now create bootstrap
+  sessions and capture Codex/Claude native `/context` result cards into
+  `docs/images/harness-*-native-context-result-dark.png`.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 
