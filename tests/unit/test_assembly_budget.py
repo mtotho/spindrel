@@ -512,8 +512,9 @@ class TestAssemblyBudgetTight:
                 p.stop()
 
         exposed = {t["function"]["name"] for t in result.pre_selected_tools or []}
-        # Operator-pinned tools survive (broad pin no longer dropped).
-        assert "file" in exposed
+        # Workspace baseline helpers are filtered from heartbeat pins even if
+        # they arrived in pinned_tools; non-baseline operator pins survive.
+        assert "file" not in exposed
         assert "exec_command" in exposed
         # `run_script` is composition, kept on heartbeat.
         assert "run_script" in exposed
@@ -582,10 +583,11 @@ class TestAssemblyBudgetTight:
         exposed = {t["function"]["name"] for t in result.pre_selected_tools or []}
         # `tool_surface_policy="full"` is overridden by the heartbeat
         # context profile — heartbeat surfaces are deterministic regardless
-        # of surface policy. `file` is operator-pinned and survives;
+        # of surface policy. `file` is a workspace baseline helper;
         # `web_search` was retrieval-only and retrieval is skipped because
-        # the pin set is sufficient (no enrolled overflow).
-        assert "file" in exposed
+        # the pin set is sufficient (no enrolled overflow). `file` is a
+        # workspace baseline helper and is filtered from heartbeat pins.
+        assert "file" not in exposed
         assert "web_search" not in exposed
         assert result.tool_discovery_info["tool_surface"] == "full"
         assert "heartbeat_surface" in result.tool_discovery_info
@@ -671,12 +673,12 @@ class TestAssemblyBudgetTight:
         # Plan-mode control tools survive heartbeat surface composition
         # because `_compose_heartbeat_tool_surface` adds them when plan mode
         # is active. Discovery hatches and retrieval-only candidates are
-        # suppressed on heartbeats; operator-pinned tools survive.
+        # suppressed on heartbeats; non-baseline operator-pinned tools survive.
         assert "ask_plan_questions" in exposed
         assert "publish_plan" in exposed
         assert "record_plan_progress" in exposed
         assert "request_plan_replan" in exposed
-        assert "file" in exposed  # operator-pinned, no longer dropped
+        assert "file" not in exposed  # workspace baseline helper, filtered
         assert "exec_command" in exposed
         assert "get_tool_info" not in exposed  # discovery hatch suppressed
         assert "web_search" not in exposed  # retrieval-only, retrieval skipped

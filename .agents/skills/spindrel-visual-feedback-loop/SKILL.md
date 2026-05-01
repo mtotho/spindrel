@@ -21,6 +21,10 @@ user-facing proof artifact. If a task asks for e2e evidence, workflow proof, or
 visual validation, do not stop at test output. Capture the relevant UI surfaces,
 inspect them, keep durable proof images in `docs/images/`, reference them from
 the relevant doc, and run `python -m scripts.screenshots check`.
+If a screenshot shows stale UI while the built assets contain the new code,
+suspect browser/service-worker caching before changing product code. The shared
+screenshot runner blocks service workers for fresh captures; preserve that in
+new capture paths.
 
 ## Start Here
 
@@ -185,6 +189,7 @@ Expected documentation artifacts:
 ```text
 docs/images/project-workspace-list.png
 docs/images/project-workspace-detail.png
+docs/images/project-workspace-files.png
 docs/images/project-workspace-blueprints.png
 docs/images/project-workspace-blueprint-editor.png
 docs/images/project-workspace-settings-blueprint.png
@@ -202,9 +207,13 @@ docs/images/project-workspace-review-finalized.png
 docs/images/project-workspace-terminal.png
 docs/images/project-workspace-channels.png
 docs/images/project-workspace-channel-settings.png
+docs/images/project-workspace-channel-header.png
 docs/images/project-workspace-memory-tool.png
 docs/images/project-workspace-context-mentions.png
 docs/images/project-factory-dogfood-planning.png
+docs/images/project-factory-dogfood-live-work-packs.png
+docs/images/project-factory-dogfood-live-run-receipt.png
+docs/images/project-factory-dogfood-live-runs.png
 docs/images/project-factory-live-pr-smoke.png
 docs/images/project-factory-live-pr-smoke-receipts.png
 ```

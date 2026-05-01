@@ -23,7 +23,12 @@ import json
 import logging
 import shlex
 
-from app.agent.context import current_bot_id, current_correlation_id, current_channel_id
+from app.agent.context import (
+    current_bot_id,
+    current_channel_id,
+    current_correlation_id,
+    current_run_origin,
+)
 from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
@@ -163,6 +168,18 @@ async def run_script(
     workspace_root = workspace_service.get_workspace_root(bot_id, bot)
     correlation_id = current_correlation_id.get(None)
     channel_id = current_channel_id.get(None)
+    parent_origin = current_run_origin.get(None)
+    allowed_tools_for_budget: list[str] | None = None
+    if "resolved" in locals() and resolved is not None:
+        raw_allowed = resolved.get("allowed_tools")
+        if isinstance(raw_allowed, list):
+            allowed_tools_for_budget = [t for t in raw_allowed if isinstance(t, str) and t]
+            if allowed_tools_for_budget:
+                pre_validation = await _prevalidate_stored_script_tools(
+                    bot_id, allowed_tools_for_budget,
+                )
+                if pre_validation is not None:
+                    return json.dumps(pre_validation, ensure_ascii=False)
 
     scratch = prepare_scratch_dir(
         workspace_root,
@@ -201,7 +218,12 @@ async def run_script(
     budget_key = str(correlation_id) if correlation_id else None
     budget_limit = bot.max_script_tool_calls or _cfg.AGENT_MAX_SCRIPT_TOOL_CALLS
     if budget_key:
-        await _open_budget(budget_key, budget_limit)
+        await _open_budget(
+            budget_key,
+            budget_limit,
+            origin_kind=parent_origin,
+            allowed_tools=allowed_tools_for_budget,
+        )
 
     keep_scratch = False
     try:
@@ -248,6 +270,53 @@ async def run_script(
             cleanup_scratch_dir(scratch)
 
 
+async def _prevalidate_stored_script_tools(
+    bot_id: str, allowed_tools: list[str],
+) -> dict | None:
+    """Pre-flight every declared tool through the policy gate using the
+    parent run's origin_kind (already on ContextVars). If any tool would
+    be denied or require approval, fail closed before exec.
+
+    Returns ``None`` on pass, an error payload dict on fail. ``run_script``
+    serializes the dict to JSON when it's non-None.
+    """
+    from app.agent.tool_dispatch import _check_tool_policy
+    from app.tools.registry import is_local_tool
+    from app.tools.mcp import is_mcp_tool
+
+    failures: list[dict] = []
+    for tool in allowed_tools:
+        if not (is_local_tool(tool) or is_mcp_tool(tool)):
+            failures.append({"tool": tool, "reason": "unknown_tool"})
+            continue
+        try:
+            decision = await _check_tool_policy(bot_id, tool, {}, correlation_id=None)
+        except Exception as exc:
+            failures.append({"tool": tool, "reason": f"policy_error:{exc}"})
+            continue
+        if decision is None:
+            continue
+        if decision.action == "deny":
+            failures.append({"tool": tool, "reason": "denied", "detail": decision.reason})
+        elif decision.action == "require_approval":
+            failures.append({
+                "tool": tool, "reason": "approval_required",
+                "tier": decision.tier, "detail": decision.reason,
+            })
+    if not failures:
+        return None
+    return {
+        "error": "stored_script_tool_prevalidation_failed",
+        "exit_code": -1,
+        "failures": failures,
+        "hint": (
+            "Stored script declared allowed_tools that the parent run's origin_kind "
+            "cannot dispatch without approval/deny. Approve the tools, broaden the "
+            "approval rule to autonomous origins, or remove them from allowed_tools."
+        ),
+    }
+
+
 async def _resolve_stored_script(bot_id: str, skill_name: str, script_name: str) -> tuple[dict | None, str | None]:
     from app.db.engine import async_session
     from app.db.models import Skill as SkillRow
@@ -271,4 +340,5 @@ async def _resolve_stored_script(bot_id: str, skill_name: str, script_name: str)
         "description": stored.get("description", ""),
         "script": stored.get("script", ""),
         "timeout_s": stored.get("timeout_s"),
+        "allowed_tools": stored.get("allowed_tools"),
     }, None

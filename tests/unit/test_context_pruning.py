@@ -783,6 +783,17 @@ class TestInLoopPressureGate:
         assert should_prune is True
         assert utilization >= 0.6
 
+    def test_tool_schema_tokens_count_toward_pressure(self):
+        messages = [_make_user_msg("hi")]
+        should_prune, utilization = should_prune_in_loop(
+            messages,
+            available_budget_tokens=1_000,
+            pressure_threshold=0.6,
+            tool_schema_tokens=700,
+        )
+        assert should_prune is True
+        assert utilization >= 0.6
+
     def test_zero_budget_falls_back_to_legacy_behavior(self):
         messages = [_make_user_msg("q")]
         should_prune, utilization = should_prune_in_loop(

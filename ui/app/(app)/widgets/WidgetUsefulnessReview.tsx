@@ -222,8 +222,8 @@ export function WidgetUsefulnessToolbarButton({
           (findingCount > 0 ? "text-warning-muted hover:text-warning-muted" : "text-text-muted hover:text-text")
         }
         data-testid="widget-usefulness-review-trigger"
-        aria-label="Open dashboard widget fixes"
-        title={assessment?.summary ?? "Open dashboard widget fixes"}
+        aria-label="Open workbench artifact fixes"
+        title={assessment?.summary ?? "Open workbench artifact fixes"}
       >
         {query.isLoading ? <Spinner /> : tone.icon}
         <span className="hidden lg:inline">{label}</span>
@@ -361,7 +361,7 @@ function WidgetUsefulnessDrawer({
         <div className="flex min-h-[68px] items-start justify-between gap-3 border-b border-surface-border px-5 py-4">
           <div className="min-w-0">
             <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Widget fixes</div>
-            <h2 className="mt-1 truncate text-[16px] font-semibold text-text">{assessment?.channel_name ?? "Channel dashboard"}</h2>
+            <h2 className="mt-1 truncate text-[16px] font-semibold text-text">{assessment?.channel_name ?? "Channel workbench"}</h2>
             <p className="mt-1 max-w-[62ch] text-[12px] leading-relaxed text-text-dim">
               One-click widget fixes only. Advisory findings stay out of this list until they can be applied directly.
             </p>
@@ -424,7 +424,7 @@ function WidgetUsefulnessDrawer({
                       <Pill>{surfaceIcon(rec.surface)} {rec.surface}</Pill>
                       <Pill>{rec.type.replace(/_/g, " ")}</Pill>
                     </div>
-                    <div className="mt-2 text-[13px] font-semibold text-text">{rec.label ?? "Dashboard"}</div>
+                    <div className="mt-2 text-[13px] font-semibold text-text">{rec.label ?? "Workbench"}</div>
                   </div>
                 </div>
                 <p className="text-[12px] leading-relaxed text-text-muted">{rec.reason}</p>

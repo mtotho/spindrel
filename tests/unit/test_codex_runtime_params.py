@@ -11,6 +11,8 @@ import uuid
 
 from integrations.codex import schema
 from integrations.codex.harness import (
+    build_native_cli_command,
+    _codex_thread_name_from_prompt,
     _build_turn_input,
     _build_thread_start_params,
     _build_turn_start_params,
@@ -83,7 +85,7 @@ def test_thread_start_keeps_legacy_sandbox_and_dynamic_tools_slot_separate():
     assert "sandboxPolicy" not in params
 
 
-def test_turn_input_renders_host_instructions_before_context_hints():
+def test_turn_input_keeps_user_request_first_and_hints_afterward():
     ctx = _ctx()
     ctx = TurnContext(
         **{
@@ -107,12 +109,12 @@ def test_turn_input_renders_host_instructions_before_context_hints():
         }
     )
 
-    [item] = _build_turn_input("current user request", ctx)
-    text = item["text"]
+    items = _build_turn_input("current user request", ctx)
+    assert items[0] == {"type": "text", "text": "current user request"}
+    text = items[1]["text"]
 
     assert text.index("<spindrel_host_instructions>") < text.index("<spindrel_context_hints>")
     assert text.index("always mention channel prompt marker") < text.index("remember the prior deploy")
-    assert text.endswith("current user request")
 
 
 def test_turn_input_keeps_native_request_ahead_of_spindrel_bridge_guidance():
@@ -126,6 +128,23 @@ def test_turn_input_keeps_native_request_ahead_of_spindrel_bridge_guidance():
 
     assert text.startswith("Fix the repo bug.")
     assert text.index("Fix the repo bug.") < text.index("<spindrel_tool_guidance>")
+
+
+def test_codex_native_cli_command_resumes_thread_in_cwd():
+    command = build_native_cli_command(
+        native_session_id="thread-123",
+        cwd="/workspace/my repo",
+        model="gpt-5.5",
+        effort="high",
+    )
+
+    assert command == "codex resume thread-123 --model gpt-5.5 -c 'model_reasoning_effort=\"high\"' --cd '/workspace/my repo'"
+
+
+def test_codex_thread_name_from_prompt_ignores_spindrel_wrappers():
+    assert _codex_thread_name_from_prompt(
+        "<spindrel_context_hints>ignore</spindrel_context_hints>\n\nFix the upload bug and update tests."
+    ) == "Fix the upload bug and update tests."
 
 
 def test_parse_model_options_preserves_per_model_efforts_and_defaults():

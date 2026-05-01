@@ -156,6 +156,6 @@ test("freeform dashboard canvas has one lock reset outside the canvas controls",
   assert.match(source, /cursor: viewLocked \? "default" : isPanning \? "grabbing" : "grab"/);
   assert.match(routeSource, /viewLocked=\{dashboardViewLocked\}/);
   assert.match(routeSource, /aria-pressed=\{dashboardViewLocked\}/);
-  assert.match(routeSource, /Lock dashboard view/);
+  assert.match(routeSource, /Lock canvas view/);
   assert.match(routeSource, /overflow-hidden p-0/);
 });

@@ -110,7 +110,7 @@ def test_bridge_inventory_exports_selected_local_tools():
     assert inventory.errors == ()
 
 
-def test_bridge_inventory_auto_exports_plan_draft_tools():
+def test_bridge_inventory_does_not_auto_export_spindrel_plan_draft_tools_for_harness():
     bot = BotConfig(
         id="harness-bot",
         name="Harness Bot",
@@ -148,10 +148,10 @@ def test_bridge_inventory_auto_exports_plan_draft_tools():
             )
         )
 
-    assert [spec.name for spec in inventory.specs] == ["ask_plan_questions", "publish_plan"]
+    assert [spec.name for spec in inventory.specs] == []
 
 
-def test_bridge_inventory_auto_exports_plan_execution_tools():
+def test_bridge_inventory_does_not_auto_export_spindrel_plan_execution_tools_for_harness():
     bot = BotConfig(
         id="harness-bot",
         name="Harness Bot",
@@ -189,7 +189,7 @@ def test_bridge_inventory_auto_exports_plan_execution_tools():
             )
         )
 
-    assert [spec.name for spec in inventory.specs] == ["record_plan_progress", "request_plan_replan"]
+    assert [spec.name for spec in inventory.specs] == []
 
 
 def test_bridge_inventory_reports_selected_local_tools_missing_from_registry():

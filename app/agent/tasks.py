@@ -462,13 +462,15 @@ async def _publish_turn_ended_safe(
     failure paths. The `log_label` (e.g. "task", "exec task", "rate limit error")
     flows into the warning so log lines stay distinguishable.
     """
+    if target_task.task_type == "heartbeat":
+        return
     try:
         await _publish_turn_ended(
             target_task,
             turn_id=turn_id,
             result=result,
             error=error,
-            kind_hint="heartbeat" if target_task.task_type == "heartbeat" else None,
+            kind_hint=None,
         )
     except Exception:
         logger.warning("Failed to publish %s for task %s", log_label, target_task.id)

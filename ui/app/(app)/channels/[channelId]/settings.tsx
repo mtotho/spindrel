@@ -130,7 +130,7 @@ const ALL_TABS: TabDef[] = [
   { key: "channel", label: "Channel" },
   { key: "agent", label: "Agent" },
   { key: "presentation", label: "Presentation" },
-  { key: "dashboard", label: "Dashboard" },
+  { key: "dashboard", label: "Workbench" },
   { key: "knowledge", label: "Knowledge" },
   { key: "memory", label: "Memory" },
   { key: "automation", label: "Automation" },

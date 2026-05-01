@@ -18,21 +18,36 @@ class EffectiveTools:
     skills: list[SkillConfig] = field(default_factory=list)
 
 
-# Tools that `apply_auto_injections` may add to every bot's pin set as a
-# system baseline (skill access, channel awareness, agent self-inspection,
-# get_tool_info when tool_retrieval is on). Heartbeat surfaces use this to
-# distinguish operator-curated pins from baseline pins when deciding
-# whether to warn about uncurated overflow.
+# Tools that context assembly may add to a bot's pin set as a system
+# baseline. These are availability helpers for chat/workspace flows, not
+# operator-curated heartbeat pins.
 AUTO_INJECTED_PIN_NAMES: frozenset[str] = frozenset({
     "get_tool_info",
+    # Memory scheme helpers.
+    "search_memory",
+    "get_memory_file",
+    "memory",
+    "manage_bot_skill",
+    # Skill access.
     "get_skill",
     "get_skill_list",
+    # Agent self-inspection.
     "list_agent_capabilities",
     "run_agent_doctor",
+    # Channel/session awareness.
     "list_channels",
     "read_conversation_history",
     "list_sub_sessions",
     "read_sub_session",
+    # Channel workspace/search helpers injected by context admission.
+    "file",
+    "search_channel_archive",
+    "search_channel_workspace",
+    "search_channel_knowledge",
+    "search_bot_knowledge",
+    # API access helpers injected for scoped API-key bots.
+    "list_api_endpoints",
+    "call_api",
 })
 
 # Discovery hatches — escape tools the LLM uses to *find* other tools.

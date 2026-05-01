@@ -8,7 +8,6 @@ import {
   FolderKanban,
   Hash,
   Inbox,
-  LayoutDashboard,
   Monitor,
   Plug,
   PanelLeftClose,
@@ -137,12 +136,6 @@ export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: Si
     });
 
   const isTasksActive = pathname.startsWith("/admin/automations");
-  // "Widgets" rail entry lights up for /widgets (redirect) or /widgets/default;
-  // pinned-dashboard entries light up for their own exact slug.
-  const isWidgetsActive =
-    pathname === "/widgets" ||
-    pathname === "/widgets/default" ||
-    pathname.startsWith("/widgets/dev");
   const isBotsActive = pathname.startsWith("/admin/bots");
   const isSkillsActive = pathname.startsWith("/admin/skills");
   const isIntegrationsActive = pathname.startsWith("/admin/integrations");
@@ -220,10 +213,6 @@ export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: Si
             <Clock size={18} className={isTasksActive ? "text-accent" : "text-text-dim"} />
           </RailLink>
         )}
-
-        <RailLink href="/widgets" active={isWidgetsActive} title="Widgets">
-          <LayoutDashboard size={18} className={isWidgetsActive ? "text-accent" : "text-text-dim"} />
-        </RailLink>
 
         {railDashboards.map((d) => {
           const isChannel = isChannelSlug(d.slug);

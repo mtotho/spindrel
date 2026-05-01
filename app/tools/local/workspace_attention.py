@@ -18,6 +18,78 @@ from app.domain.errors import NotFoundError, ValidationError
 from app.tools.registry import register
 
 
+def _created_work_pack_result(
+    *,
+    work_packs: list[dict],
+    project_id: str | None,
+    channel_id: uuid.UUID | None,
+    session_id: uuid.UUID | None,
+) -> dict:
+    launchable = [
+        pack for pack in work_packs
+        if pack.get("status") == "proposed" and pack.get("launch_prompt")
+    ]
+    needs_info = [pack for pack in work_packs if pack.get("status") == "needs_info"]
+    pack_summaries = []
+    for pack in work_packs:
+        project_url = (
+            f"/admin/projects/{pack['project_id']}#Runs"
+            if pack.get("project_id")
+            else None
+        )
+        channel_url = (
+            f"/channels/{pack['channel_id']}"
+            if pack.get("channel_id")
+            else None
+        )
+        pack_summaries.append({
+            "id": pack.get("id"),
+            "title": pack.get("title"),
+            "status": pack.get("status"),
+            "category": pack.get("category"),
+            "confidence": pack.get("confidence"),
+            "launchable": bool(pack.get("launch_prompt")) and pack.get("status") == "proposed",
+            "project_id": pack.get("project_id"),
+            "project_name": pack.get("project_name"),
+            "channel_id": pack.get("channel_id"),
+            "channel_name": pack.get("channel_name"),
+            "source_item_ids": pack.get("source_item_ids") or [],
+            "links": {
+                "project_runs": project_url,
+                "channel": channel_url,
+            },
+        })
+
+    links = {}
+    if project_id:
+        links["project_runs"] = f"/admin/projects/{project_id}#Runs"
+        links["project"] = f"/admin/projects/{project_id}"
+    if channel_id:
+        links["channel"] = f"/channels/{channel_id}"
+        if session_id:
+            links["source_session"] = f"/channels/{channel_id}/session/{session_id}?surface=channel"
+
+    return {
+        "ok": True,
+        "message": (
+            f"Created {len(work_packs)} issue work pack"
+            f"{'' if len(work_packs) == 1 else 's'}: "
+            f"{len(launchable)} launchable, {len(needs_info)} needs-info."
+        ),
+        "count": len(work_packs),
+        "launchable_count": len(launchable),
+        "needs_info_count": len(needs_info),
+        "created_work_packs": pack_summaries,
+        "links": links,
+        "next_actions": [
+            "Review launchable proposed packs on the Project Runs page.",
+            "Launch accepted code packs as Project coding runs.",
+            "Resolve needs-info packs before launch.",
+        ],
+        "work_packs": work_packs,
+    }
+
+
 REPORT_ATTENTION_ASSIGNMENT_SCHEMA = {
     "type": "function",
     "function": {
@@ -414,7 +486,13 @@ async def create_issue_work_packs(
             payload = [await serialize_issue_work_pack(db, row) for row in rows]
         except (NotFoundError, ValidationError) as exc:
             return json.dumps({"error": str(exc)})
-    return json.dumps({"work_packs": payload, "count": len(payload)}, default=str)
+    result = _created_work_pack_result(
+        work_packs=payload,
+        project_id=str(parsed_project_id) if parsed_project_id else (payload[0].get("project_id") if payload else None),
+        channel_id=current_channel_id.get(),
+        session_id=current_session_id.get(),
+    )
+    return json.dumps(result, default=str)
 
 
 @register(REPORT_ISSUE_WORK_PACKS_SCHEMA, safety_tier="mutating", requires_bot_context=True)

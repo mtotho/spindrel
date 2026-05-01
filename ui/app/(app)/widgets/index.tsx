@@ -31,6 +31,7 @@ import { EditDashboardDrawer } from "./EditDashboardDrawer";
 import { ChannelDashboardBreadcrumb } from "./ChannelDashboardBreadcrumb";
 import { EditModeGridGuides } from "./EditModeGridGuides";
 import { ChannelDashboardFreeformCanvas } from "./ChannelDashboardFreeformCanvas";
+import { ChannelWorkbenchOverview } from "./ChannelWorkbenchOverview";
 import { KioskExitChip } from "./KioskExitChip";
 import { WidgetUsefulnessToolbarButton } from "./WidgetUsefulnessReview";
 import {
@@ -214,6 +215,24 @@ export default function WidgetsDashboardPage() {
   const builderStep = (searchParams.get("builder_step") ?? "catalog") as
     "catalog" | "configure" | "preview";
   const requestedEditPinId = searchParams.get("edit_pin");
+  const channelWorkbenchView =
+    isChannelScoped && searchParams.get("view") === "canvas"
+      ? "canvas"
+      : "overview";
+  const setChannelWorkbenchView = useCallback(
+    (next: "overview" | "canvas") => {
+      setSearchParams(
+        (prev) => {
+          const patch = new URLSearchParams(prev);
+          if (next === "canvas") patch.set("view", "canvas");
+          else patch.delete("view");
+          return patch;
+        },
+        { replace: false },
+      );
+    },
+    [setSearchParams],
+  );
   const [initialDockExpanded] = useState(() => searchParams.get("dock") === "expanded");
   const scratchSessionIdFromQuery = searchParams.get("scratch_session_id");
   const scratchReturnSessionId = useScratchReturnStore(
@@ -310,7 +329,13 @@ export default function WidgetsDashboardPage() {
   // commits are separately gated to `lg` (see render + onLayoutChange) so that
   // dragging at a narrower breakpoint doesn't corrupt the canonical layout.
   const layoutEditable = editMode && !isMobile;
-  const useChannelFreeformCanvas = pins.length > 0 && !inPanelMode && isChannelScoped && !!channelScopedId && !isMobile;
+  const useChannelFreeformCanvas =
+    pins.length > 0
+    && !inPanelMode
+    && isChannelScoped
+    && !!channelScopedId
+    && !isMobile
+    && channelWorkbenchView === "canvas";
 
   const highlightPin = useCallback((pinId: string) => {
     setHighlightPinId(pinId);
@@ -528,9 +553,39 @@ export default function WidgetsDashboardPage() {
 
   const actions = (
     <>
+      {pins.length > 0 && isChannelScoped && channelScopedId && !inPanelMode && (
+        <div className="hidden items-center rounded-md bg-surface-overlay/45 p-0.5 sm:inline-flex">
+          <button
+            type="button"
+            onClick={() => setChannelWorkbenchView("overview")}
+            className={
+              "h-7 rounded px-2.5 text-[12px] font-medium transition-colors "
+              + (channelWorkbenchView === "overview"
+                ? "bg-surface text-text"
+                : "text-text-muted hover:text-text")
+            }
+            aria-pressed={channelWorkbenchView === "overview"}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            onClick={() => setChannelWorkbenchView("canvas")}
+            className={
+              "h-7 rounded px-2.5 text-[12px] font-medium transition-colors "
+              + (channelWorkbenchView === "canvas"
+                ? "bg-surface text-text"
+                : "text-text-muted hover:text-text")
+            }
+            aria-pressed={channelWorkbenchView === "canvas"}
+          >
+            Canvas
+          </button>
+        </div>
+      )}
       {/* Edit layout — hidden on mobile where the grid is read-only anyway
           (the in-page banner explains why). */}
-      {pins.length > 0 && !isMobile && (
+      {pins.length > 0 && !isMobile && (!isChannelScoped || inPanelMode || useChannelFreeformCanvas) && (
         <button
           type="button"
           onClick={() => setEditMode(!editMode)}
@@ -541,8 +596,8 @@ export default function WidgetsDashboardPage() {
               : "border-surface-border text-text-muted hover:bg-surface-overlay")
           }
           aria-pressed={editMode}
-          aria-label={editMode ? "Finish editing layout" : "Rearrange widgets"}
-          title={editMode ? "Finish editing" : "Rearrange widgets"}
+          aria-label={editMode ? "Finish editing layout" : "Rearrange artifacts"}
+          title={editMode ? "Finish editing" : "Rearrange artifacts"}
         >
           {editMode ? <Check size={13} /> : <Move size={13} />}
           <span className="hidden md:inline">
@@ -561,8 +616,8 @@ export default function WidgetsDashboardPage() {
               : "border-surface-border text-text-muted hover:bg-surface-overlay hover:text-text")
           }
           aria-pressed={dashboardViewLocked}
-          aria-label={dashboardViewLocked ? "Unlock dashboard view" : "Lock dashboard view"}
-          title={dashboardViewLocked ? "Unlock dashboard view" : "Lock dashboard view"}
+          aria-label={dashboardViewLocked ? "Unlock canvas view" : "Lock canvas view"}
+          title={dashboardViewLocked ? "Unlock canvas view" : "Lock canvas view"}
         >
           <LockKeyhole size={14} />
         </button>
@@ -596,6 +651,7 @@ export default function WidgetsDashboardPage() {
       <AddWidgetSplitButton
         onOpenSheet={openBuilder}
         devPanelHref={`/widgets/dev?from=${encodeURIComponent(slug)}`}
+        label={isChannelScoped ? "Pin artifact" : "Add widget"}
       />
       {isChannelScoped && channelScopedId && !isMobile && (
         <button
@@ -703,7 +759,7 @@ export default function WidgetsDashboardPage() {
           "relative flex-1 "
           // Panel mode should keep overflow on the dashboard surface so
           // tall rail columns page-scroll with the rest of the view.
-          + (useChannelFreeformCanvas ? "overflow-hidden p-0 " : "overflow-auto p-2 sm:p-4 md:p-3 ")
+          + (useChannelFreeformCanvas ? "overflow-hidden p-0 " : "overflow-auto ")
           + (layoutEditable && !inPanelMode && !useChannelFreeformCanvas ? "pb-[40vh]" : "")
         }
       >
@@ -737,7 +793,23 @@ export default function WidgetsDashboardPage() {
             Failed to load dashboard: {error}
           </div>
         )}
-        {!isLoading && !error && pins.length === 0 && (
+        {!isLoading && !error && isChannelScoped && channelScopedId && !inPanelMode && !useChannelFreeformCanvas && (
+          <ChannelWorkbenchOverview
+            channelId={channelScopedId}
+            channelName={channelRow?.name}
+            pins={pins}
+            railCount={railCount}
+            dashboardHealthLabel={dashboardHealthLabel}
+            chrome={chrome}
+            highlightPinId={highlightPinId}
+            onAddArtifact={openBuilder}
+            onOpenCanvas={() => setChannelWorkbenchView("canvas")}
+            onUnpin={handleUnpin}
+            onEnvelopeUpdate={handleEnvelopeUpdate}
+            onEditPin={openEditPinDrawer}
+          />
+        )}
+        {!isLoading && !error && pins.length === 0 && !isChannelScoped && (
           <EmptyState onAddClick={openBuilder} />
         )}
         {!isLoading && !error && pins.length > 0 && inPanelMode && panelPin && (
@@ -774,7 +846,7 @@ export default function WidgetsDashboardPage() {
             }}
           />
         )}
-        {!isLoading && !error && pins.length > 0 && !inPanelMode && (isMobile || !isChannelScoped) && (
+        {!isLoading && !error && pins.length > 0 && !inPanelMode && !isChannelScoped && (
           <div className="relative">
             {layoutEditable && breakpoint === "lg" && (
               <EditModeGridGuides
@@ -844,7 +916,7 @@ export default function WidgetsDashboardPage() {
             else params.delete("builder_q");
           }, true);
         }}
-        dashboardName={currentDashboard?.name ?? "dashboard"}
+        dashboardName={isChannelScoped ? "this workbench" : (currentDashboard?.name ?? "dashboard")}
         onPinned={handleBuilderPinCreated}
         scopeChannelId={channelScopedId}
         selectedPresetId={builderPresetId}
@@ -1096,9 +1168,11 @@ function DashboardSkeleton() {
 function AddWidgetSplitButton({
   onOpenSheet,
   devPanelHref,
+  label = "Add widget",
 }: {
   onOpenSheet: () => void;
   devPanelHref: string;
+  label?: string;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -1127,11 +1201,11 @@ function AddWidgetSplitButton({
         type="button"
         onClick={onOpenSheet}
         className="inline-flex items-center gap-1.5 h-8 rounded-l-md bg-accent pl-2.5 pr-2 text-[12px] font-medium text-white hover:opacity-90 transition-opacity"
-        aria-label="Add widget"
-        title="Add widget"
+        aria-label={label}
+        title={label}
       >
         <Plus size={13} />
-        <span className="hidden md:inline">Add widget</span>
+        <span className="hidden md:inline">{label}</span>
       </button>
       <button
         type="button"

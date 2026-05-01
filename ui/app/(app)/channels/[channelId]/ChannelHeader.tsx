@@ -16,6 +16,7 @@ import {
   User as UserIcon,
   MoreHorizontal,
   AlertTriangle,
+  FolderKanban,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
@@ -218,6 +219,7 @@ export function ChannelHeader({
     !isSystemChannel;
 
   const isPrivate = !!channelData?.private;
+  const projectSummary = channelData?.project ?? null;
 
   const fmtTokens = (n: number) => {
     if (n >= 1_000_000)
@@ -561,7 +563,7 @@ export function ChannelHeader({
     showDashboardButton
       ? {
           key: "widgets",
-          label: isMobile ? "Workbench" : "Channel dashboard",
+          label: "Workbench",
           icon: LayoutDashboard,
           onClick: isMobile
             ? () => toggleDrawerToWidgets(channelId)
@@ -792,6 +794,23 @@ export function ChannelHeader({
               {ownerName ?? "owner"}
             </span>
           )}
+          {projectSummary && !isSystemChannel && (
+            <button
+              type="button"
+              className="inline-flex min-w-0 shrink items-center gap-1 rounded bg-surface-overlay px-1.5 py-0.5 text-[10px] font-medium text-text-muted transition-colors hover:bg-surface-overlay/70 hover:text-text"
+              title={`Open Project: ${projectSummary.name}\n/${projectSummary.root_path}`}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                navigate(`/admin/projects/${projectSummary.id}`);
+              }}
+            >
+              <FolderKanban size={10} className="shrink-0" />
+              <span className="max-w-[11rem] truncate">
+                {projectSummary.name || "Project"}
+              </span>
+            </button>
+          )}
           {attentionCount > 0 && (
             <button
               type="button"
@@ -1006,8 +1025,8 @@ export function ChannelHeader({
               ? () => toggleDrawerToWidgets(channelId)
               : () => navigate(dashboardHref ?? `/widgets/channel/${channelId}`)
           }
-          title={isMobile ? "Widgets" : "Switch to dashboard view"}
-          aria-label={isMobile ? "Widgets" : "Switch to dashboard view"}
+          title={isMobile ? "Artifacts" : "Open channel workbench"}
+          aria-label={isMobile ? "Artifacts" : "Open channel workbench"}
           aria-pressed={isMobile ? widgetsDrawerActive : undefined}
         >
           <LayoutDashboard

@@ -3,7 +3,7 @@ tags: [spindrel, track, security, agentic-ai]
 status: active
 created: 2026-04-30
 updated: 2026-05-01
-summary: Evergreen security track. 2026-05 deep review shipped MCP SSRF guard, encryption fail-fast, tool-result redaction boundary, OAuth/refresh rate-limit parity, and approval origin_kind awareness; remaining queue covers run_script sandboxing, widget symlink rejection, backup encryption, and supply-chain signing.
+summary: Evergreen security track. 2026-05 deep review shipped MCP SSRF guard, encryption fail-fast, tool-result redaction boundary, OAuth/refresh rate-limit parity, approval origin_kind awareness, widget symlink rejection, and run_script nested-call tightening; remaining queue covers backup encryption and supply-chain signing.
 ---
 # Track - Security Architecture
 
@@ -59,6 +59,7 @@ External frame checked 2026-04-30:
 - **Auth route rate-limit parity (High).** `_check_rate_limit` now wraps `/auth/google` and `/auth/refresh` in addition to `/auth/login` + `/auth/setup`.
 - **Approval rule origin_kind awareness (High).** `_match_conditions` defaults to interactive-only when a rule has no explicit `origin_kind` matcher and no `apply_to_autonomous: true` opt-in. Existing rules fail-closed on read. New audit signal `allow_rules_origin_scope` lists interactive-only vs autonomous-opt-in rules for operator review.
 - **Widget path symlink rejection (High).** Component walk in `widget_paths.py` rejects symlinks at every existing path segment. Closes the link-IN attack vector where a bot with shell access could symlink its bundle dir to elsewhere. Coverage: 5 new cases in `tests/unit/test_widget_paths.py`.
+- **`run_script` nested-call tightening (High).** `script_budget` now carries the parent run's `origin_kind` and an optional stored-script `allowed_tools` allowlist; `/internal/tools/exec` propagates origin via ContextVar before policy evaluation (closes the autonomous→chat downgrade gap) and rejects off-allowlist nested calls fail-closed with HTTP 403. Stored-script schema accepts `allowed_tools: [<tool>, ...]` and `run_script` pre-validates each declared tool against the parent origin before exec. New audit signal `run_script_allowed_tools_coverage` reports the percentage of stored scripts with explicit allowlists. Coverage: `tests/unit/test_run_script_origin_propagation.py` (6 cases) plus extended `test_script_budget.py` (7 new cases).
 - New principles guide [`docs/guides/security.md`](../guides/security.md) and consolidated audit doc [`docs/audits/security-deep-review-2026-05.md`](../audits/security-deep-review-2026-05.md).
 
 ## Live queue
@@ -66,10 +67,14 @@ External frame checked 2026-04-30:
 Ranked by severity. Each item is the next thing the track will pick up.
 
 ### High
-1. **`run_script` arbitrary-Python tightening.** Approval gates the `run_script` call but not the nested tool calls the script makes. Options: declared tool-list in script frontmatter pre-checked by the policy engine; per-script-call rate cap; nested origin_kind enforcement.
+1. ~~**`run_script` arbitrary-Python tightening.**~~ — **Shipped 2026-05-01.** Parent `origin_kind` propagated via `script_budget` and re-set on `current_run_origin` ContextVar before policy check; stored-script `allowed_tools` allowlist enforced fail-closed at `/internal/tools/exec`; pre-validation against parent origin before exec. Coverage: `tests/unit/test_run_script_origin_propagation.py` (6) + `test_script_budget.py` (+7).
 2. ~~**Widget path symlink rejection.**~~ — **Shipped 2026-05-01.** Component walk in `widget_paths.py` rejects symlinks at every existing segment from library root to target; closes the link-IN attack vector (link-OUT was already blocked by the realpath traversal guard). Coverage: 5 new cases in `tests/unit/test_widget_paths.py`.
 3. **Backup encryption.** `backups/` currently stores unencrypted DB dumps. Wrap with Fernet (or GPG) using the same `ENCRYPTION_KEY`; document retention.
 4. **Supply-chain signing for skills + widgets.** Manifest signing (HMAC over `widget.json` / skill body), audit trail of who created/modified, default-deny on unsigned with opt-in trust.
+
+### Follow-ups for run_script (lower-priority, defer)
+- Inline scripts cannot pre-declare an allowlist. Today they get origin propagation only; consider per-call signature restrictions if a future audit shows real-world abuse from inline scripts.
+- Workspace subprocess sandboxing (no host network, no `/etc`, etc.) is a separate effort — origin propagation + budget + allowlist closes the policy-bypass gap without it.
 
 ### Medium
 5. **Approval rule UI: autonomous opt-in toggle.** Backend now defaults to interactive-only; UI side needs a "Apply to autonomous runs (heartbeat/task/harness/widget cron)" checkbox so operators can broaden a rule deliberately.

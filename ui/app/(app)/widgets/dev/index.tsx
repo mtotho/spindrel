@@ -45,7 +45,7 @@ export default function WidgetDevPanelPage() {
   const [presetQuery, setPresetQuery] = useState("");
   const originSlug = useOriginSlug();
 
-  // Channel dashboard: route back via the pretty /widgets/channel/<id> form.
+  // Channel workbench: route back via the pretty /widgets/channel/<id> form.
   // User dashboard: /widgets/<slug>. No origin: default lands on /widgets.
   const backTo = useMemo(() => {
     if (!originSlug) return "/widgets";
@@ -66,7 +66,7 @@ export default function WidgetDevPanelPage() {
     : null;
   const parentLabel = useMemo(() => {
     if (!originSlug) return "Widgets";
-    if (originChannelId) return channelRow?.name ? `#${channelRow.name}` : "Channel dashboard";
+    if (originChannelId) return channelRow?.name ? `#${channelRow.name}` : "Channel workbench";
     return originDashboard?.name ?? "Widgets";
   }, [originSlug, originChannelId, channelRow?.name, originDashboard?.name]);
 

@@ -386,6 +386,43 @@ class TestPersistTurn:
         assert added[1].metadata_ == {}
 
     @pytest.mark.asyncio
+    async def test_heartbeat_dispatch_metadata_lands_on_assistant_row(self):
+        from app.services.sessions import persist_turn
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        session_id = uuid.uuid4()
+        bot = _make_bot()
+        messages = [
+            {"role": "user", "content": "heartbeat prompt"},
+            {"role": "assistant", "content": "heartbeat result"},
+        ]
+        meta = {
+            "trigger": "heartbeat",
+            "task_id": str(uuid.uuid4()),
+            "heartbeat_id": str(uuid.uuid4()),
+            "heartbeat_run_id": str(uuid.uuid4()),
+            "dispatched": False,
+        }
+
+        await persist_turn(
+            db,
+            session_id,
+            bot,
+            messages,
+            from_index=0,
+            msg_metadata=meta,
+            is_heartbeat=True,
+        )
+
+        added = [call[0][0] for call in db.add.call_args_list]
+        assistant_meta = added[1].metadata_
+        assert assistant_meta["trigger"] == "heartbeat"
+        assert assistant_meta["is_heartbeat"] is True
+        assert assistant_meta["dispatched"] is False
+        assert assistant_meta["heartbeat_run_id"] == meta["heartbeat_run_id"]
+
+    @pytest.mark.asyncio
     async def test_pre_user_msg_id_skips_first_user_message(self):
         """When pre_user_msg_id is set, the first user message should be skipped."""
         from app.services.sessions import persist_turn

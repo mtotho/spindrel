@@ -388,13 +388,23 @@ async def stream_post_assembly_events(
     record_trace_event_fn: Callable[..., Any],
     safe_create_task_fn: Callable[[Any], Any],
 ) -> AsyncGenerator[dict[str, Any] | StreamPostAssemblyDone, None]:
-    for event in stream_budget_events(
+    budget_events = stream_budget_events(
         budget=budget,
         assembly_result=assembly_result,
         context_profile_name=context_profile_name,
         logger=logger,
-    ):
+    )
+    for event in budget_events:
         yield event
+        if event.get("type") == "context_budget" and correlation_id is not None:
+            safe_create_task_fn(record_trace_event_fn(
+                correlation_id=correlation_id,
+                session_id=session_id,
+                bot_id=bot.id,
+                client_id=client_id,
+                event_type="context_budget",
+                data={k: v for k, v in event.items() if k != "type"},
+            ))
 
     if assembly_result.skills_in_context:
         yield {"type": "active_skills", "skills": assembly_result.skills_in_context}

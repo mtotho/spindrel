@@ -405,7 +405,6 @@ function PaneHeader({
                 <div className="my-1 h-px bg-surface-border/60" />
                 <SessionWorkSurfaceControl
                   sessionId={sessionId}
-                  disabled={turnActive}
                   presentation="menu"
                 />
               </>

@@ -473,7 +473,7 @@ export function useChannelWorkbenchController({
       });
       actions.push({
         id: `channel:${channelId}:dashboard`,
-        label: "Channel dashboard",
+        label: "Channel workbench",
         hint: channelLabel,
         icon: LayoutDashboardIcon,
         category: "This Channel",

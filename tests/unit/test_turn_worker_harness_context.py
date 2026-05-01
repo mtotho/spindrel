@@ -172,6 +172,22 @@ async def test_claude_exit_plan_mode_tool_does_not_leave_spindrel_plan_mode(monk
     assert factory.commits == 0
 
 
+async def test_codex_native_plan_metadata_does_not_enter_spindrel_plan_mode(monkeypatch):
+    session = SimpleNamespace(metadata_={"plan_mode": "chat"})
+    factory = _FakePlanSessionFactory(session)
+    monkeypatch.setattr("app.services.turn_worker.async_session", factory)
+
+    await _mirror_harness_native_plan_state(
+        session_id=uuid.uuid4(),
+        runtime_name="codex",
+        result_metadata={"codex_native_plan": [{"step": "Inspect", "status": "pending"}]},
+        persisted_tool_calls=[],
+    )
+
+    assert session.metadata_["plan_mode"] == "chat"
+    assert factory.commits == 0
+
+
 async def test_harness_turn_context_carries_latest_harness_metadata(monkeypatch):
     runtime = _RuntimeCapturingContext()
     latest_meta = {

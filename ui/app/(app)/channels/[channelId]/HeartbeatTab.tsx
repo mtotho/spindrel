@@ -465,7 +465,7 @@ export function HeartbeatTab({
 
   const saveHeartbeat = useCallback(async () => {
     if (!hbFormRef.current) return;
-    const draft = hbFormRef.current;
+    const draft = { ...hbFormRef.current, dispatch_mode: "always" };
     hbSavePendingRef.current = true;
     try {
       await saveMutationRef.current.mutateAsync(draft);
@@ -1099,26 +1099,16 @@ export function HeartbeatTab({
               <Toggle
                 value={hbForm.dispatch_results ?? true}
                 onChange={(v) => updateHbForm((f: any) => ({ ...f, dispatch_results: v }))}
-                label="Post results to channel"
+                label="Post heartbeat response to channel"
               />
               {hbForm.dispatch_results && (
-                <FormRow label="Dispatch mode" description="How heartbeat results are posted.">
-                  <SelectInput
-                    value={hbForm.dispatch_mode ?? "always"}
-                    onChange={(v) => updateHbForm((f: any) => ({ ...f, dispatch_mode: v }))}
-                    options={[
-                      { label: "Always post", value: "always" },
-                      { label: "LLM decides (via tool)", value: "optional" },
-                    ]}
-                  />
-                </FormRow>
+                <Toggle
+                  value={hbForm.trigger_response ?? false}
+                  onChange={(v) => updateHbForm((f: any) => ({ ...f, trigger_response: v }))}
+                  label="Trigger agent response after posting"
+                  description="After posting the heartbeat result, the bot will process it and respond again."
+                />
               )}
-              <Toggle
-                value={hbForm.trigger_response ?? false}
-                onChange={(v) => updateHbForm((f: any) => ({ ...f, trigger_response: v }))}
-                label="Trigger agent response after posting"
-                description="After posting the heartbeat result, the bot will process it and respond again."
-              />
             </div>
           </Section>
         )}

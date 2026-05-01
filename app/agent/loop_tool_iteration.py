@@ -320,6 +320,7 @@ async def _prune_after_tool_iteration(
         messages,
         available_budget_tokens=available_budget_tokens,
         pressure_threshold=settings_obj.IN_LOOP_PRUNING_PRESSURE_THRESHOLD,
+        tool_schema_tokens=0,
     )
     if not should_prune:
         return

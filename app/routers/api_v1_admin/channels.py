@@ -1426,7 +1426,7 @@ async def admin_channel_heartbeat_update(
     if "max_run_seconds" in updates:
         heartbeat.max_run_seconds = updates["max_run_seconds"]
     if "dispatch_mode" in updates:
-        heartbeat.dispatch_mode = updates["dispatch_mode"] if updates["dispatch_mode"] in ("always", "optional") else "always"
+        heartbeat.dispatch_mode = "always"
     if "previous_result_max_chars" in updates:
         heartbeat.previous_result_max_chars = updates["previous_result_max_chars"]
     if "repetition_detection" in updates:

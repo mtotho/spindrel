@@ -1,14 +1,15 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, FolderGit2, FolderOpen, Hash, KeyRound, Layers, Play, Plus, RotateCw, Save, ServerCog, Terminal, Unlink, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, FolderGit2, FolderOpen, GitPullRequest, Hash, KeyRound, Layers, Play, Plus, RotateCw, Save, ServerCog, Terminal, Unlink, Users } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
-import { useCreateProjectInstance, useManageProjectDependencyStack, useProject, useProjectChannels, useProjectInstances, useProjectRunReceipts, useProjectRuntimeEnv, useProjectDependencyStack, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
+import { useCreateProjectInstance, useManageProjectDependencyStack, useProject, useProjectChannels, useProjectCodingRunReviewBatches, useProjectCodingRuns, useProjectInstances, useProjectRunReceipts, useProjectRuntimeEnv, useProjectDependencyStack, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
 import { useCreateChannel, useChannels, usePatchChannelSettings } from "@/src/api/hooks/useChannels";
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useSecretValues } from "@/src/api/hooks/useSecretValues";
 import { useWorkspace } from "@/src/api/hooks/useWorkspaces";
 import { ProjectRunsSection } from "./ProjectRunsSection";
 import { PageHeader } from "@/src/components/layout/PageHeader";
+import { AnchorSection } from "@/src/components/shared/AnchorSection";
 import { FormRow, Section, SelectInput, TabBar, TextInput } from "@/src/components/shared/FormControls";
 import { PromptEditor } from "@/src/components/shared/LlmPrompt";
 import { BotPicker } from "@/src/components/shared/BotPicker";
@@ -25,15 +26,26 @@ import {
 import { Spinner } from "@/src/components/shared/Spinner";
 import { WorkspaceFileBrowserSurface } from "@/src/components/workspace/WorkspaceFileBrowserSurface";
 import { useHashTab } from "@/src/hooks/useHashTab";
-import type { Channel, Project, ProjectInstance, ProjectRuntimeEnv, ProjectSetup } from "@/src/types/api";
+import type { Channel, Project, ProjectCodingRun, ProjectCodingRunReviewBatch, ProjectInstance, ProjectRuntimeEnv, ProjectSetup } from "@/src/types/api";
 
 const TerminalPanel = lazy(() =>
   import("@/src/components/terminal/TerminalPanel").then((m) => ({ default: m.TerminalPanel })),
 );
 
-type ProjectTab = "Files" | "Terminal" | "Runs" | "Setup" | "Instances" | "Settings" | "Channels";
+type ProjectTab = "overview" | "runs" | "channels" | "setup" | "instances" | "files" | "terminal" | "settings";
 
-const TABS: ProjectTab[] = ["Files", "Terminal", "Runs", "Setup", "Instances", "Settings", "Channels"];
+const TABS: Array<{ key: ProjectTab; label: string }> = [
+  { key: "overview", label: "Overview" },
+  { key: "runs", label: "Runs" },
+  { key: "channels", label: "Channels" },
+  { key: "setup", label: "Setup" },
+  { key: "instances", label: "Instances" },
+  { key: "files", label: "Files" },
+  { key: "terminal", label: "Terminal" },
+  { key: "settings", label: "Settings" },
+];
+
+const TAB_KEYS = TABS.map((tab) => tab.key);
 
 function HeaderLink({ to, children, icon }: { to: string; children: React.ReactNode; icon: React.ReactNode }) {
   return (
@@ -99,6 +111,220 @@ function ProjectBasicsSection({
         />
       </div>
     </Section>
+  );
+}
+
+function countRunsByStatus(runs: ProjectCodingRun[]) {
+  return runs.reduce(
+    (acc, run) => {
+      const status = run.review?.status || run.status;
+      if (status === "ready_for_review" || status === "needs_review" || run.review?.actions?.can_mark_reviewed) acc.ready += 1;
+      else if (status === "running" || status === "pending") acc.active += 1;
+      else if (status === "blocked" || status === "failed" || status === "changes_requested") acc.blocked += 1;
+      else if (run.review?.reviewed) acc.reviewed += 1;
+      return acc;
+    },
+    { active: 0, ready: 0, blocked: 0, reviewed: 0 },
+  );
+}
+
+function newestActivityLabel(values: Array<{ created_at?: string | null; updated_at?: string | null }>) {
+  const dates = values
+    .map((value) => value.updated_at || value.created_at)
+    .filter((value): value is string => Boolean(value));
+  if (dates.length === 0) return "No activity yet";
+  const sorted = dates.sort();
+  const newest = sorted[sorted.length - 1];
+  if (!newest) return "No activity yet";
+  return `Updated ${new Date(newest).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+}
+
+function ProjectOverviewSection({
+  project,
+  channels,
+  setup,
+  runtimeEnv,
+  instances,
+  workspaceUri,
+  filesHref,
+  setTab,
+}: {
+  project: Project;
+  channels?: Array<Pick<Channel, "id" | "name" | "bot_id">>;
+  setup?: ProjectSetup;
+  runtimeEnv?: ProjectRuntimeEnv;
+  instances?: ProjectInstance[];
+  workspaceUri: string;
+  filesHref: string;
+  setTab: (tab: ProjectTab) => void;
+}) {
+  const { data: runs = [] } = useProjectCodingRuns(project.id);
+  const { data: reviewBatches = [] } = useProjectCodingRunReviewBatches(project.id);
+  const runCounts = countRunsByStatus(runs);
+  const readyBatches = reviewBatches.filter(
+    (batch) => (batch.actions?.can_start_review || batch.actions?.can_mark_reviewed) && (batch.unreviewed_run_ids?.length ?? batch.ready_run_ids?.length ?? batch.run_count) > 0,
+  );
+  const setupReady = setup?.plan?.ready ?? false;
+  const runtimeReady = runtimeEnv?.ready ?? false;
+  const attachedCount = channels?.length ?? project.attached_channel_count ?? 0;
+  const activeInstances = (instances ?? []).filter((instance) => !["deleted", "expired"].includes(instance.status));
+  const dependencyConfigured = Boolean(project.metadata_?.blueprint_snapshot?.dependency_stack);
+  const latestRuns = runs.slice(0, 4);
+
+  return (
+    <div data-testid="project-overview-home" className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
+      <AnchorSection
+        icon={<FolderGit2 size={15} />}
+        eyebrow="Project pulse"
+        title="Ready for agent work"
+        meta={newestActivityLabel(runs)}
+        emphasis="primary"
+        action={<ActionButton label="Start run" icon={<Play size={14} />} size="small" onPress={() => setTab("runs")} />}
+      >
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+          <SettingsControlRow
+            compact
+            leading={<GitPullRequest size={14} />}
+            title="Review queue"
+            description={`${runCounts.ready} ready, ${runCounts.active} active, ${runCounts.blocked} blocked`}
+            meta={<StatusBadge label={runCounts.ready > 0 ? "Review" : runCounts.active > 0 ? "Active" : "Clear"} variant={runCounts.blocked > 0 ? "warning" : runCounts.ready > 0 ? "info" : "success"} />}
+            onClick={() => setTab("runs")}
+          />
+          <SettingsControlRow
+            compact
+            leading={<Users size={14} />}
+            title="Attached channels"
+            description={`${attachedCount} channel${attachedCount === 1 ? "" : "s"} can work from this Project root`}
+            meta={<StatusBadge label={attachedCount > 0 ? "Ready" : "None"} variant={attachedCount > 0 ? "success" : "warning"} />}
+            onClick={() => setTab("channels")}
+          />
+          <SettingsControlRow
+            compact
+            leading={runtimeReady ? <KeyRound size={14} /> : <AlertTriangle size={14} />}
+            title="Runtime env"
+            description={runtimeReady ? "Secrets and defaults are available to Project runs" : runtimeEnv?.missing_secrets?.join(", ") || "Runtime bindings need attention"}
+            meta={<StatusBadge label={runtimeReady ? "Ready" : "Needs binding"} variant={runtimeReady ? "success" : "warning"} />}
+            onClick={() => setTab("settings")}
+          />
+          <SettingsControlRow
+            compact
+            leading={setupReady ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}
+            title="Setup"
+            description={setupReady ? "Blueprint setup can run for this Project" : setup?.plan?.reasons?.[0] ?? "No setup plan is ready"}
+            meta={<StatusBadge label={setupReady ? "Ready" : "Needs setup"} variant={setupReady ? "success" : "warning"} />}
+            onClick={() => setTab("setup")}
+          />
+        </div>
+      </AnchorSection>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="flex min-w-0 flex-col gap-4">
+          <AnchorSection
+            icon={<GitPullRequest size={15} />}
+            eyebrow="Agent work"
+            title="Recent runs"
+            meta={`${runs.length} total`}
+            action={<ActionButton label="Open runs" icon={<ExternalLink size={14} />} size="small" variant="secondary" onPress={() => setTab("runs")} />}
+          >
+            <div className="flex flex-col gap-2">
+              {latestRuns.length === 0 ? (
+                <EmptyState message="No Project coding runs yet." />
+              ) : latestRuns.map((run) => (
+                <SettingsControlRow
+                  key={run.id}
+                  leading={<GitPullRequest size={14} />}
+                  title={run.task.title || run.request || "Project run"}
+                  description={run.review?.blocker || run.review?.review_summary || run.request || "No run summary yet"}
+                  meta={
+                    <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5">
+                      <StatusBadge label={run.review?.status || run.status} variant={run.review?.blocker || run.status === "failed" ? "danger" : run.review?.actions?.can_mark_reviewed ? "info" : run.status === "running" ? "warning" : "neutral"} />
+                      {run.receipt?.screenshots?.length ? <QuietPill label={`${run.receipt.screenshots.length} screenshots`} /> : null}
+                    </span>
+                  }
+                  onClick={() => setTab("runs")}
+                />
+              ))}
+            </div>
+          </AnchorSection>
+
+          <AnchorSection
+            icon={<Users size={15} />}
+            title="Project channels"
+            meta={`${attachedCount} attached`}
+            action={<ActionButton label="Manage" icon={<ExternalLink size={14} />} size="small" variant="secondary" onPress={() => setTab("channels")} />}
+          >
+            <div className="grid gap-2 md:grid-cols-2">
+              {(channels ?? []).length === 0 ? (
+                <EmptyState message="No channels are attached to this Project yet." />
+              ) : (channels ?? []).slice(0, 4).map((channel) => (
+                <SettingsControlRow
+                  key={channel.id}
+                  compact
+                  leading={<Hash size={14} />}
+                  title={channel.name}
+                  description={channel.bot_id}
+                  action={<HeaderLink to={`/channels/${channel.id}`} icon={<ExternalLink size={13} />}>Open</HeaderLink>}
+                />
+              ))}
+            </div>
+          </AnchorSection>
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-4">
+          <AnchorSection icon={<FolderOpen size={15} />} title="Work surface" emphasis="secondary">
+            <div className="flex flex-col gap-2">
+              <SettingsControlRow
+                compact
+                leading={<FolderOpen size={14} />}
+                title="Project root"
+                description={<span className="font-mono">{workspaceUri}</span>}
+                meta={<QuietPill label={project.slug} />}
+              />
+              <div className="flex flex-wrap gap-1">
+                <HeaderLink to={filesHref} icon={<ExternalLink size={13} />}>Files</HeaderLink>
+                <button
+                  type="button"
+                  className="inline-flex min-h-[34px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold text-text-muted transition-colors hover:bg-surface-overlay/50 hover:text-text"
+                  onClick={() => setTab("terminal")}
+                >
+                  <Terminal size={13} />
+                  Terminal
+                </button>
+              </div>
+            </div>
+          </AnchorSection>
+
+          <AnchorSection icon={<ServerCog size={15} />} title="Runtime and instances" emphasis="secondary">
+            <div className="flex flex-col gap-2">
+              <SettingsControlRow
+                compact
+                leading={<ServerCog size={14} />}
+                title="Dependency stack"
+                description={dependencyConfigured ? "Docker-backed dependencies are declared for Project work" : "No dependency stack declared"}
+                meta={<StatusBadge label={dependencyConfigured ? "Configured" : "None"} variant={dependencyConfigured ? "info" : "neutral"} />}
+                onClick={() => setTab("settings")}
+              />
+              <SettingsControlRow
+                compact
+                leading={<FolderOpen size={14} />}
+                title="Fresh instances"
+                description={`${activeInstances.length} active instance${activeInstances.length === 1 ? "" : "s"}`}
+                meta={<QuietPill label={`${instances?.length ?? 0} total`} />}
+                onClick={() => setTab("instances")}
+              />
+              <SettingsControlRow
+                compact
+                leading={<GitPullRequest size={14} />}
+                title="Review batches"
+                description={`${readyBatches.length} batch${readyBatches.length === 1 ? "" : "es"} waiting for review action`}
+                meta={<StatusBadge label={readyBatches.length > 0 ? "Ready" : "Clear"} variant={readyBatches.length > 0 ? "info" : "success"} />}
+                onClick={() => setTab("runs")}
+              />
+            </div>
+          </AnchorSection>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -890,7 +1116,7 @@ export default function ProjectDetail() {
   const { data: runtimeEnv } = useProjectRuntimeEnv(projectId);
   const { data: workspace } = useWorkspace(project?.workspace_id);
   const updateProject = useUpdateProject(projectId);
-  const [tab, setTab] = useHashTab<ProjectTab>("Files", TABS);
+  const [tab, setTab] = useHashTab<ProjectTab>("overview", TAB_KEYS);
   const [prompt, setPrompt] = useState("");
   const [promptFilePath, setPromptFilePath] = useState("");
   const [terminalPath, setTerminalPath] = useState<string | null>(null);
@@ -911,7 +1137,7 @@ export default function ProjectDetail() {
   const terminalLabel = terminalPath ? `/${terminalPath}` : `/${root}`;
   const filesHref = project ? `/admin/workspaces/${project.workspace_id}/files?path=${encodeURIComponent(`/${root}`)}` : "";
 
-  const tabItems = useMemo(() => TABS.map((key) => ({ key, label: key })), []);
+  const tabItems = useMemo(() => TABS, []);
 
   if (isLoading || !project) {
     return <div className="flex flex-1 items-center justify-center bg-surface"><Spinner /></div>;
@@ -921,6 +1147,7 @@ export default function ProjectDetail() {
     <div className="flex min-h-0 flex-1 flex-col bg-surface">
       <PageHeader
         variant="detail"
+        chrome="flow"
         title={project.name}
         subtitle={`/${project.root_path}`}
         backTo="/admin/projects"
@@ -937,7 +1164,22 @@ export default function ProjectDetail() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
-        {tab === "Files" && (
+        {tab === "overview" && (
+          <div className="h-full overflow-auto">
+            <ProjectOverviewSection
+              project={project}
+              channels={channels}
+              setup={setup}
+              runtimeEnv={runtimeEnv}
+              instances={instances}
+              workspaceUri={workspaceUri}
+              filesHref={filesHref}
+              setTab={setTab}
+            />
+          </div>
+        )}
+
+        {tab === "files" && (
           <div data-testid="project-workspace-files" className="flex h-full min-h-0 flex-col">
             {!workspace ? (
               <div className="flex flex-1 items-center justify-center"><Spinner /></div>
@@ -947,17 +1189,17 @@ export default function ProjectDetail() {
                 rootPath={root}
                 rootLabel="Project"
                 title={project.name}
-                settingsHref={`/admin/projects/${project.id}#Settings`}
+                settingsHref={`/admin/projects/${project.id}#settings`}
                 onOpenTerminal={(path) => {
                   setTerminalPath(path || root);
-                  setTab("Terminal");
+                  setTab("terminal");
                 }}
               />
             )}
           </div>
         )}
 
-        {tab === "Terminal" && (
+        {tab === "terminal" && (
           <div data-testid="project-workspace-terminal" className="flex h-full min-h-0 flex-col bg-[#0a0d12]">
             <div className="flex h-10 shrink-0 items-center gap-2 border-b border-white/10 bg-[#0d1117] px-3">
               <Terminal size={15} className="text-accent" />
@@ -972,25 +1214,25 @@ export default function ProjectDetail() {
           </div>
         )}
 
-        {tab === "Setup" && (
+        {tab === "setup" && (
           <div className="h-full overflow-auto">
             <ProjectSetupSection project={project} setup={setup} />
           </div>
         )}
 
-        {tab === "Instances" && (
+        {tab === "instances" && (
           <div className="h-full overflow-auto">
             <ProjectInstancesSection project={project} instances={instances} />
           </div>
         )}
 
-        {tab === "Runs" && (
+        {tab === "runs" && (
           <div className="h-full overflow-auto">
             <ProjectRunsSection project={project} channels={channels} receipts={receipts} />
           </div>
         )}
 
-        {tab === "Settings" && (
+        {tab === "settings" && (
           <div className="h-full overflow-auto">
             <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-7 px-5 py-5 md:px-6">
               <ProjectBasicsSection
@@ -1067,7 +1309,7 @@ export default function ProjectDetail() {
           </div>
         )}
 
-        {tab === "Channels" && (
+        {tab === "channels" && (
           <div className="h-full overflow-auto">
             <ProjectChannelsSection project={project} channels={channels} />
           </div>

@@ -2,8 +2,8 @@
 
 Heartbeats are periodic autonomous check-ins. Configure a heartbeat on a channel and the bot runs a prompt on a schedule — monitoring, summarizing, alerting, or launching pipelines without human intervention.
 
-![Heartbeat configuration UI showing interval, prompt, dispatch mode, and quiet hours settings](../images/channel-heartbeat.png)
-*Channel heartbeat settings — configure the interval, prompt, dispatch mode, and quiet hours.*
+![Heartbeat configuration UI showing interval, prompt, posting, and quiet hours settings](../images/channel-heartbeat.png)
+*Channel heartbeat settings — configure the interval, prompt, posting, and quiet hours.*
 
 ---
 
@@ -29,7 +29,7 @@ The heartbeat worker polls every 30 seconds for due heartbeats. When one fires:
 3. The **prompt is resolved** (workspace file → template → inline → global fallback).
 4. **Heartbeat metadata and surfaces are injected** — current time, channel activity since last run, previous results, spatial context, pinned widget context, and heartbeat-specific tool policy.
 5. The bot **runs the prompt** with the heartbeat context profile and the configured tool/skill selections.
-6. The result is **dispatched** based on dispatch mode (auto-post or LLM decides).
+6. The result is posted when `dispatch_results` is enabled; otherwise it is saved to heartbeat history only.
 7. The **next run is scheduled** using clock-aligned intervals.
 
 ### Clock-Aligned Scheduling
@@ -65,35 +65,27 @@ Select a prompt template in the Heartbeat settings tab. Templates are managed in
 
 ---
 
-## Dispatch Modes
+## Posting
 
-### Always (default)
+### Post On (default)
 
 The heartbeat result is automatically posted to the channel every time.
 
 ```
-dispatch_mode: always
+dispatch_results: true
 ```
 
 Good for: status updates, monitoring dashboards, regular reports.
 
-### Optional
+### Post Off
 
-The result is **not** auto-posted. Instead, the LLM gets a `post_heartbeat_to_channel` tool and decides whether the result is worth sharing.
+Set `dispatch_results: false` to save results to heartbeat history without posting to integrations. The web UI shows a collapsed heartbeat row that can be expanded to inspect the output.
 
-```
-dispatch_mode: optional
-```
-
-Good for: analysis heartbeats where most runs find "nothing to report." The bot only posts when something interesting happens, keeping the channel clean.
-
-### Silent (no dispatch)
-
-Set `dispatch_results: false` to save results to the database without posting anywhere. Useful for background monitoring where you only check results when investigating issues.
+`dispatch_mode` is a legacy compatibility field and is ignored by current runtime behavior.
 
 ### Trigger Response
 
-Set `trigger_response: true` to create a follow-up task after the heartbeat completes. The bot can then react asynchronously — useful for chained automations where the heartbeat detects something and a second agent action handles it.
+Set `trigger_response: true` to create a follow-up task after a posted heartbeat completes. The bot can then react asynchronously — useful for chained automations where the heartbeat detects something and a second agent action handles it.
 
 ---
 
@@ -286,7 +278,7 @@ This gives the bot situational awareness without consuming prompt space. The met
 | `prompt` | string | — | Inline prompt text |
 | `workspace_file_path` | string | — | Workspace file to read as prompt |
 | `prompt_template_id` | uuid | — | Template reference |
-| `dispatch_mode` | string | "always" | `"always"` or `"optional"` |
+| `dispatch_mode` | string | "always" | Legacy compatibility field; ignored |
 | `dispatch_results` | bool | true | Post result to channel |
 | `trigger_response` | bool | false | Create follow-up task after completion |
 | `model` | string | — | Override LLM model |
@@ -390,7 +382,7 @@ Post system health updates every hour, quiet at night:
 ```
 enabled: true
 interval_minutes: 60
-dispatch_mode: always
+dispatch_results: true
 quiet_start: 23:00
 quiet_end: 06:00
 timezone: America/New_York
@@ -402,19 +394,19 @@ prompt: |
   Report anomalies clearly. If everything is normal, say "All systems nominal."
 ```
 
-### Smart Analysis (Optional Dispatch)
+### Quiet Analysis
 
-Run analysis every 2 hours, only post if something is found:
+Run analysis every 2 hours and keep the result in heartbeat history:
 
 ```
 enabled: true
 interval_minutes: 120
-dispatch_mode: optional
+dispatch_results: false
 prompt: |
   Review recent channel activity and workspace files.
   If there are stale tasks, unresolved questions, or items that need attention,
-  use post_heartbeat_to_channel to alert the team.
-  If everything looks fine, do nothing.
+  summarize them clearly for later review.
+  If everything looks fine, say so briefly.
 ```
 
 ### Daily Pipeline Launch

@@ -19,6 +19,10 @@ interface TerminalPanelProps {
   className?: string;
   /** Optional compact title bar for embedded terminal drawers. */
   title?: string;
+  /** Endpoint used to create the PTY session. Defaults to the generic admin terminal. */
+  sessionCreatePath?: string;
+  /** Extra POST body fields for custom terminal launch endpoints. */
+  sessionCreateBody?: Record<string, unknown>;
 }
 
 type WireMessage =
@@ -52,7 +56,15 @@ function decodeBase64ToBytes(b64: string): Uint8Array {
  * Lifecycle: mount → POST /admin/terminal/sessions → connect WS with the
  * returned id → render xterm → on unmount, close WS (server kills the PTY).
  */
-export function TerminalPanel({ seedCommand, cwd, onExit, className, title }: TerminalPanelProps) {
+export function TerminalPanel({
+  seedCommand,
+  cwd,
+  onExit,
+  className,
+  title,
+  sessionCreatePath = "/api/v1/admin/terminal/sessions",
+  sessionCreateBody,
+}: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -68,6 +80,8 @@ export function TerminalPanel({ seedCommand, cwd, onExit, className, title }: Te
   // Stable refs so the connect effect doesn't re-fire on every prop change.
   const seed = useMemo(() => seedCommand, [seedCommand]);
   const startCwd = useMemo(() => cwd, [cwd]);
+  const createPath = useMemo(() => sessionCreatePath, [sessionCreatePath]);
+  const createBody = useMemo(() => sessionCreateBody, [sessionCreateBody]);
 
   useEffect(() => {
     onExitRef.current = onExit;
@@ -132,12 +146,13 @@ export function TerminalPanel({ seedCommand, cwd, onExit, className, title }: Te
     (async () => {
       try {
         const { session_id } = await apiFetch<{ session_id: string }>(
-          "/api/v1/admin/terminal/sessions",
+          createPath,
           {
             method: "POST",
             body: JSON.stringify({
               seed_command: seed ?? null,
               cwd: startCwd ?? null,
+              ...(createBody ?? {}),
             }),
           },
         );
@@ -235,7 +250,7 @@ export function TerminalPanel({ seedCommand, cwd, onExit, className, title }: Te
     };
     // Reconnect on seed/cwd change is intentional — those define the session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seed, startCwd]);
+  }, [seed, startCwd, createPath, createBody]);
 
   return (
     <div className={`relative flex min-h-0 flex-1 flex-col bg-[#0a0d12] ${className ?? ""}`}>

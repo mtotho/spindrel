@@ -1378,9 +1378,9 @@ export default function ChatScreen() {
               paddingRight: CENTER_PANEL_GUTTER_PX,
             }}
           >
-            {/* Dashboard-only mode: replace the chat column with a card
-                that points users at the full dashboard. No messages, no
-                composer — the channel is purely a widget surface. */}
+            {/* Workbench-only mode: replace the chat column with a card
+                that points users at the full workbench. No messages, no
+                composer — the channel is purely an artifact surface. */}
             {dashboardOnly && channelId && (
               <div
                 className="flex-1 flex items-center justify-center p-6"
@@ -1392,11 +1392,11 @@ export default function ChatScreen() {
                 >
                   <LayoutDashboardIcon size={20} style={{ color: t.accent }} />
                   <div className="text-[15px] font-semibold" style={{ color: t.text }}>
-                    Dashboard-only channel
+                    Workbench-only channel
                   </div>
                   <div className="text-[12px] leading-relaxed" style={{ color: t.textMuted }}>
-                    This channel renders as a widget dashboard. Open the dashboard
-                    to see pinned widgets.
+                    This channel renders as a workbench. Open it to see pinned
+                    artifacts and the canvas.
                   </div>
                   <button
                     type="button"
@@ -1404,7 +1404,7 @@ export default function ChatScreen() {
                     className="mt-1 rounded-md px-4 py-1.5 text-[12px] font-medium"
                     style={{ backgroundColor: t.accent, color: t.surface }}
                   >
-                    Open dashboard
+                    Open workbench
                   </button>
                 </div>
               </div>

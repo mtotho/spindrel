@@ -349,7 +349,7 @@ function WidgetsTab({
     <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-4">
       <ZoneSection
         title="Pinned widgets"
-        subtitle="Channel dashboard"
+        subtitle="Channel workbench"
         pins={pins}
         channelId={channelId}
         onUnpin={onUnpin}

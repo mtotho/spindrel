@@ -77,6 +77,10 @@ actionable: what happened, why it matters, and the next useful action.
 """
 
 
+def _heartbeat_should_post(task: Task, deps: TaskRunHostDeps) -> bool:
+    return deps.heartbeat_execution_meta(task).get("dispatch_results", True) is not False
+
+
 async def _resolve_task_bot(bot_id: str, deps: TaskRunHostDeps) -> BotConfig:
     """Resolve a bot for a task run, refreshing the runtime registry once.
 
@@ -354,6 +358,7 @@ async def _run_harness_task_if_needed(
             "task_id": str(task.id),
             "task_type": task.task_type,
             "is_heartbeat": task.task_type == "heartbeat",
+            **({"trigger": "heartbeat", "dispatched": _heartbeat_should_post(task, deps)} if task.task_type == "heartbeat" else {}),
         },
         pre_user_msg_id=None,
         suppress_outbox=(
@@ -387,18 +392,18 @@ async def _run_harness_task_if_needed(
                 error_text=harness_error,
                 correlation_id=prepared.correlation_id,
             )
-        await deps.publish_turn_ended(
-            task,
-            turn_id=turn_id,
-            result=result_text,
-            error=harness_error,
-            kind_hint="heartbeat" if task.task_type == "heartbeat" else "task",
-        )
+        if task.task_type != "heartbeat":
+            await deps.publish_turn_ended(
+                task,
+                turn_id=turn_id,
+                result=result_text,
+                error=harness_error,
+                kind_hint="task",
+            )
         return True
 
     if task.task_type == "heartbeat":
-        hb_meta = deps.heartbeat_execution_meta(task)
-        if bool(hb_meta.get("dispatch_results")) and hb_meta.get("dispatch_mode") != "optional" and task.channel_id:
+        if _heartbeat_should_post(task, deps) and task.channel_id:
             try:
                 from app.services.heartbeat import _enqueue_persisted_heartbeat_result
                 await _enqueue_persisted_heartbeat_result(
@@ -425,12 +430,13 @@ async def _run_harness_task_if_needed(
             error_text=None,
             correlation_id=prepared.correlation_id,
         )
-    await deps.publish_turn_ended(
-        task,
-        turn_id=turn_id,
-        result=result_text,
-        kind_hint="heartbeat" if task.task_type == "heartbeat" else "task",
-    )
+    if task.task_type != "heartbeat":
+        await deps.publish_turn_ended(
+            task,
+            turn_id=turn_id,
+            result=result_text,
+            kind_hint="task",
+        )
     return True
 
 
@@ -573,7 +579,7 @@ async def _run_normal_agent_task(
     task_meta: dict | None = None
     if task.task_type == "heartbeat":
         hb_meta = deps.heartbeat_execution_meta(task)
-        dispatched = bool(hb_meta.get("dispatch_results")) and hb_meta.get("dispatch_mode") != "optional"
+        dispatched = _heartbeat_should_post(task, deps)
         task_meta = {
             "trigger": "heartbeat",
             "task_id": str(task.id),
@@ -673,8 +679,7 @@ async def _run_normal_agent_task(
 
     dispatch_actions = None if task.task_type == "callback" else run_result.client_actions
     if task.task_type == "heartbeat":
-        hb_meta = deps.heartbeat_execution_meta(task)
-        if bool(hb_meta.get("dispatch_results")) and hb_meta.get("dispatch_mode") != "optional" and task.channel_id:
+        if _heartbeat_should_post(task, deps) and task.channel_id:
             try:
                 from app.services.heartbeat import _enqueue_persisted_heartbeat_result
                 await _enqueue_persisted_heartbeat_result(
@@ -685,18 +690,24 @@ async def _run_normal_agent_task(
             except Exception:
                 logger.warning("Heartbeat task %s outbox enqueue failed", task.id, exc_info=True)
 
-    await deps.publish_turn_ended(
-        task,
-        turn_id=turn_id,
-        result=dispatch_text,
-        client_actions=dispatch_actions,
-        extra_metadata=delegation_meta,
-        kind_hint="heartbeat" if task.task_type == "heartbeat" else None,
-    )
+    if task.task_type != "heartbeat":
+        await deps.publish_turn_ended(
+            task,
+            turn_id=turn_id,
+            result=dispatch_text,
+            client_actions=dispatch_actions,
+            extra_metadata=delegation_meta,
+            kind_hint=None,
+        )
 
     cb = task.callback_config or {}
     followup_tasks: list[Task] = []
-    if task.task_type == "heartbeat" and deps.heartbeat_execution_meta(task).get("trigger_rag_loop") and result_text:
+    if (
+        task.task_type == "heartbeat"
+        and _heartbeat_should_post(task, deps)
+        and deps.heartbeat_execution_meta(task).get("trigger_rag_loop")
+        and result_text
+    ):
         followup_tasks.append(Task(
             bot_id=task.bot_id,
             client_id=task.client_id,
@@ -881,7 +892,7 @@ async def run_task(task: Task, *, deps: TaskRunHostDeps) -> None:
         _suppress_channel = _publish_channel_id is None
         if not _suppress_channel:
             _publish_session_id = getattr(task, "session_id", None)
-    if _publish_channel_id is not None and not _suppress_channel:
+    if _publish_channel_id is not None and not _suppress_channel and task.task_type != "heartbeat":
         try:
             from app.domain.channel_events import ChannelEvent, ChannelEventKind
             from app.domain.payloads import TurnStartedPayload

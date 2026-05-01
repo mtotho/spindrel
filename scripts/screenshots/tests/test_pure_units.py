@@ -189,6 +189,7 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
         PROJECT_WORKSPACE_SPECS,
         {
             "project_workspace": "channel-1",
+            "project_factory_dogfood": "channel-2",
             "project_workspace_project": "project-1",
             "project_workspace_blueprint": "blueprint-1",
             "project_workspace_blueprint_project": "blueprint-project-1",
@@ -198,6 +199,7 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
     assert {spec.output for spec in resolved} == {
         "project-workspace-list.png",
         "project-workspace-detail.png",
+        "project-workspace-files.png",
         "project-workspace-blueprints.png",
         "project-workspace-blueprint-editor.png",
         "project-workspace-settings-blueprint.png",
@@ -215,11 +217,15 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
         "project-workspace-terminal.png",
         "project-workspace-channels.png",
         "project-workspace-channel-settings.png",
+        "project-workspace-channel-header.png",
         "project-workspace-memory-tool.png",
+        "project-workspace-context-mentions.png",
+        "project-factory-dogfood-planning.png",
     }
     assert all(spec.assert_js for spec in resolved)
     routes = {spec.name: spec.route for spec in resolved}
     assert routes["project-workspace-detail"] == "/admin/projects/project-1"
+    assert routes["project-workspace-files"] == "/admin/projects/project-1#files"
     assert routes["project-workspace-blueprints"] == "/admin/projects/blueprints"
     assert routes["project-workspace-blueprint-editor"] == "/admin/projects/blueprints/blueprint-1"
     assert routes["project-workspace-settings-blueprint"] == "/admin/projects/blueprint-project-1#Settings"
@@ -236,7 +242,10 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
     assert routes["project-workspace-terminal"] == "/admin/projects/project-1#Terminal"
     assert routes["project-workspace-channels"] == "/admin/projects/project-1#Channels"
     assert routes["project-workspace-channel-settings"] == "/channels/channel-1/settings#agent"
+    assert routes["project-workspace-channel-header"] == "/channels/channel-1"
     assert routes["project-workspace-memory-tool"] == "/channels/channel-1"
+    assert routes["project-workspace-context-mentions"] == "/channels/channel-1"
+    assert routes["project-factory-dogfood-planning"] == "/channels/channel-2"
 
 
 def test_channel_widget_usefulness_specs_have_assertions_and_artifacts():

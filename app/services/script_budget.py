@@ -34,9 +34,12 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "BudgetExhausted",
+    "ScriptToolNotAllowed",
     "close_budget",
+    "is_tool_allowed",
     "open_budget",
     "peek",
+    "peek_origin",
     "spend",
 ]
 
@@ -45,6 +48,15 @@ __all__ = [
 class _Entry:
     limit: int
     remaining: int
+    # Parent run's origin_kind ("chat" | "heartbeat" | "task" | "subagent" |
+    # "hygiene") — propagated from the run_script caller so nested tool
+    # calls on /internal/tools/exec gate against the parent's origin instead
+    # of defaulting to "chat" (which would let an autonomous-origin script
+    # bypass autonomous-only approval rules).
+    origin_kind: str | None = None
+    # Optional allowed-tools list. When set (stored-script frontmatter),
+    # nested tool calls outside the list are rejected fail-closed.
+    allowed_tools: frozenset[str] | None = None
 
 
 _entries: dict[str, _Entry] = {}
@@ -62,15 +74,43 @@ class BudgetExhausted(Exception):
     """Raised by :func:`spend` callers that prefer exceptions over tuples."""
 
 
-async def open_budget(correlation_id: str, limit: int) -> None:
+class ScriptToolNotAllowed(Exception):
+    """Raised when a stored-script allowed_tools allowlist rejects a nested call."""
+
+
+async def open_budget(
+    correlation_id: str,
+    limit: int,
+    *,
+    origin_kind: str | None = None,
+    allowed_tools: list[str] | None = None,
+) -> None:
     """Register a new budget. Idempotent: a second open with the same id
     resets the remaining count to ``limit`` (a retried script gets a
     fresh allowance). ``limit`` below 1 disables the budget entirely for
-    this correlation id."""
+    this correlation id.
+
+    ``origin_kind`` is the parent run's origin (read from
+    ``current_run_origin``); the inner ``/internal/tools/exec`` endpoint
+    re-sets this ContextVar before policy evaluation so nested tool calls
+    inherit the parent's autonomous/interactive posture.
+
+    ``allowed_tools`` — optional explicit allowlist for stored scripts.
+    When set, any nested call to a tool not in the list is rejected at
+    the endpoint with a 403, independent of the policy gate.
+    """
     if not correlation_id or limit <= 0:
         return
+    allowed: frozenset[str] | None = None
+    if allowed_tools is not None:
+        allowed = frozenset(t for t in allowed_tools if isinstance(t, str) and t)
     async with _get_lock():
-        _entries[correlation_id] = _Entry(limit=limit, remaining=limit)
+        _entries[correlation_id] = _Entry(
+            limit=limit,
+            remaining=limit,
+            origin_kind=origin_kind,
+            allowed_tools=allowed,
+        )
 
 
 async def spend(correlation_id: str | None) -> tuple[bool, int, int]:
@@ -106,6 +146,35 @@ async def peek(correlation_id: str | None) -> tuple[int, int]:
         if entry is None:
             return -1, -1
         return entry.remaining, entry.limit
+
+
+async def peek_origin(correlation_id: str | None) -> str | None:
+    """Return the parent run's ``origin_kind`` for an open budget, or
+    ``None`` if there is no budget for this correlation id (the call did
+    not originate from a tracked ``run_script``)."""
+    if not correlation_id:
+        return None
+    async with _get_lock():
+        entry = _entries.get(correlation_id)
+        return entry.origin_kind if entry is not None else None
+
+
+async def is_tool_allowed(correlation_id: str | None, tool_name: str) -> bool:
+    """Check stored-script ``allowed_tools`` allowlist.
+
+    Returns ``True`` when there is no budget (untracked call), no
+    allowlist on the budget (inline-script case — origin propagation is
+    the only protection), or the tool is on the allowlist. Returns
+    ``False`` only when an explicit allowlist exists and ``tool_name``
+    is not in it.
+    """
+    if not correlation_id:
+        return True
+    async with _get_lock():
+        entry = _entries.get(correlation_id)
+        if entry is None or entry.allowed_tools is None:
+            return True
+        return tool_name in entry.allowed_tools
 
 
 async def close_budget(correlation_id: str | None) -> tuple[int, int] | None:

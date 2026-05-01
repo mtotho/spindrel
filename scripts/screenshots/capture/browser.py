@@ -98,6 +98,7 @@ async def browser_context(
             viewport=viewport,
             color_scheme=color_scheme,
             base_url=ui_base,
+            service_workers="block",
         )
         await context.add_init_script(_storage_init_script(ui_base=ui_base, bundle=bundle))
         await context.add_init_script(READY_COUNTER_SCRIPT)

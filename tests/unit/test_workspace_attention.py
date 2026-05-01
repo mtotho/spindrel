@@ -515,7 +515,15 @@ async def test_create_issue_work_packs_tool_uses_normal_agent_channel_context(
     }], triage_receipt={"summary": "One coherent Project-bound work pack."})
     payload = json.loads(raw)
 
+    assert payload["ok"] is True
+    assert payload["message"] == "Created 1 issue work pack: 1 launchable, 0 needs-info."
     assert payload["count"] == 1
+    assert payload["launchable_count"] == 1
+    assert payload["needs_info_count"] == 0
+    assert payload["links"]["project_runs"] == f"/admin/projects/{project_id}#Runs"
+    assert payload["links"]["channel"] == f"/channels/{channel_id}"
+    assert payload["created_work_packs"][0]["title"] == "Conversation-generated work pack"
+    assert payload["created_work_packs"][0]["links"]["project_runs"] == f"/admin/projects/{project_id}#Runs"
     assert payload["work_packs"][0]["metadata"]["source"] == "conversation"
     assert payload["work_packs"][0]["project_id"] == str(project_id)
     assert payload["work_packs"][0]["triage_receipt"]["summary"] == "One coherent Project-bound work pack."

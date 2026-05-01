@@ -1,0 +1,375 @@
+"""Mirror native CLI transcript records back into Spindrel sessions.
+
+The embedded native CLI view is a real PTY, not a fake chat renderer. To keep
+Spindrel history useful after a user switches into that view, mirror structured
+Codex/Claude transcript JSONL records instead of scraping terminal bytes.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import re
+import time
+import uuid
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable
+
+from app.agent.bots import get_bot
+from app.db.engine import async_session
+from app.db.models import Session
+from app.services.sessions import store_passive_message
+from app.services.terminal import get_session as get_terminal_session
+
+logger = logging.getLogger(__name__)
+
+_POLL_INTERVAL_SEC = 1.5
+_MAX_IDLE_POLLS_AFTER_TERMINAL_EXIT = 4
+_MIRROR_TASKS: set[asyncio.Task] = set()
+_SPINDREL_BLOCK_RE = re.compile(
+    r"<spindrel_(?:host_instructions|context_hints|tool_guidance)>.*?</spindrel_(?:host_instructions|context_hints|tool_guidance)>",
+    re.DOTALL,
+)
+_ENV_CONTEXT_RE = re.compile(r"<environment_context>.*?</environment_context>", re.DOTALL)
+
+
+@dataclass(frozen=True)
+class NativeCliMirrorRecord:
+    key: str
+    role: str
+    content: str
+
+
+def start_native_cli_mirror(
+    *,
+    terminal_session_id: str,
+    spindrel_session_id: uuid.UUID,
+    runtime_name: str,
+    native_session_id: str | None,
+    cwd: str,
+    bot_id: str,
+    channel_id: uuid.UUID | None,
+) -> None:
+    """Start a best-effort mirror task for one embedded native CLI session."""
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.debug("native cli mirror skipped: no running event loop")
+        return
+
+    task = loop.create_task(
+        _mirror_loop(
+            terminal_session_id=terminal_session_id,
+            spindrel_session_id=spindrel_session_id,
+            runtime_name=runtime_name,
+            native_session_id=native_session_id,
+            cwd=cwd,
+            bot_id=bot_id,
+            channel_id=channel_id,
+        )
+    )
+    _MIRROR_TASKS.add(task)
+    task.add_done_callback(_MIRROR_TASKS.discard)
+
+
+async def _mirror_loop(
+    *,
+    terminal_session_id: str,
+    spindrel_session_id: uuid.UUID,
+    runtime_name: str,
+    native_session_id: str | None,
+    cwd: str,
+    bot_id: str,
+    channel_id: uuid.UUID | None,
+) -> None:
+    path: Path | None = None
+    offset = 0
+    initialized = False
+    seen: set[str] = set()
+    idle_after_exit = 0
+    skip_existing = bool(native_session_id)
+    started_at = time.time()
+
+    while True:
+        terminal = get_terminal_session(terminal_session_id)
+        if terminal is None or terminal.closed:
+            idle_after_exit += 1
+        else:
+            idle_after_exit = 0
+
+        if path is None:
+            path = _find_native_transcript(
+                runtime_name,
+                native_session_id,
+                cwd,
+                started_after=started_at - 2,
+            )
+            if path is not None and skip_existing and not initialized:
+                try:
+                    offset = path.stat().st_size
+                except OSError:
+                    offset = 0
+                initialized = True
+
+        if path is not None:
+            try:
+                offset, records = _read_new_records(
+                    path,
+                    offset=offset,
+                    runtime_name=runtime_name,
+                )
+            except Exception:
+                logger.warning(
+                    "native cli mirror failed reading %s transcript %s",
+                    runtime_name,
+                    path,
+                    exc_info=True,
+                )
+                records = []
+            for record in records:
+                if record.key in seen:
+                    continue
+                seen.add(record.key)
+                await _persist_mirrored_record(
+                    spindrel_session_id=spindrel_session_id,
+                    bot_id=bot_id,
+                    channel_id=channel_id,
+                    runtime_name=runtime_name,
+                    native_session_id=native_session_id,
+                    transcript_path=path,
+                    record=record,
+                )
+
+        if idle_after_exit >= _MAX_IDLE_POLLS_AFTER_TERMINAL_EXIT:
+            return
+        await asyncio.sleep(_POLL_INTERVAL_SEC)
+
+
+def _find_native_transcript(
+    runtime_name: str,
+    native_session_id: str | None,
+    cwd: str,
+    *,
+    started_after: float = 0,
+) -> Path | None:
+    if runtime_name == "codex":
+        return _find_codex_transcript(native_session_id, cwd=cwd, started_after=started_after)
+    if runtime_name == "claude-code":
+        return _find_claude_transcript(native_session_id, cwd, started_after=started_after)
+    return None
+
+
+def _find_codex_transcript(
+    native_session_id: str | None,
+    *,
+    cwd: str = "",
+    started_after: float = 0,
+) -> Path | None:
+    root = Path.home() / ".codex" / "sessions"
+    if not root.exists():
+        return None
+    if native_session_id:
+        matches = sorted(
+            root.glob(f"**/*{native_session_id}*.jsonl"),
+            key=lambda p: p.stat().st_mtime if p.exists() else 0,
+            reverse=True,
+        )
+        if matches:
+            return matches[0]
+    candidates = sorted(
+        (
+            path
+            for path in root.glob("**/*.jsonl")
+            if _is_recent_transcript_for_cwd(path, cwd=cwd, started_after=started_after)
+        ),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
+
+
+def _find_claude_transcript(
+    native_session_id: str | None,
+    cwd: str,
+    *,
+    started_after: float = 0,
+) -> Path | None:
+    root = Path.home() / ".claude" / "projects"
+    if not root.exists():
+        return None
+    if native_session_id:
+        project_dir = root / _claude_project_dir_name(cwd)
+        exact = project_dir / f"{native_session_id}.jsonl"
+        if exact.exists():
+            return exact
+        matches = sorted(
+            root.glob(f"**/{native_session_id}.jsonl"),
+            key=lambda p: p.stat().st_mtime if p.exists() else 0,
+            reverse=True,
+        )
+        if matches:
+            return matches[0]
+    candidates = sorted(
+        (
+            path
+            for path in root.glob("**/*.jsonl")
+            if _is_recent_transcript_for_cwd(path, cwd=cwd, started_after=started_after)
+        ),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
+
+
+def _claude_project_dir_name(cwd: str) -> str:
+    raw = os.path.realpath(cwd or "")
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "-", raw).strip("-")
+    return f"-{slug}" if slug else "-"
+
+
+def _is_recent_transcript_for_cwd(path: Path, *, cwd: str, started_after: float) -> bool:
+    try:
+        if path.stat().st_mtime < started_after:
+            return False
+    except OSError:
+        return False
+    if not cwd:
+        return True
+    try:
+        sample = path.read_text(encoding="utf-8", errors="replace")[:12000]
+    except OSError:
+        return False
+    return os.path.realpath(cwd) in sample or cwd in sample
+
+
+def _read_new_records(
+    path: Path,
+    *,
+    offset: int,
+    runtime_name: str,
+) -> tuple[int, list[NativeCliMirrorRecord]]:
+    records: list[NativeCliMirrorRecord] = []
+    with path.open("rb") as handle:
+        handle.seek(offset)
+        for raw_line in handle:
+            line = raw_line.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if runtime_name == "codex":
+                records.extend(_parse_codex_jsonl_record(payload))
+            elif runtime_name == "claude-code":
+                parsed = _parse_claude_jsonl_record(payload)
+                if parsed is not None:
+                    records.append(parsed)
+        return handle.tell(), records
+
+
+def _parse_codex_jsonl_record(payload: dict) -> Iterable[NativeCliMirrorRecord]:
+    if payload.get("type") != "response_item":
+        return ()
+    item = payload.get("payload")
+    if not isinstance(item, dict) or item.get("type") != "message":
+        return ()
+    role = item.get("role")
+    if role not in {"user", "assistant"}:
+        return ()
+    text = _extract_content_text(item.get("content"), text_types={"input_text", "output_text", "text"})
+    text = _clean_native_text(text)
+    if not text:
+        return ()
+    key = str(item.get("id") or f"{payload.get('timestamp', '')}:{role}:{hash(text)}")
+    return (NativeCliMirrorRecord(key=f"codex:{key}", role=role, content=text),)
+
+
+def _parse_claude_jsonl_record(payload: dict) -> NativeCliMirrorRecord | None:
+    role = payload.get("type")
+    if role not in {"user", "assistant"}:
+        return None
+    message = payload.get("message")
+    if not isinstance(message, dict) or message.get("role") not in {"user", "assistant"}:
+        return None
+    text = _extract_content_text(message.get("content"), text_types={"text"})
+    text = _clean_native_text(text)
+    if not text:
+        return None
+    key = str(payload.get("uuid") or message.get("id") or f"{payload.get('timestamp', '')}:{role}:{hash(text)}")
+    return NativeCliMirrorRecord(key=f"claude:{key}", role=message["role"], content=text)
+
+
+def _extract_content_text(content: object, *, text_types: set[str]) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for item in content:
+        if not isinstance(item, dict) or item.get("type") not in text_types:
+            continue
+        text = item.get("text")
+        if isinstance(text, str) and text.strip():
+            parts.append(text)
+    return "\n\n".join(parts)
+
+
+def _clean_native_text(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = _SPINDREL_BLOCK_RE.sub("", text)
+    cleaned = _ENV_CONTEXT_RE.sub("", cleaned)
+    return cleaned.strip()
+
+
+async def _persist_mirrored_record(
+    *,
+    spindrel_session_id: uuid.UUID,
+    bot_id: str,
+    channel_id: uuid.UUID | None,
+    runtime_name: str,
+    native_session_id: str | None,
+    transcript_path: Path,
+    record: NativeCliMirrorRecord,
+) -> None:
+    metadata = {
+        "harness_native_cli": {
+            "runtime": runtime_name,
+            "native_session_id": native_session_id,
+            "record_key": record.key,
+            "transcript_path": str(transcript_path),
+        },
+        "source": "harness_native_cli",
+        "include_in_memory": True,
+        "trigger_rag": False,
+    }
+    if record.role == "assistant":
+        try:
+            bot = get_bot(bot_id)
+            display = bot.display_name or bot.name or bot_id
+        except Exception:
+            display = bot_id
+        metadata.update(
+            {
+                "sender_type": "bot",
+                "sender_id": f"bot:{bot_id}",
+                "sender_display_name": display,
+            }
+        )
+    async with async_session() as db:
+        session = await db.get(Session, spindrel_session_id)
+        if session is None:
+            return
+        await store_passive_message(
+            db,
+            spindrel_session_id,
+            record.content,
+            metadata,
+            channel_id=channel_id or session.channel_id,
+            role=record.role,
+        )

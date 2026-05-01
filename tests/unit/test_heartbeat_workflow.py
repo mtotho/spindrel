@@ -107,9 +107,9 @@ class TestFireHeartbeatDelegatesToWorkflow:
         prepared.provider_id_override = "provider-test"
         prepared.fallback_models = [{"model": "fallback"}]
         prepared.execution_policy = {"tool_surface": "focused_escape"}
-        prepared.injected_tools = [{"function": {"name": "post_heartbeat_to_channel"}}]
+        prepared.injected_tools = [{"function": {"name": "report_issue"}}]
         prepared.run_id = uuid.uuid4()
-        prepared.dispatch_mode = "optional"
+        prepared.dispatch_mode = "always"
         prepared.trigger_rag_loop = False
         prepared.repetition_detected = False
 
@@ -122,7 +122,7 @@ class TestFireHeartbeatDelegatesToWorkflow:
         assert cfg["system_preamble"] == "heartbeat preamble"
         assert cfg["model_override"] == "gpt-test"
         assert cfg["model_provider_id_override"] == "provider-test"
-        assert cfg["additional_tool_schemas"][0]["function"]["name"] == "post_heartbeat_to_channel"
+        assert cfg["additional_tool_schemas"][0]["function"]["name"] == "report_issue"
         assert cfg["heartbeat"]["heartbeat_run_id"] == str(prepared.run_id)
 
 

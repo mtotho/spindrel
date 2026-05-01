@@ -22,6 +22,7 @@ import json
 import logging
 import mimetypes
 import os
+import shlex
 import shutil
 import subprocess
 from collections.abc import AsyncIterator
@@ -230,6 +231,28 @@ def _resolve_claude_cli_path() -> str | None:
     if path:
         return path
     return None
+
+
+def build_native_cli_command(
+    *,
+    native_session_id: str | None,
+    cwd: str,
+    model: str | None = None,
+    effort: str | None = None,
+    title: str | None = None,
+) -> str:
+    """Return the Claude Code CLI command that opens the native session surface."""
+
+    parts = ["claude"]
+    if native_session_id:
+        parts.extend(["--resume", native_session_id])
+    if title:
+        parts.extend(["--name", title[:80]])
+    if model:
+        parts.extend(["--model", model])
+    if effort:
+        parts.extend(["--effort", effort])
+    return " ".join(shlex.quote(part) for part in parts)
 
 
 def _claude_cli_command(*args: str) -> list[str]:

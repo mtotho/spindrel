@@ -29,22 +29,21 @@ SPATIAL_HEARTBEAT_PROMPT = """Spatial canvas turn:
 
 
 def _build_dispatch_setup(hb: ChannelHeartbeat, channel: Channel) -> tuple[str, dict | None, list[dict] | None]:
-    """Resolve legacy dispatch config plus optional heartbeat posting tools."""
+    """Resolve legacy dispatch config.
+
+    ``dispatch_mode`` is legacy compatibility only. ``dispatch_results`` is the
+    single posting control: true means post the completed heartbeat result;
+    false means persist it for web history only.
+    """
     dispatch_type = "none"
     dispatch_config = None
     injected_tools: list[dict] | None = None
-    dispatch_mode = getattr(hb, "dispatch_mode", "always") or "always"
 
     if hb.dispatch_results and channel.dispatch_config:
         dispatch_type = channel.integration or "none"
         dispatch_config = dict(channel.dispatch_config)
         dispatch_config.pop("thread_ts", None)
         dispatch_config["reply_in_thread"] = False
-
-    if hb.dispatch_results and dispatch_mode == "optional":
-        from app.tools.local.heartbeat_tools import POST_HEARTBEAT_TO_CHANNEL_SCHEMA
-
-        injected_tools = [POST_HEARTBEAT_TO_CHANNEL_SCHEMA]
 
     return dispatch_type, dispatch_config, injected_tools
 
@@ -501,7 +500,7 @@ async def _prepare_heartbeat_run(
             logger.info("Heartbeat %s: active run %s already queued/running, skipping", hb.id, active_run)
             return None
 
-        dispatch_mode = getattr(hb, "dispatch_mode", "always") or "always"
+        dispatch_mode = "always"
         dispatch_type, dispatch_config, injected_tools = _build_dispatch_setup(hb, channel)
 
         # Resolve prompt: workspace file > template > inline
@@ -703,15 +702,13 @@ async def _prepare_heartbeat_run(
                 logger.warning("Heartbeat %s: repetition detected across recent runs", hb.id)
                 metadata_lines.append(_build_repetition_preamble(recent_runs))
 
-        if dispatch_mode == "optional":
-            metadata_lines.append(
-                "OUTPUT MODE: Your text response will NOT be posted anywhere — it is internal only. "
-                "To post to the channel, you MUST call the post_heartbeat_to_channel tool. "
-                "Only call it if you have something worth sharing. If nothing noteworthy, "
-                "just respond with your internal notes and nothing will be posted."
-            )
-        elif hb.dispatch_results:
+        if hb.dispatch_results:
             metadata_lines.append("Dispatch: Your response will be posted to the channel.")
+        else:
+            metadata_lines.append(
+                "Dispatch: Your response will be saved to heartbeat history only. "
+                "It will not be posted to integrations."
+            )
 
         heartbeat_preamble = "\n".join(metadata_lines)
         try:
@@ -1061,7 +1058,7 @@ async def _run_spindrel_heartbeat(
 
         # Persist turn
         from app.services.sessions import persist_turn
-        dispatched = hb.dispatch_results and prepared.dispatch_mode != "optional"
+        dispatched = bool(hb.dispatch_results)
         async with async_session() as db:
             await persist_turn(
                 db, eff_session_id, bot, messages, messages_start,
@@ -1078,32 +1075,8 @@ async def _run_spindrel_heartbeat(
                 correlation_id=correlation_id,
             )
 
-        # Publish heartbeat result to the bus. Renderers consume TURN_ENDED
-        # with kind_hint="heartbeat" and prepend the 💓 prefix themselves.
-        if prepared.dispatch_mode != "optional" and prepared.channel_id is not None:
-            _proxy_task_id = uuid.uuid4()
-            from app.domain.channel_events import ChannelEvent, ChannelEventKind
-            from app.domain.payloads import TurnEndedPayload
-            from app.services.channel_events import publish_typed
-
-            publish_typed(
-                prepared.channel_id,
-                ChannelEvent(
-                    channel_id=prepared.channel_id,
-                    kind=ChannelEventKind.TURN_ENDED,
-                    payload=TurnEndedPayload(
-                        bot_id=prepared.bot_id,
-                        turn_id=correlation_id,
-                        result=result_text,
-                        client_actions=list(run_result.client_actions or []),
-                        task_id=str(_proxy_task_id),
-                        kind_hint="heartbeat",
-                    ),
-                ),
-            )
-
         # trigger_response creates a follow-up Task so the bot can react.
-        if prepared.trigger_rag_loop and result_text:
+        if prepared.trigger_rag_loop and hb.dispatch_results and result_text:
             _trl_task = Task(
                 bot_id=prepared.bot_id,
                 client_id=prepared.client_id,

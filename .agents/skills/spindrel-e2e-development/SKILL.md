@@ -352,6 +352,11 @@ pytest tests/e2e/scenarios/test_project_factory_dogfood_live.py -v -s
 It writes `scratch/agent-e2e/project-factory-dogfood-live.json`. Use it when
 you need to prove the actual user path from Project-bound planning chat to Work
 Packs, launch, receipt evidence, and review provenance.
+After it passes, capture and inspect live-result screenshots from the artifact
+ids, then reference them from the docs:
+`docs/images/project-factory-dogfood-live-work-packs.png`,
+`docs/images/project-factory-dogfood-live-run-receipt.png`, and
+`docs/images/project-factory-dogfood-live-runs.png`.
 
 ## Lessons Learned
 

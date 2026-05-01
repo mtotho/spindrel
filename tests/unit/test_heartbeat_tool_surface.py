@@ -276,6 +276,47 @@ class TestHeartbeatDiscoveryHatchesSuppressed:
         assert "run_script" in exposed
 
     @pytest.mark.asyncio
+    async def test_auto_injected_baseline_pins_filtered_from_heartbeat(self):
+        """Regression for trace 83c24f74: chat baseline pins must not become
+        heartbeat schema pins."""
+        baseline = [
+            "search_memory",
+            "get_memory_file",
+            "memory",
+            "manage_bot_skill",
+            "get_skill",
+            "get_skill_list",
+            "list_agent_capabilities",
+            "run_agent_doctor",
+            "list_channels",
+            "read_conversation_history",
+            "list_sub_sessions",
+            "read_sub_session",
+            "file",
+            "search_channel_archive",
+            "search_channel_workspace",
+            "search_channel_knowledge",
+            "search_bot_knowledge",
+            "list_api_endpoints",
+            "call_api",
+        ]
+        bot = _bot(
+            local_tools=baseline + ["arr_heartbeat_snapshot"],
+            pinned_tools=baseline + ["arr_heartbeat_snapshot"],
+        )
+        schemas = {
+            n: _schema(n)
+            for n in baseline + ["arr_heartbeat_snapshot", "run_script"]
+        }
+        result = await _run(bot, schemas=schemas)
+        exposed = {t["function"]["name"] for t in result.pre_selected_tools or []}
+        assert "arr_heartbeat_snapshot" in exposed
+        assert exposed.isdisjoint(set(baseline))
+        hb = result.tool_discovery_info["heartbeat_surface"]
+        assert hb["pin_set"] == ["arr_heartbeat_snapshot", "run_script"]
+        assert set(hb["baseline_pins_filtered"]) == set(baseline)
+
+    @pytest.mark.asyncio
     async def test_no_discovery_hatches_with_overflow(self):
         enrolled = [f"e_{i:02d}" for i in range(40)]
         bot = _bot(local_tools=enrolled)

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useBots, useBot } from "@/src/api/hooks/useBots";
 import { useCancelChat, useSubmitChat } from "@/src/api/hooks/useChat";
@@ -44,7 +44,7 @@ import {
   getTurnText,
 } from "@/app/(app)/channels/[channelId]/chatUtils";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { History, Maximize2, Minimize2, RotateCcw, Rows3, X } from "lucide-react";
+import { History, Maximize2, Minimize2, RotateCcw, Rows3, Terminal as TerminalIcon, X } from "lucide-react";
 import { ScratchHistoryModal } from "./ScratchHistoryModal";
 import type { Message } from "@/src/types/api";
 import { buildThreadParentPreviewRow } from "./threadPreview";
@@ -62,6 +62,10 @@ import { isTranscriptFlowComposer } from "./chatModes";
 import type { ChatSessionProps, ChatSource } from "./ChatSessionTypes";
 import { getDockStorageKey } from "./ChatSessionTypes";
 import { makeClientLocalId, formatSessionHeaderTimestamp, formatHeaderTurnMeta, useChatSessionPlan } from "./ChatSessionShared";
+
+const TerminalPanel = lazy(() =>
+  import("@/src/components/terminal/TerminalPanel").then((m) => ({ default: m.TerminalPanel })),
+);
 
 // ---------------------------------------------------------------------------
 // Fixed existing-session mode
@@ -110,6 +114,8 @@ export function FixedSessionChatSession({
   const overheadPct = overheadData?.overhead_pct ?? null;
   const { sessionPlan, planBusy, handleTogglePlanMode } = useChatSessionPlan(sessionId);
   const [slashSyntheticMessages, setSlashSyntheticMessages] = useState<Message[]>([]);
+  const [nativeCliOpen, setNativeCliOpen] = useState(false);
+  const isHarnessSession = !!sessionBot?.harness_runtime;
 
   const [dockExpanded, setDockExpanded] = useState(
     shape === "dock" && (initiallyExpanded ?? false),
@@ -299,7 +305,7 @@ export function FixedSessionChatSession({
           modelProviderIdOverride={modelProviderId}
           onModelOverrideChange={setModelOverride}
           defaultModel={sessionBot?.model}
-          hideModelOverride={!!sessionBot?.harness_runtime}
+          hideModelOverride={isHarnessSession}
           {...harnessComposerProps}
           configOverhead={overheadPct}
           compact
@@ -342,29 +348,62 @@ export function FixedSessionChatSession({
           </div>
         </div>
       )}
+      {isHarnessSession && (
+        <div className="flex h-9 shrink-0 items-center justify-end gap-1 border-b border-surface-border/60 bg-surface/70 px-3">
+          <button
+            type="button"
+            onClick={() => setNativeCliOpen((open) => !open)}
+            className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium ${
+              nativeCliOpen
+                ? "bg-accent/15 text-accent"
+                : "text-text-dim hover:bg-surface-overlay hover:text-text"
+            }`}
+            title={nativeCliOpen ? "Return to Spindrel chat" : "Open the runtime's native CLI for this session"}
+            aria-pressed={nativeCliOpen}
+          >
+            <TerminalIcon size={13} />
+            {nativeCliOpen ? "Spindrel chat" : "Native CLI"}
+          </button>
+        </div>
+      )}
       <div className="relative min-h-0 flex-1">
-        <SessionChatView
-          sessionId={sessionId}
-          parentChannelId={parentChannelId}
-          botId={botId}
-          emptyStateComponent={emptyState}
-          scrollPaddingBottom={composerInTranscriptFlow ? 20 : inputOverlayHeight + 16}
-          chatMode={chatMode}
-          syntheticMessages={slashSyntheticMessages}
-          showSessionResumeCard
-          sessionResumeSeed={{
-            surfaceKind: source.externalDelivery === "none" ? "channel" : "session",
-            title,
-            botName: sessionBot?.name,
-            botModel: sessionBot?.harness_runtime ? null : sessionBot?.model,
-          }}
-          onOpenSessions={onOpenSessions}
-          bottomSlot={composerInTranscriptFlow ? composer : undefined}
-        />
-        {!composerInTranscriptFlow && (
-          <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
-            {composer}
-          </div>
+        {nativeCliOpen ? (
+          <Suspense fallback={<div className="flex h-full items-center justify-center bg-[#0a0d12] text-[12px] text-zinc-500">Starting native CLI...</div>}>
+            <TerminalPanel
+              title={`${sessionBot?.harness_runtime ?? "harness"} native CLI`}
+              sessionCreatePath={`/api/v1/admin/sessions/${sessionId}/harness/native-terminal`}
+              className="h-full"
+              onExit={() => {
+                qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
+              }}
+            />
+          </Suspense>
+        ) : (
+          <>
+            <SessionChatView
+              sessionId={sessionId}
+              parentChannelId={parentChannelId}
+              botId={botId}
+              emptyStateComponent={emptyState}
+              scrollPaddingBottom={composerInTranscriptFlow ? 20 : inputOverlayHeight + 16}
+              chatMode={chatMode}
+              syntheticMessages={slashSyntheticMessages}
+              showSessionResumeCard
+              sessionResumeSeed={{
+                surfaceKind: source.externalDelivery === "none" ? "channel" : "session",
+                title,
+                botName: sessionBot?.name,
+                botModel: isHarnessSession ? null : sessionBot?.model,
+              }}
+              onOpenSessions={onOpenSessions}
+              bottomSlot={composerInTranscriptFlow ? composer : undefined}
+            />
+            {!composerInTranscriptFlow && (
+              <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
+                {composer}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

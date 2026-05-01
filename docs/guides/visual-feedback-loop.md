@@ -49,6 +49,10 @@ showing the staged scenario data. The stage step and browser login must land in
 the same workspace/user context. If screenshots show unrelated live channels,
 empty attention lanes after staged attention was created, or route state from a
 prior run, treat the bundle as failed even if some DOM assertions pass.
+If screenshots show stale labels or pre-change layout while the built assets
+contain the new code, suspect browser/service-worker caching before changing
+product code. The screenshot runner blocks service workers for fresh captures;
+preserve that behavior when adding new capture paths.
 
 ## Evidence Artifact Rule
 
@@ -136,6 +140,7 @@ Expected artifacts:
 ```text
 project-workspace-list.png
 project-workspace-detail.png
+project-workspace-files.png
 project-workspace-blueprints.png
 project-workspace-blueprint-editor.png
 project-workspace-settings-blueprint.png
@@ -153,6 +158,7 @@ project-workspace-review-finalized.png
 project-workspace-terminal.png
 project-workspace-channels.png
 project-workspace-channel-settings.png
+project-workspace-channel-header.png
 project-workspace-memory-tool.png
 project-factory-live-pr-smoke.png
 project-factory-live-pr-smoke-receipts.png

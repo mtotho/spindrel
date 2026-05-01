@@ -232,7 +232,7 @@ class TestHeartbeatDefaultPrompt:
 
 
 class TestHeartbeatDispatchSetup:
-    def test_optional_dispatch_injects_post_tool_without_legacy_dispatch_config(self):
+    def test_legacy_optional_dispatch_does_not_inject_post_tool(self):
         hb = SimpleNamespace(dispatch_results=True, dispatch_mode="optional")
         channel = SimpleNamespace(integration=None, dispatch_config=None)
 
@@ -240,8 +240,7 @@ class TestHeartbeatDispatchSetup:
 
         assert dispatch_type == "none"
         assert dispatch_config is None
-        tool_names = [(t.get("function") or {}).get("name") for t in injected_tools or []]
-        assert "post_heartbeat_to_channel" in tool_names
+        assert injected_tools is None
 
     def test_always_dispatch_uses_legacy_config_when_present(self):
         hb = SimpleNamespace(dispatch_results=True, dispatch_mode="always")
@@ -312,9 +311,9 @@ class TestDetectRepetition:
             _make_run(result="c", correlation_id=cid3),
         ]
         tool_calls = {
-            cid1: ["web_search", "post_heartbeat_to_channel"],
-            cid2: ["web_search", "post_heartbeat_to_channel"],
-            cid3: ["web_search", "post_heartbeat_to_channel"],
+            cid1: ["web_search", "report_issue"],
+            cid2: ["web_search", "report_issue"],
+            cid3: ["web_search", "report_issue"],
         }
         assert _detect_repetition(runs, tool_calls) is True
 
@@ -326,9 +325,9 @@ class TestDetectRepetition:
             _make_run(result="c", correlation_id=cid3),
         ]
         tool_calls = {
-            cid1: ["web_search", "post_heartbeat_to_channel"],
+            cid1: ["web_search", "report_issue"],
             cid2: ["get_weather"],
-            cid3: ["web_search", "post_heartbeat_to_channel"],
+            cid3: ["web_search", "report_issue"],
         }
         assert _detect_repetition(runs, tool_calls) is False
 

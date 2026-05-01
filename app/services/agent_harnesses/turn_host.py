@@ -450,10 +450,6 @@ async def run_harness_turn(
         session_row = await db.get(SessionRow, session_id)
         session_plan_mode = get_session_plan_mode(session_row) if session_row is not None else "chat"
 
-    plan_hint = _build_harness_plan_tool_hint(session_plan_mode)
-    if plan_hint is not None:
-        context_hints.append(plan_hint)
-
     explicit_tool_names, tagged_skill_ids = merge_harness_turn_selections_fn(
         user_message,
         tool_names=harness_tool_names,
@@ -825,35 +821,12 @@ async def mirror_harness_native_plan_state(
     if not result_metadata and not persisted_tool_calls:
         return
     try:
-        async with async_session_factory() as db:
-            session = await db.get(SessionRow, session_id)
-            if session is None:
-                return
-            changed = False
-            if runtime_name == "codex" and metadata_has_codex_plan_signal(result_metadata):
-                from app.services.session_plan_mode import (
-                    enter_session_plan_mode,
-                    get_session_plan_mode,
-                    publish_session_plan_event,
-                    update_planning_state,
-                )
-
-                if get_session_plan_mode(session) == "chat":
-                    enter_session_plan_mode(session)
-                    changed = True
-                evidence = codex_plan_evidence(result_metadata)
-                if evidence:
-                    update_planning_state(
-                        session,
-                        evidence=evidence,
-                        reason="codex_native_plan",
-                    )
-                    changed = True
-                if changed:
-                    await db.commit()
-                    await db.refresh(session)
-                    publish_session_plan_event(session, "codex_native_plan")
-                return
+        del async_session_factory
+        if runtime_name == "codex" and metadata_has_codex_plan_signal(result_metadata):
+            # Native Codex plans are runtime state. Keep the metadata on the
+            # harness message, but do not promote it into Spindrel's separate
+            # structured plan workflow.
+            return
     except Exception:
         logger.exception("harness native plan mirroring failed for session %s", session_id)
 

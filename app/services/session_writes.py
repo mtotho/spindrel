@@ -169,6 +169,20 @@ def _metadata_for_row(
             "sender_id": f"bot:{ctx.bot.id}",
             "sender_display_name": ctx.bot.name,
         }
+    if ctx.is_heartbeat and msg.get("role") == "assistant" and ctx.msg_metadata:
+        heartbeat_meta = {
+            key: value
+            for key, value in ctx.msg_metadata.items()
+            if key in {
+                "trigger",
+                "task_id",
+                "heartbeat_id",
+                "heartbeat_run_id",
+                "dispatched",
+            }
+        }
+        if heartbeat_meta:
+            meta = {**meta, **heartbeat_meta}
     if msg.get("_tools_used"):
         meta = {**meta, "tools_used": msg["_tools_used"]}
     if msg.get("_tool_envelopes"):

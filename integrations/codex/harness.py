@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import subprocess
 import threading
 import time
@@ -359,6 +360,8 @@ class CodexRuntime:
                 start = await client.request(schema.METHOD_THREAD_START, params)
                 thread_id = _extract_thread_id(start) or ""
                 mark("thread_started_ms")
+                if thread_id:
+                    await _try_set_codex_thread_name(client, thread_id, prompt)
 
             turn_params = _build_turn_start_params(
                 thread_id=thread_id,
@@ -994,9 +997,10 @@ def _build_turn_input(
     The protocol takes an array of typed content items. Text still carries
     host hints, while manifest inputs become native Codex items when possible.
     """
-    items: list[dict[str, Any]] = [
-        schema.text_input_item(render_context_hints_for_prompt(prompt, ctx.context_hints))
-    ]
+    items: list[dict[str, Any]] = [schema.text_input_item(prompt)]
+    hint_text = render_context_hints_for_prompt("", ctx.context_hints).strip()
+    if hint_text:
+        items.append(schema.text_input_item(hint_text))
     for attachment in ctx.input_manifest.attachments:
         if attachment.kind != "image":
             continue
@@ -1012,6 +1016,52 @@ def _build_turn_input(
             })
     items.extend(dict(item) for item in native_input_items)
     return items
+
+
+def build_native_cli_command(
+    *,
+    native_session_id: str | None,
+    cwd: str,
+    model: str | None = None,
+    effort: str | None = None,
+) -> str:
+    """Return the Codex CLI command that opens the native session surface."""
+
+    parts = ["codex"]
+    if native_session_id:
+        parts.extend(["resume", native_session_id])
+    if model:
+        parts.extend(["--model", model])
+    if effort:
+        parts.extend(["-c", f"model_reasoning_effort={json.dumps(effort)}"])
+    parts.extend(["--cd", cwd])
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+async def _try_set_codex_thread_name(
+    client: CodexAppServer,
+    thread_id: str,
+    prompt: str,
+) -> None:
+    name = _codex_thread_name_from_prompt(prompt)
+    if not name:
+        return
+    try:
+        await client.request(
+            schema.METHOD_THREAD_SET_NAME,
+            {"threadId": thread_id, "name": name},
+            timeout=5.0,
+        )
+    except Exception:
+        logger.info("codex: thread/name/set failed for %s", thread_id, exc_info=True)
+
+
+def _codex_thread_name_from_prompt(prompt: str) -> str:
+    text = re.sub(r"<spindrel_[^>]+>.*?</spindrel_[^>]+>", " ", prompt or "", flags=re.S)
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return ""
+    return text[:80].rstrip()
 
 
 async def _resolve_codex_native_input_items(

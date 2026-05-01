@@ -5,7 +5,6 @@ import { ActionButton } from "@/src/components/shared/SettingsControls";
 function buildMetadataPreview(form: any, data: any): string {
   const interval = form?.interval_minutes ?? 60;
   const dispatchResults = form?.dispatch_results ?? true;
-  const dispatchMode = form?.dispatch_mode ?? "always";
   const prevMaxChars = form?.previous_result_max_chars;
   const globalDefault = data?.default_previous_result_chars ?? 500;
   const effectiveMax = prevMaxChars ?? globalDefault;
@@ -38,15 +37,10 @@ function buildMetadataPreview(form: any, data: any): string {
     lines.push("(Use get_last_heartbeat tool for full previous output if needed)");
   }
 
-  if (dispatchResults && dispatchMode === "optional") {
-    lines.push(
-      "Dispatch: Your response will NOT be automatically posted. " +
-      "You have a post_heartbeat_to_channel tool \u2014 call it ONLY if you have " +
-      "something worth sharing. If nothing noteworthy, just respond normally " +
-      "and nothing will be posted to the channel."
-    );
-  } else if (dispatchResults) {
+  if (dispatchResults) {
     lines.push("Dispatch: Your response will be posted to the channel.");
+  } else {
+    lines.push("Dispatch: Your response will be saved to heartbeat history only. It will not be posted to integrations.");
   }
 
   const repEnabled = form?.repetition_detection ?? data?.default_repetition_detection ?? true;

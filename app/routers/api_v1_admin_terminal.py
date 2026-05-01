@@ -68,6 +68,15 @@ class CreateTerminalSessionOut(BaseModel):
     session_id: str
 
 
+class CreateHarnessNativeTerminalOut(BaseModel):
+    session_id: str
+    command: str
+    cwd: str
+    runtime: str
+    native_session_id: str | None = None
+    mirror_status: str = "polling"
+
+
 async def _project_runtime_for_workspace_path(
     db: AsyncSession,
     *,
@@ -156,6 +165,114 @@ async def create_terminal_session(
         raise HTTPException(status_code=500, detail=f"failed to create terminal: {exc}")
 
     return CreateTerminalSessionOut(session_id=session.id)
+
+
+@router.post(
+    "/sessions/{session_id}/harness/native-terminal",
+    response_model=CreateHarnessNativeTerminalOut,
+)
+async def create_harness_native_terminal_session(
+    session_id: uuid.UUID,
+    auth=Depends(verify_admin_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Open a PTY directly into the native Codex/Claude CLI for a harness session."""
+    if is_disabled():
+        raise HTTPException(status_code=404, detail="admin terminal disabled")
+
+    from app.agent.bots import get_bot
+    from app.db.models import Session
+    from app.services.agent_harnesses.project import resolve_harness_paths
+    from app.services.agent_harnesses.session_state import load_latest_harness_metadata
+    from app.services.agent_harnesses.settings import load_session_settings
+    from app.services.project_runtime import load_project_runtime_environment_for_id
+    from app.services.projects import is_project_like_surface
+
+    session_row = await db.get(Session, session_id)
+    if session_row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    try:
+        bot = get_bot(session_row.bot_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="session bot not found")
+    runtime_name = getattr(bot, "harness_runtime", None)
+    if runtime_name not in {"codex", "claude-code"}:
+        raise HTTPException(status_code=422, detail="session bot is not a native harness runtime")
+
+    channel_id = session_row.channel_id or getattr(session_row, "parent_channel_id", None)
+    harness_paths = await resolve_harness_paths(db, channel_id=channel_id, bot=bot)
+    runtime_env = None
+    work_surface = getattr(harness_paths, "work_surface", None)
+    if is_project_like_surface(work_surface) and work_surface.project_id:
+        runtime_env = await load_project_runtime_environment_for_id(db, work_surface.project_id)
+    harness_meta, _last_turn_at = await load_latest_harness_metadata(db, session_id)
+    native_session_id = None
+    if isinstance(harness_meta, dict):
+        raw_native_session_id = harness_meta.get("session_id")
+        if isinstance(raw_native_session_id, str) and raw_native_session_id.strip():
+            native_session_id = raw_native_session_id.strip()
+    settings = await load_session_settings(db, session_id)
+    title = (session_row.title or bot.name or runtime_name).strip()
+    if runtime_name == "codex":
+        from integrations.codex.harness import build_native_cli_command
+
+        command = build_native_cli_command(
+            native_session_id=native_session_id,
+            cwd=harness_paths.workdir,
+            model=settings.model,
+            effort=settings.effort,
+        )
+    else:
+        from integrations.claude_code.harness import build_native_cli_command
+
+        command = build_native_cli_command(
+            native_session_id=native_session_id,
+            cwd=harness_paths.workdir,
+            model=settings.model,
+            effort=settings.effort,
+            title=title,
+        )
+
+    user_key = _user_key_from_auth(auth)
+    try:
+        terminal = await create_session(
+            user_key,
+            seed_command=command,
+            cwd=harness_paths.workdir,
+            extra_env=dict(runtime_env.env) if runtime_env is not None else None,
+        )
+    except TerminalSessionLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+    except Exception as exc:
+        logger.exception("admin.harness_native_terminal.create_failed")
+        raise HTTPException(status_code=500, detail=f"failed to create terminal: {exc}")
+
+    try:
+        from app.services.agent_harnesses.native_cli_mirror import start_native_cli_mirror
+
+        start_native_cli_mirror(
+            terminal_session_id=terminal.id,
+            spindrel_session_id=session_id,
+            runtime_name=runtime_name,
+            native_session_id=native_session_id,
+            cwd=harness_paths.workdir,
+            bot_id=session_row.bot_id,
+            channel_id=channel_id,
+        )
+    except Exception:
+        logger.warning(
+            "admin.harness_native_terminal.mirror_start_failed",
+            exc_info=True,
+        )
+
+    return CreateHarnessNativeTerminalOut(
+        session_id=terminal.id,
+        command=command,
+        cwd=harness_paths.workdir,
+        runtime=runtime_name,
+        native_session_id=native_session_id,
+        mirror_status="polling",
+    )
 
 
 async def _verify_admin_token(token: str, db) -> object:

@@ -27,7 +27,12 @@ export function useHashTab<T extends string>(
       const raw = decodeURIComponent(hash.replace(/^#/, ""));
       if (!raw) return defaultTab;
       const allowlist = validTabsRef.current;
-      if (allowlist && !allowlist.includes(raw as T)) return defaultTab;
+      if (allowlist && !allowlist.includes(raw as T)) {
+        const normalized = allowlist.find(
+          (tab) => tab.toLowerCase() === raw.toLowerCase(),
+        );
+        return normalized ?? defaultTab;
+      }
       return raw as T;
     },
     [defaultTab],

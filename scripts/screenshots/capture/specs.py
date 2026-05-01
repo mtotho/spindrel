@@ -3618,16 +3618,39 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
-            "!!document.querySelector('[data-testid=\"project-workspace-files\"]') "
-            "&& document.body.innerText.includes('README.md')"
+            "!!document.querySelector('[data-testid=\"project-overview-home\"]') "
+            "&& document.body.innerText.toLowerCase().includes('project pulse') "
+            "&& document.body.innerText.toLowerCase().includes('ready for agent work') "
+            "&& document.body.innerText.toLowerCase().includes('recent runs')"
         ),
         output="project-workspace-detail.png",
         color_scheme="dark",
         assert_js=(
             "const text = document.body.innerText;"
+            "return { ok: text.includes('Review queue') "
+            "&& text.includes('Attached channels') "
+            "&& text.includes('Runtime env') "
+            "&& text.includes('Work surface') "
+            "&& text.includes('common/projects/spindrel-screenshot'), "
+            "detail: 'Project detail did not show the Project work hub overview' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-files",
+        route="/admin/projects/{project_workspace_project}#files",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-files\"]') "
+            "&& document.body.innerText.includes('README.md')"
+        ),
+        output="project-workspace-files.png",
+        color_scheme="dark",
+        assert_js=(
+            "const text = document.body.innerText;"
             "return { ok: text.includes('README.md') "
             "&& text.includes('common/projects/spindrel-screenshot'), "
-            "detail: 'Project detail did not show the Project-rooted file browser' };"
+            "detail: 'Project Files tab did not show the Project-rooted file browser' };"
         ),
     ),
     ScreenshotSpec(
@@ -4150,6 +4173,26 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "|| text.includes('memory was updated') "
             "|| text.includes('Project workspace screenshot memory fact')), "
             "detail: 'Memory tool transcript was not visible' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-channel-header",
+        route="/channels/{project_workspace}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"channel-header-title-region\"]') "
+            "&& !!document.querySelector('button[title^=\"Open Project: Screenshot Project Workspace\"]') "
+            "&& (document.body.innerText.includes('Project workspace screenshot memory fact') "
+            "|| document.body.innerText.includes('The memory was updated.'))"
+        ),
+        output="project-workspace-channel-header.png",
+        color_scheme="dark",
+        assert_js=(
+            "const badge = document.querySelector('button[title^=\"Open Project: Screenshot Project Workspace\"]');"
+            "return { ok: !!badge "
+            "&& (badge.textContent || '').includes('Screenshot Project Workspace'), "
+            "detail: 'Channel header did not expose the subtle Project badge link' };"
         ),
     ),
     ScreenshotSpec(

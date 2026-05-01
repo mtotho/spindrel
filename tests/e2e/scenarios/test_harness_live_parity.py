@@ -22,6 +22,7 @@ Tiers are controlled by ``HARNESS_PARITY_TIER``:
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import json
 import os
@@ -34,8 +35,10 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 import pytest
+import websockets
 
 from tests.e2e.harness.client import E2EClient
 from tests.e2e.harness.parity_runner import TIER_ORDER
@@ -758,6 +761,50 @@ async def _capture_project_screenshot(*, url: str, out_path: Path, marker: str) 
             await browser.close()
 
 
+async def _capture_session_marker_screenshot(
+    client: E2EClient,
+    *,
+    channel_id: str,
+    session_id: str,
+    marker: str,
+    screenshot_name: str,
+) -> Path:
+    pytest.importorskip("playwright.async_api")
+    from playwright.async_api import async_playwright
+    from scripts.screenshots.playwright_runtime import launch_async_browser
+
+    ui_url = _browser_ui_url(client)
+    api_url = _browser_api_url(client)
+    route = f"{ui_url}/channels/{channel_id}/session/{session_id}"
+    out_path = _artifact_root() / "native-cli" / f"{Path(screenshot_name).stem}.png"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    async with async_playwright() as pw:
+        browser = await launch_async_browser(pw)
+        try:
+            context = await browser.new_context(
+                viewport={"width": 1440, "height": 900},
+                color_scheme="dark",
+            )
+            await context.add_init_script(
+                _browser_auth_init_script(api_url=api_url, api_key=client.config.api_key)
+            )
+            page = await context.new_page()
+            await page.goto(route, wait_until="domcontentloaded", timeout=60_000)
+            await page.wait_for_function(
+                "(marker) => document.body.innerText.includes(marker)",
+                arg=marker,
+                timeout=60_000,
+            )
+            await _assert_no_horizontal_overflow(page, "native-cli-mirror")
+            assert await page.get_by_role("button", name=re.compile("Native CLI|Spindrel chat")).count() >= 1
+            await page.screenshot(path=str(out_path), full_page=False)
+            await context.close()
+        finally:
+            await browser.close()
+    return out_path
+
+
 def _browser_ui_url(client: E2EClient) -> str:
     return (
         os.environ.get("SPINDREL_BROWSER_URL")
@@ -798,6 +845,92 @@ def _browser_auth_init_script(*, api_url: str, api_key: str) -> str:
         f"localStorage.setItem('agent-auth', {json.dumps(json.dumps({'state': auth_state, 'version': 0}))});",
         f"localStorage.setItem('agent-theme', {json.dumps(json.dumps({'state': theme_state, 'version': 0}))});",
     ))
+
+
+def _terminal_ws_url(client: E2EClient, terminal_session_id: str) -> str:
+    parsed = urlparse(client.config.base_url.rstrip("/"))
+    scheme = "wss" if parsed.scheme == "https" else "ws"
+    return urlunparse((
+        scheme,
+        parsed.netloc,
+        f"/api/v1/admin/terminal/{terminal_session_id}",
+        "",
+        f"token={client.config.api_key}",
+        "",
+    ))
+
+
+async def _send_terminal_input(
+    client: E2EClient,
+    *,
+    terminal_session_id: str,
+    text: str,
+    wait_for: str | None = None,
+    timeout: float,
+) -> str:
+    seen = bytearray()
+    async with websockets.connect(_terminal_ws_url(client, terminal_session_id), open_timeout=20) as ws:
+        await ws.send(json.dumps({"type": "resize", "rows": 42, "cols": 140}))
+        ready_deadline = time.monotonic() + 8
+        while time.monotonic() < ready_deadline:
+            try:
+                frame = await asyncio.wait_for(ws.recv(), timeout=0.5)
+            except asyncio.TimeoutError:
+                continue
+            try:
+                payload = json.loads(frame)
+            except Exception:
+                continue
+            if payload.get("type") == "data":
+                try:
+                    seen.extend(base64.b64decode(str(payload.get("data") or "")))
+                except Exception:
+                    pass
+                lower = seen.decode("utf-8", errors="replace").lower()
+                if "codex" in lower or "claude" in lower or "›" in lower:
+                    break
+            elif payload.get("type") == "exit":
+                break
+        await asyncio.sleep(8)
+        chunks = [text]
+        if text.endswith("\r") and len(text) > 1:
+            chunks = [text[:-1], "\r"]
+        for idx, chunk in enumerate(chunks):
+            await ws.send(json.dumps({
+                "type": "data",
+                "data": base64.b64encode(chunk.encode()).decode("ascii"),
+            }))
+            if idx < len(chunks) - 1:
+                await asyncio.sleep(0.75)
+        deadline = time.monotonic() + timeout
+        started_waiting = time.monotonic()
+        extra_enter_sent = False
+        expected = (wait_for or text.strip()).encode()
+        while time.monotonic() < deadline:
+            try:
+                frame = await asyncio.wait_for(ws.recv(), timeout=2)
+            except asyncio.TimeoutError:
+                if not extra_enter_sent and time.monotonic() - started_waiting > 10:
+                    extra_enter_sent = True
+                    await ws.send(json.dumps({
+                        "type": "data",
+                        "data": base64.b64encode(b"\r").decode("ascii"),
+                    }))
+                continue
+            try:
+                payload = json.loads(frame)
+            except Exception:
+                continue
+            if payload.get("type") == "data":
+                try:
+                    seen.extend(base64.b64decode(str(payload.get("data") or "")))
+                except Exception:
+                    pass
+            elif payload.get("type") == "exit":
+                break
+            if expected in seen:
+                break
+    return seen.decode("utf-8", errors="replace")
 
 
 async def _assert_terminal_transcript_ui(
@@ -1931,6 +2064,76 @@ async def test_live_harness_terminal_tool_output_is_sequential(
             channel_id,
             {"chat_mode": original_config.get("chat_mode") or "default"},
         )
+
+
+@pytest.mark.asyncio
+async def test_live_codex_native_cli_terminal_mirrors_to_spindrel(
+    client: E2EClient,
+) -> None:
+    _requires_tier("terminal")
+    case = next(harness for harness in HARNESSES if harness.name == "codex")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    marker = f"native-cli-mirror-{uuid.uuid4().hex[:8]}"
+    bootstrap = await client.chat_session_stream(
+        f"Native CLI mirror bootstrap {marker}. Do not use tools. Reply exactly: bootstrap ready {marker}",
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(bootstrap)
+    assert f"bootstrap ready {marker}" in bootstrap.response_text.lower()
+
+    create = await client.post(f"/api/v1/admin/sessions/{session_id}/harness/native-terminal", json={})
+    create.raise_for_status()
+    terminal = create.json()
+    assert terminal["runtime"] == "codex"
+    assert terminal["mirror_status"] == "polling"
+    assert terminal["session_id"]
+    assert terminal.get("native_session_id"), terminal
+
+    prompt = f"Reply exactly: native cli mirror ok {marker}\r"
+    terminal_output = await _send_terminal_input(
+        client,
+        terminal_session_id=terminal["session_id"],
+        text=prompt,
+        wait_for=f"native cli mirror ok {marker}",
+        timeout=_timeout(),
+    )
+    assert marker in terminal_output.lower(), (
+        "native CLI terminal did not echo/produce marker; output tail:\n"
+        + terminal_output[-4000:]
+    )
+
+    deadline = time.monotonic() + _timeout()
+    mirrored_message: dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        messages = await client.get_session_messages(session_id, limit=80)
+        for message in reversed(messages):
+            if marker not in str(message.get("content") or ""):
+                continue
+            metadata = _message_metadata(message)
+            native_meta = metadata.get("harness_native_cli")
+            if isinstance(native_meta, dict) and native_meta.get("runtime") == "codex":
+                mirrored_message = message
+                break
+        if mirrored_message is not None:
+            break
+        await asyncio.sleep(2)
+
+    await client.delete(f"/api/v1/admin/terminal/sessions/{terminal['session_id']}")
+    assert mirrored_message is not None, f"native CLI mirror did not persist marker {marker}"
+    assert f"native cli mirror ok {marker}" in str(mirrored_message.get("content") or "").lower()
+
+    if _should_capture_screenshots("harness-codex-native-cli-mirror"):
+        screenshot = await _capture_session_marker_screenshot(
+            client,
+            channel_id=channel_id,
+            session_id=session_id,
+            marker=marker,
+            screenshot_name="harness-codex-native-cli-mirror-dark",
+        )
+        assert screenshot.is_file(), f"native CLI mirror screenshot was not written: {screenshot}"
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)

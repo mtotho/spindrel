@@ -469,9 +469,19 @@ pytest tests/e2e/scenarios/test_project_factory_dogfood_live.py -v -s
 The scenario writes `scratch/agent-e2e/project-factory-dogfood-live.json` with
 the Project, channel, Work Pack, task, review task, receipt, and dev-target
 ids. It is intentionally opt-in because it depends on a real harness model.
-The deterministic planning transcript screenshot is:
+Source-controlled proof should include both deterministic and live-result
+screenshots. The deterministic planning transcript proves the stable fixture:
 
 ![Project Factory dogfood planning chat](../images/project-factory-dogfood-planning.png)
+
+The live-result screenshots prove the real dogfood run created Work Packs,
+published a coding-run receipt, and reached reviewed Project provenance:
+
+![Project Factory dogfood live Work Packs](../images/project-factory-dogfood-live-work-packs.png)
+
+![Project Factory dogfood live run receipt](../images/project-factory-dogfood-live-run-receipt.png)
+
+![Project Factory dogfood live Project Runs review](../images/project-factory-dogfood-live-runs.png)
 
 ## Native Project Parity Evidence
 

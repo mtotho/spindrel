@@ -156,8 +156,7 @@ async def test_heartbeat_soft_budget_prunes_appends_prompt_and_continues_loop():
     assert event_types == ["heartbeat_budget_pressure", "context_pruning"]
     assert outputs[-1] == LoopPreLlmIterationDone(
         tools_param=None,
-        tool_choice=None,
-        continue_loop=True,
+        tool_choice="none",
     )
     assert state.soft_budget_slimmed is True
     assert state.messages[-1]["role"] == "system"

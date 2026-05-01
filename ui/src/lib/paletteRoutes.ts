@@ -73,8 +73,8 @@ const STATIC_ROUTES = new Map<string, StaticRouteMeta>([
   ["/settings/account", { pageType: "Settings", category: "Settings", icon: Settings, label: "Settings · Account", hint: "Settings" }],
   ["/settings/channels", { pageType: "Settings", category: "Settings", icon: Settings, label: "Settings · Channels", hint: "Settings" }],
   ["/settings/bots", { pageType: "Settings", category: "Settings", icon: Settings, label: "Settings · Bots", hint: "Settings" }],
-  ["/widgets", { pageType: "Widgets", category: "Widgets", icon: LayoutDashboard, label: "Widgets", hint: "Pinned widgets dashboard" }],
-  ["/widgets/dev", { pageType: "Dashboard", category: "Widgets", icon: Wrench, label: "Widget developer panel", hint: "Widgets" }],
+  ["/widgets", { pageType: "Artifacts", category: "Widgets", icon: LayoutDashboard, label: "Widget dashboards", hint: "Pinned artifacts" }],
+  ["/widgets/dev", { pageType: "Developer", category: "Widgets", icon: Wrench, label: "Widget developer panel", hint: "Artifacts" }],
   ["/admin/api-docs", { pageType: "API Docs", category: "Developer", icon: FileCode, label: "API Docs", hint: "Developer" }],
   ["/admin/api-keys", { pageType: "API Keys", category: "Developer", icon: Key, label: "API Keys", hint: "Developer" }],
   ["/admin/approvals", { pageType: "Approvals", category: "Security", icon: ShieldCheck, label: "Approvals", hint: "Security" }],
@@ -313,13 +313,13 @@ function resolveWidgetRoute(canonicalHref: string, options?: PaletteRouteOptions
   if (match) {
     const channelLabel = matchChannelName(match[1], options) ?? `#${shortToken(match[1])}`;
     return {
-      routeKind: "widget-channel-dashboard",
+      routeKind: "channel-workbench",
       canonicalHref,
-      pageType: "Dashboard",
+      pageType: "Workbench",
       category: "Widgets",
       icon: LayoutDashboard,
-      label: buildTypedLabel("Dashboard", null, channelLabel),
-      hint: "Widgets",
+      label: buildTypedLabel("Workbench", null, channelLabel),
+      hint: "Pinned artifacts",
       recordable: true,
     };
   }
@@ -334,7 +334,7 @@ function resolveWidgetRoute(canonicalHref: string, options?: PaletteRouteOptions
       category: "Widgets",
       icon: LayoutDashboard,
       label: buildTypedLabel("Dashboard", dashboardName, shortToken(match[1])),
-      hint: "Widgets",
+      hint: "Pinned artifacts",
       recordable: true,
     };
   }

@@ -89,7 +89,28 @@ async def exec_tool(
     # keyed on the parent correlation id; untracked calls (no budget
     # entry for this id) are allowed through. Checked early so the
     # reject path doesn't pay for bot-resolution / registry lookups.
-    from app.services.script_budget import spend as _spend_budget
+    from app.services.script_budget import (
+        is_tool_allowed as _is_script_tool_allowed,
+        peek_origin as _peek_script_origin,
+        spend as _spend_budget,
+    )
+    # Allowlist check first — same correlation id, server-side state,
+    # rejects fail-closed before we burn a budget slot.
+    if payload.parent_correlation_id and not await _is_script_tool_allowed(
+        payload.parent_correlation_id, payload.name
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "script_tool_not_in_allowlist",
+                "tool": payload.name,
+                "hint": (
+                    "This stored script declared an allowed_tools list and this tool "
+                    "is not on it. Either add the tool to allowed_tools on the stored "
+                    "script, or remove the allowlist to fall back to the policy gate."
+                ),
+            },
+        )
     allowed, _remaining, _limit = await _spend_budget(payload.parent_correlation_id)
     if not allowed:
         raise HTTPException(
@@ -149,51 +170,35 @@ async def exec_tool(
                 )
 
     # --- Policy check --- same gate the LLM-driven dispatch uses.
-    from app.agent.tool_dispatch import _check_tool_policy
-    correlation_id = payload.parent_correlation_id or str(uuid.uuid4())
-    try:
-        decision = await _check_tool_policy(
-            bot_id, payload.name, payload.arguments,
-            correlation_id=correlation_id,
-        )
-    except Exception:
-        logger.exception("Policy check failed for %s/%s", bot_id, payload.name)
-        raise HTTPException(status_code=500, detail="Policy evaluation error.")
-
-    if decision is not None:
-        if decision.action == "deny":
-            raise HTTPException(
-                status_code=403,
-                detail=f"Denied by policy: {decision.reason or '(no reason)'}",
-            )
-        if decision.action == "require_approval":
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error": "approval_required",
-                    "tier": decision.tier,
-                    "reason": decision.reason,
-                    "hint": (
-                        "This tool requires user approval. A script-driven call cannot "
-                        "wait inline — surface this back to the user, or call a different "
-                        "tool that doesn't require approval."
-                    ),
-                },
-            )
-
-    # --- Set ContextVars so tools that read current_bot_id / current_channel_id work.
+    # Propagate the parent run's origin_kind via ContextVar so the policy
+    # evaluator (and any downstream reads during dispatch) see
+    # autonomous/heartbeat/etc. for nested calls instead of defaulting to
+    # "chat" — closes the gap where an autonomous-origin run_script could
+    # let nested tools bypass autonomous-only rules.
     from app.agent.context import (
         current_bot_id,
         current_channel_id,
         current_correlation_id,
+        current_run_origin,
     )
+    from app.agent.tool_dispatch import _check_tool_policy
+    correlation_id = payload.parent_correlation_id or str(uuid.uuid4())
+    parent_origin = await _peek_script_origin(payload.parent_correlation_id)
+
     resets: list[tuple] = []
+    if parent_origin:
+        resets.append((current_run_origin, current_run_origin.set(parent_origin)))
     resets.append((current_bot_id, current_bot_id.set(bot_id)))
     if payload.channel_id:
         try:
             ch_uuid = uuid.UUID(payload.channel_id)
             resets.append((current_channel_id, current_channel_id.set(ch_uuid)))
         except ValueError:
+            for var, tok in reversed(resets):
+                try:
+                    var.reset(tok)
+                except Exception:
+                    pass
             raise HTTPException(status_code=400, detail=f"channel_id is not a valid UUID: {payload.channel_id}")
     try:
         cor_uuid = uuid.UUID(correlation_id)
@@ -202,6 +207,36 @@ async def exec_tool(
         pass  # parent_correlation_id was a non-UUID string; tools tolerate None
 
     try:
+        try:
+            decision = await _check_tool_policy(
+                bot_id, payload.name, payload.arguments,
+                correlation_id=correlation_id,
+            )
+        except Exception:
+            logger.exception("Policy check failed for %s/%s", bot_id, payload.name)
+            raise HTTPException(status_code=500, detail="Policy evaluation error.")
+
+        if decision is not None:
+            if decision.action == "deny":
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Denied by policy: {decision.reason or '(no reason)'}",
+                )
+            if decision.action == "require_approval":
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "error": "approval_required",
+                        "tier": decision.tier,
+                        "reason": decision.reason,
+                        "hint": (
+                            "This tool requires user approval. A script-driven call cannot "
+                            "wait inline — surface this back to the user, or call a different "
+                            "tool that doesn't require approval."
+                        ),
+                    },
+                )
+
         if is_local:
             from app.tools.registry import call_local_tool
             result_str = await call_local_tool(payload.name, json.dumps(payload.arguments))

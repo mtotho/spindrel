@@ -106,7 +106,7 @@ export default function WidgetPinPage() {
   const dashboardLabel = isWorkspaceSpatialSlug(pin?.dashboard_key)
     ? "Spatial canvas"
     : isChannelSlug(pin?.dashboard_key)
-      ? "Channel dashboard"
+      ? "Channel workbench"
       : pin?.dashboard_key ?? "Dashboard";
   const health = checkHealthMutation.data ?? pin?.widget_health ?? null;
 
@@ -305,7 +305,7 @@ export default function WidgetPinPage() {
                 className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-text-muted hover:bg-surface-overlay hover:text-text"
               >
                 <LayoutDashboard size={13} />
-                Dashboard
+                Workbench
               </Link>
             </div>
           </div>

@@ -416,12 +416,13 @@ def should_prune_in_loop(
     *,
     available_budget_tokens: int,
     pressure_threshold: float,
+    tool_schema_tokens: int = 0,
 ) -> tuple[bool, float]:
     """Decide whether in-loop tool-result pruning should run this iteration."""
     if available_budget_tokens <= 0:
         return (True, 0.0)
     from app.agent.prompt_sizing import messages_prompt_tokens
-    live_tokens = messages_prompt_tokens(messages)
+    live_tokens = messages_prompt_tokens(messages) + max(0, int(tool_schema_tokens or 0))
     utilization = live_tokens / available_budget_tokens
     return (utilization >= pressure_threshold, utilization)
 

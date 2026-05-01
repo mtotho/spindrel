@@ -971,6 +971,77 @@ async def _check_allow_rules_autonomous_scope(db: AsyncSession) -> SecurityCheck
     )
 
 
+async def _check_run_script_allowed_tools_coverage(db: AsyncSession) -> SecurityCheck:
+    """Surface stored scripts that lack an explicit ``allowed_tools`` allowlist.
+
+    Since the run_script tightening pass, stored scripts may declare an
+    ``allowed_tools`` allowlist that the inner /internal/tools/exec endpoint
+    enforces fail-closed. Without one, the script can call any tool the bot
+    has policy access to. Scripts that only do read aggregation should
+    declare a tight allowlist; scripts that need broad reach can omit it
+    deliberately. This check makes the choice visible.
+    """
+    from app.db.models import Skill
+
+    try:
+        rows = (
+            await db.execute(select(Skill.id, Skill.scripts))
+        ).all()
+    except Exception:
+        logger.debug("Could not collect Skill rows for run_script audit", exc_info=True)
+        rows = []
+
+    total_scripts = 0
+    with_allowlist = 0
+    without_allowlist: list[dict[str, Any]] = []
+    for skill_id, scripts in rows:
+        if not isinstance(scripts, list):
+            continue
+        for script in scripts:
+            if not isinstance(script, dict):
+                continue
+            total_scripts += 1
+            if isinstance(script.get("allowed_tools"), list) and script.get("allowed_tools"):
+                with_allowlist += 1
+            else:
+                without_allowlist.append({
+                    "skill_id": str(skill_id),
+                    "script_name": script.get("name"),
+                })
+
+    if total_scripts == 0:
+        return SecurityCheck(
+            id="run_script_allowed_tools_coverage",
+            category="run_script",
+            severity=Severity.info,
+            status=Status.passed,
+            message="No stored scripts configured.",
+            details={"total_scripts": 0, "with_allowlist": 0},
+        )
+
+    coverage_pct = round((with_allowlist / total_scripts) * 100)
+    return SecurityCheck(
+        id="run_script_allowed_tools_coverage",
+        category="run_script",
+        severity=Severity.info,
+        status=Status.passed,
+        message=(
+            f"{with_allowlist}/{total_scripts} stored scripts ({coverage_pct}%) "
+            "declare an allowed_tools allowlist."
+        ),
+        recommendation=(
+            "Stored scripts that aggregate or filter known tools should declare "
+            "``allowed_tools`` so a prompt-injected edit cannot broaden their "
+            "blast radius. Scripts that genuinely need open dispatch can omit it."
+        ),
+        details={
+            "total_scripts": total_scripts,
+            "with_allowlist": with_allowlist,
+            "without_allowlist": without_allowlist[:25],
+        },
+    )
+
+
 async def _check_mcp_outbound_url_guard(db: AsyncSession) -> SecurityCheck:
     """Report whether the MCP outbound URL guard is in default-deny mode.
 
@@ -1216,6 +1287,7 @@ async def run_security_audit(db: AsyncSession) -> SecurityAuditResponse:
     checks.append(await _check_stale_approvals(db))
     checks.append(await _check_policy_rule_count(db))
     checks.append(await _check_allow_rules_autonomous_scope(db))
+    checks.append(await _check_run_script_allowed_tools_coverage(db))
     checks.append(await _check_mcp_servers_count(db))
     checks.append(await _check_mcp_outbound_url_guard(db))
     checks.append(await _check_machine_control_lease_state(db))

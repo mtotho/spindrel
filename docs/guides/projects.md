@@ -274,6 +274,7 @@ artifacts, not ad hoc local captures:
 
 | Artifact | What it proves |
 |---|---|
+| [Project work hub](../images/project-workspace-detail.png) | Project detail opens as an agent-work home with pulse, runs, readiness, channels, and work-surface entry points instead of dropping directly into files. |
 | [Project Review Inbox](../images/project-workspace-review-inbox.png) | Launch-batch morning review queue with source Work Packs, run readiness, evidence counts, Select runs, and Start review actions. |
 | [Project Review Ledger](../images/project-workspace-review-ledger.png) | Review-session audit rows with selected runs, source Work Packs, outcome counts, merge settings, summaries, evidence, and active/finalized review links. |
 | [Project Runs cockpit](../images/project-workspace-runs.png) | Coding-run launch, Review Inbox launch-batch readiness, launch-batch grouping/review controls, selected-run review prompt, batch mark-reviewed/review-session controls, branch/PR progress, continuation action, handoff links, and receipt evidence. |
@@ -283,8 +284,14 @@ artifacts, not ad hoc local captures:
 | [Review finalized and merged](../images/project-workspace-review-finalized.png) | Accepted review provenance after merge: reviewed status, merged PR, check status, merge method, merge commit, review task, and handoff. |
 | [Project memory-tool transcript](../images/project-workspace-memory-tool.png) | Project-bound channels still render the memory tool result envelope with the expected `path` and completion message. |
 | [Project context mentions](../images/project-workspace-context-mentions.png) | A Project-bound channel composer can fuzzy-select a Project-local file through the `@` picker and attach it as explicit harness context. |
+| [Project channel header badge](../images/project-workspace-channel-header.png) | Project-bound channel headers expose a subtle Project badge that links back to the Project work hub. |
+| [Project composer without Fresh copy action](../images/project-channel-composer-no-fresh-copy.png) | Project-bound channels keep the composer focused on message composition; fresh-instance lifecycle actions stay on Project run/instance surfaces. |
 | [Project Factory dogfood planning](../images/project-factory-dogfood-planning.png) | A Project-bound planning chat uses explicit Project file/dependency context and records `create_issue_work_packs` output before launch. |
+| [Project Factory dogfood live Work Packs](../images/project-factory-dogfood-live-work-packs.png) | The opt-in live Codex dogfood run shows the real planning session creating the dogfood code and needs-info Work Packs. |
+| [Project Factory dogfood live receipt](../images/project-factory-dogfood-live-run-receipt.png) | The launched Project coding run publishes command results, dependency evidence, dev-target verification, changed files, and receipt status. |
+| [Project Factory dogfood live review](../images/project-factory-dogfood-live-runs.png) | The Project Runs page shows the dogfood launch batch, finalized review session, reviewed coding run, evidence counts, and provenance links. |
 | [Issue intake work-pack review](../images/spatial-check-issue-intake-work-packs.png) | Mission Control Issue Intake renders raw issue notes, Work Pack review controls, selected batch launch, source provenance, and Project/channel launch targets before coding-run launch. |
+| [Project files](../images/project-workspace-files.png) | The shared Project-rooted file explorer remains available as a secondary tab. |
 | [Project terminal](../images/project-workspace-terminal.png) | Project-rooted terminal cwd resolves through the Project work surface. |
 | [Project channel settings](../images/project-workspace-channel-settings.png) | Non-harness channel settings bind to the Project primitive instead of a path-only workspace override. |
 | [Project instances](../images/project-workspace-instances.png) | Fresh Project instance readiness and file handoff are visible from the Project work surface. |
@@ -320,6 +327,14 @@ and remind the agent to use `get_project_dependency_stack` /
 
 ![Project file context mention in the channel composer](../images/project-workspace-context-mentions.png)
 
+![Project-bound composer without Fresh copy action](../images/project-channel-composer-no-fresh-copy.png)
+
 ![Project Factory dogfood planning chat](../images/project-factory-dogfood-planning.png)
+
+![Project Factory dogfood live Work Packs](../images/project-factory-dogfood-live-work-packs.png)
+
+![Project Factory dogfood live run receipt](../images/project-factory-dogfood-live-run-receipt.png)
+
+![Project Factory dogfood live review provenance](../images/project-factory-dogfood-live-runs.png)
 
 ![Memory tool transcript in a Project-bound channel](../images/project-workspace-memory-tool.png)

@@ -16,7 +16,6 @@ import type { HarnessApprovalMode } from "./harnessApprovalModeControl";
 import { shouldShowComposerPlanControl, type PlanModeControlVisibility } from "./planControlVisibility";
 import { useComposerDraftFiles, type PendingFile } from "./useComposerDraftFiles";
 import { formatFileSize } from "./attachmentRouting";
-import { SessionWorkSurfaceControl } from "./SessionWorkSurfaceControl";
 import type { SlashCommandId, SlashCommandSurface } from "../../types/api";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
@@ -824,11 +823,6 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                   )}
                 </div>
               )}
-
-              <SessionWorkSurfaceControl
-                sessionId={currentSessionId}
-                disabled={disabled || !!isStreaming}
-              />
 
               <div style={{ flex: 1 }} />
 

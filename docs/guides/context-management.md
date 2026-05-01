@@ -419,6 +419,7 @@ Current sticky tools:
 
 - `get_skill`
 - `get_skill_list`
+- `get_memory_file`
 
 Those stay because they behave more like temporary reference docs than ephemeral execution output.
 

@@ -99,6 +99,8 @@ export default function AddFromChannelSheet({
   // redundant (you ARE that channel's board) so the tab hides, and Recent
   // calls becomes the natural landing.
   const showChannelTab = !scopeChannelId;
+  const targetNoun = scopeChannelId ? "artifact" : "widget";
+  const targetNounPlural = scopeChannelId ? "artifacts" : "widgets";
   const pins = useDashboardPinsStore((s) => s.pins);
   const pinWidget = useDashboardPinsStore((s) => s.pinWidget);
   const pinSuite = useDashboardPinsStore((s) => s.pinSuite);
@@ -240,9 +242,11 @@ export default function AddFromChannelSheet({
       <div className="relative z-10 flex h-[min(88dvh,980px)] w-full max-w-[min(1600px,calc(100vw-24px))] flex-col overflow-hidden bg-surface-raised shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
         <header className="flex items-start justify-between gap-4 px-6 pt-5 pb-2">
           <div>
-            <h2 className="text-base font-bold text-text">Widget builder</h2>
+            <h2 className="text-base font-bold text-text">
+              {scopeChannelId ? "Pin artifact" : "Widget builder"}
+            </h2>
             <p className="mt-0.5 text-[11px] text-text-muted">
-              Browse, configure, preview, and pin widgets into {dashboardName ?? "this dashboard"}.
+              Browse, configure, preview, and pin {targetNounPlural} into {dashboardName ?? "this dashboard"}.
             </p>
           </div>
           <button
@@ -320,7 +324,7 @@ export default function AddFromChannelSheet({
               onPinCreated={(pinId) => {
                 toast({
                   kind: "success",
-                  message: `Added preset to ${dashboardName ?? "dashboard"}`,
+                  message: `Added preset ${targetNoun} to ${dashboardName ?? "dashboard"}`,
                   action: onPinned
                     ? {
                         label: "View",
@@ -424,7 +428,7 @@ export default function AddFromChannelSheet({
               onToolRendererPinCreated={(pinId) => {
                 toast({
                   kind: "success",
-                  message: `Added widget to ${dashboardName ?? "dashboard"}`,
+                  message: `Added ${targetNoun} to ${dashboardName ?? "dashboard"}`,
                   action: onPinned
                     ? {
                         label: "View",
@@ -593,12 +597,12 @@ function ChannelPinsTab({
           <Pin size={16} className="text-text-dim" />
         </div>
         <p className="text-[13px] font-medium text-text">
-          {query ? "No matches" : "No channel widgets yet"}
+          {query ? "No matches" : "No channel artifacts yet"}
         </p>
         <p className="max-w-[260px] text-[11px] text-text-muted">
           {query
-            ? "Try a different channel or widget name."
-            : "Pin a widget on any channel's dashboard first, then come back here to promote it to this dashboard."}
+            ? "Try a different channel or artifact name."
+            : "Pin an artifact on any channel workbench first, then come back here to promote it to this dashboard."}
         </p>
       </div>
     );
@@ -689,7 +693,7 @@ function PinRow({
         disabled={already}
         aria-disabled={already}
         aria-expanded={selected}
-        title={already ? "Already on this dashboard" : undefined}
+        title={already ? "Already pinned here" : undefined}
         className={[
           "group flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors rounded-md",
           already && "cursor-not-allowed",
@@ -1061,7 +1065,7 @@ function PreviewPanel({
           className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1 text-[11px] font-medium text-white hover:opacity-90 disabled:opacity-50"
         >
           {busy ? <Loader2 size={11} className="animate-spin" /> : <Pin size={11} />}
-          Add to dashboard
+          Pin
         </button>
       </div>
     </div>

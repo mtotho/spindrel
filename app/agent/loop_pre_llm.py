@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import time
 from collections.abc import AsyncGenerator
@@ -96,11 +97,12 @@ async def stream_loop_pre_llm_iteration(
             safe_create_task_fn=safe_create_task_fn,
             monotonic_fn=monotonic_fn,
             get_model_context_window_fn=get_model_context_window_fn,
+            tools_param=tools_param,
         ):
             if isinstance(pruning_event, LoopPreLlmIterationDone):
                 yield LoopPreLlmIterationDone(
-                    tools_param=tools_param,
-                    tool_choice=tool_choice,
+                    tools_param=pruning_event.tools_param,
+                    tool_choice=pruning_event.tool_choice,
                     continue_loop=pruning_event.continue_loop,
                     return_loop=pruning_event.return_loop,
                 )
@@ -169,6 +171,7 @@ async def _stream_pre_llm_pruning(
     safe_create_task_fn: Any,
     monotonic_fn: Any | None,
     get_model_context_window_fn: Any | None,
+    tools_param: list[dict[str, Any]] | None,
 ) -> AsyncGenerator[dict[str, Any] | LoopPreLlmIterationDone, None]:
     messages = state.messages
     now = monotonic_fn if monotonic_fn is not None else time.monotonic
@@ -235,8 +238,8 @@ async def _stream_pre_llm_pruning(
         messages.append({
             "role": "system",
             "content": (
-                "Heartbeat soft budget reached. Continue only if one more tool call is clearly "
-                "high-value and novel; otherwise produce a concise final heartbeat result."
+                "Heartbeat soft budget reached. Tool use is now disabled for this turn; "
+                "produce a concise final heartbeat result from the information already gathered."
             ),
         })
         if ctx.correlation_id is not None:
@@ -260,8 +263,7 @@ async def _stream_pre_llm_pruning(
             ))
         yield LoopPreLlmIterationDone(
             tools_param=None,
-            tool_choice=None,
-            continue_loop=True,
+            tool_choice="none",
         )
         return
 
@@ -278,10 +280,20 @@ async def _stream_pre_llm_pruning(
     except Exception:
         available_budget_tokens = 0
 
+    tool_schema_tokens = 0
+    if tools_param:
+        try:
+            from app.agent.context_budget import estimate_tokens
+
+            tool_schema_chars = sum(len(json.dumps(t, default=str)) for t in tools_param)
+            tool_schema_tokens = estimate_tokens("x" * tool_schema_chars)
+        except Exception:
+            tool_schema_tokens = 0
     should_prune, utilization = should_prune_in_loop_fn(
         messages,
         available_budget_tokens=available_budget_tokens,
         pressure_threshold=settings_obj.IN_LOOP_PRUNING_PRESSURE_THRESHOLD,
+        tool_schema_tokens=tool_schema_tokens,
     )
     if not should_prune:
         return

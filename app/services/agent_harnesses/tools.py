@@ -453,10 +453,10 @@ async def _collect_harness_spindrel_tools_for(
 
 
 def _plan_control_tools_for_mode(session_plan_mode: str) -> tuple[str, ...]:
-    if session_plan_mode == "planning":
-        return _PLAN_DRAFT_TOOL_NAMES
-    if session_plan_mode in {"executing", "blocked"}:
-        return _PLAN_EXECUTION_TOOL_NAMES
+    del session_plan_mode
+    # Harness plan mode belongs to the native runtime. Do not inject
+    # Spindrel's structured plan-artifact tools into Codex/Claude sessions by
+    # default; they are a separate Spindrel workflow, not native CLI parity.
     return ()
 
 

@@ -390,10 +390,10 @@ export function WidgetCard({
             }}
             className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-opacity bg-transparent border-0 cursor-pointer opacity-40 hover:opacity-100"
             style={{ color: t.textDim }}
-            title="Add to dashboard"
+            title="Pin to workbench"
           >
             <Plus size={11} />
-            <span>Add to dashboard</span>
+            <span>Pin to workbench</span>
           </button>
         )}
         {channelId && (

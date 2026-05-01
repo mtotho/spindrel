@@ -19,23 +19,23 @@ export function DashboardTab({ channelId, form, patch }: Props) {
       title={
         <span className="inline-flex items-center gap-2">
           <LayoutDashboard size={14} className="text-accent" />
-          Dashboard layout
+          Workbench layout
         </span>
       }
-      description="Configure the grid preset, rail pin, tile chrome, and widget-title visibility for this channel's dashboard. Changes apply immediately across every viewer."
+      description="Configure the canvas preset, chat rail, tile chrome, and artifact-title visibility for this channel's workbench. Changes apply immediately across every viewer."
       action={
         <Link
           to={`/widgets/channel/${channelId}`}
           className="inline-flex min-h-[34px] items-center rounded-md px-2.5 text-[12px] font-semibold text-accent transition-colors hover:bg-accent/[0.08]"
         >
-          Open dashboard
+          Open workbench
         </Link>
       }
     >
       <WidgetUsefulnessSettingsSummary channelId={channelId} />
       <FormRow
         label="Bot widget agency"
-        description="Controls whether bots may only propose dashboard widget improvements or also apply safe fixes."
+        description="Controls whether bots may only propose workbench artifact improvements or also apply safe fixes."
       >
         <SelectInput
           value={(form.widget_agency_mode ?? "propose") as string}

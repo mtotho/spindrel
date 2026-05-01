@@ -1435,7 +1435,8 @@ async def _compose_heartbeat_tool_surface(
     """Deterministic heartbeat tool-surface composition.
 
     Order:
-      1. Always-included: bot.pinned_tools ∪ tagged_tool_names ∪ plan-mode pins.
+      1. Always-included: operator-curated bot.pinned_tools ∪ tagged_tool_names
+         ∪ plan-mode pins.
          These never compete in retrieval and never get dropped.
       2. Budget-gated: enrolled_tool_names added in priority order while under
          both count and token caps.
@@ -1457,17 +1458,18 @@ async def _compose_heartbeat_tool_surface(
     token_cap = max(500, int(settings.HEARTBEAT_ENROLLED_TOOL_TOKEN_CAP or 6000))
 
     # --- Step 1: always-included pin set (deterministic order) ---
-    # Discovery hatches (get_tool_info / search_tools / list_tool_signatures)
-    # are filtered here. apply_auto_injections() pins get_tool_info on every
-    # bot with tool_retrieval=True for chat surfaces; heartbeats don't use
-    # discovery so we drop it.
+    # apply_auto_injections() and context admission add chat/workspace baseline
+    # helpers to bot.pinned_tools. Heartbeats treat those as availability, not
+    # schema pins, because baseline helpers are high-breadth escape hatches.
     pin_set: list[str] = []
     seen: set[str] = set()
 
-    def _add(name: str) -> None:
+    def _add(name: str, *, allow_baseline: bool = False) -> None:
         if not name or name in seen or name not in by_name:
             return
         if name in DISCOVERY_HATCH_TOOL_NAMES:
+            return
+        if not allow_baseline and name in AUTO_INJECTED_PIN_NAMES:
             return
         pin_set.append(name)
         seen.add(name)
@@ -1475,15 +1477,15 @@ async def _compose_heartbeat_tool_surface(
     for n in (bot.pinned_tools or []):
         _add(n)
     for n in tagged_tool_names:
-        _add(n)
+        _add(n, allow_baseline=True)
     if bot.tool_discovery:
-        _add("run_script")  # composition tool, not a discovery hatch
+        _add("run_script", allow_baseline=True)  # composition tool, not a discovery hatch
     if tagged_skill_names:
-        _add("get_skill")
-        _add("get_skill_list")
+        _add("get_skill", allow_baseline=True)
+        _add("get_skill_list", allow_baseline=True)
     if plan_mode_active:
         for n in _PLAN_MODE_CONTROL_TOOLS:
-            _add(n)
+            _add(n, allow_baseline=True)
 
     pin_token_total = sum(_estimate_schema_tokens(by_name[n]) for n in pin_set)
 
@@ -1565,6 +1567,10 @@ async def _compose_heartbeat_tool_surface(
 
     heartbeat_surface = {
         "pin_set": list(pin_set),
+        "baseline_pins_filtered": [
+            n for n in (bot.pinned_tools or [])
+            if n in AUTO_INJECTED_PIN_NAMES and n in by_name
+        ],
         "enrolled_included": list(enrolled_included),
         "enrolled_dropped_for_budget": list(enrolled_dropped_for_budget),
         "enrolled_recovered_via_retrieval": list(enrolled_recovered),

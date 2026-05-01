@@ -166,12 +166,34 @@ def _validate_scripts_payload(
                 return [], (
                     f"scripts[{idx}].timeout_s must be between 5 and {SCRIPT_TIMEOUT_MAX}."
                 )
-        normalized.append({
+        # Optional explicit allowlist of tool names this stored script may
+        # call via run_script. When set, the inner /internal/tools/exec
+        # endpoint rejects any nested call outside the list (fail-closed),
+        # and run_script pre-validates each declared tool through the
+        # policy gate before exec. Inline scripts can't pre-declare; this
+        # is a stored-script-only defense-in-depth control.
+        allowed_tools_raw = raw.get("allowed_tools")
+        normalized_allowed: list[str] | None = None
+        if allowed_tools_raw is not None:
+            if not isinstance(allowed_tools_raw, list):
+                return [], f"scripts[{idx}].allowed_tools must be a list of tool names."
+            cleaned: list[str] = []
+            for tool_idx, tool_name in enumerate(allowed_tools_raw):
+                if not isinstance(tool_name, str) or not tool_name.strip():
+                    return [], (
+                        f"scripts[{idx}].allowed_tools[{tool_idx}] must be a non-empty string."
+                    )
+                cleaned.append(tool_name.strip())
+            normalized_allowed = cleaned or None
+        entry: dict = {
             "name": normalized_name,
             "description": description,
             "script": script,
             "timeout_s": timeout_s,
-        })
+        }
+        if normalized_allowed is not None:
+            entry["allowed_tools"] = normalized_allowed
+        normalized.append(entry)
         seen.add(normalized_name)
     return normalized, None
 
