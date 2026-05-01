@@ -507,6 +507,116 @@ export function useRestoreChannelWorkspaceFile(channelId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Channel/project knowledge-base Notes
+// ---------------------------------------------------------------------------
+
+export interface ChannelNoteSummary {
+  slug: string;
+  path: string;
+  title: string;
+  summary: string;
+  excerpt: string;
+  category: string;
+  tags: string[];
+  word_count: number;
+  bytes: number;
+  modified_at: string;
+  scope: "channel" | "project";
+  content_hash: string;
+}
+
+export interface ChannelNote extends ChannelNoteSummary {
+  content: string;
+  session_id?: string;
+}
+
+export interface ChannelNotesResponse {
+  surface: {
+    scope: "channel" | "project";
+    kb_path: string;
+    notes_path: string;
+  };
+  notes: ChannelNoteSummary[];
+}
+
+export interface ChannelNoteAssistProposal {
+  target: "selection" | "document";
+  replacement_markdown: string;
+  rationale: string;
+  diff: string;
+}
+
+export function useChannelNotes(channelId: string | undefined) {
+  return useQuery({
+    queryKey: ["channel-notes", channelId],
+    queryFn: () => apiFetch<ChannelNotesResponse>(`/api/v1/channels/${channelId}/notes`),
+    enabled: !!channelId,
+  });
+}
+
+export function useChannelNote(channelId: string | undefined, slug: string | null) {
+  return useQuery({
+    queryKey: ["channel-note", channelId, slug],
+    queryFn: () => apiFetch<ChannelNote>(`/api/v1/channels/${channelId}/notes/${encodeURIComponent(slug!)}`),
+    enabled: !!channelId && !!slug,
+  });
+}
+
+export function useCreateChannelNote(channelId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { title: string; slug?: string; content?: string }) =>
+      apiFetch<ChannelNote>(`/api/v1/channels/${channelId}/notes`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channel-notes", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
+    },
+  });
+}
+
+export function useWriteChannelNote(channelId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ slug, content, base_hash }: { slug: string; content: string; base_hash?: string | null }) =>
+      apiFetch<ChannelNote>(`/api/v1/channels/${channelId}/notes/${encodeURIComponent(slug)}`, {
+        method: "PUT",
+        body: JSON.stringify({ content, base_hash }),
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["channel-notes", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channel-note", channelId, data.slug] });
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-file-versions", channelId, data.path] });
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
+    },
+  });
+}
+
+export function useAssistChannelNote(channelId: string) {
+  return useMutation({
+    mutationFn: ({
+      slug,
+      mode,
+      instruction,
+      selection,
+      base_hash,
+    }: {
+      slug: string;
+      mode: string;
+      instruction?: string;
+      selection?: { start: number; end: number; text: string } | null;
+      base_hash?: string | null;
+    }) =>
+      apiFetch<ChannelNoteAssistProposal>(`/api/v1/channels/${channelId}/notes/${encodeURIComponent(slug)}/assist`, {
+        method: "POST",
+        body: JSON.stringify({ mode, instruction, selection, base_hash }),
+      }),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Channel workspace file upload (multipart — bypasses apiFetch)
 // ---------------------------------------------------------------------------
 

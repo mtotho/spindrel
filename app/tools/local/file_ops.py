@@ -852,37 +852,8 @@ def _save_backup(path: str) -> str | None:
     file extension — data files (.json/.yaml/.yml/.toml) keep MAX_BACKUP_VERSIONS_DATA
     copies, everything else keeps MAX_BACKUP_VERSIONS_DEFAULT.
     """
-    if not os.path.isfile(path):
-        return None
-
-    parent = os.path.dirname(path)
-    basename = os.path.basename(path)
-    versions_dir = os.path.join(parent, ".versions")
-    os.makedirs(versions_dir, exist_ok=True)
-
-    # Use monotonic-ish timestamp with subsecond precision to avoid collisions
-    ts = f"{time.time():.4f}".replace(".", "-")
-    backup_name = f"{basename}.{ts}.bak"
-    backup_path = os.path.join(versions_dir, backup_name)
-
-    try:
-        import shutil
-        shutil.copy2(path, backup_path)
-    except OSError:
-        logger.warning("Failed to create backup of %s", path)
-        return None
-
-    # Prune old backups for this basename (keep newest per-file retention).
-    pattern = os.path.join(versions_dir, f"{basename}.*.bak")
-    backups = sorted(glob_mod.glob(pattern), key=lambda p: (os.path.getmtime(p), p), reverse=True)
-    retention = _retention_for(path)
-    for old in backups[retention:]:
-        try:
-            os.remove(old)
-        except OSError:
-            pass
-
-    return backup_path
+    from app.services.file_versions import save_file_backup
+    return save_file_backup(path)
 
 
 def _relativize_backup(backup_path: str | None, live_path: str) -> str | None:

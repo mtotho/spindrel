@@ -180,7 +180,20 @@ def _project_path() -> str:
 
 
 def _artifact_root() -> Path:
-    return Path(os.environ.get("HARNESS_PARITY_ARTIFACT_DIR", "/tmp/spindrel-harness-parity"))
+    return Path(
+        os.environ.get("HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR")
+        or os.environ.get("HARNESS_PARITY_ARTIFACT_DIR", "/tmp/spindrel-harness-parity")
+    )
+
+
+def _should_capture_screenshots(name: str) -> bool:
+    capture = os.environ.get("HARNESS_PARITY_CAPTURE_SCREENSHOTS", "auto").strip().lower()
+    if capture in {"0", "false", "no", "off"}:
+        return False
+    only = os.environ.get("HARNESS_PARITY_SCREENSHOT_ONLY", "").strip()
+    if only and only not in name:
+        return False
+    return capture in {"1", "true", "yes", "on", "auto"}
 
 
 def _project_timeout() -> float:
@@ -775,7 +788,7 @@ async def _capture_session_marker_screenshot(
 
     ui_url = _browser_ui_url(client)
     api_url = _browser_api_url(client)
-    route = f"{ui_url}/channels/{channel_id}/session/{session_id}"
+    route = f"{ui_url}/channels/{channel_id}/session/{session_id}?surface=channel"
     out_path = _artifact_root() / "native-cli" / f"{Path(screenshot_name).stem}.png"
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -799,6 +812,93 @@ async def _capture_session_marker_screenshot(
             await _assert_no_horizontal_overflow(page, "native-cli-mirror")
             assert await page.get_by_role("button", name=re.compile("Native CLI|Spindrel chat")).count() >= 1
             await page.screenshot(path=str(out_path), full_page=False)
+            await context.close()
+        finally:
+            await browser.close()
+    return out_path
+
+
+async def _send_native_cli_prompt_via_ui(
+    client: E2EClient,
+    *,
+    channel_id: str,
+    session_id: str,
+    prompt: str,
+    marker: str,
+    screenshot_name: str | None = None,
+) -> Path | None:
+    pytest.importorskip("playwright.async_api")
+    from playwright.async_api import async_playwright
+    from scripts.screenshots.playwright_runtime import launch_async_browser
+
+    ui_url = _browser_ui_url(client)
+    api_url = _browser_api_url(client)
+    route = f"{ui_url}/channels/{channel_id}/session/{session_id}?surface=channel"
+    out_path = (
+        _artifact_root() / "native-cli" / f"{Path(screenshot_name).stem}.png"
+        if screenshot_name
+        else None
+    )
+    if out_path is not None:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    async with async_playwright() as pw:
+        browser = await launch_async_browser(pw)
+        try:
+            context = await browser.new_context(
+                viewport={"width": 1440, "height": 900},
+                color_scheme="dark",
+            )
+            await context.add_init_script(
+                _browser_auth_init_script(api_url=api_url, api_key=client.config.api_key)
+            )
+            page = await context.new_page()
+            await page.goto(route, wait_until="domcontentloaded", timeout=60_000)
+            await page.wait_for_function(
+                "(marker) => document.body.innerText.includes(marker)",
+                arg=marker,
+                timeout=60_000,
+            )
+            native_toggle = page.get_by_role("button", name=re.compile(r"^Native CLI$")).first
+            try:
+                await native_toggle.wait_for(state="visible", timeout=30_000)
+            except Exception:
+                debug_path = _artifact_root() / "native-cli" / "harness-codex-native-cli-toggle-missing.png"
+                debug_path.parent.mkdir(parents=True, exist_ok=True)
+                with contextlib.suppress(Exception):
+                    await page.screenshot(path=str(debug_path), full_page=False)
+                body = await page.locator("body").inner_text(timeout=10_000)
+                raise AssertionError(
+                    "Native CLI toggle was not visible on the channel session surface; "
+                    f"debug screenshot: {debug_path}; body tail:\n{body[-2000:]}"
+                )
+            await native_toggle.click(timeout=30_000)
+            panel = page.locator('[data-testid="admin-terminal-panel"]').first
+            try:
+                await panel.wait_for(state="visible", timeout=60_000)
+            except Exception:
+                debug_path = _artifact_root() / "native-cli" / "harness-codex-native-cli-mount-failed.png"
+                debug_path.parent.mkdir(parents=True, exist_ok=True)
+                with contextlib.suppress(Exception):
+                    await page.screenshot(path=str(debug_path), full_page=False)
+                body = await page.locator("body").inner_text(timeout=10_000)
+                raise AssertionError(
+                    "Native CLI toggle did not mount the terminal panel; "
+                    f"debug screenshot: {debug_path}; body tail:\n{body[-2000:]}"
+                )
+            xterm = page.locator('[data-testid="admin-terminal-xterm"] .xterm').first
+            await xterm.wait_for(state="visible", timeout=60_000)
+            await xterm.click(position={"x": 80, "y": 120})
+            await page.keyboard.type(prompt, delay=8)
+            await page.keyboard.press("Tab")
+            await page.wait_for_function(
+                "(marker) => document.body.innerText.toLowerCase().includes(marker.toLowerCase())",
+                arg=marker,
+                timeout=60_000,
+            )
+            await _assert_no_horizontal_overflow(page, "native-cli-ui")
+            if out_path is not None:
+                await page.screenshot(path=str(out_path), full_page=False)
             await context.close()
         finally:
             await browser.close()
@@ -2084,26 +2184,22 @@ async def test_live_codex_native_cli_terminal_mirrors_to_spindrel(
     _assert_clean_turn(bootstrap)
     assert f"bootstrap ready {marker}" in bootstrap.response_text.lower()
 
-    create = await client.post(f"/api/v1/admin/sessions/{session_id}/harness/native-terminal", json={})
-    create.raise_for_status()
-    terminal = create.json()
-    assert terminal["runtime"] == "codex"
-    assert terminal["mirror_status"] == "polling"
-    assert terminal["session_id"]
-    assert terminal.get("native_session_id"), terminal
-
-    prompt = f"Reply exactly: native cli mirror ok {marker}\r"
-    terminal_output = await _send_terminal_input(
+    terminal_screenshot = await _send_native_cli_prompt_via_ui(
         client,
-        terminal_session_id=terminal["session_id"],
-        text=prompt,
-        wait_for=f"native cli mirror ok {marker}",
-        timeout=_timeout(),
+        channel_id=channel_id,
+        session_id=session_id,
+        prompt=f"Reply exactly: native cli mirror ok {marker}",
+        marker=marker,
+        screenshot_name=(
+            "harness-codex-native-cli-terminal-dark"
+            if _should_capture_screenshots("harness-codex-native-cli-mirror")
+            else None
+        ),
     )
-    assert marker in terminal_output.lower(), (
-        "native CLI terminal did not echo/produce marker; output tail:\n"
-        + terminal_output[-4000:]
-    )
+    if terminal_screenshot is not None:
+        assert terminal_screenshot.is_file(), (
+            f"native CLI terminal screenshot was not written: {terminal_screenshot}"
+        )
 
     deadline = time.monotonic() + _timeout()
     mirrored_message: dict[str, Any] | None = None
@@ -2121,7 +2217,6 @@ async def test_live_codex_native_cli_terminal_mirrors_to_spindrel(
             break
         await asyncio.sleep(2)
 
-    await client.delete(f"/api/v1/admin/terminal/sessions/{terminal['session_id']}")
     assert mirrored_message is not None, f"native CLI mirror did not persist marker {marker}"
     assert f"native cli mirror ok {marker}" in str(mirrored_message.get("content") or "").lower()
 

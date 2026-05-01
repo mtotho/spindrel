@@ -4,7 +4,7 @@
  * Replaces the old `MobileOmniSheet` bottom sheet. Opened by the channel
  * header's hamburger, the drawer exposes three tabs:
  *
- *   [Widgets (N)] [Files] [Jump]
+ *   [Notes] [Widgets (N)] [Files]
  *
  * Widgets: every channel-dashboard pin in one mobile workbench list, so users
  *          do not have to understand desktop dashboard zones.
@@ -13,17 +13,13 @@
  *          back to the page; the parent owns closing the drawer and opening
  *          the mobile file viewer so dirty-file guards stay coherent.
  *
- * Jump:    the existing `CommandPaletteContent` rendered inline. Default
- *          tab on open so the drawer's default behavior matches today's
- *          hamburger = palette, with zero muscle-memory regression for
- *          users who only use it for navigation.
  *
  * Desktop never mounts this drawer. Non-channel routes keep hamburger =
  * plain `CommandPalette`.
  */
 import { useCallback, useEffect, useMemo } from "react";
 import ReactDOM from "react-dom";
-import { Layers, Search, Files, X, LayoutDashboard, Maximize2 } from "lucide-react";
+import { Layers, Files, X, LayoutDashboard, Maximize2, NotebookText } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
@@ -32,9 +28,8 @@ import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { channelSlug } from "@/src/stores/dashboards";
-import { CommandPaletteContent } from "@/src/components/layout/CommandPalette";
-import type { PaletteItem } from "@/src/components/palette/types";
 import { FilesTabPanel } from "./FilesTabPanel";
+import { NotesTabPanel } from "./NotesTabPanel";
 import { PinnedToolWidget } from "./PinnedToolWidget";
 import { widgetPinHref } from "@/src/lib/hubRoutes";
 import type {
@@ -76,12 +71,6 @@ function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
     widget_contract: pin.widget_contract ?? null,
     config: pin.widget_config ?? {},
   };
-}
-
-function parseChannelIdFromPaletteItem(item: PaletteItem): string | null {
-  if (!item.href) return null;
-  const match = item.href.match(/^\/channels\/([^/?#]+)/);
-  return match?.[1] ?? null;
 }
 
 function sortByGridYX(a: WidgetDashboardPin, b: WidgetDashboardPin): number {
@@ -129,7 +118,6 @@ export function MobileChannelDrawer({
   const navigate = useNavigate();
   const storeTab = useUIStore((s) => s.omniPanelTab);
   const setStoreTab = useUIStore((s) => s.setOmniPanelTab);
-  const patchChannelPanelPrefs = useUIStore((s) => s.patchChannelPanelPrefs);
   const tab = controlledTab ?? storeTab;
   const setTab = useCallback(
     (next: OmniPanelTab) => {
@@ -197,30 +185,16 @@ export function MobileChannelDrawer({
     [onSelectFile],
   );
 
-  const handleAfterJumpSelect = useCallback(
-    (item: PaletteItem) => {
-      const targetChannelId = parseChannelIdFromPaletteItem(item);
-      if (targetChannelId) {
-        patchChannelPanelPrefs(targetChannelId, {
-          mobileDrawerOpen: false,
-          mobileExpandedWidgetId: null,
-        });
-      }
-      onClose();
-    },
-    [onClose, patchChannelPanelPrefs],
-  );
-
-  // If the user lost file-tab access (no workspace), bounce them off it.
+  // If the user lost workspace-tab access, bounce them to widgets.
   useEffect(() => {
-    if (!hasWorkspace && tab === "files") setTab("jump");
+    if (!hasWorkspace && (tab === "files" || tab === "notes")) setTab("widgets");
   }, [hasWorkspace, tab, setTab]);
 
   if (!open || typeof document === "undefined") return null;
 
-  const activeTabWithoutWorkspace = hasWorkspace ? tab : tab === "files" ? "jump" : tab;
+  const activeTabWithoutWorkspace = hasWorkspace ? tab : (tab === "files" || tab === "notes") ? "widgets" : tab;
   const activeTab = activeTabWithoutWorkspace === "widgets" && totalWidgets === 0
-    ? "jump"
+    ? (hasWorkspace ? "notes" : "widgets")
     : activeTabWithoutWorkspace;
 
   return ReactDOM.createPortal(
@@ -234,12 +208,21 @@ export function MobileChannelDrawer({
         paddingTop: "env(safe-area-inset-top)",
       }}
     >
-      {/* Tab strip — three segmented pills. `Jump` is the default on first
-          open so the drawer's ambient behavior = today's palette. */}
+      {/* Tab strip — rich channel work surfaces. Global Jump remains available
+          through the app palette shortcut and header entry points. */}
       <div
         className="flex items-center gap-1 px-2 py-1.5"
         style={{ backgroundColor: t.surfaceRaised }}
       >
+        {hasWorkspace && (
+          <DrawerTab
+            label="Notes"
+            icon={<NotebookText size={13} />}
+            active={activeTab === "notes"}
+            onClick={() => setTab("notes")}
+            t={t}
+          />
+        )}
         <DrawerTab
           label="Widgets"
           icon={<Layers size={13} />}
@@ -257,13 +240,6 @@ export function MobileChannelDrawer({
             t={t}
           />
         )}
-        <DrawerTab
-          label="Jump"
-          icon={<Search size={13} />}
-          active={activeTab === "jump"}
-          onClick={() => setTab("jump")}
-          t={t}
-        />
         <button
           type="button"
           onClick={onClose}
@@ -276,6 +252,9 @@ export function MobileChannelDrawer({
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        {activeTab === "notes" && hasWorkspace && (
+          <NotesTabPanel channelId={channelId} botId={botId} onSelectFile={handleSelectFile} />
+        )}
         {activeTab === "widgets" && (
           <WidgetsTab
             channelId={channelId}
@@ -301,15 +280,6 @@ export function MobileChannelDrawer({
             onSelectFile={handleSelectFile}
             onOpenTerminal={onOpenTerminal}
             focusSearchOnMount={false}
-          />
-        )}
-        {activeTab === "jump" && (
-          <CommandPaletteContent
-            variant="modal"
-            autoFocus
-            onAfterSelect={handleAfterJumpSelect}
-            onEscape={onClose}
-            showInlineClose={false}
           />
         )}
       </div>

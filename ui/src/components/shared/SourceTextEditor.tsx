@@ -23,6 +23,7 @@ interface SourceTextEditorProps {
   searchQuery?: string;
   placeholder?: string;
   className?: string;
+  onSelectionChange?: (selection: { start: number; end: number; text: string }) => void;
 }
 
 type TokenType =
@@ -283,6 +284,7 @@ export function SourceTextEditor({
   searchQuery,
   placeholder,
   className = "",
+  onSelectionChange,
 }: SourceTextEditorProps) {
   const t = useThemeTokens();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -327,6 +329,13 @@ export function SourceTextEditor({
       target.selectionStart = target.selectionEnd = start + 2;
     });
   }, [onChange, text]);
+
+  const emitSelection = useCallback((target: HTMLTextAreaElement) => {
+    if (!onSelectionChange) return;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    onSelectionChange({ start, end, text: target.value.slice(start, end) });
+  }, [onSelectionChange]);
 
   const gutterWidth = showLineNumbers ? Math.max(44, String(lineCount).length * 9 + 24) : 0;
   const contentStyle: CSSProperties = {
@@ -425,6 +434,9 @@ export function SourceTextEditor({
               ref={textareaRef}
               value={text}
               onChange={(event) => onChange?.(event.target.value)}
+              onSelect={(event) => emitSelection(event.currentTarget)}
+              onKeyUp={(event) => emitSelection(event.currentTarget)}
+              onMouseUp={(event) => emitSelection(event.currentTarget)}
               onScroll={handleScroll}
               onKeyDown={handleKeyDown}
               spellCheck={false}

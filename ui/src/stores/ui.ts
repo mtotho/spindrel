@@ -34,7 +34,7 @@ export interface RecentPage {
   version?: number;
 }
 
-export type OmniPanelTab = "widgets" | "files" | "jump";
+export type OmniPanelTab = "notes" | "widgets" | "files";
 
 export type { ChannelSessionPanel };
 export type { ChannelChatPaneLayout };
@@ -77,7 +77,7 @@ export function defaultChannelPanelPrefs(): ChannelPanelPrefs {
     rightPinned: false,
     leftWidth: CHANNEL_PANEL_DEFAULT_WIDTH,
     rightWidth: CHANNEL_PANEL_DEFAULT_WIDTH,
-    leftTab: "widgets",
+    leftTab: "notes",
     mobileDrawerOpen: false,
     mobileExpandedWidgetId: null,
     focusModePrior: null,
@@ -111,7 +111,7 @@ function normalizeChannelPanelPrefs(
     ...(prefs ?? {}),
     leftWidth: clampChannelPanelWidth(prefs?.leftWidth ?? base.leftWidth),
     rightWidth: clampChannelPanelWidth(prefs?.rightWidth ?? base.rightWidth),
-    leftTab: prefs?.leftTab ?? base.leftTab,
+    leftTab: normalizeOmniPanelTab(prefs?.leftTab) ?? base.leftTab,
     mobileExpandedWidgetId: prefs?.mobileExpandedWidgetId ?? null,
     focusModePrior,
     sessionPanels: normalizeChannelSessionPanels(prefs?.sessionPanels),
@@ -236,7 +236,7 @@ export const useUIStore = create<UIState>()(
       fileExplorerOpen: false,
       fileExplorerSplit: false,
       rightDockHidden: false,
-      omniPanelTab: "widgets",
+      omniPanelTab: "notes",
       channelPanelPrefs: {},
       filesFocusTick: 0,
       recentPages: [],
@@ -409,7 +409,7 @@ export const useUIStore = create<UIState>()(
         fileExplorerOpen: state.fileExplorerOpen,
         fileExplorerSplit: state.fileExplorerSplit,
         rightDockHidden: state.rightDockHidden,
-        omniPanelTab: state.omniPanelTab,
+        omniPanelTab: normalizeOmniPanelTab(state.omniPanelTab) ?? "notes",
         channelPanelPrefs: state.channelPanelPrefs,
         recentPages: state.recentPages,
       }),
@@ -417,6 +417,7 @@ export const useUIStore = create<UIState>()(
       merge: (persisted, current) => ({
         ...current,
         ...(persisted as Partial<UIState>),
+        omniPanelTab: normalizeOmniPanelTab((persisted as Partial<UIState>)?.omniPanelTab) ?? current.omniPanelTab,
         channelPanelPrefs: Object.fromEntries(
           Object.entries((persisted as Partial<UIState>)?.channelPanelPrefs ?? {}).map(
             ([channelId, prefs]) => [channelId, normalizeChannelPanelPrefs(prefs as Partial<ChannelPanelPrefs>)],
@@ -429,3 +430,9 @@ export const useUIStore = create<UIState>()(
     },
   ),
 );
+
+function normalizeOmniPanelTab(value: unknown): OmniPanelTab | null {
+  if (value === "notes" || value === "widgets" || value === "files") return value;
+  if (value === "jump") return "notes";
+  return null;
+}

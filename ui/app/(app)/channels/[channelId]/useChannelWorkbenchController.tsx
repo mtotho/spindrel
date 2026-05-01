@@ -6,6 +6,7 @@ import {
   LayoutDashboard as LayoutDashboardIcon,
   Layers,
   MessageCircle,
+  NotebookText,
   PanelLeft as PanelLeftIcon,
   Search,
   Settings as SettingsIcon,
@@ -334,6 +335,12 @@ export function useChannelWorkbenchController({
 
   const leftSpineActions = useMemo<PanelSpineAction[]>(() => {
     const actions: PanelSpineAction[] = [
+      ...(fileWorkspaceId ? [{
+        id: "notes",
+        label: "Notes",
+        icon: <NotebookText size={15} />,
+        onSelect: () => openLeftPanelTab("notes"),
+      }] : []),
       {
         id: "widgets",
         label: "Widgets",
@@ -350,12 +357,6 @@ export function useChannelWorkbenchController({
         onSelect: () => openLeftPanelTab("files"),
       });
     }
-    actions.push({
-      id: "jump",
-      label: "Jump",
-      icon: <Search size={15} />,
-      onSelect: () => openLeftPanelTab("jump"),
-    });
     return actions;
   }, [fileWorkspaceId, openLeftPanelTab, workbenchWidgetCount]);
 
@@ -423,6 +424,14 @@ export function useChannelWorkbenchController({
       });
       if (fileWorkspaceId) {
         actions.push({
+          id: `channel:${channelId}:open-notes`,
+          label: "Open workbench: Notes",
+          hint: channelLabel,
+          icon: NotebookText,
+          category: "This Channel",
+          onSelect: () => openLeftPanelTab("notes"),
+        });
+        actions.push({
           id: `channel:${channelId}:open-files`,
           label: "Open workbench: Files",
           hint: browseFilesShortcut,
@@ -431,14 +440,6 @@ export function useChannelWorkbenchController({
           onSelect: () => openLeftPanelTab("files"),
         });
       }
-      actions.push({
-        id: `channel:${channelId}:open-jump`,
-        label: "Open workbench: Jump",
-        hint: channelLabel,
-        icon: PanelLeftIcon,
-        category: "This Channel",
-        onSelect: () => openLeftPanelTab("jump"),
-      });
       actions.push({
         id: `channel:${channelId}:toggle-left-panel`,
         label: panelPrefs.leftOpen ? "Hide workbench" : "Show workbench",

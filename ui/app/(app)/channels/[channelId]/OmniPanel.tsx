@@ -1,9 +1,9 @@
 /**
  * OmniPanel — channel workbench side panel.
  *
+ *   Notes:   rich Markdown notes over the active knowledge base.
  *   Widgets: all channel dashboard pins in a single in-chat surface.
  *   Files:   workspace/project file browser.
- *   Jump:    channel-prioritized command palette.
  *
  * Editing happens on the full dashboard page (`/widgets/channel/:id`). Chat
  * intentionally has one widget surface; dashboard zones stay authoring data.
@@ -13,13 +13,12 @@ import { Link } from "react-router-dom";
 import {
   ChevronLeft,
   Layers,
-  LayoutDashboard,
+  NotebookText,
   Plus,
-  Search,
 } from "lucide-react";
-import { CommandPaletteContent } from "@/src/components/layout/CommandPalette";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { FilesTabPanel } from "./FilesTabPanel";
+import { NotesTabPanel } from "./NotesTabPanel";
 import { WidgetRailSection } from "./WidgetRailSection";
 import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
@@ -236,6 +235,16 @@ export function OmniPanel({
           border. The floating pill buttons provide their own active-state
           contrast. */}
       <div className="flex items-center gap-0.5 px-1.5 pt-1.5 pb-1.5">
+        {hasWorkspace && (
+          <TabButton
+            label="Notes"
+            icon={<NotebookText size={11} />}
+            active={activeTab === "notes"}
+            onClick={() => setTab("notes")}
+            compact
+            t={t}
+          />
+        )}
         <TabButton
           label="Widgets"
           active={activeTab === "widgets"}
@@ -253,14 +262,6 @@ export function OmniPanel({
             t={t}
           />
         )}
-        <TabButton
-          label="Jump"
-          icon={<Search size={11} />}
-          active={activeTab === "jump"}
-          onClick={() => setTab("jump")}
-          compact
-          t={t}
-        />
         {/* Collapse chevron — tucks the panel away; a peek-tab at the
             viewport's left edge brings it back. The dashboard link that
             used to live here is redundant now that the channel header has a
@@ -290,12 +291,12 @@ export function OmniPanel({
         </button>
       </div>
 
-      {activeTab === "files" && hasWorkspace ? (
-        <div className="flex-1 min-h-0 overflow-hidden">{filesSection}</div>
-      ) : activeTab === "jump" ? (
-        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-          <CommandPaletteContent variant="inline" />
+      {activeTab === "notes" && hasWorkspace ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <NotesTabPanel channelId={channelId} botId={botId} onSelectFile={onSelectFile} />
         </div>
+      ) : activeTab === "files" && hasWorkspace ? (
+        <div className="flex-1 min-h-0 overflow-hidden">{filesSection}</div>
       ) : (
         <div className="flex flex-col flex-1 min-h-0 overflow-y-auto scroll-subtle px-2 pb-2 pt-2">
           {hasWidgets ? widgetsSection : <EmptyWidgets dashboardHref={resolvedDashboardHref} t={t} />}
