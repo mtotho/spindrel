@@ -10,6 +10,13 @@ typechecks or DOM assertions is not enough for canvas, Starboard, hub, or mobile
 UX changes. Run the browser scenario, capture screenshots, inspect the images,
 then record what changed and what still looks wrong.
 
+This is Project-local guidance, not a Spindrel runtime skill. If you are
+inside Spindrel working on this repository as a Project, first follow
+`workspace/project_development` for ad hoc Project-bound UI work or
+`workspace/project_coding_runs` for a formal coding/review run. Use this skill
+only for the Spindrel repository's own screenshot commands and artifact
+conventions.
+
 Screenshots are not decorative. They are the agent's feedback loop and the
 user-facing proof artifact. If a task asks for e2e evidence, workflow proof, or
 visual validation, do not stop at test output. Capture the relevant UI surfaces,
@@ -22,10 +29,14 @@ the relevant doc, and run `python -m scripts.screenshots check`.
 2. Read `CLAUDE.md`, `docs/guides/ui-design.md`, and the feature guide for the
    surface under review. For Spatial Canvas work, read
    `docs/guides/spatial-canvas.md`.
-3. Check `git status --short --untracked-files=all` before running captures.
+3. If you are inside Spindrel, confirm the Project exposes the needed dev
+   target, screenshot, dependency, and execution access before running browser
+   captures. Ask the user to configure Project settings when those capabilities
+   are missing.
+4. Check `git status --short --untracked-files=all` before running captures.
    Screenshot captures intentionally update docs images; unrelated dirty files
    must be left alone.
-4. Read `docs/guides/visual-feedback-loop.md` for the current command sequence
+5. Read `docs/guides/visual-feedback-loop.md` for the current command sequence
    and scenario conventions.
 
 ## Spatial Canvas Loop

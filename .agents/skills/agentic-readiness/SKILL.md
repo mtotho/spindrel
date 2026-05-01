@@ -22,6 +22,9 @@ Use it to keep two contexts separate while improving both:
    changing it, or integrating with it.
 2. Internal runtime AX: agents inside Spindrel channels using runtime skills,
    tools, APIs, integrations, widgets, projects, and readiness surfaces.
+3. In-Spindrel repo-dev AX: a runtime agent inside Spindrel is working on this
+   repository as the current Project. It must follow generic runtime skills
+   first, then may read this repo's `.agents/skills` as Project-local guidance.
 
 ## First Actions
 
@@ -74,12 +77,17 @@ boundaries.
 ## Spindrel Boundary Rules
 
 - Repo-local `.agents/skills` are for development agents working on this Git
-  repository.
+  repository. They may also be read as Project-local instructions by a
+  Spindrel runtime agent whose current Project is this repository.
 - Runtime skills live under `skills/` and are product behavior for Spindrel
   bots and users.
 - Runtime agents use runtime tools such as `list_agent_capabilities`,
   `run_agent_doctor`, `get_skill`, and integration/widget/project tools. They
-  do not read repo-local `.agents` content by default.
+  do not read repo-local `.agents` content by default; when a Project exposes
+  repo-local guidance, it remains guidance for that Project only.
+- Runtime skills must stay generic for any user and any Project. They must not
+  mention this repository's helper scripts, local env files, screenshot bundle
+  names, or Spindrel-specific development paths.
 - Do not solve runtime agent discoverability by copying repo-dev skill text into
   runtime skills. First audit existing runtime skills, then create or update
   the smallest runtime skill only when the workflow is truly product-facing.

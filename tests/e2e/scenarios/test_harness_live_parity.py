@@ -401,6 +401,25 @@ def _has_persisted_tool_result_containing(message: dict, expected: str) -> bool:
     )
 
 
+def _assistant_turn_body_preserves_tool_then_text_order(message: dict, expected: str) -> bool:
+    meta = message.get("metadata") or {}
+    body = meta.get("assistant_turn_body") if isinstance(meta, dict) else None
+    items = body.get("items") if isinstance(body, dict) else None
+    if not isinstance(items, list):
+        return False
+    tool_indexes = [
+        index for index, item in enumerate(items)
+        if isinstance(item, dict) and item.get("kind") == "tool_call"
+    ]
+    text_indexes = [
+        index for index, item in enumerate(items)
+        if isinstance(item, dict)
+        and item.get("kind") == "text"
+        and expected in str(item.get("text") or "")
+    ]
+    return bool(tool_indexes) and bool(text_indexes) and max(tool_indexes) < max(text_indexes)
+
+
 def _has_harness_hint_containing(message: dict, kind: str, expected: str) -> bool:
     harness = _message_metadata(message).get("harness") or {}
     hints = harness.get("last_hints_sent") or []
@@ -2723,3 +2742,7 @@ async def test_live_harness_persisted_tool_replay_survives_refetch(
             "assistant replay marker was not present after message refetch"
         )
         _assert_persisted_bridge_tool_result(messages, tool_name=tool_name)
+        assert any(
+            _assistant_turn_body_preserves_tool_then_text_order(message, f"replay ok {marker}")
+            for message in assistants
+        ), "persisted harness transcript did not preserve the tool-before-final-text event order"

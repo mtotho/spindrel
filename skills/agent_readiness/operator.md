@@ -22,14 +22,17 @@ skills, setup, or stale settings.
 2. If you only need the blocked-state diagnosis, call `run_agent_doctor()`.
 3. If `skills.recommended_now[*].first_action` is present, follow it before
    procedural work. Usually this means `get_skill("...")`.
-4. For each proposed readiness action, call
+4. For broad Project-bound code, test, e2e, screenshot, or setup work outside
+   a formal Project coding run, load `workspace/project_development` before
+   editing or starting processes.
+5. For each proposed readiness action, call
    `preflight_agent_repair(action_id)` before applying or requesting anything.
-5. If preflight is `stale`, `noop`, or `blocked`, report the status and stop
+6. If preflight is `stale`, `noop`, or `blocked`, report the status and stop
    that repair path. Do not mutate stale or blocked actions.
-6. If preflight is `ready` but you lack apply authority, call
+7. If preflight is `ready` but you lack apply authority, call
    `request_agent_repair(action_id, rationale)` so a human can review it in
    Agent Readiness or Mission Control Review.
-7. After an approved or agent-important mutation through the normal API/tool
+8. After an approved or agent-important mutation through the normal API/tool
    path, publish or rely on the existing execution receipt path so later agents
    can see the result.
 
@@ -38,7 +41,9 @@ skills, setup, or stale settings.
 - Do not create a bot-authored skill with `manage_bot_skill` just because a
   readiness recommendation exists.
 - Do not import repo-local `.agents` skills into runtime skills. Repo-dev
-  `.agents` skills are for agents editing the Git repo, not channel bots.
+  `.agents` skills can be read as Project-local instructions when a Project
+  exposes them, but they are not product runtime skills and must not be copied
+  into runtime skill storage.
 - Do not write secrets, install dependencies, start processes, or change
   integration runtime state from this skill. Route those to the existing
   settings, integration, Project, or approval surfaces.

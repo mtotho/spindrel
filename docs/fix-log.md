@@ -4,6 +4,8 @@ status: archive
 ---
 # Fix Log
 
+- **2026-05-01** Widget path resolver now rejects symlinks at every existing path component from library root down to target. Closes the link-IN attack vector where a bot with shell access could `ln -s /etc /workspace/.widget_library/foo` to make their own bundle dir a symlink — the existing realpath-based traversal guard passes in that case (both ends resolve through the link), but the new component walk catches it. Link-OUT was already blocked by the realpath guard. Coverage: 5 new cases in `tests/unit/test_widget_paths.py` (bundle-root link-in, intermediate link-laundering, leaf-out-of-bundle, workspace-shared link-in, plus a regression that new-file writes under a real bundle still work).
+
 - **2026-05-01** MCP runtime path now SSRF-checks every outbound request. `app/services/url_safety.py::assert_public_url` extended with `allow_loopback` / `allow_private` opt-ins; `app/tools/mcp.py::fetch_mcp_tools` and `call_mcp_tool` consult it before any HTTP. Operator opt-ins `MCP_ALLOW_PRIVATE_NETWORKS` / `MCP_ALLOW_LOOPBACK`. New audit signal `mcp_outbound_url_guard`. Coverage: `tests/unit/test_url_guard.py` + `tests/unit/test_mcp_outbound_guard.py`. See [`docs/audits/security-deep-review-2026-05.md`](audits/security-deep-review-2026-05.md).
 
 - **2026-05-01** Encryption now fails fast in production. New `ENCRYPTION_STRICT` setting (default true) makes `encrypt()` raise `EncryptionNotConfiguredError` instead of silently storing plaintext when no key is configured; `decrypt()` raises on encrypted-prefixed value with no key; `ensure_encryption_key()` re-raises `OSError` on dotenv write failure under strict mode. Tests opt out via `tests/conftest.py`. Audit signal upgraded to surface strict posture.

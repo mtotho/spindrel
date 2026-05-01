@@ -272,7 +272,63 @@ def test_harness_emitter_persists_result_only_structured_native_summary():
     assert emitter.assistant_turn_body(text="Done") == {
         "version": 1,
         "items": [
-            {"id": "text:final", "kind": "text", "text": "Done"},
             {"id": "tool:agent-1", "kind": "tool_call", "toolCallId": "agent-1"},
+            {"id": "text:final", "kind": "text", "text": "Done"},
+        ],
+    }
+
+
+def test_harness_emitter_persists_event_order_for_text_and_tools():
+    emitter = ChannelEventEmitter(
+        channel_id=uuid.uuid4(),
+        turn_id=uuid.uuid4(),
+        bot_id="bot",
+        session_id=uuid.uuid4(),
+    )
+
+    with patch("app.services.agent_harnesses.base.publish_typed"):
+        emitter.token("First, I will run a check.\n")
+        emitter.tool_start(
+            tool_name="Bash",
+            tool_call_id="tool-1",
+            arguments={"command": "pytest tests/unit"},
+        )
+        emitter.tool_result(
+            tool_name="Bash",
+            tool_call_id="tool-1",
+            result_summary="1 passed",
+        )
+        emitter.token("\nFinal summary")
+
+    assert emitter.assistant_turn_body(text="First, I will run a check.\n\nFinal summary") == {
+        "version": 1,
+        "items": [
+            {"id": "text:1", "kind": "text", "text": "First, I will run a check.\n"},
+            {"id": "tool:tool-1", "kind": "tool_call", "toolCallId": "tool-1"},
+            {"id": "text:3", "kind": "text", "text": "\nFinal summary"},
+        ],
+    }
+
+
+def test_harness_emitter_uses_final_text_fallback_when_runtime_does_not_stream_text():
+    emitter = ChannelEventEmitter(
+        channel_id=uuid.uuid4(),
+        turn_id=uuid.uuid4(),
+        bot_id="bot",
+        session_id=uuid.uuid4(),
+    )
+
+    with patch("app.services.agent_harnesses.base.publish_typed"):
+        emitter.tool_start(
+            tool_name="Bash",
+            tool_call_id="tool-1",
+            arguments={"command": "pytest tests/unit"},
+        )
+
+    assert emitter.assistant_turn_body(text="Final summary") == {
+        "version": 1,
+        "items": [
+            {"id": "tool:tool-1", "kind": "tool_call", "toolCallId": "tool-1"},
+            {"id": "text:final", "kind": "text", "text": "Final summary"},
         ],
     }

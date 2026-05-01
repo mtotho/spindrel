@@ -160,4 +160,48 @@ def resolve_widget_uri(
     if not (target_real == bundle_real or target_real.startswith(bundle_real + os.sep)):
         raise ValueError(f"widget:// path escapes bundle: {uri}")
 
+    # Symlink rejection — a bot with shell access could ``ln -s /etc
+    # /workspace/.widget_library/foo`` to make their own bundle root a
+    # symlink. The realpath comparison above passes in that case (both ends
+    # resolve through the link), so we additionally walk every existing
+    # path component from the library root down and reject if any segment
+    # is a symlink. ``base_real`` (the library root) is intentionally
+    # checked too — a symlinked library root is just as load-bearing as a
+    # symlinked bundle dir. A non-existent trailing segment (writing a new
+    # file) is fine; we stop walking when a component doesn't yet exist.
+    base_real = os.path.realpath(base_dir)
+    _reject_symlink_components(target, base_dir=base_dir, uri=uri)
+    if base_real != base_dir and os.path.islink(base_dir):
+        raise ValueError(f"widget:// library root is a symlink: {base_dir}")
+
     return target_real, scope, name, policy.read_only
+
+
+def _reject_symlink_components(
+    target: str, *, base_dir: str, uri: str,
+) -> None:
+    """Walk ``target`` component-by-component starting at ``base_dir`` and
+    raise if any existing path segment is a symlink.
+
+    Stops walking on the first non-existent component, which means writing
+    a new file (``widget://bot/foo/new_file.html``) is allowed — only the
+    parent dirs that already exist are checked.
+    """
+    rel = os.path.relpath(target, base_dir)
+    if rel == os.curdir:
+        return
+    parts = [p for p in rel.split(os.sep) if p and p != os.curdir]
+    walk = base_dir
+    for part in parts:
+        if part == os.pardir:
+            # The realpath-based traversal guard above already rejects
+            # ``..`` segments that escape the bundle; defensive bail-out.
+            raise ValueError(f"widget:// path contains '..': {uri}")
+        walk = os.path.join(walk, part)
+        if not os.path.lexists(walk):
+            return
+        if os.path.islink(walk):
+            raise ValueError(
+                f"widget:// path contains a symlink at {walk!r}; "
+                "symlinks inside widget bundles are rejected."
+            )

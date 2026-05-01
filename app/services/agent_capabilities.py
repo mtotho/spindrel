@@ -106,6 +106,7 @@ SKILL_OPPORTUNITY_SKILL_LABELS: dict[str, str] = {
     "diagnostics/traces": "Trace diagnostics",
     "workspace": "Workspace operations",
     "workspace/files": "Workspace files",
+    "workspace/project_development": "Project development",
     "workspace/project_coding_runs": "Project coding runs",
     "workspace/issue_intake": "Issue intake",
     "workspace/member": "Workspace member",
@@ -172,6 +173,18 @@ RUNTIME_SKILL_COVERAGE_AUDIT: dict[str, dict[str, Any]] = {
         ],
         "why_skill_shaped": "Project coding runs are ordered implementation/review workflows over Project work surfaces, repo-local commands, dependency stacks, dev targets, screenshots, handoff receipts, and finalization tools.",
         "small_model_reason": "Smaller models need the Project run procedure and review manifest before editing a Project root or finalizing PRs.",
+        "suggested_owner": "existing_runtime_skill",
+    },
+    "project_development": {
+        "coverage_status": "covered",
+        "nearest_existing_skill_ids": [
+            "workspace/project_development",
+            "workspace",
+            "workspace/files",
+            "workspace/member",
+        ],
+        "why_skill_shaped": "Ad hoc Project development is an ordered workflow over Project roots, Project-local instructions, native repo commands, dependency stacks, dev targets, screenshots, and evidence.",
+        "small_model_reason": "Smaller models need the Project development procedure so they read Project-local guidance, avoid fixed ports/raw Docker, and capture real verification evidence.",
         "suggested_owner": "existing_runtime_skill",
     },
     "project_work_pack_creation": {
@@ -1907,14 +1920,25 @@ def _skill_opportunity_payload(manifest: dict[str, Any]) -> dict[str, Any]:
             enrolled=enrolled,
         ))
 
+    planning = manifest.get("planning") or {}
+    project = manifest.get("project") or {}
     coding_run = manifest.get("coding_run") or {}
-    if coding_run.get("readiness") in {"ready", "runtime_needs_attention", "blocked"} or manifest.get("project", {}).get("attached"):
+    if coding_run.get("readiness") in {"ready", "runtime_needs_attention", "blocked"}:
         recommendations.append(_skill_recommendation(
             feature_id="project_coding_run",
             feature_label="Project coding run",
             skill_ids=["workspace/project_coding_runs", "workspace/files", "workspace/member"],
             reason="Project coding runs and reviews need a repeatable procedure for Project roots, repo-local verification, dependency stacks, evidence, handoffs, and finalization.",
             when_to_load="Before starting, continuing, reviewing, merging, or finalizing Project coding runs.",
+            enrolled=enrolled,
+        ))
+    elif project.get("attached") and not planning.get("active"):
+        recommendations.append(_skill_recommendation(
+            feature_id="project_development",
+            feature_label="Project development",
+            skill_ids=["workspace/project_development", "workspace/files", "workspace/member"],
+            reason="Ad hoc Project development needs a generic procedure for Project roots, Project-local instructions, native commands, dependency stacks, dev targets, screenshots, and evidence.",
+            when_to_load="Before editing code, running tests, starting dev servers, or taking screenshots in a Project-bound channel outside a formal coding run.",
             enrolled=enrolled,
         ))
 
@@ -1943,8 +1967,6 @@ def _skill_opportunity_payload(manifest: dict[str, Any]) -> dict[str, Any]:
             enrolled=enrolled,
         ))
 
-    planning = manifest.get("planning") or {}
-    project = manifest.get("project") or {}
     if planning.get("active") and project.get("attached"):
         recommendations.append(_skill_recommendation(
             feature_id="project_work_pack_creation",

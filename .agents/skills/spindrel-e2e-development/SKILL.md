@@ -6,6 +6,11 @@ description: Use when developing Spindrel features that need local fresh e2e sta
 # Spindrel E2E Development
 
 This is a repo-dev skill. It is not imported into Spindrel runtime skills.
+If you are reading this from inside Spindrel while working on this repository
+as a Project, treat it as Project-local guidance only. First follow the generic
+runtime skill for your context: `workspace/project_development` for ad hoc
+Project-bound development, or `workspace/project_coding_runs` for a formal
+Project coding/review run.
 
 ## Start Here
 
@@ -25,9 +30,14 @@ This is a repo-dev skill. It is not imported into Spindrel runtime skills.
   API/UI yourself from this checkout on unused ports.
 - **Spindrel dev mode** means Codex/Claude running inside a Project-bound
   channel or Project coding run. It uses native shell/edit tools for
-  Project-root code work only.
+  Project-root code work only, and it must obey the generic runtime Project
+  skill before applying this repo-specific guidance.
 - Harness agents must use task-granted Spindrel tools for e2e, screenshots,
   server/machine actions, Docker/compose dependency control, and receipts.
+- In Spindrel dev mode, if Docker-backed dependencies, dev-target ports,
+  screenshot access, secrets, or execution grants are missing, ask the user to
+  configure the Project settings or launch a run with the needed access. Do not
+  assume the local repo-dev helper commands are available.
 - Project Dependency Stacks are the normal Docker path for Project coding runs:
   agents edit source/compose files in the Project root, then use
   `get_project_dependency_stack` and `manage_project_dependency_stack` to prepare,

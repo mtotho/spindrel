@@ -12,6 +12,10 @@ category: workspace
 Use this skill before starting, continuing, reviewing, merging, or finalizing
 Project coding runs.
 
+If the user is doing ad hoc Project-bound code, test, e2e, screenshot, setup,
+or feedback-loop work without a formal Project coding run, load
+`workspace/project_development` instead.
+
 If the user is still shaping a plan, issue list, or multi-part track, load
 `workspace/issue_intake` first and use `create_issue_work_packs` to publish
 proposed work packs for review. Do not skip straight to implementation unless
@@ -91,16 +95,17 @@ the user explicitly asked to launch a coding run.
 
 ## Boundaries
 
-- Do not import repo-local `.agents` skills into runtime. Repo-dev skills guide
-  agents editing Spindrel's source; this runtime skill guides Spindrel bots.
+- Do not import repo-local `.agents` skills into runtime. It is OK to read
+  Project-local instruction files as guidance for the current Project, but do
+  not copy them into runtime skill storage or assume they apply globally.
 - Do not write secrets or paste secret values into receipts.
 - Do not create replacement PRs for continuation runs unless the handoff tool
   reports reuse is impossible.
 - Do not rely on ambient Docker access from a harness shell. Dependency Stack
   Docker control must go through Spindrel tools and is for backing services,
   not for running unit tests.
-- Do not run repo-dev bootstrap helpers such as `scripts/agent_e2e_dev.py
-  prepare`, `start-api`, or `prepare-harness-parity` from an ordinary Project
-  coding run. Those are outer-operator setup commands, not Project task steps.
-- Do not use or restart `:18000` just because examples mention it. That is a
-  common local host Spindrel API default, not a Project app port.
+- Do not run repository bootstrap helpers meant for an outer development
+  operator from an ordinary Project coding run. Those are host setup commands,
+  not Project task steps.
+- Do not use or restart fixed host ports from examples. Those are not Project
+  app ports.

@@ -22,6 +22,8 @@ Everything a bot does with files, containers, and knowledge lives under `workspa
   The `file` tool — read / write / append / edit / replace_section / archive_older_than / batch / grep / glob. The authoritative guide for workspace file operations.
 - [Project Coding Runs](project_coding_runs.md)
   Project-scoped implementation/review runs, handoff receipts, e2e evidence, and finalization.
+- [Project Development](project_development.md)
+  Ad hoc Project-bound code, tests, dev servers, dependency setup, screenshots, and feedback-loop work outside formal coding runs.
 - [Issue Intake](issue_intake.md)
   Conversational issue capture into Mission Control Review before Operator triage and approved Project runs.
 - [Channel Workspaces](channel_workspaces.md)
@@ -38,6 +40,7 @@ Everything a bot does with files, containers, and knowledge lives under `workspa
 ## The Short Version
 
 - **`file` tool** for every content op on workspace files. Reach for `batch` when you have three or more ops to group atomically.
+- **`workspace/project_development`** for ad hoc Project-bound repo work before there is a formal Project coding run.
 - **`workspace/memory/`** for durable structured notes. **Knowledge base folders** (`workspace/knowledge-base/`) for retrievable facts.
 - **Attachments** are channel-scoped uploads; use `list_attachments` / `get_attachment` to surface them.
 - **Docker stacks** live under `workspace/stacks/`; bot owns the compose file, container lifecycle is bot-managed.

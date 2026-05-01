@@ -152,6 +152,7 @@ class ChannelEventEmitter:
         self._bot_id = bot_id
         self._session_id = session_id
         self._tool_entries: list[HarnessToolTranscriptEntry] = []
+        self._turn_body_items: list[dict[str, Any]] = []
         self._thinking_parts: list[str] = []
         self._runtime_redact_text = redact_text
 
@@ -176,6 +177,7 @@ class ChannelEventEmitter:
         if not delta:
             return
         delta = self._redact_text(delta)
+        self._append_text_body_item(delta)
         publish_typed(
             self._channel_id,
             ChannelEvent(
@@ -234,6 +236,7 @@ class ChannelEventEmitter:
                 arguments=redacted_args if isinstance(redacted_args, dict) else {},
             )
         )
+        self._append_tool_body_item(call_id)
         publish_typed(
             self._channel_id,
             ChannelEvent(
@@ -295,6 +298,7 @@ class ChannelEventEmitter:
                     summary=redacted_summary,
                 )
             )
+            self._append_tool_body_item(call_id)
             publish_typed(
                 self._channel_id,
                 ChannelEvent(
@@ -331,6 +335,42 @@ class ChannelEventEmitter:
             ),
         )
 
+    def _append_text_body_item(self, delta: str) -> None:
+        last = self._turn_body_items[-1] if self._turn_body_items else None
+        if isinstance(last, dict) and last.get("kind") == "text":
+            last["text"] = str(last.get("text") or "") + delta
+            return
+        self._turn_body_items.append(
+            {
+                "id": f"text:{len(self._turn_body_items) + 1}",
+                "kind": "text",
+                "text": delta,
+            }
+        )
+
+    def _append_tool_body_item(self, call_id: str) -> None:
+        if any(
+            isinstance(item, dict)
+            and item.get("kind") == "tool_call"
+            and item.get("toolCallId") == call_id
+            for item in self._turn_body_items
+        ):
+            return
+        self._turn_body_items.append(
+            {
+                "id": f"tool:{call_id}",
+                "kind": "tool_call",
+                "toolCallId": call_id,
+            }
+        )
+
+    def _streamed_text(self) -> str:
+        return "".join(
+            str(item.get("text") or "")
+            for item in self._turn_body_items
+            if isinstance(item, dict) and item.get("kind") == "text"
+        )
+
     def persisted_tool_calls(self) -> list[dict[str, Any]]:
         """Return live harness tools in the existing persisted ToolCall shape."""
         calls: list[dict[str, Any]] = []
@@ -359,11 +399,9 @@ class ChannelEventEmitter:
         return [entry.envelope for entry in self._tool_entries if entry.envelope]
 
     def assistant_turn_body(self, *, text: str) -> dict[str, Any] | None:
-        items: list[dict[str, Any]] = []
-        if text.strip():
+        items = [dict(item) for item in self._turn_body_items]
+        if text.strip() and not self._streamed_text().strip():
             items.append({"id": "text:final", "kind": "text", "text": text})
-        for entry in self._tool_entries:
-            items.append({"id": f"tool:{entry.id}", "kind": "tool_call", "toolCallId": entry.id})
         return {"version": 1, "items": items} if items else None
 
 

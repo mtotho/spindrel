@@ -58,6 +58,7 @@ External frame checked 2026-04-30:
 - **Tool-result redaction at boundary (High).** New `_set_tool_result` boundary helper in `app/agent/tool_dispatch.py`; error and machine-access-denied paths now redact (previously raw). Lint test pins the boundary so future drift fails CI.
 - **Auth route rate-limit parity (High).** `_check_rate_limit` now wraps `/auth/google` and `/auth/refresh` in addition to `/auth/login` + `/auth/setup`.
 - **Approval rule origin_kind awareness (High).** `_match_conditions` defaults to interactive-only when a rule has no explicit `origin_kind` matcher and no `apply_to_autonomous: true` opt-in. Existing rules fail-closed on read. New audit signal `allow_rules_origin_scope` lists interactive-only vs autonomous-opt-in rules for operator review.
+- **Widget path symlink rejection (High).** Component walk in `widget_paths.py` rejects symlinks at every existing path segment. Closes the link-IN attack vector where a bot with shell access could symlink its bundle dir to elsewhere. Coverage: 5 new cases in `tests/unit/test_widget_paths.py`.
 - New principles guide [`docs/guides/security.md`](../guides/security.md) and consolidated audit doc [`docs/audits/security-deep-review-2026-05.md`](../audits/security-deep-review-2026-05.md).
 
 ## Live queue
@@ -66,7 +67,7 @@ Ranked by severity. Each item is the next thing the track will pick up.
 
 ### High
 1. **`run_script` arbitrary-Python tightening.** Approval gates the `run_script` call but not the nested tool calls the script makes. Options: declared tool-list in script frontmatter pre-checked by the policy engine; per-script-call rate cap; nested origin_kind enforcement.
-2. **Widget path symlink rejection.** `widget_paths.py` resolves through `realpath()` but does not detect or reject symlinks. Add `os.lstat().S_ISLNK` rejection at every component (or a small symlink-count cap) so a bot-authored widget can't link out via a path inside its bundle root.
+2. ~~**Widget path symlink rejection.**~~ — **Shipped 2026-05-01.** Component walk in `widget_paths.py` rejects symlinks at every existing segment from library root to target; closes the link-IN attack vector (link-OUT was already blocked by the realpath traversal guard). Coverage: 5 new cases in `tests/unit/test_widget_paths.py`.
 3. **Backup encryption.** `backups/` currently stores unencrypted DB dumps. Wrap with Fernet (or GPG) using the same `ENCRYPTION_KEY`; document retention.
 4. **Supply-chain signing for skills + widgets.** Manifest signing (HMAC over `widget.json` / skill body), audit trail of who created/modified, default-deny on unsigned with opt-in trust.
 

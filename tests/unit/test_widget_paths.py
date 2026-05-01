@@ -180,3 +180,101 @@ class TestResolveMalformed:
             resolve_widget_uri(
                 "workspace/foo", ws_root="/tmp", shared_root=None,
             )
+
+
+class TestSymlinkRejection:
+    """A bot with shell access could ``ln -s /etc /workspace/.widget_library/foo``
+    to make their own bundle dir a symlink. The realpath traversal guard
+    passes in that case (both ends resolve through the link). Component-by-
+    component symlink rejection closes the gap — every existing path
+    segment from the library root down to the target must be a real dir.
+    """
+
+    def test_bundle_root_symlink_rejected(self, tmp_path):
+        ws = tmp_path
+        library = ws / WIDGET_LIBRARY_DIRNAME
+        library.mkdir()
+        # Attacker creates a symlink at the bundle root pointing at /etc
+        bundle_link = library / "evil"
+        bundle_link.symlink_to("/etc")
+        with pytest.raises(ValueError, match="symlink"):
+            resolve_widget_uri(
+                "widget://bot/evil/passwd",
+                ws_root=str(ws), shared_root=None,
+            )
+
+    def test_intermediate_symlink_to_sibling_bundle_rejected(self, tmp_path):
+        """Link-laundering: point a sub-dir at another bundle so realpath stays
+        inside the library. The realpath traversal guard alone wouldn't catch
+        this; the symlink-component check does.
+        """
+        ws = tmp_path
+        library = ws / WIDGET_LIBRARY_DIRNAME
+        foo = library / "foo"
+        bar = library / "bar"
+        foo.mkdir(parents=True)
+        bar.mkdir()
+        (bar / "secret.txt").write_text("bar-secret")
+        # foo/peek -> ../bar — realpath of foo/peek/secret.txt resolves to
+        # library/bar/secret.txt, which DOES start with library/foo, so
+        # realpath alone wouldn't reject... no wait, foo != bar, so
+        # startswith(library/foo) is False, realpath catches it. Pick a
+        # case where the link target is inside the bundle:
+        target_inside = foo / "real_subdir"
+        target_inside.mkdir()
+        (target_inside / "real.txt").write_text("inside")
+        # foo/laundered -> foo/real_subdir (a symlink pointing inside the
+        # same bundle). realpath resolves to foo/real_subdir, which IS
+        # under foo, so realpath alone permits it. Symlink check rejects.
+        (foo / "laundered").symlink_to(target_inside)
+        with pytest.raises(ValueError, match="symlink"):
+            resolve_widget_uri(
+                "widget://bot/foo/laundered/real.txt",
+                ws_root=str(ws), shared_root=None,
+            )
+
+    def test_leaf_symlink_to_outside_rejected(self, tmp_path):
+        """A symlink leaf pointing outside the bundle is rejected. The realpath
+        traversal guard already catches this (different error message); we
+        accept either rejection path so both layers are covered.
+        """
+        ws = tmp_path
+        library = ws / WIDGET_LIBRARY_DIRNAME
+        bundle = library / "foo"
+        bundle.mkdir(parents=True)
+        (bundle / "evil").symlink_to("/etc/passwd")
+        with pytest.raises(ValueError, match="symlink|escapes bundle"):
+            resolve_widget_uri(
+                "widget://bot/foo/evil",
+                ws_root=str(ws), shared_root=None,
+            )
+
+    def test_new_file_under_real_bundle_allowed(self, tmp_path):
+        """Writing a new file inside a real bundle is fine — only existing
+        components are checked, and a non-existent leaf doesn't trigger.
+        """
+        ws = tmp_path
+        bundle = ws / WIDGET_LIBRARY_DIRNAME / "foo"
+        bundle.mkdir(parents=True)
+        # leaf doesn't exist yet — this is the "first write" case
+        path, scope, name, ro = resolve_widget_uri(
+            "widget://bot/foo/index.html",
+            ws_root=str(ws), shared_root=None,
+        )
+        assert scope == "bot"
+        assert name == "foo"
+        assert path.endswith("foo/index.html")
+
+    def test_workspace_symlinked_bundle_rejected(self, tmp_path):
+        shared = tmp_path / "shared"
+        ws = shared / "bots" / "my_bot"
+        ws.mkdir(parents=True)
+        library = shared / WIDGET_LIBRARY_DIRNAME
+        library.mkdir()
+        # Workspace-shared bundle root is a symlink pointing at /etc
+        (library / "team_evil").symlink_to("/etc")
+        with pytest.raises(ValueError, match="symlink"):
+            resolve_widget_uri(
+                "widget://workspace/team_evil/passwd",
+                ws_root=str(ws), shared_root=str(shared),
+            )

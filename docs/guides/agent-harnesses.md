@@ -145,6 +145,14 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 
 ![Claude Code bridge tool result in default chat mode](../images/harness-claude-bridge-default.png)
 
+![Codex persisted transcript ordering in terminal mode](../images/harness-transcript-order-codex-terminal-dark.png)
+
+![Codex persisted transcript ordering in default mode](../images/harness-transcript-order-codex-default-dark.png)
+
+![Claude Code persisted transcript ordering in terminal mode](../images/harness-transcript-order-claude-terminal-dark.png)
+
+![Claude Code persisted transcript ordering in default mode](../images/harness-transcript-order-claude-default-dark.png)
+
 ![Codex bridge write/read/delete flow in terminal chat mode](../images/harness-codex-terminal-write.png)
 
 ![Claude Code bridge write/read/delete flow in terminal chat mode](../images/harness-claude-terminal-write.png)

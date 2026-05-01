@@ -481,6 +481,13 @@ Approval mapping intent (final values from schema):
   chat-side subprocess timeout. Recaptured the Claude native management
   screenshots; `/skills` now shows skill count/source chips plus inline item
   previews.
+- 2026-05-01 persisted harness transcript ordering: Codex/Claude persisted
+  assistant turn bodies now preserve the runtime event sequence for streamed
+  text and tool breadcrumbs instead of reconstructing text/tools in a fixed
+  order at persistence time. If a runtime only supplies final text and no text
+  deltas, Spindrel appends that final text as a fallback. The replay parity
+  scenario now asserts the tool-before-final-text order for the prompt that
+  explicitly asks the runtime to call a tool and then answer.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 
