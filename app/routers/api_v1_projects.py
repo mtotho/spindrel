@@ -367,7 +367,10 @@ class ProjectCodingRunOut(BaseModel):
     base_branch: str | None = None
     repo: dict = Field(default_factory=dict)
     runtime_target: dict = Field(default_factory=dict)
+    dev_targets: list[dict] = Field(default_factory=list)
     dependency_stack: dict = Field(default_factory=dict)
+    dependency_stack_preflight: dict = Field(default_factory=dict)
+    readiness: dict = Field(default_factory=dict)
     source_work_pack_id: uuid.UUID | None = None
     parent_task_id: uuid.UUID | None = None
     root_task_id: uuid.UUID | None = None

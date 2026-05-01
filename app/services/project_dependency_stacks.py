@@ -417,11 +417,16 @@ async def prepare_project_dependency_stack(
                 description=f"Project dependency stack for {project.name}",
                 max_stacks=10_000,
             )
-            async with db.begin_nested():
-                runtime.docker_stack_id = stack.id
-                stack_row = await db.get(DockerStack, stack.id)
-                if stack_row is not None:
-                    stack_row.source = "project_dependency"
+            runtime.docker_stack_id = stack.id
+            stack_row = await db.get(DockerStack, stack.id)
+            if stack_row is not None:
+                stack_row.source = "project_dependency"
+            # stack_service.start() uses its own short-lived DB sessions to
+            # update the DockerStack row. Commit the link/source metadata first
+            # so the caller's ORM transaction cannot hold that row lock while
+            # compose starts the dependency services.
+            await db.commit()
+            await db.refresh(runtime)
         else:
             if stack.status == "running":
                 stack = await stack_service.stop(stack)

@@ -45,7 +45,7 @@ async def test_local_e2e_project_coding_run_opens_draft_pr(client: E2EClient) ->
     bot = await client.create_bot({
         "id": bot_id,
         "name": f"Factory Codex {suffix}",
-        "model": "gpt-5.4-mini",
+        "model": os.environ.get("PROJECT_FACTORY_MODEL", os.environ.get("E2E_DEFAULT_MODEL", "gpt-5.3-chat-latest")),
         "system_prompt": "You are a Project coding-run smoke agent. Follow the task exactly.",
         "harness_runtime": "codex",
         "memory_scheme": "workspace-files",
@@ -99,11 +99,9 @@ async def test_local_e2e_project_coding_run_opens_draft_pr(client: E2EClient) ->
         "channel_id": channel["id"],
         "request": request,
     })
-    template_task_id = launched["task"]["id"]
-    concrete = await client.run_task_now(template_task_id)
-    concrete_task_id = concrete["id"]
+    task_id = launched["task"]["id"]
     finished = await client.wait_task_terminal(
-        concrete_task_id,
+        task_id,
         timeout=float(os.environ.get("PROJECT_FACTORY_LIVE_PR_TIMEOUT", "900")),
     )
     assert finished["status"] == "complete", finished
@@ -111,8 +109,7 @@ async def test_local_e2e_project_coding_run_opens_draft_pr(client: E2EClient) ->
     runs = await client.list_project_coding_runs(project["id"])
     smoke_runs = [
         run for run in runs
-        if run["task"]["id"] in {template_task_id, concrete_task_id}
-        or run.get("task", {}).get("parent_task_id") == template_task_id
+        if run["task"]["id"] == task_id
     ]
     assert smoke_runs, runs
     run_with_pr = next((run for run in smoke_runs if (run.get("receipt") or {}).get("handoff_url")), None)
@@ -132,8 +129,7 @@ async def test_local_e2e_project_coding_run_opens_draft_pr(client: E2EClient) ->
             {
                 "project_id": project["id"],
                 "channel_id": channel["id"],
-                "template_task_id": template_task_id,
-                "task_id": concrete_task_id,
+                "task_id": task_id,
                 "project_run_id": run_with_pr["id"],
                 "repo": repo_full_name,
                 "base_branch": base_branch,

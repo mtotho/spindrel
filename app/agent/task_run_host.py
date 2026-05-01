@@ -14,6 +14,7 @@ import openai
 
 from app.agent.bots import BotConfig
 from app.db.models import Channel, Session, Task
+from app.domain.errors import NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,25 @@ actionable: what happened, why it matters, and the next useful action.
 """
 
 
+async def _resolve_task_bot(bot_id: str, deps: TaskRunHostDeps) -> BotConfig:
+    """Resolve a bot for a task run, refreshing the runtime registry once.
+
+    Runtime-created bots are committed to the database before tasks can target
+    them, but long-lived task workers may still hold a stale in-memory bot
+    registry. A single reload keeps task execution in sync without hiding a
+    genuinely invalid bot id.
+    """
+    try:
+        return deps.get_bot(bot_id)
+    except Exception as exc:
+        if not isinstance(exc, NotFoundError) and "Unknown bot" not in str(exc):
+            raise
+        from app.agent.bots import reload_bots
+
+        await reload_bots()
+        return deps.get_bot(bot_id)
+
+
 async def _prepare_task_run(
     task: Task,
     task_channel: Channel | None,
@@ -111,7 +131,7 @@ async def _prepare_task_run(
     from app.agent.persona import get_persona
     from app.services.sessions import _effective_system_prompt, load_or_create
 
-    bot = deps.get_bot(task.bot_id)
+    bot = await _resolve_task_bot(task.bot_id, deps)
     ecfg = task.execution_config or task.callback_config or {}
     model_override = ecfg.get("model_override") or None
     provider_id_override = ecfg.get("model_provider_id_override") or None

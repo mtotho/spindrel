@@ -970,12 +970,19 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             finally:
                 await browser.close()
                 for channel_id, config in original_configs.items():
-                    await _api(
-                        client,
-                        "PATCH",
-                        f"/api/v1/channels/{channel_id}/config",
-                        json={"chat_mode": config.get("chat_mode") or "default"},
-                    )
+                    try:
+                        await _api(
+                            client,
+                            "PATCH",
+                            f"/api/v1/channels/{channel_id}/config",
+                            json={"chat_mode": config.get("chat_mode") or "default"},
+                        )
+                    except Exception as exc:
+                        print(
+                            f"warning: failed to restore harness screenshot chat_mode for {channel_id}: "
+                            f"{type(exc).__name__}: {exc}",
+                            flush=True,
+                        )
                 for workspace_id, path in cleanup_workspace_paths:
                     with contextlib.suppress(Exception):
                         await _delete_workspace_path(client, workspace_id=workspace_id, path=path)

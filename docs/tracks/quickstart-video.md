@@ -111,7 +111,7 @@ Three capture-capability additions landed same session as A2.5 scaffolding:
 
 - `Action` dataclass + `actions: list[Action]` field on `ScreenshotSpec` (`scripts/screenshots/capture/specs.py`). Five primitives: `click`, `fill`, `press`, `select`, `wait_for`.
 - `_run_actions()` executor in `scripts/screenshots/capture/runner.py`, invoked after `wait_for` and before `page.screenshot`. Fails loud — no sleeps, no silent skips. Capture failures surface as `wait-timeout` results with the offending action in `detail`.
-- `scripts/screenshots/check_drift.py` + `python -m scripts.screenshots check` — scans `docs/**/*.md` for `![](...png)` refs, verifies each exists, exits non-zero on miss. Immediately surfaced 17 broken refs (9 in guides → A2.5; 8 in `docs/setup.md` → A2.5-setup).
+- `scripts/screenshots/check_drift.py` + `python -m scripts.screenshots check` — scans `docs/**/*.md` for Markdown PNG image refs, verifies each exists, exits non-zero on miss. Immediately surfaced 17 broken refs (9 in guides → A2.5; 8 in `docs/setup.md` → A2.5-setup).
 
 Unblocks modal/drawer/tab captures without taking on B3's video-clip scope. Reusable by B3's `playwright_action` clip — same `Action` dataclass.
 

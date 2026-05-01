@@ -2,7 +2,7 @@
 tags: [spindrel, track, harnesses, integrations, sdk]
 status: active
 created: 2026-04-26
-updated: 2026-04-30 (live parity follow-up)
+updated: 2026-05-01 (local SDK parity follow-up)
 ---
 # Track - Harness SDK
 
@@ -365,6 +365,25 @@ Approval mapping intent (final values from schema):
   Verified on port `18102`: focused native slash parity passed and refreshed
   `docs/images/harness-claude-native-skills-result-dark.png`, showing the
   Claude `/skills` result rendered in chat rather than a terminal handoff.
+- 2026-05-01 local SDK batch follow-up: the SDK preset passed all five local
+  live slices against the agent-owned native API on port `18102`:
+  streaming deltas, image semantic reasoning, project instruction discovery,
+  Claude TodoWrite progress persistence, and Claude subagent persistence. The
+  rerun refreshed the eight durable proof images under `docs/images/` and the
+  runner now verifies only the harness guide's `harness-*.png` references after
+  `--screenshots docs`; it no longer reports a harness batch failure because of
+  unrelated global docs-image debt. Cross-project blocker to fix separately:
+  `python -m scripts.screenshots check` still fails on the pre-existing
+  `docs/tracks/quickstart-video.md -> ...png` placeholder.
+- 2026-05-01 native slash batch follow-up: the local slash preset now targets
+  the current `native_slash_mutating_commands_handoff` test name and maps each
+  slice to its matching screenshot spec instead of accidentally capturing the
+  whole harness screenshot suite. The harness screenshot helper treats
+  post-capture channel-config restore as best-effort cleanup, so a captured
+  proof image does not fail the batch if the local native API briefly restarts
+  during teardown. Verified on port `18102`: `/plugins`, `/skills`, terminal
+  handoff, and Claude project-local native skill invocation all passed with
+  refreshed docs screenshots.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

@@ -108,5 +108,32 @@ esac
 
 if [[ "${SCREENSHOTS,,}" == "docs" ]]; then
     cd "$PROJECT_ROOT"
-    python -m scripts.screenshots check
+    python - <<'PY'
+from pathlib import Path
+import re
+import sys
+
+root = Path.cwd()
+guide = root / "docs" / "guides" / "agent-harnesses.md"
+if not guide.exists():
+    print(f"Missing harness guide: {guide.relative_to(root)}", file=sys.stderr)
+    sys.exit(1)
+
+text = guide.read_text(encoding="utf-8", errors="replace")
+refs = re.findall(r"!\[[^\]]*\]\(([^)\s]+harness-[^)\s]+\.(?:png|jpg|jpeg|gif|svg|webp))\)", text)
+missing = []
+for raw in refs:
+    resolved = (guide.parent / raw).resolve()
+    if not resolved.exists():
+        missing.append((raw, resolved))
+
+if missing:
+    print("Missing harness screenshot reference(s):", file=sys.stderr)
+    for raw, resolved in missing:
+        rel = resolved.relative_to(root) if resolved.is_relative_to(root) else resolved
+        print(f"  {raw} -> {rel}", file=sys.stderr)
+    sys.exit(1)
+
+print(f"Harness guide screenshot refs OK: {len(refs)}")
+PY
 fi

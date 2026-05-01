@@ -51,7 +51,7 @@ services:
       # LLM provider (reads LLM_BASE_URL with LITELLM_BASE_URL alias)
       LITELLM_BASE_URL: ${E2E_LLM_BASE_URL:-http://127.0.0.1:9/v1}
       LITELLM_API_KEY: ${E2E_LLM_API_KEY:-}
-      DEFAULT_MODEL: ${E2E_DEFAULT_MODEL:-gemini-2.5-flash-lite}
+      DEFAULT_MODEL: ${E2E_DEFAULT_MODEL:-gpt-5.3-chat-latest}
       # Disable features that need Docker socket or external services
       DOCKER_SANDBOX_ENABLED: "false"
       DOCKER_STACKS_ENABLED: "false"

@@ -1,21 +1,9 @@
-import { useSearchParams } from "react-router-dom";
-import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
-import { MobileHub } from "@/src/components/home/MobileHub";
-import { SpatialCanvas } from "@/src/components/spatial-canvas/SpatialCanvas";
+import { Navigate, useLocation } from "react-router-dom";
 
 /**
- * Dedicated `/canvas` route. Mirrors `/` responsive behavior — mobile gets
- * the sectioned home hub (the spatial canvas is desktop-only), desktop
- * gets the canvas. Keeps deep links and "Open canvas" affordances safe to
- * follow regardless of viewport.
+ * Legacy `/canvas` route. `/spatial` is the canonical spatial canvas URL.
  */
 export default function CanvasPage() {
-  const columns = useResponsiveColumns();
-  const [searchParams] = useSearchParams();
-  if (columns === "single") return <MobileHub />;
-  return (
-    <div className="relative flex-1 min-h-0">
-      <SpatialCanvas initialFlyToChannelId={searchParams.get("channel")} initialFlyToNodeId={searchParams.get("node")} />
-    </div>
-  );
+  const location = useLocation();
+  return <Navigate to={`/spatial${location.search}${location.hash}`} replace />;
 }

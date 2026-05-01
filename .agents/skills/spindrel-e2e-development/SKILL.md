@@ -202,6 +202,24 @@ Required closeout flow for UI/e2e evidence:
 7. In the final answer, list the e2e command, screenshot files, what visual
    inspection confirmed, and any remaining gaps.
 
+Generic Project Factory live-loop proof uses the same rule. After
+`PROJECT_FACTORY_GENERIC_LOOP=1` passes, capture the agent-owned local
+Spindrel Project Runs/Receipts surface and the generated app/dev server output.
+The current durable proof images are:
+
+```text
+docs/images/project-factory-generic-live-loop-runs.png
+docs/images/project-factory-generic-live-loop-receipt.png
+docs/images/project-factory-generic-live-loop-app.png
+```
+
+If a Project Dependency Stack prepare/start hangs, diagnose locks and stack
+lifecycle ordering before changing local ports or compose projects. The known
+bad pattern is holding the caller's ORM transaction open after linking
+`runtime.docker_stack_id` / `DockerStack.source`, then calling a stack service
+that uses another DB session. Commit the link/source metadata first so the
+stack lifecycle service cannot block on the caller's uncommitted row.
+
 Project Factory contract check:
 
 ```bash

@@ -207,8 +207,9 @@ For the opt-in live Project Factory PR smoke, first run the local e2e command
 sequence in `docs/guides/agent-e2e-development.md`. Then use
 `scratch/agent-e2e/project-factory-live-pr-smoke.json` to navigate the local UI
 to `/admin/projects/<project_id>#Runs` and capture focused Project Runs and Run
-Receipts screenshots against `localhost:18000`. These images are intentionally
-live evidence rather than deterministic staging fixtures.
+Receipts screenshots against the `SPINDREL_E2E_URL` / `E2E_PORT` leased by
+`write-env --port auto`. These images are intentionally live evidence rather
+than deterministic staging fixtures.
 
 ## Widget Authoring Runtime Loop
 
@@ -257,7 +258,12 @@ Use two classes of screenshots deliberately:
 For workflow e2e, capture the UI surfaces a reviewer would use to trust the
 result. Examples: Project detail/Runs/Channels pages, the channel session
 transcript that shows the agent action, receipt rows, review finalization
-state, and the generated app/browser output. A screenshot of only the final app
+state, and the generated app/browser output. For generic Project Factory live
+loops, include the Project Runs row, receipt evidence, and generated app page;
+the current proof images are
+`docs/images/project-factory-generic-live-loop-runs.png`,
+`docs/images/project-factory-generic-live-loop-receipt.png`, and
+`docs/images/project-factory-generic-live-loop-app.png`. A screenshot of only the final app
 is incomplete when the claim is that Spindrel launched, ran, reviewed, or
 recorded the workflow.
 

@@ -41,11 +41,11 @@ export function AutomationsCanvasPage() {
   // Empty `?canvas=1` (no new/edit) → redirect to the spatial canvas.
   useEffect(() => {
     if (!isNew && !editTaskId) {
-      navigate("/canvas", { replace: true });
+      navigate("/spatial", { replace: true });
     }
   }, [isNew, editTaskId, navigate]);
 
-  const closeCard = () => navigate("/canvas");
+  const closeCard = () => navigate("/spatial");
   const openEdit = (taskId: string) => setParams({ edit: taskId, new: null, mode: null });
 
   return (

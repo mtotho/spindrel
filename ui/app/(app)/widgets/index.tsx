@@ -116,7 +116,7 @@ export default function WidgetsDashboardPage() {
   const channelScopedId = channelIdParam ?? channelIdFromSlug(slug);
   const isChannelScoped = isChannelSlug(slug);
   useEffect(() => {
-    if (isWorkspaceSpatialSlug(slug)) navigate("/canvas", { replace: true });
+    if (isWorkspaceSpatialSlug(slug)) navigate("/spatial", { replace: true });
   }, [navigate, slug]);
   // Host-side broker. On user dashboards (no channel) the broker is dormant —
   // streaming widgets there fall through to the direct /widget-actions/stream
@@ -627,7 +627,7 @@ export default function WidgetsDashboardPage() {
                 /* storage disabled — plain navigation still works */
               }
             }
-            navigate("/");
+            navigate("/spatial");
           }}
           className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-surface-border text-text-muted hover:bg-surface-overlay hover:text-accent transition-colors"
           aria-label="Beam to spatial canvas"

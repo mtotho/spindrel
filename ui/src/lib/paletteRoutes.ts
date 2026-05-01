@@ -16,6 +16,7 @@ import {
   LayoutDashboard,
   Lock,
   MessageCircle,
+  Network,
   Paperclip,
   Plug,
   ScrollText,
@@ -62,7 +63,9 @@ interface StaticRouteMeta {
 }
 
 const STATIC_ROUTES = new Map<string, StaticRouteMeta>([
-  ["/", { pageType: "Home", category: "Channels", icon: Home, label: "Home", hint: "All channels" }],
+  ["/", { pageType: "Home", category: "Channels", icon: Home, label: "Home", hint: "Workspace overview" }],
+  ["/spatial", { pageType: "Spatial Canvas", category: "Channels", icon: Network, label: "Spatial canvas", hint: "Workspace map" }],
+  ["/canvas", { pageType: "Spatial Canvas", category: "Channels", icon: Network, label: "Spatial canvas", hint: "Workspace map" }],
   ["/channels/new", { pageType: "New channel", category: "Channels", icon: Hash, label: "New channel", hint: "Create a channel" }],
   ["/settings", { pageType: "Settings", category: "Settings", icon: Settings, label: "Settings", hint: "Settings" }],
   ["/settings/account", { pageType: "Settings", category: "Settings", icon: Settings, label: "Settings · Account", hint: "Settings" }],
@@ -393,6 +396,11 @@ export function canonicalizePaletteHref(href: string): string {
 
   if (pathname === "/profile") return composeHref("/settings/account", search, hash);
   if (pathname === "/channels") return composeHref("/", search, hash);
+  if (pathname === "/canvas") return composeHref("/spatial", search, hash);
+  if (pathname === "/") {
+    const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+    if (params.has("channel") || params.has("node")) return composeHref("/spatial", search, hash);
+  }
   if (pathname === "/admin/widget-packages") return "/widgets/dev#library";
   if (pathname.startsWith("/admin/widget-packages/")) {
     const packageId = pathname.slice("/admin/widget-packages/".length).split("/")[0];

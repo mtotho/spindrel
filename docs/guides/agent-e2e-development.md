@@ -90,7 +90,7 @@ python scripts/agent_e2e_dev.py write-env \
   --port auto \
   --llm-base-url "$E2E_LLM_BASE_URL" \
   --llm-api-key "$E2E_LLM_API_KEY" \
-  --model "${E2E_DEFAULT_MODEL:-gemini-2.5-flash-lite}"
+  --model "${E2E_DEFAULT_MODEL:-gpt-5.3-chat-latest}"
 
 set -a && source .env.agent-e2e && set +a
 python scripts/agent_e2e_dev.py doctor
@@ -421,6 +421,22 @@ summary, and receipt. After it passes, capture durable UI proof from the Project
 Runs page, the run/session transcript, and the served fixture app; store those
 images under `docs/images/`, reference them from this guide or the Projects
 guide, inspect them, and run `python -m scripts.screenshots check`.
+
+Current local generic live-loop proof:
+
+![Generic Project Factory live-loop run](../images/project-factory-generic-live-loop-runs.png)
+
+![Generic Project Factory live-loop receipt](../images/project-factory-generic-live-loop-receipt.png)
+
+![Generic Project Factory live-loop app](../images/project-factory-generic-live-loop-app.png)
+
+If the Project coding run hangs while preparing a dependency stack, inspect the
+server logs and Postgres locks before changing ports or compose projects. A
+common failure shape is an outer ORM transaction holding a `docker_stacks` row
+lock while the stack service opens another session to start the same stack. The
+fix is to commit the Project runtime's stack link/source metadata before
+calling the stack lifecycle service, not to switch to a private local compose
+project.
 
 ## Native Project Parity Evidence
 

@@ -57,6 +57,21 @@ def test_harness_parity_local_runner_uses_agent_owned_state_dir() -> None:
     assert 'RUN_DIR="$AGENT_STATE_DIR/harness-parity-runs/$(date -u +%Y%m%dT%H%M%SZ)"' in batch_runner
 
 
+def test_harness_parity_local_runner_checks_only_harness_docs_refs() -> None:
+    local_runner = (REPO_ROOT / "scripts" / "run_harness_parity_local.sh").read_text()
+
+    assert "agent-harnesses.md" in local_runner
+    assert "harness-" in local_runner
+    assert "python -m scripts.screenshots check" not in local_runner
+
+
+def test_harness_screenshot_cleanup_is_best_effort() -> None:
+    screenshot_runner = (REPO_ROOT / "scripts" / "screenshots" / "harness_live.py").read_text()
+
+    assert "warning: failed to restore harness screenshot chat_mode" in screenshot_runner
+    assert "with contextlib.suppress(Exception):" in screenshot_runner
+
+
 def test_harness_parity_local_batch_all_preset_is_strict_full_suite() -> None:
     proc = _run_script("--preset", "all", "--screenshots", "docs", "--dry-run")
 
@@ -89,6 +104,31 @@ def test_harness_parity_local_batch_sdk_preset_covers_deep_sdk_scenarios() -> No
     assert "--tier project --screenshots docs -k project_instruction_file_discovery" in proc.stdout
     assert "--tier skills --screenshots docs -k claude\\ and\\ claude_native_todo_progress_persists" in proc.stdout
     assert "--tier skills --screenshots docs -k claude\\ and\\ claude_native_subagent_persists" in proc.stdout
+
+
+def test_harness_parity_local_batch_slash_preset_targets_native_slash_screenshots() -> None:
+    proc = _run_script("--preset", "slash", "--screenshots", "docs", "--dry-run")
+
+    assert proc.returncode == 0, proc.stderr
+    assert (
+        "HARNESS_PARITY_SCREENSHOT_ONLY="
+        "harness-native-slash-picker-dark\\,harness-codex-native-plugins-result-dark"
+    ) in proc.stdout
+    assert "HARNESS_PARITY_SCREENSHOT_ONLY=harness-claude-native-skills-result-dark" in proc.stdout
+    assert "HARNESS_PARITY_SCREENSHOT_ONLY=harness-codex-native-plugin-install-handoff-dark" in proc.stdout
+    assert "HARNESS_PARITY_SCREENSHOT_ONLY=harness-claude-native-custom-skill-result-dark" in proc.stdout
+    assert "-k native_slash_mutating_commands_handoff" in proc.stdout
+    assert "native_command_terminal_handoff" not in proc.stdout
+
+
+def test_harness_parity_local_batch_bridge_preset_avoids_unfiltered_screenshot_suite() -> None:
+    proc = _run_script("--preset", "bridge", "--screenshots", "docs", "--dry-run")
+
+    assert proc.returncode == 0, proc.stderr
+    assert "HARNESS_PARITY_SCREENSHOT_ONLY=harness-\\*-bridge-default" in proc.stdout
+    assert "HARNESS_PARITY_SCREENSHOT_ONLY=harness-\\*-terminal-write" in proc.stdout
+    assert "--tier writes --screenshots off -k safe_workspace_write_read_delete" in proc.stdout
+    assert "--tier memory --screenshots off -k memory_hint_requires_explicit_read" in proc.stdout
 
 
 def test_harness_parity_strict_skip_gate_allows_intentional_runtime_skips(tmp_path) -> None:

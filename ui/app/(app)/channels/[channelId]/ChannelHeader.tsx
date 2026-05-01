@@ -980,7 +980,7 @@ export function ChannelHeader({
                 // the mount-time dive cooldown still catches the loop.
               }
             }
-            navigate("/");
+            navigate("/spatial");
           }}
           title="Beam to spatial canvas"
           aria-label="Beam to spatial canvas"

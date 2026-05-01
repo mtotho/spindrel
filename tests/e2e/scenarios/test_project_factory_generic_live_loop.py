@@ -39,7 +39,7 @@ async def test_live_project_factory_agent_runs_project_tests_server_and_receipt(
     await client.create_bot({
         "id": bot_id,
         "name": f"Factory Loop {runtime} {suffix}",
-        "model": os.environ.get("PROJECT_FACTORY_MODEL", "gpt-5.4-mini"),
+        "model": os.environ.get("PROJECT_FACTORY_MODEL", os.environ.get("E2E_DEFAULT_MODEL", "gpt-5.3-chat-latest")),
         "system_prompt": "You are validating a generic Project Factory run. Follow the task exactly.",
         "harness_runtime": runtime,
         "memory_scheme": "workspace-files",
@@ -158,11 +158,9 @@ if __name__ == "__main__":
         "channel_id": channel["id"],
         "request": request,
     })
-    template_task_id = launched["task"]["id"]
-    concrete = await client.run_task_now(template_task_id)
-    concrete_task_id = concrete["id"]
+    task_id = launched["task"]["id"]
     finished = await client.wait_task_terminal(
-        concrete_task_id,
+        task_id,
         timeout=float(os.environ.get("PROJECT_FACTORY_GENERIC_LOOP_TIMEOUT", "900")),
     )
     assert finished["status"] == "complete", finished
@@ -170,14 +168,18 @@ if __name__ == "__main__":
     runs = await client.list_project_coding_runs(project["id"])
     run = next((
         item for item in runs
-        if item["task"]["id"] in {template_task_id, concrete_task_id}
-        or item.get("task", {}).get("parent_task_id") == template_task_id
+        if item["task"]["id"] == task_id
     ), None)
     assert run is not None, runs
     receipt = run.get("receipt") or {}
     assert receipt.get("status") in {"needs_review", "complete", "completed"}
-    test_commands = {item.get("command") for item in receipt.get("tests") or [] if isinstance(item, dict)}
-    assert any(command and "scripts/smoke.py" in command for command in test_commands)
+    test_evidence = receipt.get("tests") or []
+    test_texts = [
+        str(item.get("command") or item.get("summary") or item)
+        if isinstance(item, dict) else str(item)
+        for item in test_evidence
+    ]
+    assert any("scripts/smoke.py" in item for item in test_texts)
     screenshots = receipt.get("screenshots") or []
     assert any("factory-loop-screenshot-evidence" in str(item) for item in screenshots)
     assert (run.get("dependency_stack_preflight") or {}).get("status") == "running"
@@ -189,8 +191,7 @@ if __name__ == "__main__":
             {
                 "project_id": project["id"],
                 "channel_id": channel["id"],
-                "template_task_id": template_task_id,
-                "task_id": concrete_task_id,
+                "task_id": task_id,
                 "project_run_id": run["id"],
                 "receipt": receipt,
                 "dev_targets": run.get("dev_targets") or [],

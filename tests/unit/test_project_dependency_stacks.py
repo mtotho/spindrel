@@ -129,6 +129,66 @@ services:
 
 
 @pytest.mark.asyncio
+async def test_prepare_dependency_stack_commits_stack_link_before_start(db_session, monkeypatch):
+    workspace_id = uuid.uuid4()
+    project = Project(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        name="Factory Fixture",
+        slug="factory-fixture",
+        root_path=f"common/projects/factory-{uuid.uuid4().hex[:8]}",
+        metadata_={
+            "blueprint_snapshot": {
+                "dependency_stack": {
+                    "compose": """
+services:
+  postgres:
+    image: postgres:16
+    ports:
+      - "0:5432"
+""",
+                },
+            }
+        },
+    )
+    db_session.add(project)
+    await db_session.commit()
+
+    async def fake_create(**kwargs):
+        stack = DockerStack(
+            id=uuid.uuid4(),
+            name=kwargs["name"],
+            created_by_bot=kwargs["bot_id"],
+            compose_definition=kwargs["compose_definition"],
+            project_name="spindrel-test-factory",
+            status="stopped",
+            exposed_ports={},
+        )
+        db_session.add(stack)
+        await db_session.commit()
+        return stack
+
+    async def fake_start(stack, force_recreate=False):
+        assert not db_session.in_transaction()
+        row = await db_session.get(DockerStack, stack.id)
+        assert row is not None
+        assert row.source == "project_dependency"
+        row.status = "running"
+        row.exposed_ports = {"postgres": [{"host_port": 39123, "container_port": 5432, "protocol": "tcp"}]}
+        await db_session.commit()
+        return row
+
+    monkeypatch.setattr("app.services.project_dependency_stacks.stack_service.create", fake_create)
+    monkeypatch.setattr("app.services.project_dependency_stacks.stack_service.start", fake_start)
+
+    runtime = await ensure_project_dependency_stack_instance(db_session, project, scope="project")
+
+    payload = await prepare_project_dependency_stack(db_session, project, runtime=runtime)
+
+    assert payload["status"] == "running"
+
+
+@pytest.mark.asyncio
 async def test_dependency_stack_rejects_mounts_outside_project_root(db_session):
     workspace_id = uuid.uuid4()
     project = _project(workspace_id)

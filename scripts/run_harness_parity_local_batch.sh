@@ -123,7 +123,7 @@ case "${PRESET,,}" in
         SLICES=(
             "core|codex and native_slash_direct_commands"
             "core|claude and native_slash_direct_commands"
-            "core|native_command_terminal_handoff"
+            "core|native_slash_mutating_commands_handoff"
             "skills|claude_project_local_native_skill_invocation"
         )
         ;;
@@ -147,7 +147,6 @@ case "${PRESET,,}" in
     ui)
         SLICES=(
             "terminal|terminal_tool_output_is_sequential"
-            "terminal|mobile_context_panel"
             "replay|persisted_tool_replay_survives_refetch"
         )
         ;;
@@ -214,6 +213,15 @@ cd "$PROJECT_ROOT"
 screenshots_for_selector() {
     local selector="$1"
     case "$selector" in
+        *bridge_tools_persist_and_renderable*)
+            echo "harness-*-bridge-default"
+            ;;
+        *default_mode_bridge_write_approval_resume*)
+            echo "harness-*-terminal-write"
+            ;;
+        *safe_workspace_write_read_delete*|*memory_hint_requires_explicit_read*|*terminal_tool_output_is_sequential*|*persisted_tool_replay_survives_refetch*)
+            echo "__off__"
+            ;;
         *core_streams_partial_text_before_final*)
             echo "harness-*-streaming-deltas"
             ;;
@@ -222,6 +230,18 @@ screenshots_for_selector() {
             ;;
         *project_instruction_file_discovery*)
             echo "harness-*-project-instruction-discovery"
+            ;;
+        *codex\ and\ native_slash_direct_commands*)
+            echo "harness-native-slash-picker-dark,harness-codex-native-plugins-result-dark"
+            ;;
+        *claude\ and\ native_slash_direct_commands*)
+            echo "harness-claude-native-skills-result-dark"
+            ;;
+        *native_slash_mutating_commands_handoff*)
+            echo "harness-codex-native-plugin-install-handoff-dark"
+            ;;
+        *claude_project_local_native_skill_invocation*)
+            echo "harness-claude-native-custom-skill-result-dark"
             ;;
         *claude_native_todo_progress_persists*)
             echo "harness-claude-todowrite-progress"
@@ -240,6 +260,11 @@ format_run_command() {
     local screenshots="$2"
     local selector="$3"
     local screenshot_only="$4"
+    if [[ "$screenshot_only" == "__off__" ]]; then
+        printf './scripts/run_harness_parity_local.sh --tier %q --screenshots off -k %q\n' \
+            "$tier" "$selector"
+        return
+    fi
     if [[ -n "$screenshot_only" && "$screenshots" != "off" ]]; then
         printf 'HARNESS_PARITY_SCREENSHOT_ONLY=%q ./scripts/run_harness_parity_local.sh --tier %q --screenshots %q -k %q\n' \
             "$screenshot_only" "$tier" "$screenshots" "$selector"
@@ -309,7 +334,13 @@ run_slice() {
             echo "screenshot_only=$screenshot_only"
         fi
         echo
-        if [[ -n "$screenshot_only" && "$SCREENSHOTS" != "off" ]]; then
+        if [[ "$screenshot_only" == "__off__" ]]; then
+            HARNESS_PARITY_PYTEST_JUNIT_XML="$RUN_DIR/${index}-${tier}.xml" \
+                ./scripts/run_harness_parity_local.sh \
+                --tier "$tier" \
+                --screenshots off \
+                -k "$selector"
+        elif [[ -n "$screenshot_only" && "$SCREENSHOTS" != "off" ]]; then
             HARNESS_PARITY_SCREENSHOT_ONLY="$screenshot_only" \
                 HARNESS_PARITY_PYTEST_JUNIT_XML="$RUN_DIR/${index}-${tier}.xml" \
                 ./scripts/run_harness_parity_local.sh \

@@ -26,7 +26,7 @@ function healthTone(status: string | undefined): string {
 }
 
 function dashboardHref(pin: WidgetDashboardPin): string {
-  if (isWorkspaceSpatialSlug(pin.dashboard_key)) return "/canvas";
+  if (isWorkspaceSpatialSlug(pin.dashboard_key)) return "/spatial";
   if (isChannelSlug(pin.dashboard_key)) {
     const channelId = channelIdFromSlug(pin.dashboard_key);
     if (channelId) return `/widgets/channel/${encodeURIComponent(channelId)}`;
@@ -35,7 +35,7 @@ function dashboardHref(pin: WidgetDashboardPin): string {
 }
 
 function fallbackBackHref(pin: WidgetDashboardPin | undefined): string {
-  if (!pin) return "/canvas";
+  if (!pin) return "/spatial";
   if (pin.source_channel_id) return `/channels/${encodeURIComponent(pin.source_channel_id)}`;
   return dashboardHref(pin);
 }
@@ -123,7 +123,7 @@ export default function WidgetPinPage() {
   const collapseToSpace = () => {
     if (!pin) return;
     writeSpatialHandoff({ kind: "widgetPin", pinId: pin.id, ts: Date.now() });
-    navigate("/canvas");
+    navigate("/spatial");
   };
 
   const refreshWidget = async () => {

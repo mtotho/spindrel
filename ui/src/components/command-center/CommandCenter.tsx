@@ -1029,13 +1029,13 @@ function MissionDetail({ mission, row, onBack }: { mission: WorkspaceMission; ro
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {spatial.bot_node_id && (
-              <Link to={`/canvas?node=${encodeURIComponent(spatial.bot_node_id)}`} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay hover:text-text">
+              <Link to={`/spatial?node=${encodeURIComponent(spatial.bot_node_id)}`} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay hover:text-text">
                 <ExternalLink size={12} />
                 Fly to bot
               </Link>
             )}
             {spatial.target_node_id && (
-              <Link to={`/canvas?node=${encodeURIComponent(spatial.target_node_id)}`} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay hover:text-text">
+              <Link to={`/spatial?node=${encodeURIComponent(spatial.target_node_id)}`} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay hover:text-text">
                 <ExternalLink size={12} />
                 Fly to target
               </Link>

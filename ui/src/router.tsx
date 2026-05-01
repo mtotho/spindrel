@@ -42,6 +42,7 @@ const SetupPage = lazy(() => import("@/app/(auth)/setup"));
 // App root
 const HomePage = lazy(() => import("@/app/(app)/index"));
 const CanvasPage = lazy(() => import("@/app/(app)/canvas"));
+const SpatialPage = lazy(() => import("@/app/(app)/spatial"));
 const HubCommandCenterPage = lazy(() => import("@/app/(app)/hub/command-center"));
 const HubAttentionPage = lazy(() => import("@/app/(app)/hub/attention"));
 const HubDailyHealthPage = lazy(() => import("@/app/(app)/hub/daily-health"));
@@ -150,6 +151,7 @@ export const router = createBrowserRouter([
         element: <AppShell />,
         children: [
           { index: true, element: <HomePage /> },
+          { path: "spatial", element: <SpatialPage /> },
           { path: "canvas", element: <CanvasPage /> },
           { path: "hub/mission-control", element: <HubCommandCenterPage /> },
           { path: "hub/command-center", element: <HubCommandCenterPage /> },

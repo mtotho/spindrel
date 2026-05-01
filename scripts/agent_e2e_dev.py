@@ -70,6 +70,7 @@ DEPENDENCY_COMPOSE_PROJECT = os.environ.get(
 COMPOSE_FILE = REPO_ROOT / "tests" / "e2e" / "docker-compose.e2e.yml"
 SUBSCRIPTION_DUMMY_BASE_URL = "http://127.0.0.1:9/v1"
 SUBSCRIPTION_DEFAULT_MODEL = "gpt-5.4-mini"
+OPENAI_COMPATIBLE_DEFAULT_MODEL = "gpt-5.3-chat-latest"
 PROJECT_FACTORY_SECRET_NAME = "PROJECT_FACTORY_SMOKE_GITHUB_TOKEN"
 HARNESS_PARITY_PROJECT_SLUG = "harness-parity-project"
 HARNESS_PARITY_PROJECT_NAME = "Harness Parity Project"
@@ -1470,7 +1471,7 @@ def cmd_write_env(args: argparse.Namespace) -> int:
         llm_api_key = ""
         model = model or SUBSCRIPTION_DEFAULT_MODEL
     elif not model:
-        model = os.environ.get("E2E_DEFAULT_MODEL", "gemini-2.5-flash-lite")
+        model = os.environ.get("E2E_DEFAULT_MODEL", OPENAI_COMPATIBLE_DEFAULT_MODEL)
     env_values = _read_env_file(LOCAL_ENV)
     encryption_key = env_values.get("ENCRYPTION_KEY") or _generate_fernet_key()
     jwt_secret = env_values.get("JWT_SECRET") or os.urandom(32).hex()
