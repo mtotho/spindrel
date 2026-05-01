@@ -89,8 +89,8 @@ def test_harness_input_manifest_keeps_inline_and_workspace_images(monkeypatch, t
 async def test_harness_branch_forwards_attachment_payload_to_harness_turn(monkeypatch):
     captured = {}
 
-    async def fake_run_harness_turn(**kwargs):
-        captured.update(kwargs)
+    async def fake_run_harness_turn(request):
+        captured["request"] = request
         return "ok", None
 
     monkeypatch.setattr(
@@ -119,6 +119,6 @@ async def test_harness_branch_forwards_attachment_payload_to_harness_turn(monkey
     )
 
     assert handled is True
-    assert captured["harness_attachments"] == tuple(attachments)
+    assert captured["request"].harness_attachments == tuple(attachments)
     assert state.response_text == "ok"
     assert state.error_text is None

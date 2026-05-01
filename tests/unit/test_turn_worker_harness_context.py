@@ -11,6 +11,7 @@ from app.services.agent_harnesses.base import TurnResult
 from app.services.agent_harnesses.base import render_context_hints_for_prompt
 from app.services.agent_harnesses.project import build_workspace_files_memory_hint
 from app.services.agent_harnesses.turn_host import _build_harness_plan_tool_hint
+from app.services.agent_harnesses.turn_request import HarnessTurnRequest
 from app.services.turn_worker import (
     _codex_plan_evidence,
     _mirror_harness_native_plan_state,
@@ -240,21 +241,23 @@ async def test_harness_turn_context_carries_latest_harness_metadata(monkeypatch)
     )
 
     text, error = await _run_harness_turn(
-        channel_id=uuid.uuid4(),
-        bus_key=uuid.uuid4(),
-        session_id=uuid.uuid4(),
-        turn_id=uuid.uuid4(),
-        bot=SimpleNamespace(
-            id="codex-bot",
-            harness_runtime="codex",
-            harness_workdir="/tmp",
-            memory_scheme=None,
-        ),
-        user_message="hello",
-        correlation_id=uuid.uuid4(),
-        msg_metadata=None,
-        pre_user_msg_id=None,
-        suppress_outbox=True,
+        HarnessTurnRequest(
+            channel_id=uuid.uuid4(),
+            bus_key=uuid.uuid4(),
+            session_id=uuid.uuid4(),
+            turn_id=uuid.uuid4(),
+            bot=SimpleNamespace(
+                id="codex-bot",
+                harness_runtime="codex",
+                harness_workdir="/tmp",
+                memory_scheme=None,
+            ),
+            user_message="hello",
+            correlation_id=uuid.uuid4(),
+            msg_metadata=None,
+            pre_user_msg_id=None,
+            suppress_outbox=True,
+        )
     )
 
     assert error is None
@@ -324,23 +327,25 @@ async def test_harness_turn_context_uses_run_scoped_tools_and_permission_overrid
     )
 
     text, error = await _run_harness_turn(
-        channel_id=uuid.uuid4(),
-        bus_key=uuid.uuid4(),
-        session_id=uuid.uuid4(),
-        turn_id=uuid.uuid4(),
-        bot=SimpleNamespace(
-            id="codex-bot",
-            harness_runtime="codex",
-            harness_workdir="/tmp",
-            memory_scheme=None,
-        ),
-        user_message="call @tool:file",
-        correlation_id=uuid.uuid4(),
-        msg_metadata=None,
-        pre_user_msg_id=None,
-        suppress_outbox=True,
-        harness_permission_mode_override="bypassPermissions",
-        harness_tool_names=("list_channels", "file"),
+        HarnessTurnRequest(
+            channel_id=uuid.uuid4(),
+            bus_key=uuid.uuid4(),
+            session_id=uuid.uuid4(),
+            turn_id=uuid.uuid4(),
+            bot=SimpleNamespace(
+                id="codex-bot",
+                harness_runtime="codex",
+                harness_workdir="/tmp",
+                memory_scheme=None,
+            ),
+            user_message="call @tool:file",
+            correlation_id=uuid.uuid4(),
+            msg_metadata=None,
+            pre_user_msg_id=None,
+            suppress_outbox=True,
+            harness_permission_mode_override="bypassPermissions",
+            harness_tool_names=("list_channels", "file"),
+        )
     )
 
     assert error is None
@@ -413,21 +418,23 @@ async def test_harness_turn_persists_runtime_thinking_for_refresh_visibility(mon
     )
 
     text, error = await _run_harness_turn(
-        channel_id=uuid.uuid4(),
-        bus_key=uuid.uuid4(),
-        session_id=uuid.uuid4(),
-        turn_id=uuid.uuid4(),
-        bot=SimpleNamespace(
-            id="codex-bot",
-            harness_runtime="codex",
-            harness_workdir="/tmp",
-            memory_scheme=None,
-        ),
-        user_message="look into the bug",
-        correlation_id=uuid.uuid4(),
-        msg_metadata=None,
-        pre_user_msg_id=None,
-        suppress_outbox=True,
+        HarnessTurnRequest(
+            channel_id=uuid.uuid4(),
+            bus_key=uuid.uuid4(),
+            session_id=uuid.uuid4(),
+            turn_id=uuid.uuid4(),
+            bot=SimpleNamespace(
+                id="codex-bot",
+                harness_runtime="codex",
+                harness_workdir="/tmp",
+                memory_scheme=None,
+            ),
+            user_message="look into the bug",
+            correlation_id=uuid.uuid4(),
+            msg_metadata=None,
+            pre_user_msg_id=None,
+            suppress_outbox=True,
+        )
     )
 
     assert error is None
@@ -497,21 +504,23 @@ async def test_harness_turn_context_includes_channel_prompt_instruction(monkeypa
     )
 
     text, error = await _run_harness_turn(
-        channel_id=uuid.uuid4(),
-        bus_key=uuid.uuid4(),
-        session_id=uuid.uuid4(),
-        turn_id=uuid.uuid4(),
-        bot=SimpleNamespace(
-            id="codex-bot",
-            harness_runtime="codex",
-            harness_workdir="/tmp",
-            memory_scheme=None,
-        ),
-        user_message="hello",
-        correlation_id=uuid.uuid4(),
-        msg_metadata=None,
-        pre_user_msg_id=None,
-        suppress_outbox=True,
+        HarnessTurnRequest(
+            channel_id=uuid.uuid4(),
+            bus_key=uuid.uuid4(),
+            session_id=uuid.uuid4(),
+            turn_id=uuid.uuid4(),
+            bot=SimpleNamespace(
+                id="codex-bot",
+                harness_runtime="codex",
+                harness_workdir="/tmp",
+                memory_scheme=None,
+            ),
+            user_message="hello",
+            correlation_id=uuid.uuid4(),
+            msg_metadata=None,
+            pre_user_msg_id=None,
+            suppress_outbox=True,
+        )
     )
 
     assert error is None
@@ -621,22 +630,24 @@ async def test_harness_heartbeat_turn_marks_persisted_rows(monkeypatch):
     )
 
     text, error = await _run_harness_turn(
-        channel_id=uuid.uuid4(),
-        bus_key=uuid.uuid4(),
-        session_id=uuid.uuid4(),
-        turn_id=uuid.uuid4(),
-        bot=SimpleNamespace(
-            id="codex-bot",
-            harness_runtime="codex",
-            harness_workdir="/tmp",
-            memory_scheme=None,
-        ),
-        user_message="heartbeat",
-        correlation_id=uuid.uuid4(),
-        msg_metadata={"source": "heartbeat", "is_heartbeat": True},
-        pre_user_msg_id=None,
-        suppress_outbox=True,
-        is_heartbeat=True,
+        HarnessTurnRequest(
+            channel_id=uuid.uuid4(),
+            bus_key=uuid.uuid4(),
+            session_id=uuid.uuid4(),
+            turn_id=uuid.uuid4(),
+            bot=SimpleNamespace(
+                id="codex-bot",
+                harness_runtime="codex",
+                harness_workdir="/tmp",
+                memory_scheme=None,
+            ),
+            user_message="heartbeat",
+            correlation_id=uuid.uuid4(),
+            msg_metadata={"source": "heartbeat", "is_heartbeat": True},
+            pre_user_msg_id=None,
+            suppress_outbox=True,
+            is_heartbeat=True,
+        )
     )
 
     assert error is None
@@ -708,21 +719,23 @@ async def test_harness_turn_cancel_persists_interrupted_tool_transcript(monkeypa
     )
 
     text, error = await _run_harness_turn(
-        channel_id=uuid.uuid4(),
-        bus_key=uuid.uuid4(),
-        session_id=uuid.uuid4(),
-        turn_id=uuid.uuid4(),
-        bot=SimpleNamespace(
-            id="claude-bot",
-            harness_runtime="claude-code",
-            harness_workdir="/tmp",
-            memory_scheme=None,
-        ),
-        user_message="stop this",
-        correlation_id=uuid.uuid4(),
-        msg_metadata=None,
-        pre_user_msg_id=None,
-        suppress_outbox=True,
+        HarnessTurnRequest(
+            channel_id=uuid.uuid4(),
+            bus_key=uuid.uuid4(),
+            session_id=uuid.uuid4(),
+            turn_id=uuid.uuid4(),
+            bot=SimpleNamespace(
+                id="claude-bot",
+                harness_runtime="claude-code",
+                harness_workdir="/tmp",
+                memory_scheme=None,
+            ),
+            user_message="stop this",
+            correlation_id=uuid.uuid4(),
+            msg_metadata=None,
+            pre_user_msg_id=None,
+            suppress_outbox=True,
+        )
     )
 
     assert text == ""

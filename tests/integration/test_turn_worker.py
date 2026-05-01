@@ -156,8 +156,8 @@ class TestTurnWorker:
         attachment = {"id": "att-1", "filename": "plan.txt"}
         captured: dict = {}
 
-        async def _fake_harness_turn(**kwargs):
-            captured.update(kwargs)
+        async def _fake_harness_turn(request):
+            captured["request"] = request
             return "done", None
 
         bot = _bot()
@@ -183,7 +183,7 @@ class TestTurnWorker:
             )
 
         assert handled is True
-        assert captured["harness_attachments"] == (attachment,)
+        assert captured["request"].harness_attachments == (attachment,)
         assert state.response_text == "done"
         assert state.error_text is None
 

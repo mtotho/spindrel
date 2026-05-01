@@ -941,28 +941,32 @@ async def _run_harness_heartbeat_if_needed(
                 ),
             ),
         )
+        from app.services.agent_harnesses.turn_request import HarnessTurnRequest
+
         result_text, error_text = await _run_harness_turn(
-            channel_id=prepared.channel_id,
-            bus_key=prepared.channel_id,
-            session_id=prepared.session_id,
-            turn_id=correlation_id,
-            bot=bot,
-            user_message=harness_prompt,
-            correlation_id=correlation_id,
-            msg_metadata={
-                "source": "heartbeat",
-                "heartbeat_id": str(hb.id),
-                "heartbeat_run_id": str(prepared.run_id),
-                "is_heartbeat": True,
-            },
-            pre_user_msg_id=None,
-            suppress_outbox=not bool(hb.dispatch_results),
-            is_heartbeat=True,
-            harness_model_override=(hb.model or None),
-            harness_effort_override=(getattr(hb, "harness_effort", None) or None),
-            harness_permission_mode_override="bypassPermissions" if skip_tool_approval else None,
-            harness_tool_names=selected_tools,
-            harness_skill_ids=selected_skills,
+            HarnessTurnRequest(
+                channel_id=prepared.channel_id,
+                bus_key=prepared.channel_id,
+                session_id=prepared.session_id,
+                turn_id=correlation_id,
+                bot=bot,
+                user_message=harness_prompt,
+                correlation_id=correlation_id,
+                msg_metadata={
+                    "source": "heartbeat",
+                    "heartbeat_id": str(hb.id),
+                    "heartbeat_run_id": str(prepared.run_id),
+                    "is_heartbeat": True,
+                },
+                pre_user_msg_id=None,
+                suppress_outbox=not bool(hb.dispatch_results),
+                is_heartbeat=True,
+                harness_model_override=(hb.model or None),
+                harness_effort_override=(getattr(hb, "harness_effort", None) or None),
+                harness_permission_mode_override="bypassPermissions" if skip_tool_approval else None,
+                harness_tool_names=selected_tools,
+                harness_skill_ids=selected_skills,
+            )
         )
         publish_typed(
             prepared.channel_id,

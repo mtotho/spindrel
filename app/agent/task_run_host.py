@@ -15,6 +15,7 @@ import openai
 from app.agent.bots import BotConfig
 from app.db.models import Channel, Session, Task
 from app.domain.errors import NotFoundError
+from app.services.agent_harnesses.turn_request import HarnessTurnRequest
 
 logger = logging.getLogger(__name__)
 
@@ -64,28 +65,6 @@ class _PreparedTaskRun:
     recurrence: str | None
 
 
-def _harness_task_turn_overrides(ecfg: dict) -> dict:
-    """Return run-scoped harness overrides derived from task execution_config."""
-    def _names(key: str) -> tuple[str, ...]:
-        values = ecfg.get(key) or ()
-        out: list[str] = []
-        seen: set[str] = set()
-        for raw in values:
-            value = str(raw).strip()
-            if value and value not in seen:
-                seen.add(value)
-                out.append(value)
-        if key == "tools" and bool(ecfg.get("allow_issue_reporting")) and "report_issue" not in seen:
-            out.append("report_issue")
-        return tuple(out)
-
-    return {
-        "harness_tool_names": _names("tools"),
-        "harness_skill_ids": _names("skills"),
-        "harness_permission_mode_override": (
-            "bypassPermissions" if bool(ecfg.get("skip_tool_approval")) else None
-        ),
-    }
 
 
 _ISSUE_REPORTING_PREAMBLE = """\
@@ -362,32 +341,32 @@ async def _run_harness_task_if_needed(
     from app.services.turn_worker import _run_harness_turn
 
     task = prepared.task
-    result_text, harness_error = await asyncio.wait_for(
-        _run_harness_turn(
-            channel_id=task.channel_id,
-            bus_key=task.channel_id or prepared.session_id,
-            session_id=prepared.session_id,
-            turn_id=turn_id,
-            bot=prepared.bot,
-            user_message=prepared.task_prompt,
-            correlation_id=prepared.correlation_id,
-            msg_metadata={
-                "source": "heartbeat" if task.task_type == "heartbeat" else "task",
-                "task_id": str(task.id),
-                "task_type": task.task_type,
-                "is_heartbeat": task.task_type == "heartbeat",
-            },
-            pre_user_msg_id=None,
-            suppress_outbox=(
-                bool(prepared.ecfg.get("session_scoped"))
-                or task.channel_id is None
-                or task.task_type == "heartbeat"
-            ),
-            is_heartbeat=task.task_type == "heartbeat",
-            harness_model_override=prepared.ecfg.get("model_override") or None,
-            harness_effort_override=prepared.ecfg.get("harness_effort") or None,
-            **_harness_task_turn_overrides(prepared.ecfg),
+    base_request = HarnessTurnRequest(
+        channel_id=task.channel_id,
+        bus_key=task.channel_id or prepared.session_id,
+        session_id=prepared.session_id,
+        turn_id=turn_id,
+        bot=prepared.bot,
+        user_message=prepared.task_prompt,
+        correlation_id=prepared.correlation_id,
+        msg_metadata={
+            "source": "heartbeat" if task.task_type == "heartbeat" else "task",
+            "task_id": str(task.id),
+            "task_type": task.task_type,
+            "is_heartbeat": task.task_type == "heartbeat",
+        },
+        pre_user_msg_id=None,
+        suppress_outbox=(
+            bool(prepared.ecfg.get("session_scoped"))
+            or task.channel_id is None
+            or task.task_type == "heartbeat"
         ),
+        is_heartbeat=task.task_type == "heartbeat",
+        harness_model_override=prepared.ecfg.get("model_override") or None,
+        harness_effort_override=prepared.ecfg.get("harness_effort") or None,
+    )
+    result_text, harness_error = await asyncio.wait_for(
+        _run_harness_turn(base_request.with_task_execution_config(prepared.ecfg)),
         timeout=prepared.task_timeout,
     )
     if harness_error:

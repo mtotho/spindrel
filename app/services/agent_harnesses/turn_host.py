@@ -23,6 +23,7 @@ from app.db.models import Session as SessionRow
 from app.services import session_locks
 from app.services.agent_harnesses import ChannelEventEmitter, get_runtime
 from app.services.agent_harnesses.base import HarnessInputAttachment, HarnessInputManifest
+from app.services.agent_harnesses.turn_request import HarnessTurnRequest
 from app.services.sessions import persist_turn
 
 logger = logging.getLogger(__name__)
@@ -199,24 +200,8 @@ async def load_harness_channel_prompt_hint(db, channel_id: uuid.UUID | None):
 
 
 async def run_harness_turn(
+    request: HarnessTurnRequest,
     *,
-    channel_id: uuid.UUID | None,
-    bus_key: uuid.UUID,
-    session_id: uuid.UUID,
-    turn_id: uuid.UUID,
-    bot: BotConfig,
-    user_message: str,
-    correlation_id: uuid.UUID,
-    msg_metadata: dict | None,
-    pre_user_msg_id: uuid.UUID | None,
-    suppress_outbox: bool,
-    is_heartbeat: bool = False,
-    harness_model_override: str | None = None,
-    harness_effort_override: str | None = None,
-    harness_permission_mode_override: str | None = None,
-    harness_tool_names: tuple[str, ...] | list[str] = (),
-    harness_skill_ids: tuple[str, ...] | list[str] = (),
-    harness_attachments: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
     async_session_factory=async_session,
     get_runtime_fn: Callable[[str], Any] = get_runtime,
     persist_turn_fn: Callable[..., Awaitable[Any]] = persist_turn,
@@ -231,6 +216,24 @@ async def run_harness_turn(
 
     Returns ``(response_text, error_text)``. ``error_text`` is None on success.
     """
+    channel_id = request.channel_id
+    bus_key = request.bus_key
+    session_id = request.session_id
+    turn_id = request.turn_id
+    bot = request.bot
+    user_message = request.user_message
+    correlation_id = request.correlation_id
+    msg_metadata = request.msg_metadata
+    pre_user_msg_id = request.pre_user_msg_id
+    suppress_outbox = request.suppress_outbox
+    is_heartbeat = request.is_heartbeat
+    harness_model_override = request.harness_model_override
+    harness_effort_override = request.harness_effort_override
+    harness_permission_mode_override = request.harness_permission_mode_override
+    harness_tool_names = request.harness_tool_names
+    harness_skill_ids = request.harness_skill_ids
+    harness_attachments = request.harness_attachments
+
     load_prior = load_prior_harness_session_id_fn or load_prior_harness_session_id
     persist_failure = persist_harness_failure_fn or persist_harness_failure
     start_with_cancel = start_harness_turn_with_cancel_fn or start_harness_turn_with_cancel

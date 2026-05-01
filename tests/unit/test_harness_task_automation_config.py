@@ -1,29 +1,43 @@
+import uuid
 from types import SimpleNamespace
 
-from app.agent.tasks import _harness_task_turn_overrides
 from app.routers.api_v1_admin.tasks import TaskCreateIn, TaskDetailOut, TaskUpdateIn
+from app.services.agent_harnesses.turn_request import HarnessTurnRequest
 
 
-def test_harness_task_turn_overrides_forward_tools_skills_and_auto_approval():
-    overrides = _harness_task_turn_overrides({
+def _empty_request() -> HarnessTurnRequest:
+    return HarnessTurnRequest(
+        channel_id=None,
+        bus_key=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        turn_id=uuid.uuid4(),
+        bot=SimpleNamespace(id="bot", harness_runtime="claude_code"),
+        user_message="",
+        correlation_id=uuid.uuid4(),
+        msg_metadata=None,
+        pre_user_msg_id=None,
+        suppress_outbox=False,
+    )
+
+
+def test_task_execution_config_forwards_tools_skills_and_auto_approval():
+    request = _empty_request().with_task_execution_config({
         "tools": ["list_channels", "file", "list_channels", ""],
         "skills": ["triage", "code-review", "triage"],
         "skip_tool_approval": True,
     })
 
-    assert overrides == {
-        "harness_tool_names": ("list_channels", "file"),
-        "harness_skill_ids": ("triage", "code-review"),
-        "harness_permission_mode_override": "bypassPermissions",
-    }
+    assert request.harness_tool_names == ("list_channels", "file")
+    assert request.harness_skill_ids == ("triage", "code-review")
+    assert request.harness_permission_mode_override == "bypassPermissions"
 
 
-def test_harness_task_turn_overrides_keep_default_permission_mode_without_skip():
-    overrides = _harness_task_turn_overrides({"tools": ["list_channels"]})
+def test_task_execution_config_keeps_default_permission_mode_without_skip():
+    request = _empty_request().with_task_execution_config({"tools": ["list_channels"]})
 
-    assert overrides["harness_tool_names"] == ("list_channels",)
-    assert overrides["harness_skill_ids"] == ()
-    assert overrides["harness_permission_mode_override"] is None
+    assert request.harness_tool_names == ("list_channels",)
+    assert request.harness_skill_ids == ()
+    assert request.harness_permission_mode_override is None
 
 
 def test_task_api_schemas_surface_skip_tool_approval():

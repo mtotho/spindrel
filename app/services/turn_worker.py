@@ -55,6 +55,7 @@ from app.services import session_locks
 from app.services import presence
 from app.services.turn_context import BotContext
 from app.services.agent_harnesses import get_runtime
+from app.services.agent_harnesses.turn_request import HarnessTurnRequest
 from app.services.agent_harnesses.turn_host import (
     HarnessTurnCancelled as _HarnessTurnCancelled,
     build_turn_failure_message as _build_turn_failure_message,
@@ -101,45 +102,14 @@ async def _mirror_harness_native_plan_state(
     )
 
 
-async def _run_harness_turn(
-    *,
-    channel_id: uuid.UUID | None,
-    bus_key: uuid.UUID,
-    session_id: uuid.UUID,
-    turn_id: uuid.UUID,
-    bot: BotConfig,
-    user_message: str,
-    correlation_id: uuid.UUID,
-    msg_metadata: dict | None,
-    pre_user_msg_id: uuid.UUID | None,
-    suppress_outbox: bool,
-    is_heartbeat: bool = False,
-    harness_model_override: str | None = None,
-    harness_effort_override: str | None = None,
-    harness_permission_mode_override: str | None = None,
-    harness_tool_names: tuple[str, ...] | list[str] = (),
-    harness_skill_ids: tuple[str, ...] | list[str] = (),
-    harness_attachments: tuple[dict] | list[dict] = (),
-) -> tuple[str, str | None]:
-    """Compatibility wrapper for the harness host Module."""
+async def _run_harness_turn(request: HarnessTurnRequest) -> tuple[str, str | None]:
+    """Test-patchable seam for the harness host Module.
+
+    Tests monkey-patch this name to intercept harness invocations; production
+    callers wrap their inputs in a ``HarnessTurnRequest`` and forward.
+    """
     return await _run_harness_turn_host(
-        channel_id=channel_id,
-        bus_key=bus_key,
-        session_id=session_id,
-        turn_id=turn_id,
-        bot=bot,
-        user_message=user_message,
-        correlation_id=correlation_id,
-        msg_metadata=msg_metadata,
-        pre_user_msg_id=pre_user_msg_id,
-        suppress_outbox=suppress_outbox,
-        is_heartbeat=is_heartbeat,
-        harness_model_override=harness_model_override,
-        harness_effort_override=harness_effort_override,
-        harness_permission_mode_override=harness_permission_mode_override,
-        harness_tool_names=harness_tool_names,
-        harness_skill_ids=harness_skill_ids,
-        harness_attachments=harness_attachments,
+        request,
         async_session_factory=async_session,
         get_runtime_fn=get_runtime,
         persist_turn_fn=persist_turn,
@@ -443,17 +413,19 @@ async def _run_harness_branch_if_needed(
         return False
 
     state.response_text, state.error_text = await _run_harness_turn(
-        channel_id=scope.channel_id,
-        bus_key=scope.bus_key,
-        session_id=scope.session_id,
-        turn_id=scope.turn_id,
-        bot=bot,
-        user_message=user_message,
-        correlation_id=scope.correlation_id,
-        msg_metadata=req.msg_metadata,
-        pre_user_msg_id=state.pre_user_msg_id,
-        suppress_outbox=scope.suppress_outbox,
-        harness_attachments=tuple(att_payload or ()),
+        HarnessTurnRequest(
+            channel_id=scope.channel_id,
+            bus_key=scope.bus_key,
+            session_id=scope.session_id,
+            turn_id=scope.turn_id,
+            bot=bot,
+            user_message=user_message,
+            correlation_id=scope.correlation_id,
+            msg_metadata=req.msg_metadata,
+            pre_user_msg_id=state.pre_user_msg_id,
+            suppress_outbox=scope.suppress_outbox,
+            harness_attachments=tuple(att_payload or ()),
+        )
     )
     state.persisted_turn = (
         state.error_text is None or state.error_text == "persist_turn failed"
