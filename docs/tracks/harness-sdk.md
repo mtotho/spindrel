@@ -384,6 +384,15 @@ Approval mapping intent (final values from schema):
   during teardown. Verified on port `18102`: `/plugins`, `/skills`, terminal
   handoff, and Claude project-local native skill invocation all passed with
   refreshed docs screenshots.
+- 2026-05-01 bridge/UI preset follow-up: bridge and UI local batch presets now
+  run current pytest-backed selectors without falling into the whole screenshot
+  suite. Bridge slices capture the matching bridge/default and terminal-write
+  docs screenshots; safe-write, explicit-memory, terminal-order, and persisted
+  replay slices run as live parity checks without stale screenshot lookups.
+  Verified on port `18102`: bridge tool persistence, default-mode bridge write
+  approval/resume, safe workspace write/read/delete, explicit memory read,
+  terminal sequential tool output, and persisted tool replay after refetch all
+  passed.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

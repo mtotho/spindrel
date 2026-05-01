@@ -131,6 +131,15 @@ def test_harness_parity_local_batch_bridge_preset_avoids_unfiltered_screenshot_s
     assert "--tier memory --screenshots off -k memory_hint_requires_explicit_read" in proc.stdout
 
 
+def test_harness_parity_local_batch_ui_preset_uses_current_pytest_selectors() -> None:
+    proc = _run_script("--preset", "ui", "--screenshots", "docs", "--dry-run")
+
+    assert proc.returncode == 0, proc.stderr
+    assert "--tier terminal --screenshots off -k terminal_tool_output_is_sequential" in proc.stdout
+    assert "--tier replay --screenshots off -k persisted_tool_replay_survives_refetch" in proc.stdout
+    assert "mobile_context_panel" not in proc.stdout
+
+
 def test_harness_parity_strict_skip_gate_allows_intentional_runtime_skips(tmp_path) -> None:
     junit = tmp_path / "pytest.xml"
     junit.write_text(textwrap.dedent(

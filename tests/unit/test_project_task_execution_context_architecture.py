@@ -16,6 +16,11 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CODING_RUNS = _REPO_ROOT / "app" / "services" / "project_coding_runs.py"
 _CONTEXT = _REPO_ROOT / "app" / "services" / "project_task_execution_context.py"
+# Post-split owners (2026-05-01). The orchestration / review / schedule
+# lifecycles each own their entry points; ``project_coding_runs`` is a
+# re-export facade.
+_REVIEW_MODULE = _REPO_ROOT / "app" / "services" / "project_coding_run_review.py"
+_ORCHESTRATION_MODULE = _REPO_ROOT / "app" / "services" / "project_coding_run_orchestration.py"
 
 
 def _module(path: Path) -> ast.Module:
@@ -105,7 +110,7 @@ def test_create_project_coding_run_uses_execution_context_fresh():
     Module via ``ProjectTaskExecutionContext.fresh`` rather than the old
     inline ``allocate_project_run_dev_targets`` + ``_execution_config_from_preset``
     pair."""
-    tree = _module(_CODING_RUNS)
+    tree = _module(_ORCHESTRATION_MODULE)
     create_fn: ast.AsyncFunctionDef | None = None
     for node in tree.body:
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "create_project_coding_run":
@@ -138,7 +143,7 @@ def test_continue_project_coding_run_uses_from_parent():
     """Continuation goes through ``from_parent`` (which raises typed errors
     on malformed parent) rather than the silent ``cfg.get(...) or []`` fallback
     + manual re-allocation. Validates the user-decided behavior change."""
-    tree = _module(_CODING_RUNS)
+    tree = _module(_ORCHESTRATION_MODULE)
     continue_fn: ast.AsyncFunctionDef | None = None
     for node in tree.body:
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "continue_project_coding_run":
@@ -169,7 +174,7 @@ def test_continue_project_coding_run_uses_from_parent():
 def test_create_review_session_uses_execution_context_review():
     """Review session goes through ``ProjectTaskExecutionContext.review`` so
     runtime + dependency-stack resolution share the canonical seam."""
-    tree = _module(_CODING_RUNS)
+    tree = _module(_REVIEW_MODULE)
     fn: ast.AsyncFunctionDef | None = None
     for node in tree.body:
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "create_project_coding_run_review_session":
