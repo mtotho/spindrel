@@ -11,6 +11,20 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+LOCAL_ENV="$PROJECT_ROOT/.env.agent-e2e"
+
+if [[ -f "$LOCAL_ENV" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$LOCAL_ENV"
+    set +a
+fi
+
+if [[ -n "${SPINDREL_AGENT_E2E_STATE_DIR:-}" ]]; then
+    AGENT_STATE_DIR="$PROJECT_ROOT/${SPINDREL_AGENT_E2E_STATE_DIR#./}"
+else
+    AGENT_STATE_DIR="$PROJECT_ROOT/scratch/agent-e2e"
+fi
 
 PRESET="smoke"
 JOBS="${HARNESS_PARITY_LOCAL_BATCH_JOBS:-2}"
@@ -19,7 +33,7 @@ SCREENSHOTS="off"
 DRY_RUN=false
 LIST=false
 FAIL_ON_SKIPS=false
-RUN_DIR="$PROJECT_ROOT/scratch/agent-e2e/harness-parity-runs/$(date -u +%Y%m%dT%H%M%SZ)"
+RUN_DIR="$AGENT_STATE_DIR/harness-parity-runs/$(date -u +%Y%m%dT%H%M%SZ)"
 
 usage() {
     cat <<'EOF'

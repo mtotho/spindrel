@@ -19,6 +19,7 @@ from app.services.project_coding_runs import (
     fire_project_coding_run_schedule,
     finalize_project_coding_run_review,
     get_project_coding_run_review_context,
+    list_project_coding_runs,
     list_project_coding_run_schedules,
     project_coding_run_defaults,
     ProjectCodingRunScheduleCreate,
@@ -203,6 +204,12 @@ async def test_project_coding_run_allocates_dev_targets_and_runtime_env(db_sessi
     assert runtime is not None
     assert runtime.env["SPINDREL_DEV_API_PORT"] == "31101"
     assert runtime.env["SPINDREL_DEV_API_URL"] == "http://127.0.0.1:31101"
+
+    rows = await list_project_coding_runs(db_session, project)
+    assert rows[0]["id"] == str(task.id)
+    assert rows[0]["readiness"]["ready"] is True
+    assert rows[0]["readiness"]["dev_targets"]["targets"] == targets
+    assert rows[0]["readiness"]["receipt_evidence"][0]["key"] == "changed_files"
 
 
 @pytest.mark.asyncio

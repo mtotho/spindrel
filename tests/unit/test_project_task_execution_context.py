@@ -818,6 +818,77 @@ async def test_env_for_subprocess_combines_runtime_env_and_dev_target_env(db_ses
     assert env["MY_URL"] == "http://127.0.0.1:31100"
 
 
+def test_readiness_summary_is_secret_safe_and_collects_run_contract():
+    ctx = ProjectTaskExecutionContext(
+        project_id=str(uuid.uuid4()),
+        kind="project_coding_run",
+        preset_id="project_coding_run",
+        request="",
+        repo={"path": "spindrel"},
+        branch="spindrel/project-123-work",
+        base_branch="development",
+        dev_targets=(DevTarget(
+            key="api",
+            label="API",
+            port=31100,
+            port_env="SPINDREL_DEV_API_PORT",
+            url="http://127.0.0.1:31100",
+            url_env="SPINDREL_DEV_API_URL",
+        ),),
+        dependency_stack=DependencyStackView(
+            True,
+            "docker-compose.project.yml",
+            ("DATABASE_URL",),
+            ("migrate",),
+        ),
+        runtime_target=RuntimeTargetView(
+            False,
+            ("DATABASE_URL", "GITHUB_TOKEN"),
+            ("GITHUB_TOKEN",),
+        ),
+        lineage=__import__("app.services.project_task_execution_context", fromlist=["RunLineage"]).RunLineage(
+            parent_task_id=None,
+            root_task_id=str(uuid.uuid4()),
+            continuation_index=0,
+        ),
+        machine_grant=MachineGrantSummary(
+            provider_id="ssh",
+            target_id="e2e",
+            capabilities=("inspect",),
+            allow_agent_tools=True,
+            expires_at=None,
+        ),
+        source_work_pack_id=None,
+        schedule_task_id=None,
+        schedule_run_number=None,
+        selected_task_ids=(),
+        _runtime_env={"DATABASE_URL": "postgres://user:secret@host/db"},
+    )
+
+    summary = ctx.readiness_summary(
+        dependency_stack_status={
+            "status": "running",
+            "services": [{"name": "postgres", "status": "healthy"}],
+        }
+    )
+
+    assert summary["ready"] is False
+    assert "Missing required runtime secret: GITHUB_TOKEN" in summary["blockers"]
+    assert summary["dependency_stack"]["status"] == "running"
+    assert summary["dependency_stack"]["services"] == [{"name": "postgres", "status": "healthy"}]
+    assert summary["dev_targets"]["env"] == {
+        "SPINDREL_DEV_API_PORT": "31100",
+        "SPINDREL_DEV_API_URL": "http://127.0.0.1:31100",
+    }
+    assert {item["key"] for item in summary["receipt_evidence"]} >= {
+        "changed_files",
+        "tests",
+        "screenshots",
+        "handoff_url",
+    }
+    assert "postgres://user:secret@host/db" not in str(summary)
+
+
 def test_runtime_env_redact_text_redacts_known_values():
     ctx = ProjectTaskExecutionContext(
         project_id=str(uuid.uuid4()),
@@ -869,6 +940,8 @@ async def test_apply_to_task_sets_execution_config_task_type_dispatch(db_session
 
     assert task.execution_config["run_preset_id"] == PROJECT_CODING_RUN_PRESET_ID
     assert task.execution_config["project_coding_run"]["request"] == "hello"
+    assert task.execution_config["project_coding_run"]["readiness"]["ready"] is True
+    assert task.execution_config["project_coding_run"]["readiness"]["receipt_evidence"][0]["key"] == "changed_files"
     preset = get_run_preset(PROJECT_CODING_RUN_PRESET_ID)
     assert preset is not None and preset.task_defaults is not None
     assert task.task_type == preset.task_defaults.task_type

@@ -49,6 +49,33 @@ PROJECT_CODING_RUN_PRESET_ID = "project_coding_run"
 PROJECT_CODING_RUN_REVIEW_PRESET_ID = "project_coding_run_review"
 
 DEFAULT_DEV_TARGET_PORT_RANGE = (31_000, 32_999)
+RECEIPT_EVIDENCE_REQUIREMENTS = (
+    {
+        "key": "changed_files",
+        "label": "Changed files",
+        "required": True,
+    },
+    {
+        "key": "tests",
+        "label": "Test commands and results",
+        "required": True,
+    },
+    {
+        "key": "screenshots",
+        "label": "Screenshot or visual evidence",
+        "required": True,
+    },
+    {
+        "key": "dev_targets",
+        "label": "Dev target URLs and status",
+        "required": False,
+    },
+    {
+        "key": "handoff_url",
+        "label": "PR, branch, or review handoff URL",
+        "required": True,
+    },
+)
 
 
 # ---------------------------------------------------------------------------
@@ -888,6 +915,7 @@ class ProjectTaskExecutionContext:
             "dev_targets": [t.to_persisted() for t in self.dev_targets],
             "dev_target_env": self._dev_target_env(),
             "dependency_stack": self.dependency_stack.to_persisted(),
+            "readiness": self.readiness_summary(),
             "machine_target_grant": (
                 self.machine_grant.to_persisted() if self.machine_grant else None
             ),
@@ -975,6 +1003,58 @@ class ProjectTaskExecutionContext:
             "missing_secrets": list(self.runtime_target.missing_secrets),
             "invalid_env_keys": [],
             "reserved_env_keys": [],
+        }
+
+    def readiness_summary(
+        self,
+        *,
+        dependency_stack_status: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Secret-safe run-readiness manifest for agents and UI/API rows."""
+        blockers: list[str] = []
+        warnings: list[str] = []
+        if not self.runtime_target.ready:
+            blockers.append("Project runtime environment is not ready.")
+        for key in self.runtime_target.missing_secrets:
+            blockers.append(f"Missing required runtime secret: {key}")
+
+        dependency_status = None
+        dependency_services: list[dict[str, Any]] = []
+        if dependency_stack_status is not None:
+            dependency_status = dependency_stack_status.get("status")
+            raw_services = dependency_stack_status.get("services")
+            if isinstance(raw_services, list):
+                dependency_services = [
+                    dict(item) for item in raw_services if isinstance(item, dict)
+                ]
+        if self.dependency_stack.configured and not dependency_status:
+            warnings.append("Project dependency stack is configured but has not reported runtime status yet.")
+
+        return {
+            "ready": not blockers,
+            "blockers": blockers,
+            "warnings": warnings,
+            "runtime_env": self.runtime_target.to_persisted(),
+            "dependency_stack": {
+                **self.dependency_stack.to_persisted(),
+                "status": dependency_status,
+                "services": dependency_services,
+            },
+            "dev_targets": {
+                "configured": bool(self.dev_targets),
+                "count": len(self.dev_targets),
+                "targets": [target.to_persisted() for target in self.dev_targets],
+                "env": self._dev_target_env(),
+            },
+            "receipt_evidence": [dict(item) for item in RECEIPT_EVIDENCE_REQUIREMENTS],
+            "handoff": {
+                "branch": self.branch,
+                "base_branch": self.base_branch,
+                "repo": dict(self.repo),
+            },
+            "machine_target": (
+                self.machine_grant.to_persisted() if self.machine_grant else None
+            ),
         }
 
     def env_for_subprocess(self) -> dict[str, str]:

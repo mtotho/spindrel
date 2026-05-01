@@ -1549,6 +1549,7 @@ export interface ProjectCodingRun {
   runtime_target?: Record<string, any>;
   dev_targets?: Array<Record<string, any>>;
   dependency_stack?: ProjectDependencyStackState;
+  readiness?: Record<string, any>;
   source_work_pack_id?: string | null;
   parent_task_id?: string | null;
   root_task_id?: string | null;

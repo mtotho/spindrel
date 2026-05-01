@@ -46,6 +46,17 @@ def test_harness_parity_shell_runners_are_syntax_valid() -> None:
     assert proc.returncode == 0, proc.stderr
 
 
+def test_harness_parity_local_runner_uses_agent_owned_state_dir() -> None:
+    local_runner = (REPO_ROOT / "scripts" / "run_harness_parity_local.sh").read_text()
+    batch_runner = (REPO_ROOT / "scripts" / "run_harness_parity_local_batch.sh").read_text()
+
+    assert "SPINDREL_AGENT_E2E_STATE_DIR" in local_runner
+    assert 'NATIVE_ENV="$AGENT_STATE_DIR/native-api.env"' in local_runner
+    assert 'HARNESS_ENV="$AGENT_STATE_DIR/harness-parity.env"' in local_runner
+    assert "SPINDREL_AGENT_E2E_STATE_DIR" in batch_runner
+    assert 'RUN_DIR="$AGENT_STATE_DIR/harness-parity-runs/$(date -u +%Y%m%dT%H%M%SZ)"' in batch_runner
+
+
 def test_harness_parity_local_batch_all_preset_is_strict_full_suite() -> None:
     proc = _run_script("--preset", "all", "--screenshots", "docs", "--dry-run")
 

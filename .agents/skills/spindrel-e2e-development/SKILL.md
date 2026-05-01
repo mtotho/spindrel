@@ -235,6 +235,14 @@ Generic Project Factory feedback loop:
 8. Publish a Project run receipt with commands, results, dev target status,
    dependency stack evidence, screenshots, and handoff/PR state.
 
+Before the agent starts Project-local work, inspect the coding run's
+`readiness` manifest from the Project Runs API or run-detail payload. It is the
+canonical secret-safe contract for runtime blockers, current dependency-stack
+status, assigned dev-target URLs/env names, handoff branch details,
+machine-target grant summary, and receipt-evidence requirements. Do not
+reconstruct those facts from scattered Project settings when the run payload
+already has them.
+
 Do not use `prepare-harness-parity` or `start-api` from inside the harness task
 to set up a normal Project run. A live generic Project Factory attempt proved
 that doing so can restart an outer repo-dev agent's native API/UI process with

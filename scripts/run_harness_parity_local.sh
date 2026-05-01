@@ -15,8 +15,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOCAL_ENV="$PROJECT_ROOT/.env.agent-e2e"
-NATIVE_ENV="$PROJECT_ROOT/scratch/agent-e2e/native-api.env"
-HARNESS_ENV="$PROJECT_ROOT/scratch/agent-e2e/harness-parity.env"
+DEFAULT_AGENT_E2E_STATE_DIR="$PROJECT_ROOT/scratch/agent-e2e"
+NATIVE_ENV="$DEFAULT_AGENT_E2E_STATE_DIR/native-api.env"
+HARNESS_ENV="$DEFAULT_AGENT_E2E_STATE_DIR/harness-parity.env"
 SCREENSHOTS="auto"
 ARGS=()
 
@@ -43,6 +44,14 @@ if [[ -f "$LOCAL_ENV" ]]; then
     source "$LOCAL_ENV"
     set +a
 fi
+
+if [[ -n "${SPINDREL_AGENT_E2E_STATE_DIR:-}" ]]; then
+    AGENT_STATE_DIR="$PROJECT_ROOT/${SPINDREL_AGENT_E2E_STATE_DIR#./}"
+else
+    AGENT_STATE_DIR="$DEFAULT_AGENT_E2E_STATE_DIR"
+fi
+NATIVE_ENV="$AGENT_STATE_DIR/native-api.env"
+HARNESS_ENV="$AGENT_STATE_DIR/harness-parity.env"
 
 if [[ -f "$NATIVE_ENV" ]]; then
     set -a

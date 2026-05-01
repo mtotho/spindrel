@@ -1305,6 +1305,7 @@ async def _coding_run_row(
         "dev_targets": [t.to_persisted() for t in ctx.dev_targets],
         "dependency_stack": dependency_stack,
         "dependency_stack_preflight": cfg.get("dependency_stack_preflight") or {},
+        "readiness": ctx.readiness_summary(dependency_stack_status=dependency_stack),
         "source_work_pack_id": ctx.source_work_pack_id,
         "parent_task_id": ctx.lineage.parent_task_id,
         "root_task_id": ctx.lineage.root_task_id,

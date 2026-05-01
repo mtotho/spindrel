@@ -213,6 +213,11 @@ Project Factory verification loop is Project-defined: agents run repo-local
 commands and tests from the Project work surface, use injected runtime and
 Dependency Stack env, start app/dev servers on assigned dev target ports, and
 attach screenshots plus command results to the receipt.
+Each coding run exposes a secret-safe `readiness` manifest in the Runs API with
+runtime blockers, dependency-stack status, assigned dev targets, handoff branch
+details, machine-target grant summary, and required receipt-evidence fields.
+Agents should inspect that manifest before starting work and reflect any blocker
+or missing evidence in the final Project run receipt.
 Ordinary Project runs must not bootstrap or restart the host Spindrel e2e/API
 server; source-run app processes belong on the run's own assigned or unused
 ports.

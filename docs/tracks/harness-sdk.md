@@ -358,6 +358,13 @@ Approval mapping intent (final values from schema):
   keeping `AskUserQuestion` out of the allowlist so the durable Spindrel
   question-card bridge still owns user prompts. Static unit coverage guards
   the allowlist even when `claude_agent_sdk` is not installed locally.
+- 2026-05-01 screenshot follow-up: local harness parity now runs from an
+  agent-owned native API on `E2E_PORT` and the shell runners resolve
+  `SPINDREL_AGENT_E2E_STATE_DIR` before loading `native-api.env` and
+  `harness-parity.env`, avoiding stale shared scratch envs from other agents.
+  Verified on port `18102`: focused native slash parity passed and refreshed
+  `docs/images/harness-claude-native-skills-result-dark.png`, showing the
+  Claude `/skills` result rendered in chat rather than a terminal handoff.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 
