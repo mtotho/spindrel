@@ -7,6 +7,15 @@
 import { useRef, useCallback, useEffect, useState, useMemo } from "react";
 import type { ThemeTokens } from "@/src/theme/tokens";
 
+// Global CSS forces textarea { font-size: 16px !important } to prevent iOS
+// focus zoom. Keep every visual layer on the same metrics so the transparent
+// textarea caret stays aligned with the highlighted text behind it.
+const EDITOR_FONT = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace";
+const EDITOR_FONT_SIZE = 16;
+const EDITOR_LINE_HEIGHT_PX = 24;
+const EDITOR_LINE_HEIGHT = `${EDITOR_LINE_HEIGHT_PX}px`;
+const EDITOR_PADDING = "8px 12px";
+
 // ---------------------------------------------------------------------------
 // Token-level syntax highlighting (simple regex-based)
 // ---------------------------------------------------------------------------
@@ -229,7 +238,7 @@ export function CodeEditor({ content, onChange, filePath, t }: CodeEditorProps) 
     return lines.map((line, i) => {
       const tokens = tokenizeLine(line, lang, false);
       return (
-        <div key={i} style={{ height: 20, lineHeight: "20px", whiteSpace: "pre" }}>
+        <div key={i} style={{ height: EDITOR_LINE_HEIGHT_PX, lineHeight: EDITOR_LINE_HEIGHT, whiteSpace: "pre" }}>
           {tokens.map((tok, j) => (
             <span key={j} style={{ color: tok.type ? tokenColors(tok.type, t) : undefined }}>
               {tok.text}
@@ -242,7 +251,7 @@ export function CodeEditor({ content, onChange, filePath, t }: CodeEditorProps) 
   }, [lines, lang, t]);
 
   // Gutter width based on line count
-  const gutterWidth = Math.max(36, String(lineCount).length * 9 + 20);
+  const gutterWidth = Math.max(44, String(lineCount).length * 10 + 24);
 
   return (
     <div
@@ -271,12 +280,12 @@ export function CodeEditor({ content, onChange, filePath, t }: CodeEditorProps) 
           <div
             key={i}
             style={{
-              height: 20,
-              lineHeight: "20px",
+              height: EDITOR_LINE_HEIGHT_PX,
+              lineHeight: EDITOR_LINE_HEIGHT,
               textAlign: "right",
               paddingRight: 10,
-              fontSize: 12,
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+              fontSize: EDITOR_FONT_SIZE,
+              fontFamily: EDITOR_FONT,
               color: t.textDim,
             }}
           >
@@ -299,10 +308,10 @@ export function CodeEditor({ content, onChange, filePath, t }: CodeEditorProps) 
               right: 0,
               bottom: 0,
               margin: 0,
-              padding: "8px 12px",
-              fontSize: 13,
-              lineHeight: "20px",
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+              padding: EDITOR_PADDING,
+              fontSize: EDITOR_FONT_SIZE,
+              lineHeight: EDITOR_LINE_HEIGHT,
+              fontFamily: EDITOR_FONT,
               color: t.text,
               overflow: "auto",
               pointerEvents: "none",
@@ -325,13 +334,13 @@ export function CodeEditor({ content, onChange, filePath, t }: CodeEditorProps) 
             position: "relative",
             width: "100%",
             height: "100%",
-            padding: "8px 12px",
+            padding: EDITOR_PADDING,
             backgroundColor: "transparent",
             color: highlightedLines ? "transparent" : t.text,
             caretColor: t.text,
-            fontSize: 13,
-            lineHeight: "20px",
-            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            fontSize: EDITOR_FONT_SIZE,
+            lineHeight: EDITOR_LINE_HEIGHT,
+            fontFamily: EDITOR_FONT,
             border: "none",
             outline: "none",
             resize: "none",
