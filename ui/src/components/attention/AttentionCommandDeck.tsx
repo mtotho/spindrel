@@ -193,7 +193,7 @@ function SkeletonBlock({ className }: { className: string }) {
 function AttentionCommandDeckSkeleton() {
   return (
     <div className="flex h-full min-h-0 flex-col text-text" data-testid="attention-command-deck-loading">
-      <div className="shrink-0 border-b border-surface-border/70 px-4 py-3">
+      <div className="shrink-0 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0 space-y-2">
             <SkeletonBlock className="h-3 w-40" />
@@ -215,8 +215,8 @@ function AttentionCommandDeckSkeleton() {
           ))}
         </div>
       </div>
-      <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="min-h-0 px-3 py-3">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 px-3 pb-3 md:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="min-h-0 rounded-md bg-surface-overlay/20 px-3 py-3">
           <div className="grid grid-cols-2 gap-1.5">
             {[0, 1, 2, 3].map((index) => <SkeletonBlock key={index} className="h-10" />)}
           </div>
@@ -224,7 +224,7 @@ function AttentionCommandDeckSkeleton() {
             {[0, 1, 2, 3, 4, 5].map((index) => <SkeletonBlock key={index} className="h-14" />)}
           </div>
         </aside>
-        <main className="min-h-0 border-t border-surface-border/60 px-4 py-4 md:border-l md:border-t-0">
+        <main className="min-h-0 rounded-md bg-surface-overlay/20 px-4 py-4">
           <SkeletonBlock className="h-3 w-36" />
           <SkeletonBlock className="mt-3 h-8 w-80 max-w-full" />
           <SkeletonBlock className="mt-3 h-4 w-96 max-w-full" />
@@ -284,10 +284,10 @@ export function AttentionCommandDeck({
   const firstReview = useMemo(() => sortAttention(buckets.review)[0] ?? null, [buckets.review]);
   const displayItem = selected ?? activeList[0] ?? null;
 
-  const setDeckMode = (next: DeckMode) => {
+  const setDeckMode = (next: DeckMode, notify = true) => {
     setRunModePinned(next === "runs");
     setModeState(next);
-    onModeChange?.(next);
+    if (notify) onModeChange?.(next);
   };
 
   useEffect(() => {
@@ -313,11 +313,11 @@ export function AttentionCommandDeck({
   useEffect(() => {
     if (!selected) return;
     const state = getAttentionWorkflowState(selected);
-    if (state === "operator_review" || state === "bot_report") setDeckMode("review");
-    else if (state === "processed" || state === "closed") setDeckMode("cleared");
-    else if (state === "in_sweep") setDeckMode("runs");
-    else if (isIssueCandidate(selected)) setDeckMode("issues");
-    else setDeckMode("inbox");
+    if (state === "operator_review" || state === "bot_report") setDeckMode("review", false);
+    else if (state === "processed" || state === "closed") setDeckMode("cleared", false);
+    else if (state === "in_sweep") setDeckMode("runs", false);
+    else if (isIssueCandidate(selected)) setDeckMode("issues", false);
+    else setDeckMode("inbox", false);
   }, [selected?.id]);
 
   const startSweep = () => {
@@ -534,7 +534,7 @@ export function AttentionCommandDeck({
 
   return (
     <div className="flex h-full min-h-0 flex-col text-text">
-      <div className="shrink-0 border-b border-surface-border/70 px-4 py-3">
+      <div className="shrink-0 px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
@@ -613,7 +613,7 @@ export function AttentionCommandDeck({
         )}
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 px-3 pb-3 md:grid-cols-[300px_minmax(0,1fr)]">
         <DeckQueue
           mode={mode}
           counts={counts}
@@ -626,7 +626,7 @@ export function AttentionCommandDeck({
           }}
           onSelect={onSelect}
         />
-        <main ref={detailRef} tabIndex={-1} className="min-h-0 overflow-y-auto border-t border-surface-border/60 px-4 py-4 outline-none md:border-l md:border-t-0">
+        <main ref={detailRef} tabIndex={-1} className="min-h-0 overflow-y-auto rounded-md bg-surface-overlay/20 px-4 py-4 outline-none">
           {mode === "issues" ? (
             <IssueIntakeWorkspace items={issueCandidates} />
           ) : mode === "runs" ? (
@@ -661,7 +661,7 @@ function DeckQueue({
 }) {
   const title = mode === "issues" ? "Issue intake" : mode === "inbox" ? "Unreviewed" : mode === "review" ? "Findings" : mode === "cleared" ? "Cleared" : "Sweep history";
   return (
-    <aside className="min-h-0 overflow-y-auto px-3 py-3">
+    <aside className="min-h-0 overflow-y-auto rounded-md bg-surface-overlay/20 px-3 py-3">
       <div className="grid grid-cols-2 gap-1.5">
         <ModeButton active={mode === "review"} icon={<Sparkles size={14} />} label="Findings" count={counts.review} onClick={() => onModeChange("review")} />
         <ModeButton active={mode === "issues"} icon={<MessageSquare size={14} />} label="Issues" count={counts.issues} onClick={() => onModeChange("issues")} />

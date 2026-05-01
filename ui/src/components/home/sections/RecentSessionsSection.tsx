@@ -4,7 +4,7 @@ import { Clock3, Hash, MessageSquareText } from "lucide-react";
 import { useRecentSessions, type RecentSessionItem } from "../../../api/hooks/useRecentSessions";
 import { buildChannelSessionRoute } from "../../../lib/channelSessionSurfaces";
 import { formatRelativeTime } from "../../../utils/format";
-import { SectionHeading } from "./SectionHeading";
+import { AnchorSection } from "../../shared/AnchorSection";
 
 function shortId(id: string): string {
   return id.slice(0, 8);
@@ -39,9 +39,9 @@ function RecentSessionRow({ row, index }: { row: RecentSessionItem; index: numbe
     <Link
       to={sessionHref(row)}
       data-testid="home-recent-session-row"
-      className={`group flex min-h-[74px] items-start gap-3 rounded-md border border-transparent bg-surface-raised/45 px-3 py-3 transition-colors hover:border-surface-border hover:bg-surface-overlay/40 ${index >= 5 ? "hidden sm:flex" : ""}`}
+      className={`group flex min-h-[74px] items-start gap-3 rounded-md bg-surface-overlay/25 px-3 py-3 transition-colors hover:bg-surface-overlay/45 ${index >= 5 ? "hidden sm:flex" : ""}`}
     >
-      <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-surface-border bg-surface">
+      <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-raised/70">
         <MessageSquareText size={15} className={unreadCount ? "text-accent" : "text-text-dim"} />
       </span>
       <span className="min-w-0 flex-1">
@@ -84,20 +84,22 @@ export function RecentSessionsSection() {
   const sessions = data?.sessions ?? [];
 
   return (
-    <section data-testid="home-recent-sessions" className="space-y-2" aria-label="Recent sessions">
-      <SectionHeading
-        icon={<Clock3 size={12} />}
-        label="Recent sessions"
-        count={sessions.length || undefined}
-      />
+    <AnchorSection
+      testId="home-recent-sessions"
+      icon={<Clock3 size={12} />}
+      eyebrow="Recent sessions"
+      title="Latest work threads"
+      meta={sessions.length ? `${sessions.length} shown` : undefined}
+      emphasis="primary"
+    >
       {isLoading ? <LoadingRows /> : null}
       {!isLoading && isError ? (
-        <div className="rounded-md border border-surface-border bg-surface-raised/45 px-3 py-4 text-sm text-text-muted">
+        <div className="rounded-md bg-surface-overlay/25 px-3 py-4 text-sm text-text-muted">
           Recent sessions unavailable.
         </div>
       ) : null}
       {!isLoading && !isError && sessions.length === 0 ? (
-        <div className="rounded-md border border-dashed border-surface-border bg-surface-raised/30 px-3 py-4 text-sm text-text-muted">
+        <div className="rounded-md border border-dashed border-surface-border bg-surface-overlay/20 px-3 py-4 text-sm text-text-muted">
           No recent sessions yet.
         </div>
       ) : null}
@@ -108,6 +110,6 @@ export function RecentSessionsSection() {
           ))}
         </div>
       ) : null}
-    </section>
+    </AnchorSection>
   );
 }

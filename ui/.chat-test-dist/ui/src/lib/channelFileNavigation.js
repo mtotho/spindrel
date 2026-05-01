@@ -48,6 +48,19 @@ export function resolveChannelLinkedFilePath(href) {
         return null;
     return normalized.replace(/^\.\//, "");
 }
+export function resolveToolTargetFilePath(target) {
+    if (typeof target !== "string")
+        return null;
+    const raw = target.trim().replace(/^['"]|['"]$/g, "");
+    if (!raw
+        || raw.startsWith("/")
+        || raw.startsWith("~/")
+        || /^[A-Za-z]:[\\/]/.test(raw)
+        || /\s/.test(raw)) {
+        return null;
+    }
+    return resolveChannelLinkedFilePath(raw);
+}
 export function directoryForWorkspaceFile(path) {
     const normalized = normalizeWorkspaceNavigationPath(path);
     if (!normalized)

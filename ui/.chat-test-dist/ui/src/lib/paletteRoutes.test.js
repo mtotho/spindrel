@@ -4,6 +4,8 @@ import { canonicalizePaletteHref, normalizePalettePathInput, resolvePaletteRoute
 test("canonicalizePaletteHref normalizes route aliases to their durable targets", () => {
     assert.equal(canonicalizePaletteHref("/profile"), "/settings/account");
     assert.equal(canonicalizePaletteHref("/channels"), "/");
+    assert.equal(canonicalizePaletteHref("/canvas?node=node-1"), "/spatial?node=node-1");
+    assert.equal(canonicalizePaletteHref("/?channel=channel-1"), "/spatial?channel=channel-1");
     assert.equal(canonicalizePaletteHref("/admin/widget-packages/pkg-1"), "/widgets/dev?id=pkg-1#templates");
     assert.equal(canonicalizePaletteHref("/admin/upcoming"), "/admin/automations?view=list");
 });

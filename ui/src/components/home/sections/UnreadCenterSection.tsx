@@ -6,7 +6,7 @@ import { type SessionReadState, useMarkRead, useUnreadState } from "../../../api
 import { unreadStateHref } from "../../../lib/unreadNavigation";
 import type { Channel } from "../../../types/api";
 import { formatRelativeTime } from "../../../utils/format";
-import { SectionHeading } from "./SectionHeading";
+import { AnchorSection } from "../../shared/AnchorSection";
 
 function shortId(id: string): string {
   return id.slice(0, 8);
@@ -36,24 +36,26 @@ export function UnreadCenterSection() {
   const total = states.reduce((sum, row) => sum + row.unread_agent_reply_count, 0);
 
   return (
-    <section data-testid="home-unread-center" className="space-y-2" aria-label="Unread center">
-      <SectionHeading
-        icon={<Inbox size={12} />}
-        label="Unread center"
-        count={total || undefined}
-        action={total ? (
-          <button
-            type="button"
-            className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
-            disabled={markRead.isPending}
-            onClick={() => markRead.mutate({ source: "home_unread_center", surface: "home" })}
-          >
-            <CheckCheck size={13} />
-            Clear
-          </button>
-        ) : null}
-      />
-      <div className="rounded-md border border-surface-border bg-surface-raised p-2">
+    <AnchorSection
+      testId="home-unread-center"
+      icon={<Inbox size={12} />}
+      eyebrow="Unread center"
+      title={total ? `${total} unread ${total === 1 ? "reply" : "replies"}` : "All caught up"}
+      meta={states.length ? `${states.length} session${states.length === 1 ? "" : "s"}` : undefined}
+      action={total ? (
+        <button
+          type="button"
+          className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
+          disabled={markRead.isPending}
+          onClick={() => markRead.mutate({ source: "home_unread_center", surface: "home" })}
+        >
+          <CheckCheck size={13} />
+          Clear
+        </button>
+      ) : null}
+      emphasis="secondary"
+    >
+      <div className="space-y-1">
         {isLoading ? (
           <div className="space-y-2">
             {Array.from({ length: 3 }).map((_, index) => (
@@ -66,7 +68,7 @@ export function UnreadCenterSection() {
         ) : null}
         {!isLoading && !isError && topStates.length === 0 ? (
           <div className="flex min-h-[72px] items-center gap-3 px-2 py-3">
-            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-surface-border bg-surface">
+            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-overlay/45">
               <CheckCheck size={15} className="text-success" />
             </span>
             <span>
@@ -112,6 +114,6 @@ export function UnreadCenterSection() {
           </div>
         ) : null}
       </div>
-    </section>
+    </AnchorSection>
   );
 }

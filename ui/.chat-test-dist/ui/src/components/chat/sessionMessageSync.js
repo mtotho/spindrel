@@ -27,6 +27,38 @@ function structuredRenderItemCount(message) {
         || item.kind === "rich_result"
         || item.kind === "root_rich_result").length;
 }
+function textSize(value) {
+    if (typeof value !== "string")
+        return 0;
+    return value.trim().length;
+}
+function assistantTurnBodyTextSize(body) {
+    if (!body || !Array.isArray(body.items))
+        return 0;
+    let total = 0;
+    for (const item of body.items) {
+        if (!item || typeof item !== "object")
+            continue;
+        total += textSize(item.text);
+        total += textSize(item.content);
+        total += textSize(item.previewText);
+        total += textSize(item.detail);
+    }
+    return total;
+}
+function assistantMessageRichnessScore(message) {
+    if (message.role !== "assistant")
+        return 0;
+    const meta = (message.metadata ?? {});
+    const assistantTurnBody = meta.assistant_turn_body;
+    return (normalizedContentPrefix(message.content).length
+        + textSize(message.content)
+        + textSize(meta.thinking)
+        + textSize(meta.thinking_content)
+        + assistantTurnBodyTextSize(assistantTurnBody)
+        + structuredRenderItemCount(message) * 10_000
+        + ((message.tool_calls ?? []).length * 1_000));
+}
 function matchingDbMessages(synthetic, dbMessages) {
     if (synthetic.role !== "assistant")
         return [];
@@ -52,7 +84,8 @@ export function shouldKeepSyntheticAssistantMessage(synthetic, dbMessages) {
     const syntheticStructuredCount = structuredRenderItemCount(synthetic);
     if (syntheticStructuredCount === 0)
         return false;
-    return matches.every((candidate) => structuredRenderItemCount(candidate) < syntheticStructuredCount);
+    return matches.every((candidate) => structuredRenderItemCount(candidate) < syntheticStructuredCount
+        || assistantMessageRichnessScore(candidate) < assistantMessageRichnessScore(synthetic));
 }
 export function mergePersistedAndSyntheticMessages(dbMessages, currentMessages) {
     const syntheticKeep = currentMessages.filter((message) => shouldKeepSyntheticAssistantMessage(message, dbMessages));

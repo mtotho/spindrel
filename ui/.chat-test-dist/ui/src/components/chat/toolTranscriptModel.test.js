@@ -156,6 +156,158 @@ test("file tool paths stay in the shrinkable target field", () => {
     assert.equal(items[0].entries[0]?.label, "Read file");
     assert.equal(items[0].entries[0]?.target, "/workspace/channels/d0cb2ce8-b7b8-5f9d-b02f-392ba81e281f/data/channel_heartbeat.md");
 });
+test("legacy Codex shell tool names render as useful Bash rows", () => {
+    const items = buildAssistantTurnBodyItems({
+        renderMode: "terminal",
+        assistantTurnBody: {
+            version: 1,
+            items: [{ id: "tool-shell", kind: "tool_call", toolCallId: "call-shell" }],
+        },
+        toolCalls: [
+            {
+                id: "call-shell",
+                name: "/bin/bash -lc \"cd spindrel && rg -n uploads app tests\"",
+                arguments: "{}",
+                surface: "transcript",
+                summary: {
+                    kind: "action",
+                    subject_type: "generic",
+                    label: "/bin/bash -lc \"cd spindrel && rg -n uploads app tests\"",
+                },
+            },
+        ],
+    });
+    assert.equal(items[0]?.kind, "transcript");
+    if (items[0]?.kind !== "transcript")
+        throw new Error("expected transcript item");
+    assert.equal(items[0].entries[0]?.label, "Bash");
+    assert.equal(items[0].entries[0]?.metaLabel, "(spindrel)");
+    assert.equal(items[0].entries[0]?.target, "rg -n uploads app tests");
+});
+test("structured Codex shell args render cwd and display command", () => {
+    const entries = buildLiveToolEntries([
+        {
+            id: "cmd1",
+            name: "Bash",
+            args: JSON.stringify({
+                command: "/bin/bash -lc 'cd spindrel && pytest -q tests/unit/test_uploads.py'",
+                cwd: "spindrel",
+                display_command: "pytest -q tests/unit/test_uploads.py",
+            }),
+            status: "running",
+        },
+    ]);
+    assert.equal(entries[0]?.label, "Bash");
+    assert.equal(entries[0]?.metaLabel, "(spindrel)");
+    assert.equal(entries[0]?.target, "pytest -q tests/unit/test_uploads.py");
+    assert.equal(entries[0]?.isRunning, true);
+});
+test("Claude MCP bridge names render with clean Spindrel tool labels", () => {
+    const items = buildAssistantTurnBodyItems({
+        renderMode: "default",
+        assistantTurnBody: {
+            version: 1,
+            items: [{ id: "tool-mcp", kind: "tool_call", toolCallId: "toolu-mcp" }],
+        },
+        toolCalls: [
+            {
+                id: "toolu-mcp",
+                name: "mcp__spindrel__list_channels",
+                arguments: "{}",
+                surface: "transcript",
+            },
+        ],
+    });
+    const entries = items.flatMap((item) => item.kind === "transcript" ? item.entries : []);
+    assert.equal(entries[0]?.label, "list channels");
+    assert.notEqual(entries[0]?.label, "mcp  spindrel  list channels");
+});
+test("persisted Claude MCP bridge summaries keep clean Spindrel tool labels", () => {
+    const items = buildAssistantTurnBodyItems({
+        renderMode: "default",
+        assistantTurnBody: {
+            version: 1,
+            items: [{ id: "tool-mcp", kind: "tool_call", toolCallId: "toolu-mcp" }],
+        },
+        toolCalls: [
+            {
+                id: "toolu-mcp",
+                name: "mcp__spindrel__get_tool_info",
+                arguments: JSON.stringify({ tool_name: "list_channels" }),
+                surface: "transcript",
+                summary: {
+                    kind: "result",
+                    subject_type: "generic",
+                    label: "MCP SPINDREL GET TOOL INFO",
+                    preview_text: "returned a callable schema",
+                },
+            },
+        ],
+    });
+    const entries = items.flatMap((item) => item.kind === "transcript" ? item.entries : []);
+    assert.equal(entries[0]?.label, "get tool info");
+    assert.equal(entries[0]?.metaLabel, "(list_channels)");
+    assert.notEqual(entries[0]?.label, "MCP SPINDREL GET TOOL INFO");
+});
+test("Codex native subagent, web, and image summaries render as transcript rows", () => {
+    const items = buildAssistantTurnBodyItems({
+        renderMode: "terminal",
+        assistantTurnBody: {
+            version: 1,
+            items: [
+                { id: "tool-agent", kind: "tool_call", toolCallId: "agent-1" },
+                { id: "tool-web", kind: "tool_call", toolCallId: "web-1" },
+                { id: "tool-image", kind: "tool_call", toolCallId: "image-1" },
+            ],
+        },
+        toolCalls: [
+            {
+                id: "agent-1",
+                name: "Codex subagent",
+                arguments: "{}",
+                surface: "transcript",
+                summary: {
+                    kind: "action",
+                    subject_type: "session",
+                    label: "Codex subagent spawn agent",
+                    target_id: "thread-child",
+                    target_label: "spawn_agent",
+                    preview_text: "Inspect the renderer.",
+                },
+            },
+            {
+                id: "web-1",
+                name: "Web search",
+                arguments: "{}",
+                surface: "transcript",
+                summary: {
+                    kind: "lookup",
+                    subject_type: "generic",
+                    label: "Web search",
+                    preview_text: "Codex app-server",
+                },
+            },
+            {
+                id: "image-1",
+                name: "View image",
+                arguments: "{}",
+                surface: "transcript",
+                summary: {
+                    kind: "read",
+                    subject_type: "file",
+                    label: "Viewed image",
+                    path: "docs/screen.png",
+                },
+            },
+        ],
+    });
+    const entries = items.flatMap((item) => item.kind === "transcript" ? item.entries : []);
+    assert.deepEqual(entries.map((entry) => [entry.label, entry.metaLabel, entry.previewText, entry.target]), [
+        ["Codex subagent spawn agent", "(spawn_agent)", "Inspect the renderer.", null],
+        ["Web search", null, "Codex app-server", null],
+        ["Viewed image", null, null, "docs/screen.png"],
+    ]);
+});
 test("live transcript entries use tool call ids as stable unique row ids", () => {
     const entries = buildLiveToolEntries([
         {

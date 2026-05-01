@@ -1,6 +1,8 @@
-import { Activity, BookOpen, Bot, Boxes, Cable, ClipboardList, Code2, FileCode, FileText, HardDrive, Hash, Home, Key, LayoutDashboard, Lock, MessageCircle, Paperclip, Plug, ScrollText, Server, Settings, Shield, ShieldCheck, Users, Webhook, Wrench, Zap, Brain, BarChart3, } from "lucide-react";
+import { Activity, BookOpen, Bot, Boxes, Cable, ClipboardList, Code2, FileCode, FileText, HardDrive, Hash, Home, Key, LayoutDashboard, Lock, MessageCircle, Network, Paperclip, Plug, ScrollText, Server, Settings, Shield, ShieldCheck, Users, Webhook, Wrench, Zap, Brain, BarChart3, } from "lucide-react";
 const STATIC_ROUTES = new Map([
-    ["/", { pageType: "Home", category: "Channels", icon: Home, label: "Home", hint: "All channels" }],
+    ["/", { pageType: "Home", category: "Channels", icon: Home, label: "Home", hint: "Workspace overview" }],
+    ["/spatial", { pageType: "Spatial Canvas", category: "Channels", icon: Network, label: "Spatial canvas", hint: "Workspace map" }],
+    ["/canvas", { pageType: "Spatial Canvas", category: "Channels", icon: Network, label: "Spatial canvas", hint: "Workspace map" }],
     ["/channels/new", { pageType: "New channel", category: "Channels", icon: Hash, label: "New channel", hint: "Create a channel" }],
     ["/settings", { pageType: "Settings", category: "Settings", icon: Settings, label: "Settings", hint: "Settings" }],
     ["/settings/account", { pageType: "Settings", category: "Settings", icon: Settings, label: "Settings · Account", hint: "Settings" }],
@@ -316,6 +318,13 @@ export function canonicalizePaletteHref(href) {
         return composeHref("/settings/account", search, hash);
     if (pathname === "/channels")
         return composeHref("/", search, hash);
+    if (pathname === "/canvas")
+        return composeHref("/spatial", search, hash);
+    if (pathname === "/") {
+        const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+        if (params.has("channel") || params.has("node"))
+            return composeHref("/spatial", search, hash);
+    }
     if (pathname === "/admin/widget-packages")
         return "/widgets/dev#library";
     if (pathname.startsWith("/admin/widget-packages/")) {

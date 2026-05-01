@@ -866,7 +866,7 @@ SPATIAL_SPECS: list[ScreenshotSpec] = [
     # constellation around the origin.
     ScreenshotSpec(
         name="spatial-overview-1",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SPATIAL_READY,
@@ -880,7 +880,7 @@ SPATIAL_SPECS: list[ScreenshotSpec] = [
     # (scale < 0.4). Each channel is a colored disc + name label.
     ScreenshotSpec(
         name="spatial-channel-zoomed-out",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SPATIAL_READY,
@@ -895,7 +895,7 @@ SPATIAL_SPECS: list[ScreenshotSpec] = [
     # high scale so connection curves brighten clearly.
     ScreenshotSpec(
         name="spatial-channel-zoomed-in-1",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SPATIAL_READY,
@@ -910,7 +910,7 @@ SPATIAL_SPECS: list[ScreenshotSpec] = [
     # places Notes / Todos / Standing-order pins.
     ScreenshotSpec(
         name="spatial-zoom-widgets",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SPATIAL_READY,
@@ -926,7 +926,7 @@ SPATIAL_SPECS: list[ScreenshotSpec] = [
     # in spatialGeometry.ts. Frame at scale 0.85.
     ScreenshotSpec(
         name="spatial-blackhole",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SPATIAL_WELL_READY,
@@ -941,7 +941,7 @@ SPATIAL_SPECS: list[ScreenshotSpec] = [
     # clearly visible. Reference: user capture 2026-04-26.
     ScreenshotSpec(
         name="spatial-zoom-out-01",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SPATIAL_READY,
@@ -955,7 +955,7 @@ SPATIAL_SPECS: list[ScreenshotSpec] = [
     # constellation AND the Now Well's nebula glow share the frame.
     ScreenshotSpec(
         name="spatial-zoom-out-02",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SPATIAL_READY,
@@ -970,7 +970,7 @@ SPATIAL_SPECS: list[ScreenshotSpec] = [
     # Centered on the QA-channel cluster where stage_spatial pins widgets.
     ScreenshotSpec(
         name="spatial-zoom-out-in-01",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SPATIAL_READY,
@@ -985,7 +985,7 @@ SPATIAL_SPECS: list[ScreenshotSpec] = [
     # for any imminent heartbeats / dreaming items.
     ScreenshotSpec(
         name="spatial-zoom-well-01",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SPATIAL_WELL_READY,
@@ -1426,7 +1426,7 @@ _ATTENTION_REVIEW_DECK_ENDPOINT_INIT = """
 SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
     ScreenshotSpec(
         name="spatial-check-map-brief-selection",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SPATIAL_READY,
@@ -1440,7 +1440,7 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
     ),
     ScreenshotSpec(
         name="spatial-check-canvas-view-controls",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SPATIAL_READY,
@@ -1454,7 +1454,7 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
     ),
     ScreenshotSpec(
         name="spatial-check-jump-starboard-framing",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SPATIAL_READY,
@@ -1468,7 +1468,7 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
     ),
     ScreenshotSpec(
         name="spatial-check-channel-schedule-satellites",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SPATIAL_READY,
@@ -1482,7 +1482,7 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
     ),
     ScreenshotSpec(
         name="spatial-check-attention-badge",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
@@ -1517,7 +1517,7 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
     ),
     ScreenshotSpec(
         name="spatial-check-hover-suppression",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SPATIAL_READY,
@@ -1545,7 +1545,7 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
     ),
     ScreenshotSpec(
         name="spatial-check-overview-hover-calm",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SPATIAL_READY,
@@ -1568,7 +1568,7 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
     ),
     ScreenshotSpec(
         name="spatial-check-cluster-focus-calm",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
@@ -1610,7 +1610,7 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
     ),
     ScreenshotSpec(
         name="spatial-check-cluster-doubleclick-focus",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
@@ -1732,7 +1732,7 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
     ),
     ScreenshotSpec(
         name="spatial-check-density-smoke",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
@@ -4060,7 +4060,7 @@ MOBILE_HOME_SPECS: list[ScreenshotSpec] = [
 STARBOARD_SPECS: list[ScreenshotSpec] = [
     ScreenshotSpec(
         name="starboard-object-inspector",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
@@ -4133,7 +4133,7 @@ ATTENTION_SPECS: list[ScreenshotSpec] = [
     # being mounted.
     ScreenshotSpec(
         name="attention-canvas",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
@@ -4159,7 +4159,7 @@ ATTENTION_SPECS: list[ScreenshotSpec] = [
     # gates on the button being mounted; pre_capture_js does the click + waits.
     ScreenshotSpec(
         name="attention-hub",
-        route="/",
+        route="/spatial",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(

@@ -101,8 +101,8 @@ export default function HubAttentionPage() {
         chrome="flow"
         showMenuWithBack
       />
-      <main className="min-h-0 flex-1 px-2 pb-2 md:px-4 md:pb-4">
-        <div className="mx-auto flex h-full max-w-7xl flex-col overflow-hidden rounded-md bg-surface-raised/55">
+      <main className="min-h-0 flex-1 px-4 py-4 sm:px-6 lg:px-8 lg:py-5">
+        <div className="flex h-full w-full max-w-[1600px] flex-col overflow-hidden rounded-md bg-surface-raised/55">
           <AttentionCommandDeck
             loading={attentionLoading}
             items={filteredItems}

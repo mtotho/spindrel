@@ -9,6 +9,7 @@
 - **Low chrome.** Spacing and surface tints separate regions. Borders are the exception, not the default.
 - **Calm color.** Color carries meaning; it does not decorate.
 - **Native feel.** Desktop reads like a clean product; mobile reads like a native app.
+- **Clear focal points.** Low chrome still needs a visual reading order; use the emphasis token sparingly to show where the eye should start.
 
 ## How to use this doc
 
@@ -62,6 +63,7 @@
 | `text-warning` / `text-warning-muted` | `--color-warning` / `--color-warning-muted` | Caution state only |
 | `text-danger` / `text-danger-muted` | `--color-danger` / `--color-danger-muted` | Destructive / error only |
 | `text-purple` | `--color-purple` | Skills / learning-center chrome (reserved) |
+| `text-emphasis` / `bg-emphasis/10` | `--color-emphasis` | Non-semantic section emphasis marker. Use only for anchor-section icon wells or tiny rails, not state. |
 | `bg-skeleton` | `--color-skeleton` | Skeleton loading blocks (flips light ↔ dark) |
 
 ### Anti-pattern — inline hex in React
@@ -163,7 +165,29 @@ Pick at most one separator for a region:
 
 Never stack border + shadow + gradient. Decorative gradients and shadow stacks are not part of the Spindrel control-surface language. Existing chat/composer treatments are legacy/reference-specific exceptions and must not be copied into settings, admin, dashboard controls, or new components without a separate redesign decision.
 
-### §2.5 — Shared baseline (all archetypes)
+### §2.5 — Emphasis ladder
+
+**Trigger:** a page feels too flat, but adding card grids, section borders, or decorative color would add noise.
+
+Low chrome does not mean equal weight everywhere. Use this ladder before inventing a page-local card treatment:
+
+- **Quiet section:** the default. Use spacing, the standard uppercase label, and borderless rows.
+- **Header rail:** use when a section needs a scan anchor but not a framed body. It may include a small icon well, title, count/meta, and one quiet action. The rail is not a bordered toolbar.
+- **Anchor section:** use for one or two load-bearing sections on a page. Wrap the header rail and related content in one broad tonal field (`rounded-md bg-surface-raised/55` or `/75`), then keep rows inside it quiet (`bg-surface-overlay/20-45`). This is not a generic card grid.
+- **Status band:** use inside an anchor section when workflow state or next action needs extra attention. Use one semantic or accent tint, paired with text and/or an icon. Do not use side stripes or whole-section alarm color.
+
+Rules:
+
+- A normal page gets at most one primary anchor and two secondary anchors above the fold. Everything else should stay quiet.
+- Primary anchors may use one tiny emphasis marker: an icon well, 2px short top rail, or small dot. Do not spread the emphasis color through the body.
+- Do not make five equal metric cards when one anchored pulse plus four compact rows would scan faster.
+- Do not put cards inside anchor sections. The anchor is the container; children are rows, pills, meters, or inline bands.
+- Do not use header borders to create emphasis. If the header needs weight, use a header rail and spacing.
+- Accent remains interaction/current-state color. Section emphasis comes from the neutral surface ladder first.
+
+Proof reference: the Home dashboard uses a primary workspace pulse and recent-session anchor; Mission Control Review uses a broad review surface with local lane/detail fields instead of bar dividers.
+
+### §2.6 — Shared baseline (all archetypes)
 
 - Same token system (§1).
 - Same accent color for interactive state.

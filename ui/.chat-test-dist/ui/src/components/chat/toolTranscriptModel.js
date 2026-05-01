@@ -67,7 +67,77 @@ function formatSkillRef(skillId) {
     return clean;
 }
 function shortToolName(name) {
-    return name.includes("-") ? name.slice(name.lastIndexOf("-") + 1) : name;
+    const clean = name.trim();
+    const mcp = clean.match(/^mcp__[^_]+__(.+)$/i);
+    const short = mcp?.[1] || clean;
+    return short.includes("-") ? short.slice(short.lastIndexOf("-") + 1) : short;
+}
+function normalizeToolLabel(toolName, label) {
+    const cleanLabel = label.trim();
+    const cleanName = toolName.trim();
+    if (!cleanLabel || !/^mcp__/i.test(cleanName))
+        return cleanLabel;
+    const normalized = (value) => value
+        .replace(/__/g, " ")
+        .replace(/[_-]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+    const short = shortToolName(cleanName).replace(/_/g, " ");
+    const normalizedShort = normalized(short);
+    const normalizedLabel = normalized(cleanLabel);
+    const normalizedName = normalized(cleanName);
+    if (normalizedLabel === normalizedName
+        || (normalizedLabel.startsWith("mcp ") && normalizedLabel.endsWith(normalizedShort))) {
+        return short;
+    }
+    return cleanLabel;
+}
+function parsedArgsObject(args) {
+    return parseJsonObject(args);
+}
+function unwrapShellCommand(value) {
+    const trimmed = value.trim();
+    for (const prefix of ["/bin/bash -lc ", "bash -lc ", "/bin/sh -lc ", "sh -lc "]) {
+        if (trimmed.startsWith(prefix)) {
+            let rest = trimmed.slice(prefix.length).trim();
+            if (rest.length >= 2 && ((rest.startsWith("'") && rest.endsWith("'")) || (rest.startsWith("\"") && rest.endsWith("\"")))) {
+                rest = rest.slice(1, -1);
+            }
+            return rest;
+        }
+    }
+    return trimmed;
+}
+function shellCommandParts(command) {
+    const inner = unwrapShellCommand(command);
+    if (inner.startsWith("cd ") && inner.includes(" && ")) {
+        const [cwdRaw, ...rest] = inner.slice(3).split(" && ");
+        const cwd = cwdRaw.trim().replace(/^['"]|['"]$/g, "");
+        const display = rest.join(" && ").trim();
+        return { command, cwd: cwd || undefined, display: display || inner };
+    }
+    return { command, display: inner || command };
+}
+function shellCallSummary(toolName, args, summaryLabel) {
+    const parsed = parsedArgsObject(args);
+    const commandFromArgs = formatValue(parsed?.command) || formatValue(parsed?.cmd);
+    const commandFromName = /^(?:\/bin\/)?(?:bash|sh)\s+-lc\s+/.test(toolName.trim()) ? toolName : null;
+    const commandFromSummary = summaryLabel && /^(?:\/bin\/)?(?:bash|sh)\s+-lc\s+/.test(summaryLabel.trim()) ? summaryLabel : null;
+    const command = commandFromArgs || commandFromName || commandFromSummary;
+    if (!command)
+        return null;
+    const cwdFromArgs = formatValue(parsed?.cwd) || formatValue(parsed?.workdir);
+    const displayFromArgs = formatValue(parsed?.display_command) || formatValue(parsed?.displayCommand);
+    const parts = shellCommandParts(command);
+    const cwd = cwdFromArgs || parts.cwd || null;
+    const display = displayFromArgs || parts.display || command;
+    return {
+        label: "Bash",
+        metaLabel: cwd ? `(${cwd})` : null,
+        target: display,
+        command,
+    };
 }
 function introspectionTarget(name, argsList, rawCall, result) {
     const short = shortToolName(name);
@@ -392,9 +462,10 @@ function summarizeGenericTool(toolName, args) {
         return labelByOperation[operation] ?? "Updated file";
     }
     const path = (parsed?.path || parsed?.file_path || parsed?.target_path || parsed?.source_path);
+    const displayName = shortToolName(toolName).replace(/_/g, " ");
     if (path)
-        return `${toolName.replace(/_/g, " ")} ${path}`;
-    return toolName.replace(/_/g, " ");
+        return `${displayName} ${path}`;
+    return displayName;
 }
 function extractFileToolTarget(toolName, args) {
     if (shortToolName(toolName) !== "file")
@@ -435,17 +506,38 @@ function resolveToolInfoRef(toolName, args, result, rawCall) {
     return target ? `(${target})` : null;
 }
 function buildEntryFromSummary(toolName, summary, result, args, rawCall) {
-    const toolInfoRef = resolveToolInfoRef(toolName, args, result, rawCall);
-    const target = summary.target_label || (toolInfoRef ? null : introspectionTarget(toolName, [args], rawCall, result));
-    const previewText = resolvePreviewText(summary, result, summary.label);
-    if (summary.kind === "diff" && summary.subject_type === "file") {
+    const summaryLabel = normalizeToolLabel(toolName, summary.label);
+    const shell = shellCallSummary(toolName, args, summary.label);
+    if (shell) {
+        const previewText = resolvePreviewText(summary, result, shell.label);
         return {
             id: `${toolName}:${summary.label}`,
+            kind: "activity",
+            label: shell.label,
+            metaLabel: shell.metaLabel,
+            previewText,
+            target: shell.target,
+            args,
+            env: result,
+            summary,
+            isError: summary.kind === "error",
+            isRunning: false,
+            detailKind: result || args ? "expandable" : "none",
+            detail: extractNonJsonOutput(result),
+            tone: summary.kind === "error" ? "danger" : "default",
+        };
+    }
+    const toolInfoRef = resolveToolInfoRef(toolName, args, result, rawCall);
+    const target = summary.target_label || (toolInfoRef ? null : introspectionTarget(toolName, [args], rawCall, result));
+    const previewText = resolvePreviewText(summary, result, summaryLabel);
+    if (summary.kind === "diff" && summary.subject_type === "file") {
+        return {
+            id: `${toolName}:${summaryLabel}`,
             kind: "file",
-            label: summary.label,
+            label: summaryLabel,
             metaLabel: summarizeDiffMeta(summary),
             previewText: null,
-            target: summary.target_label ? null : target,
+            target: summaryFileTarget(summary) || (summary.target_label ? null : target),
             env: result,
             summary,
             isError: false,
@@ -457,12 +549,12 @@ function buildEntryFromSummary(toolName, summary, result, args, rawCall) {
     }
     if (summary.kind === "read" && summary.subject_type === "file") {
         return {
-            id: `${toolName}:${summary.label}`,
+            id: `${toolName}:${summaryLabel}`,
             kind: "file",
-            label: summary.label,
+            label: summaryLabel,
             metaLabel: null,
             previewText,
-            target: summary.target_label ? null : target,
+            target: summaryFileTarget(summary) || (summary.target_label ? null : target),
             env: result,
             summary,
             isError: false,
@@ -474,9 +566,9 @@ function buildEntryFromSummary(toolName, summary, result, args, rawCall) {
     }
     if (summary.kind === "write" && summary.subject_type === "file") {
         return {
-            id: `${toolName}:${summary.label}`,
+            id: `${toolName}:${summaryLabel}`,
             kind: "file",
-            label: summary.label,
+            label: summaryLabel,
             metaLabel: null,
             previewText,
             target: summaryFileTarget(summary),
@@ -490,9 +582,9 @@ function buildEntryFromSummary(toolName, summary, result, args, rawCall) {
         };
     }
     return {
-        id: `${toolName}:${summary.label}`,
+        id: `${toolName}:${summaryLabel}`,
         kind: "activity",
-        label: summary.label,
+        label: summaryLabel,
         metaLabel: summarizeDiffMeta(summary) || toolInfoRef,
         previewText,
         target: summary.target_label ? null : target,
@@ -512,6 +604,24 @@ function buildPersistedEntry(toolName, args, result, toolSummary, rawCall) {
     }
     if (toolSummary) {
         return buildEntryFromSummary(toolName, toolSummary, result, args, rawCall);
+    }
+    const shell = shellCallSummary(toolName, args);
+    if (shell) {
+        return {
+            id: `${toolName}:${shell.command}`,
+            kind: "activity",
+            label: shell.label,
+            metaLabel: shell.metaLabel,
+            previewText: normalizePreviewText(resultSummary(result), shell.label),
+            target: shell.target,
+            args,
+            env: result,
+            isError: isErrorEnvelope(result),
+            isRunning: false,
+            detailKind: result || args ? "expandable" : "none",
+            detail: extractNonJsonOutput(result),
+            tone: result?.content_type.includes("error") ? "danger" : "default",
+        };
     }
     const envelopeSummary = summarizeEnvelope(result);
     const genericSummary = summarizeGenericTool(toolName, args);

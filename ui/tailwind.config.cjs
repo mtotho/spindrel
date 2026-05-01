@@ -42,6 +42,7 @@ module.exports = {
         purple: {
           DEFAULT: "rgb(var(--color-purple) / <alpha-value>)",
         },
+        emphasis: "rgb(var(--color-emphasis) / <alpha-value>)",
         skeleton: "rgb(var(--color-skeleton) / <alpha-value>)",
       },
     },

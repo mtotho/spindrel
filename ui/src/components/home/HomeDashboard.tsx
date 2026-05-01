@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import {
   Activity,
   CalendarClock,
-  Hash,
+  CheckCheck,
   Plus,
   Radar,
 } from "lucide-react";
@@ -16,9 +16,11 @@ import {
 import { useLatestHealthSummary } from "../../api/hooks/useSystemHealth";
 import { useMissionControl } from "../../api/hooks/useMissionControl";
 import { useUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
+import { useUnreadState } from "../../api/hooks/useUnread";
 import { usePageRefresh } from "../../hooks/usePageRefresh";
 import { PageHeader } from "../layout/PageHeader";
 import { RefreshableScrollView } from "../shared/RefreshableScrollView";
+import { AnchorSection } from "../shared/AnchorSection";
 import { ChannelsSection } from "./sections/ChannelsSection";
 import { RecentSessionsSection } from "./sections/RecentSessionsSection";
 import { UnreadCenterSection } from "./sections/UnreadCenterSection";
@@ -35,13 +37,13 @@ function isOrchestratorClient(clientId: string | undefined): boolean {
 }
 
 function statusTone(value: "ok" | "warn" | "danger" | "neutral"): string {
-  if (value === "danger") return "border-danger/30 bg-danger/10 text-danger";
-  if (value === "warn") return "border-warning/30 bg-warning/10 text-warning-muted";
-  if (value === "ok") return "border-success/30 bg-success/10 text-success";
-  return "border-surface-border bg-surface-raised text-text-muted";
+  if (value === "danger") return "bg-danger/10 text-danger";
+  if (value === "warn") return "bg-warning/10 text-warning-muted";
+  if (value === "ok") return "bg-success/10 text-success";
+  return "bg-surface-overlay/45 text-text-muted";
 }
 
-function StatCard({
+function PulseItem({
   icon,
   label,
   value,
@@ -57,16 +59,16 @@ function StatCard({
   href?: string;
 }) {
   const body = (
-    <div className="flex min-h-[112px] flex-col justify-between rounded-md border border-surface-border bg-surface-raised px-4 py-3 transition-colors hover:bg-surface-overlay/35">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-semibold uppercase text-text-dim">{label}</span>
-        <span className={`inline-flex h-8 w-8 items-center justify-center rounded-md border ${statusTone(tone)}`}>
+    <div className="group flex min-h-[76px] items-start gap-3 rounded-md bg-surface-overlay/25 px-3 py-3 transition-colors hover:bg-surface-overlay/45">
+      <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${statusTone(tone)}`}>
           {icon}
-        </span>
-      </div>
-      <div>
-        <div className="text-2xl font-semibold leading-tight text-text">{value}</div>
-        <div className="mt-1 truncate text-xs text-text-muted">{detail}</div>
+      </span>
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span className="truncate text-sm font-semibold text-text">{value}</span>
+          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">{label}</span>
+        </div>
+        <div className="mt-1 line-clamp-2 text-xs leading-5 text-text-muted">{detail}</div>
       </div>
     </div>
   );
@@ -79,48 +81,66 @@ function HomeOverview() {
   const { data: health } = useLatestHealthSummary();
   const { data: missions } = useMissionControl();
   const { data: upcoming } = useUpcomingActivity(5);
+  const { data: unread } = useUnreadState();
 
   const regularChannels = (channels ?? []).filter((ch) => !isOrchestratorClient(ch.client_id));
   const activeAttention = (attention ?? []).filter(isActiveAttentionItem);
   const criticalAttention = activeAttention.filter((item) => item.severity === "critical" || item.severity === "error");
+  const unreadSessions = (unread?.states ?? []).filter((state) => state.unread_agent_reply_count > 0);
+  const unreadCount = unreadSessions.reduce((sum, state) => sum + state.unread_agent_reply_count, 0);
   const errorCount = health?.summary?.error_count ?? 0;
   const criticalCount = health?.summary?.critical_count ?? 0;
   const activeMissions = missions?.summary.active_missions ?? 0;
   const nextUpcoming = upcoming?.[0] ?? null;
 
   return (
-    <section aria-label="Workspace overview" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <StatCard
-        icon={<Hash size={16} />}
-        label="Channels"
-        value={String(regularChannels.length)}
-        detail="Active workspace rooms"
-      />
-      <StatCard
-        icon={<Radar size={16} />}
-        label="Attention"
-        value={activeAttention.length ? String(activeAttention.length) : "Clear"}
-        detail={criticalAttention.length ? `${criticalAttention.length} urgent` : "No urgent signals"}
-        tone={criticalAttention.length ? "danger" : activeAttention.length ? "warn" : "ok"}
-        href="/hub/attention"
-      />
-      <StatCard
-        icon={<Activity size={16} />}
-        label="Health"
-        value={criticalCount ? `${criticalCount} crit` : errorCount ? `${errorCount} err` : "Clean"}
-        detail={health?.summary ? "Latest daily rollup" : "Rollup pending"}
-        tone={criticalCount ? "danger" : errorCount ? "warn" : health?.summary ? "ok" : "neutral"}
-        href="/hub/daily-health"
-      />
-      <StatCard
-        icon={<CalendarClock size={16} />}
-        label="Work"
-        value={activeMissions ? `${activeMissions} active` : nextUpcoming ? "Scheduled" : "Quiet"}
-        detail={nextUpcoming ? nextUpcoming.title : "No upcoming work found"}
-        tone={activeMissions ? "warn" : "neutral"}
-        href="/hub/attention"
-      />
-    </section>
+    <AnchorSection
+      testId="home-workspace-pulse"
+      icon={<Activity size={14} />}
+      eyebrow="Workspace pulse"
+      title="What needs a look"
+      meta={`${regularChannels.length} channel${regularChannels.length === 1 ? "" : "s"}`}
+      action={
+        <Link to="/hub/attention" className="rounded-md px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/[0.08]">
+          Review
+        </Link>
+      }
+      emphasis="primary"
+    >
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <PulseItem
+          icon={<Radar size={16} />}
+          label="Attention"
+          value={activeAttention.length ? `${activeAttention.length} active` : "Clear"}
+          detail={criticalAttention.length ? `${criticalAttention.length} urgent finding${criticalAttention.length === 1 ? "" : "s"}` : "No urgent signals"}
+          tone={criticalAttention.length ? "danger" : activeAttention.length ? "warn" : "ok"}
+          href="/hub/attention"
+        />
+        <PulseItem
+          icon={<CheckCheck size={16} />}
+          label="Unread"
+          value={unreadCount ? `${unreadCount} ${unreadCount === 1 ? "reply" : "replies"}` : "Caught up"}
+          detail={unreadSessions.length ? `${unreadSessions.length} session${unreadSessions.length === 1 ? "" : "s"} with unread agent replies` : "No unread agent replies"}
+          tone={unreadCount ? "warn" : "ok"}
+        />
+        <PulseItem
+          icon={<Activity size={16} />}
+          label="Health"
+          value={criticalCount ? `${criticalCount} crit` : errorCount ? `${errorCount} err` : "Clean"}
+          detail={health?.summary ? "Latest daily rollup" : "Rollup pending"}
+          tone={criticalCount ? "danger" : errorCount ? "warn" : health?.summary ? "ok" : "neutral"}
+          href="/hub/daily-health"
+        />
+        <PulseItem
+          icon={<CalendarClock size={16} />}
+          label="Work"
+          value={activeMissions ? `${activeMissions} active` : nextUpcoming ? "Scheduled" : "Quiet"}
+          detail={nextUpcoming ? nextUpcoming.title : "No upcoming work found"}
+          tone={activeMissions ? "warn" : "neutral"}
+          href="/hub/attention"
+        />
+      </div>
+    </AnchorSection>
   );
 }
 
@@ -133,11 +153,12 @@ export function HomeDashboard() {
         variant="list"
         title="Home"
         subtitle="Workspace overview"
+        chrome="flow"
         right={
           <div className="flex items-center gap-2">
             <Link
               to="/spatial"
-              className="hidden items-center gap-1.5 rounded-md border border-surface-border px-3 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text sm:inline-flex"
+              className="hidden items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text sm:inline-flex"
             >
               <Radar size={14} />
               Spatial
@@ -153,7 +174,7 @@ export function HomeDashboard() {
         }
       />
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
-        <main className="mx-auto box-border flex w-full max-w-[1440px] flex-col gap-5 px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
+        <main className="box-border flex w-full max-w-[1600px] flex-col gap-5 px-4 py-4 sm:px-6 lg:px-8 lg:py-5">
           <HomeOverview />
           <div className="xl:hidden">
             <UnreadCenterSection />

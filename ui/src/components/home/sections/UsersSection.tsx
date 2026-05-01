@@ -5,7 +5,7 @@ import { type UserActivitySummary, useAdminUserActivitySummary } from "../../../
 import { buildChannelSessionRoute } from "../../../lib/channelSessionSurfaces";
 import { useAuthStore } from "../../../stores/auth";
 import { formatRelativeTime } from "../../../utils/format";
-import { SectionHeading } from "./SectionHeading";
+import { AnchorSection } from "../../shared/AnchorSection";
 
 function initialsFor(user: UserActivitySummary): string {
   const source = user.display_name?.trim() || user.email;
@@ -116,13 +116,15 @@ export function UsersSection() {
   if (!isAdmin) return null;
 
   return (
-    <section data-testid="home-users-section" className="space-y-2" aria-label="Users">
-      <SectionHeading
-        icon={<UsersRound size={12} />}
-        label="Users"
-        count={users.length || undefined}
-      />
-      <div className="rounded-md border border-surface-border bg-surface-raised p-2">
+    <AnchorSection
+      testId="home-users-section"
+      icon={<UsersRound size={12} />}
+      eyebrow="Users"
+      title="Daily activity"
+      meta={users.length ? `${users.length} shown` : undefined}
+      emphasis="secondary"
+    >
+      <div className="space-y-1">
         {isLoading ? <LoadingRows /> : null}
         {!isLoading && isError ? (
           <div className="px-2 py-3 text-sm text-text-muted">Users unavailable.</div>
@@ -138,6 +140,6 @@ export function UsersSection() {
           </div>
         ) : null}
       </div>
-    </section>
+    </AnchorSection>
   );
 }
