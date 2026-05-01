@@ -19,6 +19,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from tests.e2e.harness.parity_runner import (
+    HARNESS_PARITY_DEFAULT_RUNTIMES,
+    HARNESS_PARITY_RUNTIME_CONFIG,
+)
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LOCAL_ENV = REPO_ROOT / ".env.agent-e2e"
@@ -75,7 +80,6 @@ PROJECT_FACTORY_SECRET_NAME = "PROJECT_FACTORY_SMOKE_GITHUB_TOKEN"
 HARNESS_PARITY_PROJECT_SLUG = "harness-parity-project"
 HARNESS_PARITY_PROJECT_NAME = "Harness Parity Project"
 HARNESS_PARITY_PROJECT_PATH = "common/projects/harness-parity"
-HARNESS_PARITY_DEFAULT_RUNTIMES = ("codex", "claude-code")
 HARNESS_PARITY_LOCAL_TOOLS = (
     "get_tool_info",
     "search_memory",
@@ -91,30 +95,6 @@ HARNESS_PARITY_LOCAL_TOOLS = (
     "list_sub_sessions",
     "read_sub_session",
 )
-HARNESS_PARITY_RUNTIME_CONFIG = {
-    "codex": {
-        "integration_id": "codex",
-        "bot_id": "harness-parity-codex",
-        "bot_name": "Harness Parity Codex",
-        "bot_model": "gpt-5.4-mini",
-        "channel_client_id": "harness-parity:codex",
-        "channel_name": "Harness Parity - Codex",
-        "channel_env": "HARNESS_PARITY_CODEX_CHANNEL_ID",
-        "bot_env": "HARNESS_PARITY_CODEX_BOT_ID",
-        "install_endpoints": ("/install-npm-deps",),
-    },
-    "claude-code": {
-        "integration_id": "claude_code",
-        "bot_id": "harness-parity-claude",
-        "bot_name": "Harness Parity Claude",
-        "bot_model": "claude-haiku-4-5",
-        "channel_client_id": "harness-parity:claude",
-        "channel_name": "Harness Parity - Claude",
-        "channel_env": "HARNESS_PARITY_CLAUDE_CHANNEL_ID",
-        "bot_env": "HARNESS_PARITY_CLAUDE_BOT_ID",
-        "install_endpoints": ("/install-deps",),
-    },
-}
 
 
 PRODUCTION_PORTS = {8000}
@@ -1270,122 +1250,10 @@ def _write_harness_parity_env(
 
 
 def cmd_prepare_harness_parity(args: argparse.Namespace) -> int:
-    env = _merged_env()
-    native_app = not args.docker_app
-    if native_app and args.skip_setup:
-        env = _merge_previous_native_api_env(env)
-    api_url = (args.api_url or _base_url(env)).rstrip("/")
-    _require_non_production(api_url, allow_production=args.allow_production)
-    api_key = args.api_key or _api_key(env)
-    runtimes = tuple(args.runtime or HARNESS_PARITY_DEFAULT_RUNTIMES)
-    unknown = sorted(set(runtimes) - set(HARNESS_PARITY_RUNTIME_CONFIG))
-    if unknown:
-        raise SystemExit(f"unsupported harness parity runtime(s): {', '.join(unknown)}")
+    """Thin shim — orchestration lives in ``parity_runner.cmd_prepare``."""
+    from tests.e2e.harness.parity_runner import cmd_prepare
 
-    if args.docker_app:
-        _ensure_auth_override()
-        env = _merged_env()
-    if not args.skip_setup:
-        if native_app and not args.skip_ui_build:
-            _ensure_built_ui()
-        if native_app:
-            api_url = _ensure_native_api(
-                api_url=api_url,
-                api_key=api_key,
-                env=env,
-                startup_timeout=args.startup_timeout,
-            )
-        else:
-            _prepare_stack(
-                api_url=api_url,
-                api_key=api_key,
-                env=env,
-                build=not args.no_build,
-                startup_timeout=args.startup_timeout,
-            )
-    elif native_app:
-        api_url = _start_native_api(api_url, api_key, env, startup_timeout=args.startup_timeout)
-
-    for runtime in runtimes:
-        config = HARNESS_PARITY_RUNTIME_CONFIG[runtime]
-        integration_id = str(config["integration_id"])
-        _set_integration_enabled(api_url, api_key, integration_id)
-        _install_integration_dependencies(
-            api_url,
-            api_key,
-            integration_id,
-            tuple(config.get("install_endpoints") or ()),
-        )
-
-    if native_app:
-        api_url = _restart_native_api(api_url, api_key, env, timeout=args.startup_timeout)
-    else:
-        _restart_spindrel_app_container(
-            api_url,
-            api_key,
-            env,
-            timeout=args.startup_timeout,
-        )
-
-    project = _ensure_project(
-        api_url,
-        api_key,
-        slug=HARNESS_PARITY_PROJECT_SLUG,
-        name=HARNESS_PARITY_PROJECT_NAME,
-        root_path=args.project_path,
-        metadata={
-            "scenario": "harness_parity",
-            "dev_targets": _project_dev_targets(),
-        },
-    )
-    project_id = str(project.get("id") or "")
-    if not project_id:
-        raise SystemExit(f"project create/update response did not include an id: {project}")
-
-    channel_ids: dict[str, str] = {}
-    for runtime in runtimes:
-        config = HARNESS_PARITY_RUNTIME_CONFIG[runtime]
-        _wait_for_harness_runtime(
-            api_url,
-            api_key,
-            runtime,
-            timeout=args.runtime_timeout,
-        )
-        if runtime == "claude-code" and not args.skip_live_auth_check:
-            if native_app:
-                _validate_claude_live_auth_native()
-            else:
-                _validate_claude_live_auth(f"{APP_COMPOSE_PROJECT}-spindrel-1")
-        _ensure_harness_parity_bot(
-            api_url,
-            api_key,
-            bot_id=str(config["bot_id"]),
-            name=str(config["bot_name"]),
-            runtime=runtime,
-            model=str(config["bot_model"]),
-        )
-        channel_ids[runtime] = _ensure_harness_parity_channel(
-            api_url,
-            api_key,
-            client_id=str(config["channel_client_id"]),
-            name=str(config["channel_name"]),
-            bot_id=str(config["bot_id"]),
-            project_id=project_id,
-        )
-
-    _write_harness_parity_env(
-        api_url=api_url,
-        api_key=api_key,
-        channel_ids_by_runtime=channel_ids,
-        project_id=project_id,
-        project_path=args.project_path,
-        native_app=native_app,
-    )
-    print("Local harness parity readiness: ok")
-    print(f"  target: {api_url}")
-    print(f"  env: {HARNESS_PARITY_ENV}")
-    print("  run: ./scripts/run_harness_parity_local.sh --tier core")
-    return 0
+    return cmd_prepare(args)
 
 
 def _seed_github_secret(api_url: str, api_key: str, *, secret_name: str) -> None:

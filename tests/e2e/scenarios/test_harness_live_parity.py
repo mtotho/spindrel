@@ -38,26 +38,11 @@ from typing import Any
 import pytest
 
 from tests.e2e.harness.client import E2EClient
+from tests.e2e.harness.parity_runner import TIER_ORDER
 from tests.e2e.harness.streaming import StreamResult
 
 
 pytestmark = pytest.mark.e2e
-
-
-TIER_ORDER = {
-    "core": 0,
-    "bridge": 1,
-    "terminal": 2,
-    "plan": 3,
-    "heartbeat": 4,
-    "automation": 5,
-    "writes": 6,
-    "context": 7,
-    "project": 8,
-    "memory": 9,
-    "skills": 10,
-    "replay": 11,
-}
 
 
 CORE_BRIDGE_BASELINE_TOOLS = (

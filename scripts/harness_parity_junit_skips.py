@@ -1,34 +1,24 @@
-"""Validate harness parity JUnit skip results."""
+"""Validate harness parity JUnit skip results.
+
+Thin re-export shim. The implementation lives in
+``tests.e2e.harness.parity_runner`` (single source of truth for harness parity
+orchestration). The shell scripts and existing imports
+(``from scripts.harness_parity_junit_skips import unexpected_skips``) keep
+working through this shim.
+"""
 
 from __future__ import annotations
 
 import argparse
-import re
 import sys
-import xml.etree.ElementTree as ET
 
-
-DEFAULT_ALLOWED_SKIP_REGEX = (
-    r"Claude Code-specific|Codex app-server owns|does not advertise native compaction"
+from tests.e2e.harness.parity_runner import (
+    DEFAULT_ALLOWED_SKIP_REGEX,
+    validate_skips as unexpected_skips,
 )
 
 
-def unexpected_skips(path: str, allowed_skip_regex: str = DEFAULT_ALLOWED_SKIP_REGEX) -> list[tuple[str, str]]:
-    allowed_re = re.compile(allowed_skip_regex) if allowed_skip_regex else None
-    root = ET.parse(path).getroot()
-    unexpected: list[tuple[str, str]] = []
-    for node in root.iter():
-        if node.tag != "testcase":
-            continue
-        skipped_nodes = [child for child in node if child.tag == "skipped"]
-        if not skipped_nodes:
-            continue
-        name = f"{node.attrib.get('classname', '')}.{node.attrib.get('name', '')}"
-        message = " ".join(str(child.attrib.get("message", "")) for child in skipped_nodes)
-        if allowed_re and allowed_re.search(f"{name} {message}"):
-            continue
-        unexpected.append((name, message))
-    return unexpected
+__all__ = ["DEFAULT_ALLOWED_SKIP_REGEX", "unexpected_skips", "main"]
 
 
 def main(argv: list[str] | None = None) -> int:

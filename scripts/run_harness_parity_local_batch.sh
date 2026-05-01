@@ -6,6 +6,11 @@
 #   ./scripts/run_harness_parity_local_batch.sh --preset fast --jobs 3
 #   ./scripts/run_harness_parity_local_batch.sh --preset sdk --screenshots docs
 #   ./scripts/run_harness_parity_local_batch.sh --preset all --screenshots docs
+#
+# Slice data (preset → tier+selector list, per-selector screenshot filter)
+# lives in tests/e2e/harness/parity_presets.py. This script reads it via
+# `python -m tests.e2e.harness.parity_runner expand-slices --preset NAME`.
+# The full-suite preset (`all`) is detected via `is-full-suite`.
 
 set -euo pipefail
 
@@ -34,6 +39,20 @@ DRY_RUN=false
 LIST=false
 FAIL_ON_SKIPS=false
 RUN_DIR="$AGENT_STATE_DIR/harness-parity-runs/$(date -u +%Y%m%dT%H%M%SZ)"
+
+PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+    if command -v python3 >/dev/null 2>&1; then
+        PYTHON_BIN="python3"
+    else
+        PYTHON_BIN="python"
+    fi
+fi
+
+run_parity_runner() {
+    PYTHONPATH="${PYTHONPATH:-$PROJECT_ROOT}" "$PYTHON_BIN" \
+        -m tests.e2e.harness.parity_runner "$@"
+}
 
 usage() {
     cat <<'EOF'
@@ -109,151 +128,35 @@ if ! [[ "$JOBS" =~ ^[1-9][0-9]*$ ]]; then
     exit 2
 fi
 
-declare -a SLICES
+# Detect full-suite preset (e.g. `all`); strict-mode is auto-enabled.
 FULL_SUITE=false
-case "${PRESET,,}" in
-    smoke)
-        SLICES=(
-            "core|codex and native_slash_direct_commands"
-            "core|claude and native_slash_direct_commands"
-            "core|codex and core_parity_controls_trace_and_context"
-        )
-        ;;
-    slash)
-        SLICES=(
-            "core|codex and native_slash_direct_commands"
-            "core|claude and native_slash_direct_commands"
-            "core|native_slash_mutating_commands_handoff"
-            "skills|claude_project_local_native_skill_invocation"
-        )
-        ;;
-    bridge)
-        SLICES=(
-            "bridge|bridge_tools_persist_and_renderable"
-            "writes|default_mode_bridge_write_approval_resume"
-            "writes|safe_workspace_write_read_delete"
-            "memory|memory_hint_requires_explicit_read"
-        )
-        ;;
-    sdk)
-        SLICES=(
-            "core|core_streams_partial_text_before_final"
-            "skills|native_image_semantic_reasoning"
-            "project|project_instruction_file_discovery"
-            "skills|claude and claude_native_todo_progress_persists"
-            "skills|claude and claude_native_subagent_persists"
-        )
-        ;;
-    ui)
-        SLICES=(
-            "terminal|terminal_tool_output_is_sequential"
-            "replay|persisted_tool_replay_survives_refetch"
-        )
-        ;;
-    fast)
-        SLICES=(
-            "core|codex and native_slash_direct_commands"
-            "core|claude and native_slash_direct_commands"
-            "core|codex and core_parity_controls_trace_and_context"
-            "core|claude and core_parity_controls_trace_and_context"
-            "plan|plan_mode_round_trip"
-            "core|core_streams_partial_text_before_final"
-            "skills|native_image_input_manifest"
-            "skills|native_image_semantic_reasoning"
-            "skills|claude_project_local_native_skill_invocation"
-            "replay|persisted_tool_replay_survives_refetch"
-        )
-        ;;
-    deep)
-        SLICES=(
-            "core|codex and native_slash_direct_commands"
-            "core|claude and native_slash_direct_commands"
-            "core|core_parity_controls_trace_and_context"
-            "core|core_streams_partial_text_before_final"
-            "bridge|bridge_tools_persist_and_renderable"
-            "terminal|terminal_tool_output_is_sequential"
-            "plan|plan_mode_round_trip"
-            "writes|safe_workspace_write_read_delete"
-            "memory|memory_hint_requires_explicit_read"
-            "skills|native_image_input_manifest"
-            "skills|native_image_semantic_reasoning"
-            "skills|claude_project_local_native_skill_invocation"
-            "project|project_instruction_file_discovery"
-            "skills|claude and claude_native_todo_progress_persists"
-            "skills|claude and claude_native_subagent_persists"
-            "replay|persisted_tool_replay_survives_refetch"
-        )
-        ;;
-    all)
-        FULL_SUITE=true
-        FAIL_ON_SKIPS=true
-        SLICES=("replay|")
-        ;;
-    *)
-        echo "Unknown preset '$PRESET'; use smoke, slash, bridge, sdk, ui, fast, deep, or all." >&2
-        exit 2
-        ;;
-esac
+if run_parity_runner is-full-suite --preset "$PRESET" >/dev/null 2>&1; then
+    FULL_SUITE=true
+    FAIL_ON_SKIPS=true
+fi
+
+# Read slice rows (tier|selector|screenshot_filter) from Python.
+SLICES_TMP="$(mktemp)"
+trap 'rm -f "$SLICES_TMP"' EXIT
+if ! run_parity_runner expand-slices --preset "$PRESET" > "$SLICES_TMP" 2>&1; then
+    cat "$SLICES_TMP" >&2
+    exit 2
+fi
+mapfile -t SLICE_ROWS < "$SLICES_TMP"
 
 if [[ "$LIST" == true ]]; then
     if [[ "$FULL_SUITE" == true ]]; then
         printf '%-8s %s\n' "replay" "<full suite; no -k selector; fail-on-skips enabled>"
         exit 0
     fi
-    for slice in "${SLICES[@]}"; do
-        tier="${slice%%|*}"
-        selector="${slice#*|}"
+    for row in "${SLICE_ROWS[@]}"; do
+        IFS='|' read -r tier selector _filter <<< "$row"
         printf '%-8s %s\n' "$tier" "$selector"
     done
     exit 0
 fi
 
 cd "$PROJECT_ROOT"
-
-screenshots_for_selector() {
-    local selector="$1"
-    case "$selector" in
-        *bridge_tools_persist_and_renderable*)
-            echo "harness-*-bridge-default"
-            ;;
-        *default_mode_bridge_write_approval_resume*)
-            echo "harness-*-terminal-write"
-            ;;
-        *safe_workspace_write_read_delete*|*memory_hint_requires_explicit_read*|*terminal_tool_output_is_sequential*|*persisted_tool_replay_survives_refetch*)
-            echo "__off__"
-            ;;
-        *core_streams_partial_text_before_final*)
-            echo "harness-*-streaming-deltas"
-            ;;
-        *native_image_semantic_reasoning*)
-            echo "harness-*-image-semantic-reasoning"
-            ;;
-        *project_instruction_file_discovery*)
-            echo "harness-*-project-instruction-discovery"
-            ;;
-        *codex\ and\ native_slash_direct_commands*)
-            echo "harness-native-slash-picker-dark,harness-codex-native-plugins-result-dark"
-            ;;
-        *claude\ and\ native_slash_direct_commands*)
-            echo "harness-claude-native-skills-result-dark"
-            ;;
-        *native_slash_mutating_commands_handoff*)
-            echo "harness-codex-native-plugin-install-handoff-dark"
-            ;;
-        *claude_project_local_native_skill_invocation*)
-            echo "harness-claude-native-custom-skill-result-dark"
-            ;;
-        *claude_native_todo_progress_persists*)
-            echo "harness-claude-todowrite-progress"
-            ;;
-        *claude_native_subagent_persists*)
-            echo "harness-claude-native-subagent"
-            ;;
-        *)
-            echo ""
-            ;;
-    esac
-}
 
 format_run_command() {
     local tier="$1"
@@ -282,10 +185,9 @@ if [[ "$DRY_RUN" == true ]]; then
         echo "HARNESS_PARITY_FAIL_ON_SKIPS=true HARNESS_PARITY_PYTEST_JUNIT_XML=$RUN_DIR/all-replay.xml ./scripts/run_harness_parity_local.sh --tier replay --screenshots $SCREENSHOTS"
         exit 0
     fi
-    for slice in "${SLICES[@]}"; do
-        tier="${slice%%|*}"
-        selector="${slice#*|}"
-        format_run_command "$tier" "$SCREENSHOTS" "$selector" "$(screenshots_for_selector "$selector")"
+    for row in "${SLICE_ROWS[@]}"; do
+        IFS='|' read -r tier selector filter <<< "$row"
+        format_run_command "$tier" "$SCREENSHOTS" "$selector" "$filter"
     done
     exit 0
 fi
@@ -324,9 +226,8 @@ run_slice() {
     local index="$1"
     local tier="$2"
     local selector="$3"
+    local screenshot_only="$4"
     local log_file="$RUN_DIR/${index}-${tier}.log"
-    local screenshot_only
-    screenshot_only="$(screenshots_for_selector "$selector")"
     {
         echo "tier=$tier"
         echo "selector=$selector"
@@ -370,12 +271,10 @@ wait_one() {
 
 failures=0
 export HARNESS_PARITY_FAIL_ON_SKIPS="$FAIL_ON_SKIPS"
-for i in "${!SLICES[@]}"; do
-    slice="${SLICES[$i]}"
-    tier="${slice%%|*}"
-    selector="${slice#*|}"
+for i in "${!SLICE_ROWS[@]}"; do
+    IFS='|' read -r tier selector filter <<< "${SLICE_ROWS[$i]}"
     name="${tier}: ${selector}"
-    run_slice "$((i + 1))" "$tier" "$selector" &
+    run_slice "$((i + 1))" "$tier" "$selector" "$filter" &
     PIDS+=("$!")
     NAMES+=("$name")
     while (( ${#PIDS[@]} >= JOBS )); do

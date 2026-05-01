@@ -7,20 +7,12 @@
 # Usage:
 #   ./scripts/run_harness_parity_live.sh
 #   ./scripts/run_harness_parity_live.sh --tier bridge
-#   ./scripts/run_harness_parity_live.sh --tier terminal
-#   ./scripts/run_harness_parity_live.sh --tier plan
-#   ./scripts/run_harness_parity_live.sh --tier heartbeat
-#   ./scripts/run_harness_parity_live.sh --tier automation
-#   ./scripts/run_harness_parity_live.sh --tier writes
-#   ./scripts/run_harness_parity_live.sh --tier context
-#   ./scripts/run_harness_parity_live.sh --tier project
-#   ./scripts/run_harness_parity_live.sh --tier memory
-#   ./scripts/run_harness_parity_live.sh --tier skills
-#   ./scripts/run_harness_parity_live.sh --tier replay
+#   ./scripts/run_harness_parity_live.sh --tier project --screenshots auto
 #   ./scripts/run_harness_parity_live.sh -k core
 #
-# The default Codex/Claude channel ids are shared live channels. Run full tiers
-# sequentially; use focused -k slices when parallelizing checks.
+# Tier list and per-tier required-route preflight live in
+# tests/e2e/harness/parity_runner.py — this script delegates to it via
+# `python -m tests.e2e.harness.parity_runner ...`.
 
 set -euo pipefail
 
@@ -33,7 +25,7 @@ PYTEST_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --tier)
-            TIER="${2:?--tier requires one of: core, bridge, terminal, plan, heartbeat, automation, writes, context, project, memory, skills, replay}"
+            TIER="${2:?--tier requires a value (see TIER_ORDER in parity_runner.py)}"
             shift 2
             ;;
         --tier=*)
@@ -57,6 +49,11 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
         PYTHON_BIN="python"
     fi
 fi
+
+run_parity_runner() {
+    PYTHONPATH="${PYTHONPATH:-$PROJECT_ROOT}" "$PYTHON_BIN" \
+        -m tests.e2e.harness.parity_runner "$@"
+}
 
 if [[ "${HARNESS_PARITY_NATIVE_APP:-0}" != "1" && -z "${E2E_API_KEY:-}" ]] && command -v docker >/dev/null 2>&1; then
     E2E_API_KEY="$(docker exec agent-server-agent-server-1 printenv API_KEY 2>/dev/null || true)"
@@ -91,7 +88,11 @@ export HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR="${HARNESS_PARITY_SCREENSHOT_OUTPUT_
 export HARNESS_PARITY_SCREENSHOT_ONLY="${HARNESS_PARITY_SCREENSHOT_ONLY:-}"
 export HARNESS_PARITY_FAIL_ON_SKIPS="${HARNESS_PARITY_FAIL_ON_SKIPS:-false}"
 export HARNESS_PARITY_PYTEST_JUNIT_XML="${HARNESS_PARITY_PYTEST_JUNIT_XML:-}"
-export HARNESS_PARITY_ALLOWED_SKIP_REGEX="${HARNESS_PARITY_ALLOWED_SKIP_REGEX:-Claude Code-specific|Codex app-server owns|does not advertise native compaction}"
+# DEFAULT_ALLOWED_SKIP_REGEX is owned by parity_runner.py; bash only overrides
+# when the user/env explicitly sets it.
+if [[ -n "${HARNESS_PARITY_ALLOWED_SKIP_REGEX:-}" ]]; then
+    export HARNESS_PARITY_ALLOWED_SKIP_REGEX
+fi
 
 is_local_e2e_host() {
     case "$E2E_HOST" in
@@ -158,71 +159,32 @@ PY
 
 preflight_api_surface() {
     local base_url="http://${E2E_HOST}:${E2E_PORT}"
-    local openapi
+    local openapi_tmp
+    openapi_tmp="$(mktemp)"
     if command -v curl >/dev/null 2>&1; then
-        openapi="$(curl -fsS --max-time 10 "$base_url/openapi.json" 2>/dev/null || true)"
+        if ! curl -fsS --max-time 10 "$base_url/openapi.json" -o "$openapi_tmp"; then
+            echo "Harness parity preflight failed: could not read $base_url/openapi.json" >&2
+            rm -f "$openapi_tmp"
+            return 1
+        fi
     else
-        openapi="$("$PYTHON_BIN" - "$base_url/openapi.json" <<'PY' 2>/dev/null || true
+        if ! "$PYTHON_BIN" - "$base_url/openapi.json" "$openapi_tmp" <<'PY'
 import sys
 import urllib.request
 
-print(urllib.request.urlopen(sys.argv[1], timeout=10).read().decode())
+with urllib.request.urlopen(sys.argv[1], timeout=10) as resp:
+    open(sys.argv[2], "wb").write(resp.read())
 PY
-)"
+        then
+            echo "Harness parity preflight failed: could not read $base_url/openapi.json" >&2
+            rm -f "$openapi_tmp"
+            return 1
+        fi
     fi
-    if [[ -z "$openapi" ]]; then
-        echo "Harness parity preflight failed: could not read $base_url/openapi.json" >&2
-        return 1
-    fi
 
-    local openapi_tmp
-    openapi_tmp="$(mktemp)"
-    printf '%s' "$openapi" > "$openapi_tmp"
-    if ! "$PYTHON_BIN" - "$HARNESS_PARITY_TIER" "$openapi_tmp" <<'PY'
-import json
-import sys
-
-tier = sys.argv[1]
-with open(sys.argv[2], "r", encoding="utf-8") as fh:
-    doc = json.load(fh)
-paths = set(doc.get("paths") or {})
-
-tier_order = {
-    "core": 0,
-    "bridge": 1,
-    "terminal": 2,
-    "plan": 3,
-    "heartbeat": 4,
-    "automation": 5,
-    "writes": 6,
-    "context": 7,
-    "project": 8,
-    "memory": 9,
-    "skills": 10,
-    "replay": 11,
-}
-
-required = []
-if (
-    "/api/v1/channels/{channel_id}/sessions" not in paths
-    and "/api/v1/channels/{channel_id}/reset" not in paths
-):
-    required.append(
-        "/api/v1/channels/{channel_id}/sessions "
-        "(or legacy /api/v1/channels/{channel_id}/reset)"
-    )
-if tier_order.get(tier, 0) >= tier_order["terminal"]:
-    required.append("/api/v1/admin/docker-stacks")
-
-missing = [path for path in required if path not in paths]
-if missing:
-    print("Harness parity preflight failed: deployed API is missing required routes:", file=sys.stderr)
-    for path in missing:
-        print(f"  - {path}", file=sys.stderr)
-    print("Redeploy/restart the server image that contains the current harness parity API surface before running this tier.", file=sys.stderr)
-    raise SystemExit(1)
-PY
-    then
+    if ! run_parity_runner validate-routes \
+            --tier "$HARNESS_PARITY_TIER" \
+            --openapi-paths-file "$openapi_tmp"; then
         rm -f "$openapi_tmp"
         return 1
     fi
@@ -304,27 +266,20 @@ echo "  Capture screenshots: ${HARNESS_PARITY_CAPTURE_SCREENSHOTS}"
 echo "  Screenshot only: ${HARNESS_PARITY_SCREENSHOT_ONLY:-<all>}"
 echo "  Screenshot output: ${HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR}"
 echo "  Fail on skips: ${HARNESS_PARITY_FAIL_ON_SKIPS}"
-echo "  Allowed skip regex: ${HARNESS_PARITY_ALLOWED_SKIP_REGEX:-<none>}"
+echo "  Allowed skip regex: ${HARNESS_PARITY_ALLOWED_SKIP_REGEX:-<parity_runner default>}"
 echo "  Health wait: ${HARNESS_PARITY_HEALTH_WAIT_TIMEOUT}"
 echo ""
-
-PYTEST_BIN=".venv/bin/pytest"
-if [[ ! -x "$PYTEST_BIN" ]]; then
-    PYTEST_BIN="pytest"
-fi
 
 wait_for_server_health
 preflight_api_surface
 
-PYTEST_CMD=("$PYTEST_BIN" tests/e2e/scenarios/test_harness_live_parity.py -q -rs)
+LIVE_ARGS=(--tier "$HARNESS_PARITY_TIER")
 if [[ -n "$HARNESS_PARITY_PYTEST_JUNIT_XML" ]]; then
-    mkdir -p "$(dirname "$HARNESS_PARITY_PYTEST_JUNIT_XML")"
-    PYTEST_CMD+=(--junitxml "$HARNESS_PARITY_PYTEST_JUNIT_XML")
+    LIVE_ARGS+=(--junit-xml "$HARNESS_PARITY_PYTEST_JUNIT_XML")
 fi
-PYTEST_CMD+=("${PYTEST_ARGS[@]}")
 
 set +e
-"${PYTEST_CMD[@]}"
+run_parity_runner live "${LIVE_ARGS[@]}" "${PYTEST_ARGS[@]}"
 pytest_status=$?
 set -e
 
@@ -333,38 +288,16 @@ if [[ "${HARNESS_PARITY_FAIL_ON_SKIPS,,}" =~ ^(1|true|yes)$ ]]; then
         echo "HARNESS_PARITY_FAIL_ON_SKIPS requires HARNESS_PARITY_PYTEST_JUNIT_XML" >&2
         exit 1
     fi
-    "$PYTHON_BIN" -m scripts.harness_parity_junit_skips \
-        "$HARNESS_PARITY_PYTEST_JUNIT_XML" \
-        --allowed-skip-regex "$HARNESS_PARITY_ALLOWED_SKIP_REGEX"
+    SKIP_ARGS=("$HARNESS_PARITY_PYTEST_JUNIT_XML")
+    if [[ -n "${HARNESS_PARITY_ALLOWED_SKIP_REGEX:-}" ]]; then
+        SKIP_ARGS+=(--allowed-skip-regex "$HARNESS_PARITY_ALLOWED_SKIP_REGEX")
+    fi
+    run_parity_runner validate-skips "${SKIP_ARGS[@]}"
 fi
 
 if (( pytest_status != 0 )); then
     exit "$pytest_status"
 fi
-
-tier_at_least() {
-    local current="$1"
-    local required="$2"
-    "$PYTHON_BIN" - "$current" "$required" <<'PY'
-import sys
-
-order = {
-    "core": 0,
-    "bridge": 1,
-    "terminal": 2,
-    "plan": 3,
-    "heartbeat": 4,
-    "automation": 5,
-    "writes": 6,
-    "context": 7,
-    "project": 8,
-    "memory": 9,
-    "skills": 10,
-    "replay": 11,
-}
-raise SystemExit(0 if order.get(sys.argv[1], 0) >= order[sys.argv[2]] else 1)
-PY
-}
 
 should_capture_screenshots() {
     case "${HARNESS_PARITY_CAPTURE_SCREENSHOTS,,}" in
@@ -378,7 +311,7 @@ should_capture_screenshots() {
             if [[ ${#PYTEST_ARGS[@]} -gt 0 && -z "${HARNESS_PARITY_SCREENSHOT_ONLY:-}" ]]; then
                 return 1
             fi
-            tier_at_least "$HARNESS_PARITY_TIER" "project"
+            run_parity_runner tier-at-least "$HARNESS_PARITY_TIER" "project"
             return
             ;;
         *)
