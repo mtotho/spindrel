@@ -3,7 +3,7 @@
 Requires PostgreSQL (ILIKE not supported on SQLite) — tests are skipped on SQLite.
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -44,17 +44,18 @@ async def channel_with_messages(db_session):
         client_id="test-client",
         bot_id="test-bot",
         channel_id=ch_id,
+        last_active=now,
     )
     db_session.add(channel)
     db_session.add(session)
     await db_session.flush()
 
     messages = [
-        Message(id=uuid.uuid4(), session_id=sess_id, role="user", content="Deploy to production today"),
-        Message(id=uuid.uuid4(), session_id=sess_id, role="assistant", content="Deployment initiated successfully"),
-        Message(id=uuid.uuid4(), session_id=sess_id, role="user", content="Check the logs for errors"),
-        Message(id=uuid.uuid4(), session_id=sess_id, role="tool", content="tool result data"),
-        Message(id=uuid.uuid4(), session_id=sess_id, role="system", content="system prompt"),
+        Message(id=uuid.uuid4(), session_id=sess_id, role="user", content="Deploy to production today", created_at=now),
+        Message(id=uuid.uuid4(), session_id=sess_id, role="assistant", content="Deployment initiated successfully", created_at=now + timedelta(seconds=1)),
+        Message(id=uuid.uuid4(), session_id=sess_id, role="user", content="Check the logs for errors", created_at=now + timedelta(seconds=2)),
+        Message(id=uuid.uuid4(), session_id=sess_id, role="tool", content="tool result data", created_at=now + timedelta(seconds=3)),
+        Message(id=uuid.uuid4(), session_id=sess_id, role="system", content="system prompt", created_at=now + timedelta(seconds=4)),
     ]
     for m in messages:
         db_session.add(m)
@@ -67,6 +68,7 @@ async def channel_with_messages(db_session):
         bot_id="test-bot",
         channel_id=ch_id,
         title="Old database notes",
+        last_active=now - timedelta(days=1),
     )
     db_session.add(old_session)
     await db_session.flush()
@@ -75,6 +77,7 @@ async def channel_with_messages(db_session):
         session_id=old_sess_id,
         role="user",
         content="The rollback checklist mentions the blue-green verifier",
+        created_at=now - timedelta(days=1),
     ))
     db_session.add(ConversationSection(
         id=uuid.uuid4(),
@@ -248,3 +251,23 @@ class TestSessionSearchEndpoint:
         assert resp.status_code == 200
         row = next(row for row in resp.json()["sessions"] if row["session_id"] == str(old_sid))
         assert any(match["kind"] == "section" for match in row["matches"])
+
+    async def test_recent_sessions_endpoint_lists_visible_sessions_with_latest_preview(self, client, channel_with_messages):
+        _ch_id, active_sid, old_sid, _ = channel_with_messages
+        resp = await client.get(
+            "/api/v1/sessions/recent",
+            params={"limit": 5},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        sessions = resp.json()["sessions"]
+        ids = [row["session_id"] for row in sessions]
+        assert str(active_sid) in ids
+        assert str(old_sid) in ids
+        assert ids.index(str(active_sid)) < ids.index(str(old_sid))
+        active = next(row for row in sessions if row["session_id"] == str(active_sid))
+        assert active["channel_id"]
+        assert active["channel_name"] == "search-test"
+        assert active["preview"] == "Check the logs for errors"
+        labels = {row.get("label") for row in sessions}
+        assert "Hidden task transcript" not in labels

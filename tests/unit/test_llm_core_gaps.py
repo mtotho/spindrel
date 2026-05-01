@@ -272,16 +272,36 @@ class TestDescribeImageData:
     @pytest.mark.asyncio
     async def test_happy_path_returns_description(self):
         mock_summarize = AsyncMock(return_value="A cat sitting on a mat")
-        with patch("app.services.attachment_summarizer._summarize_image", mock_summarize):
+        mock_settings = MagicMock()
+        mock_settings.ATTACHMENT_SUMMARY_MODEL = "llava"
+        mock_settings.ATTACHMENT_SUMMARY_MODEL_PROVIDER_ID = ""
+        with patch("app.services.attachment_summarizer._summarize_image", mock_summarize), \
+             patch("app.agent.llm.settings", mock_settings):
             result = await _describe_image_data("data:image/png;base64,abc123")
         assert result == "A cat sitting on a mat"
 
     @pytest.mark.asyncio
     async def test_exception_returns_none(self):
         mock_summarize = AsyncMock(side_effect=RuntimeError("Vision model unavailable"))
-        with patch("app.services.attachment_summarizer._summarize_image", mock_summarize):
+        mock_settings = MagicMock()
+        mock_settings.ATTACHMENT_SUMMARY_MODEL = "llava"
+        mock_settings.ATTACHMENT_SUMMARY_MODEL_PROVIDER_ID = ""
+        with patch("app.services.attachment_summarizer._summarize_image", mock_summarize), \
+             patch("app.agent.llm.settings", mock_settings):
             result = await _describe_image_data("data:image/png;base64,abc123")
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_empty_model_returns_none_without_call(self):
+        mock_summarize = AsyncMock(return_value="description")
+        mock_settings = MagicMock()
+        mock_settings.ATTACHMENT_SUMMARY_MODEL = ""
+        mock_settings.ATTACHMENT_SUMMARY_MODEL_PROVIDER_ID = ""
+        with patch("app.services.attachment_summarizer._summarize_image", mock_summarize), \
+             patch("app.agent.llm.settings", mock_settings):
+            result = await _describe_image_data("data:image/png;base64,xyz")
+        assert result is None
+        mock_summarize.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_passes_model_and_provider_from_settings(self):

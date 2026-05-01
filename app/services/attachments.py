@@ -253,7 +253,7 @@ async def delete_attachment(attachment_id: uuid.UUID) -> dict:
             return {"error": f"Attachment {attachment_id} not found."}
 
         # Attempt integration-side deletion before removing from DB.
-        # Check metadata for integration-specific keys (e.g. slack_file_id)
+        # Check metadata for registered integration-owned attachment ids.
         # rather than relying on source_integration alone — mirrored channels
         # may have source_integration="web" but still have a Slack file.
         integration_deleted = False
@@ -300,10 +300,9 @@ def _infer_integration_from_metadata(meta: dict, source_integration: str) -> str
     """Determine which integration to dispatch deletion to based on metadata keys.
 
     Each integration declares its file-id metadata key via
-    ``IntegrationMeta.attachment_file_id_key`` (e.g. Slack registers
-    ``slack_file_id``). The lookup walks registered metas so mirrored
-    channels (source_integration == "web") still route to the owning
-    integration when an integration-specific key is present.
+    ``IntegrationMeta.attachment_file_id_key``. The lookup walks registered
+    metas so mirrored channels (source_integration == "web") still route to
+    the owning integration when an integration-specific key is present.
     """
     from app.agent.hooks import integration_id_from_attachment_meta
 

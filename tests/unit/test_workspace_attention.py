@@ -35,6 +35,9 @@ from app.services.workspace_attention import (
     report_attention_triage_batch,
     report_issue_work_packs,
     resolve_attention_item,
+    serialize_issue_work_pack,
+    transition_issue_work_pack,
+    update_issue_work_pack,
 )
 from app.services.workspace_command_center import build_command_center
 from app.dependencies import ApiKeyAuth
@@ -248,6 +251,132 @@ async def test_create_manual_issue_work_pack_links_source_items(db_session):
     triage = refreshed.evidence["issue_triage"]
     assert triage["state"] == "packed"
     assert triage["work_pack_ids"] == [str(pack.id)]
+
+
+@pytest.mark.asyncio
+async def test_update_issue_work_pack_records_review_provenance_and_source_summaries(db_session):
+    first = await create_issue_intake_note(
+        db_session,
+        actor="api_key:e2e",
+        channel_id=None,
+        title="Old evidence",
+        summary="Old source should be replaceable.",
+    )
+    second = await create_issue_intake_note(
+        db_session,
+        actor="api_key:e2e",
+        channel_id=None,
+        title="New evidence",
+        summary="New source should serialize for review.",
+    )
+    pack = await create_manual_issue_work_pack(
+        db_session,
+        actor="api_key:e2e",
+        title="Initial pack",
+        summary="Initial summary",
+        category="code_bug",
+        confidence="medium",
+        source_item_ids=[str(first.id)],
+    )
+
+    updated = await update_issue_work_pack(
+        db_session,
+        pack.id,
+        actor="api_key:e2e",
+        fields={
+            "title": "Edited pack",
+            "summary": "Edited summary",
+            "category": "test_failure",
+            "confidence": "high",
+            "source_item_ids": [str(second.id)],
+            "launch_prompt": "Run the focused regression.",
+        },
+    )
+
+    assert updated.title == "Edited pack"
+    assert updated.category == "test_failure"
+    assert updated.confidence == "high"
+    assert updated.source_item_ids == [str(second.id)]
+    assert updated.metadata_["latest_review_action"]["action"] == "edited"
+    serialized = await serialize_issue_work_pack(db_session, updated)
+    assert serialized["latest_review_action"]["action"] == "edited"
+    assert serialized["source_items"][0]["title"] == "New evidence"
+
+
+@pytest.mark.asyncio
+async def test_work_pack_review_actions_gate_launch_and_reopen(db_session):
+    item = await create_issue_intake_note(
+        db_session,
+        actor="api_key:e2e",
+        channel_id=None,
+        title="Needs operator decision",
+        summary="The pack should be reviewed before launch.",
+    )
+    pack = await create_manual_issue_work_pack(
+        db_session,
+        actor="api_key:e2e",
+        title="Decision pack",
+        summary="Review me.",
+        category="code_bug",
+        confidence="medium",
+        source_item_ids=[str(item.id)],
+    )
+
+    dismissed = await transition_issue_work_pack(
+        db_session,
+        pack.id,
+        actor="api_key:e2e",
+        action="dismiss",
+        note="Duplicate of a tracked issue.",
+    )
+    assert dismissed.status == "dismissed"
+    assert dismissed.metadata_["latest_review_action"]["note"] == "Duplicate of a tracked issue."
+
+    reopened = await transition_issue_work_pack(
+        db_session,
+        pack.id,
+        actor="api_key:e2e",
+        action="reopen",
+        note="Still actionable after review.",
+    )
+    assert reopened.status == "proposed"
+
+    needs_info = await transition_issue_work_pack(
+        db_session,
+        pack.id,
+        actor="api_key:e2e",
+        action="needs_info",
+        note="Need reproduction details.",
+    )
+    assert needs_info.status == "needs_info"
+    assert [entry["action"] for entry in needs_info.metadata_["review_actions"][-3:]] == ["dismiss", "reopen", "needs_info"]
+
+
+@pytest.mark.asyncio
+async def test_launched_issue_work_pack_cannot_be_rewritten(db_session):
+    item = await create_issue_intake_note(
+        db_session,
+        actor="api_key:e2e",
+        channel_id=None,
+        title="Already launched",
+        summary="Launched handoff should stay immutable.",
+    )
+    pack = await create_manual_issue_work_pack(
+        db_session,
+        actor="api_key:e2e",
+        title="Immutable pack",
+        summary="Launch history matters.",
+        category="code_bug",
+        confidence="medium",
+        source_item_ids=[str(item.id)],
+    )
+    pack.status = "launched"
+    await db_session.commit()
+
+    with pytest.raises(ValidationError, match="Launched work packs cannot be edited"):
+        await update_issue_work_pack(db_session, pack.id, actor="api_key:e2e", fields={"title": "Rewrite"})
+    with pytest.raises(ValidationError, match="Launched work packs cannot be dismissed"):
+        await transition_issue_work_pack(db_session, pack.id, actor="api_key:e2e", action="dismiss")
 
 
 @pytest.mark.asyncio

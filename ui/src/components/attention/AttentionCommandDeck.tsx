@@ -11,8 +11,11 @@ import {
   Inbox,
   Loader2,
   MessageSquare,
+  Pencil,
   Radar,
+  RotateCcw,
   Sparkles,
+  Trash2,
   XCircle,
 } from "lucide-react";
 
@@ -25,10 +28,12 @@ import {
   useBulkAcknowledgeAttentionItems,
   useResolveAttentionItem,
   useIssueWorkPacks,
+  useIssueWorkPackAction,
   useLaunchIssueWorkPackProjectRun,
   useStartAttentionTriageRun,
   useStartIssueTriageRun,
   useSubmitAttentionTriageFeedback,
+  useUpdateIssueWorkPack,
   useWorkspaceAttentionBrief,
   WORKSPACE_ATTENTION_BRIEF_KEY,
   WORKSPACE_ATTENTION_KEY,
@@ -36,6 +41,7 @@ import {
   type AttentionBriefResponse,
   type AttentionFixPack,
   type AttentionAssignmentMode,
+  type IssueWorkPackUpdateInput,
   type IssueWorkPack,
   type AttentionTriageRunResponse,
   type WorkspaceAttentionItem,
@@ -726,9 +732,17 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
   const { data: projects = [] } = useProjects();
   const [selectedProjectId, setSelectedProjectId] = useState(() => localStorage.getItem("spindrel.issueFactory.projectId") || "");
   const [selectedChannelId, setSelectedChannelId] = useState(() => localStorage.getItem("spindrel.issueFactory.channelId") || "");
+  const [reviewPackId, setReviewPackId] = useState<string | null>(null);
   const { data: projectChannels = [] } = useProjectChannels(selectedProjectId || undefined);
   const launchPack = useLaunchIssueWorkPackProjectRun();
-  const proposedPacks = workPacks.filter((pack) => pack.status === "proposed" || pack.status === "needs_info");
+  const updatePack = useUpdateIssueWorkPack();
+  const dismissPack = useIssueWorkPackAction("dismiss");
+  const needsInfoPack = useIssueWorkPackAction("needs-info");
+  const reopenPack = useIssueWorkPackAction("reopen");
+  const activePacks = workPacks.filter((pack) => pack.status === "proposed" || pack.status === "needs_info");
+  const launchedPacks = workPacks.filter((pack) => pack.status === "launched");
+  const dismissedPacks = workPacks.filter((pack) => pack.status === "dismissed");
+  const reviewPack = workPacks.find((pack) => pack.id === reviewPackId) ?? null;
 
   useEffect(() => {
     if (!projects.length) return;
@@ -821,30 +835,275 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
             </select>
           </div>
         </div>
+        {reviewPack && (
+          <WorkPackReviewEditor
+            pack={reviewPack}
+            items={items}
+            projects={projects}
+            projectChannels={projectChannels}
+            defaultProjectId={selectedProjectId}
+            defaultChannelId={selectedChannelId}
+            busy={updatePack.isPending || dismissPack.isPending || needsInfoPack.isPending || reopenPack.isPending}
+            error={updatePack.error || dismissPack.error || needsInfoPack.error || reopenPack.error}
+            onClose={() => setReviewPackId(null)}
+            onSave={(body) => updatePack.mutate(body)}
+            onDismiss={(note) => dismissPack.mutate({ work_pack_id: reviewPack.id, note })}
+            onNeedsInfo={(note) => needsInfoPack.mutate({ work_pack_id: reviewPack.id, note })}
+            onReopen={(note) => reopenPack.mutate({ work_pack_id: reviewPack.id, note })}
+          />
+        )}
         <div className="space-y-2">
-          {proposedPacks.slice(0, 10).map((pack) => (
-            <div key={pack.id} className="rounded-md bg-surface-overlay/25 px-3 py-3">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-text">{pack.title}</div>
-                  <div className="mt-1 text-[11px] uppercase tracking-[0.08em] text-text-dim">{pack.category.replaceAll("_", " ")} · {pack.confidence} confidence · {pack.source_item_ids.length} sources</div>
-                  <p className="mt-2 text-xs leading-5 text-text-muted">{pack.summary}</p>
-                </div>
-                <button
-                  type="button"
-                  disabled={pack.status !== "proposed" || !selectedProjectId || !selectedChannelId || launchPack.isPending}
-                  className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-accent/[0.08] px-3 text-xs font-medium text-accent hover:bg-accent/[0.12] disabled:opacity-50"
-                  onClick={() => launch(pack)}
-                >
-                  {launchPack.isPending ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
-                  Launch run
-                </button>
-              </div>
-            </div>
+          {activePacks.slice(0, 12).map((pack) => (
+            <WorkPackRow
+              key={pack.id}
+              pack={pack}
+              selected={pack.id === reviewPackId}
+              launchDisabled={pack.status !== "proposed" || !selectedProjectId || !selectedChannelId || launchPack.isPending}
+              launchPending={launchPack.isPending}
+              onReview={() => setReviewPackId(pack.id === reviewPackId ? null : pack.id)}
+              onLaunch={() => launch(pack)}
+            />
           ))}
-          {!proposedPacks.length && <div className="rounded-md bg-surface-overlay/25 px-3 py-8 text-center text-sm text-text-muted">No work packs yet. Start issue triage to generate them.</div>}
+          {!activePacks.length && <div className="rounded-md bg-surface-overlay/25 px-3 py-8 text-center text-sm text-text-muted">No work packs are awaiting review.</div>}
         </div>
+        {!!launchedPacks.length && (
+          <div className="mt-4 space-y-2">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Launched</div>
+            {launchedPacks.slice(0, 4).map((pack) => (
+              <WorkPackRow key={pack.id} pack={pack} selected={false} launchDisabled launchPending={false} onReview={() => setReviewPackId(pack.id)} onLaunch={() => {}} />
+            ))}
+          </div>
+        )}
+        {!!dismissedPacks.length && (
+          <div className="mt-4 space-y-2">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Dismissed</div>
+            {dismissedPacks.slice(0, 4).map((pack) => (
+              <WorkPackRow key={pack.id} pack={pack} selected={false} launchDisabled launchPending={false} onReview={() => setReviewPackId(pack.id)} onLaunch={() => {}} />
+            ))}
+          </div>
+        )}
+        {launchPack.error && (
+          <div className="mt-3 rounded-md bg-danger/10 px-3 py-2 text-xs text-danger-muted">
+            {launchPack.error instanceof Error ? launchPack.error.message : "Work pack could not launch."}
+          </div>
+        )}
       </section>
+    </div>
+  );
+}
+
+function WorkPackRow({
+  pack,
+  selected,
+  launchDisabled,
+  launchPending,
+  onReview,
+  onLaunch,
+}: {
+  pack: IssueWorkPack;
+  selected: boolean;
+  launchDisabled: boolean;
+  launchPending: boolean;
+  onReview: () => void;
+  onLaunch: () => void;
+}) {
+  const statusTone = pack.status === "proposed" ? "text-success" : pack.status === "needs_info" ? "text-warning" : pack.status === "dismissed" ? "text-text-dim" : "text-accent";
+  const action = pack.latest_review_action;
+  const actionLabel = typeof action?.action === "string" ? action.action.replaceAll("_", " ") : null;
+  return (
+    <div className={`rounded-md px-3 py-3 ${selected ? "bg-accent/[0.08]" : "bg-surface-overlay/25"}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-text">{pack.title}</div>
+          <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] uppercase tracking-[0.08em] text-text-dim">
+            <span className={statusTone}>{pack.status.replaceAll("_", " ")}</span>
+            <span>{pack.category.replaceAll("_", " ")}</span>
+            <span>{pack.confidence} confidence</span>
+            <span>{pack.source_item_ids.length} sources</span>
+          </div>
+          <p className="mt-2 line-clamp-2 text-xs leading-5 text-text-muted">{pack.summary || pack.launch_prompt}</p>
+          {actionLabel && <div className="mt-1 text-[11px] text-text-dim">Last review: {actionLabel}</div>}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-surface-overlay/50 px-3 text-xs font-medium text-text hover:bg-surface-overlay"
+            onClick={onReview}
+          >
+            <Pencil size={14} />
+            Review
+          </button>
+          <button
+            type="button"
+            disabled={launchDisabled}
+            className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-accent/[0.08] px-3 text-xs font-medium text-accent hover:bg-accent/[0.12] disabled:opacity-50"
+            onClick={onLaunch}
+          >
+            {launchPending ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
+            Launch
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkPackReviewEditor({
+  pack,
+  items,
+  projects,
+  projectChannels,
+  defaultProjectId,
+  defaultChannelId,
+  busy,
+  error,
+  onClose,
+  onSave,
+  onDismiss,
+  onNeedsInfo,
+  onReopen,
+}: {
+  pack: IssueWorkPack;
+  items: WorkspaceAttentionItem[];
+  projects: Array<{ id: string; name: string }>;
+  projectChannels: Array<{ id: string; name: string }>;
+  defaultProjectId: string;
+  defaultChannelId: string;
+  busy: boolean;
+  error: unknown;
+  onClose: () => void;
+  onSave: (body: IssueWorkPackUpdateInput) => void;
+  onDismiss: (note: string) => void;
+  onNeedsInfo: (note: string) => void;
+  onReopen: (note: string) => void;
+}) {
+  const [title, setTitle] = useState(pack.title);
+  const [summary, setSummary] = useState(pack.summary);
+  const [category, setCategory] = useState(pack.category);
+  const [confidence, setConfidence] = useState(pack.confidence);
+  const [launchPrompt, setLaunchPrompt] = useState(pack.launch_prompt);
+  const [projectId, setProjectId] = useState(pack.project_id || defaultProjectId || "");
+  const [channelId, setChannelId] = useState(pack.channel_id || defaultChannelId || "");
+  const [sourceIds, setSourceIds] = useState<string[]>(pack.source_item_ids);
+  const [reviewNote, setReviewNote] = useState("");
+  const sourceChoices = useMemo(() => {
+    const fromRaw = items.map((item) => ({ id: item.id, title: item.title, message: item.message }));
+    const seen = new Set(fromRaw.map((item) => item.id));
+    const fromPack = (pack.source_items || [])
+      .filter((item) => !seen.has(item.id))
+      .map((item) => ({ id: item.id, title: item.title, message: item.message }));
+    return [...fromRaw, ...fromPack].slice(0, 16);
+  }, [items, pack.source_items]);
+
+  useEffect(() => {
+    setTitle(pack.title);
+    setSummary(pack.summary);
+    setCategory(pack.category);
+    setConfidence(pack.confidence);
+    setLaunchPrompt(pack.launch_prompt);
+    setProjectId(pack.project_id || defaultProjectId || "");
+    setChannelId(pack.channel_id || defaultChannelId || "");
+    setSourceIds(pack.source_item_ids);
+    setReviewNote("");
+  }, [pack, defaultProjectId, defaultChannelId]);
+
+  const toggleSource = (id: string) => {
+    setSourceIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  };
+  const canMutate = pack.status !== "launched" && !busy;
+
+  return (
+    <div className="mb-4 rounded-md bg-surface-overlay/35 px-3 py-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-text">Review work pack</div>
+          <div className="text-xs text-text-muted">{pack.status.replaceAll("_", " ")} · {pack.source_item_ids.length} source item{pack.source_item_ids.length === 1 ? "" : "s"}</div>
+        </div>
+        <button type="button" className="inline-flex min-h-8 items-center rounded-md px-2 text-text-muted hover:bg-surface-overlay/50" onClick={onClose}>
+          <XCircle size={16} />
+        </button>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="space-y-2">
+          <input className="min-h-9 w-full rounded-md border border-input-border bg-input px-3 text-sm text-text" value={title} disabled={!canMutate} onChange={(event) => setTitle(event.target.value)} />
+          <textarea className="min-h-24 w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text" value={summary} disabled={!canMutate} onChange={(event) => setSummary(event.target.value)} />
+          <textarea className="min-h-28 w-full rounded-md border border-input-border bg-input px-3 py-2 font-mono text-xs text-text" value={launchPrompt} disabled={!canMutate} onChange={(event) => setLaunchPrompt(event.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <select className="min-h-9 rounded-md border border-input-border bg-input px-2 text-xs text-text" value={category} disabled={!canMutate} onChange={(event) => setCategory(event.target.value)}>
+              {["code_bug", "test_failure", "config_issue", "environment_issue", "user_decision", "not_code_work", "needs_info", "other"].map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}
+            </select>
+            <select className="min-h-9 rounded-md border border-input-border bg-input px-2 text-xs text-text" value={confidence} disabled={!canMutate} onChange={(event) => setConfidence(event.target.value)}>
+              {["low", "medium", "high"].map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </div>
+          <select className="min-h-9 w-full rounded-md border border-input-border bg-input px-2 text-xs text-text" value={projectId} disabled={!canMutate} onChange={(event) => setProjectId(event.target.value)}>
+            <option value="">Project...</option>
+            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+          </select>
+          <select className="min-h-9 w-full rounded-md border border-input-border bg-input px-2 text-xs text-text" value={channelId} disabled={!canMutate} onChange={(event) => setChannelId(event.target.value)}>
+            <option value="">Run channel...</option>
+            {projectChannels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}
+          </select>
+          <div className="max-h-32 space-y-1 overflow-auto rounded-md bg-surface-overlay/25 p-2">
+            {sourceChoices.map((item) => (
+              <label key={item.id} className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 text-xs text-text-muted hover:bg-surface-overlay/40">
+                <input type="checkbox" className="mt-0.5" checked={sourceIds.includes(item.id)} disabled={!canMutate} onChange={() => toggleSource(item.id)} />
+                <span className="min-w-0">
+                  <span className="block truncate text-text">{item.title}</span>
+                  <span className="line-clamp-1">{item.message}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <textarea className="min-h-16 w-full rounded-md border border-input-border bg-input px-3 py-2 text-xs text-text" placeholder="Review note..." value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} />
+        </div>
+      </div>
+      {Boolean(error) && (
+        <div className="mt-3 rounded-md bg-danger/10 px-3 py-2 text-xs text-danger-muted">
+          {error instanceof Error ? error.message : "Work pack review action failed."}
+        </div>
+      )}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={!canMutate || !title.trim() || !sourceIds.length}
+            className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-accent/[0.08] px-3 text-xs font-medium text-accent hover:bg-accent/[0.12] disabled:opacity-50"
+            onClick={() => onSave({
+              work_pack_id: pack.id,
+              title,
+              summary,
+              category,
+              confidence,
+              source_item_ids: sourceIds,
+              launch_prompt: launchPrompt,
+              project_id: projectId || null,
+              channel_id: channelId || null,
+            })}
+          >
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+            Save
+          </button>
+          {pack.status !== "proposed" && pack.status !== "launched" && (
+            <button type="button" disabled={busy} className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-surface-overlay/50 px-3 text-xs font-medium text-text hover:bg-surface-overlay disabled:opacity-50" onClick={() => onReopen(reviewNote)}>
+              <RotateCcw size={14} />
+              Reopen
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" disabled={!canMutate} className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-warning/10 px-3 text-xs font-medium text-warning hover:bg-warning/15 disabled:opacity-50" onClick={() => onNeedsInfo(reviewNote)}>
+            <AlertTriangle size={14} />
+            Needs info
+          </button>
+          <button type="button" disabled={!canMutate} className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-danger/10 px-3 text-xs font-medium text-danger hover:bg-danger/15 disabled:opacity-50" onClick={() => onDismiss(reviewNote)}>
+            <Trash2 size={14} />
+            Dismiss
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

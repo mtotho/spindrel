@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, ConversationSection, Message, Session, User
+from app.db.models import Channel, ConversationSection, Message, Session, SessionReadState, User
 from app.services.sub_sessions import SESSION_TYPE_CHANNEL, SESSION_TYPE_EPHEMERAL
 from app.tools.local.search_history import _build_session_query
 
@@ -44,6 +44,17 @@ class ChannelSessionSearchRowOut(BaseModel):
 
 class ChannelSessionListOut(BaseModel):
     sessions: list[ChannelSessionSearchRowOut]
+
+
+class RecentSessionRowOut(ChannelSessionSearchRowOut):
+    channel_id: uuid.UUID
+    channel_name: str
+    unread_agent_reply_count: int = 0
+    latest_unread_at: Optional[datetime] = None
+
+
+class RecentSessionListOut(BaseModel):
+    sessions: list[RecentSessionRowOut]
 
 
 class ChannelSessionSearchOut(BaseModel):
@@ -175,6 +186,31 @@ async def _session_row_counts_and_previews(
     return message_counts, section_counts, previews
 
 
+async def _session_latest_message_previews(
+    db: AsyncSession,
+    sessions: list[Session],
+) -> dict[uuid.UUID, str]:
+    if not sessions:
+        return {}
+    session_ids = [s.id for s in sessions]
+    rows = (await db.execute(
+        select(Message.session_id, Message.content, Message.created_at)
+        .where(
+            Message.session_id.in_(session_ids),
+            Message.role.in_(("user", "assistant")),
+            Message.content.is_not(None),
+        )
+        .order_by(Message.session_id, Message.created_at.desc())
+    )).all()
+    previews: dict[uuid.UUID, str] = {}
+    for sid, content, _created_at in rows:
+        if sid in previews:
+            continue
+        text = (content or "").strip().replace("\n", " ")
+        previews[sid] = text[:120] + ("\u2026" if len(text) > 120 else "")
+    return previews
+
+
 async def build_session_search_rows(
     db: AsyncSession,
     channel: Channel,
@@ -201,6 +237,106 @@ async def build_session_search_rows(
         )
         for session in sessions
     ]
+
+
+async def build_recent_session_rows(
+    db: AsyncSession,
+    auth,
+    *,
+    limit: int,
+) -> list[RecentSessionRowOut]:
+    from app.services.channels import apply_channel_visibility
+
+    channels = (await db.execute(
+        apply_channel_visibility(select(Channel), auth)
+    )).scalars().all()
+    channel_by_id = {channel.id: channel for channel in channels}
+    if not channel_by_id:
+        return []
+    channel_ids = list(channel_by_id.keys())
+
+    channel_sessions = (await db.execute(
+        select(Session)
+        .where(
+            Session.channel_id.in_(channel_ids),
+            Session.session_type == SESSION_TYPE_CHANNEL,
+            Session.source_task_id.is_(None),
+            Session.parent_session_id.is_(None),
+            Session.parent_message_id.is_(None),
+        )
+        .order_by(Session.last_active.desc())
+        .limit(limit)
+    )).scalars().all()
+
+    scratch_sessions: list[Session] = []
+    if isinstance(auth, User):
+        scratch_sessions = (await db.execute(
+            select(Session)
+            .where(
+                Session.parent_channel_id.in_(channel_ids),
+                Session.owner_user_id == auth.id,
+                Session.session_type == SESSION_TYPE_EPHEMERAL,
+                Session.source_task_id.is_(None),
+                Session.parent_message_id.is_(None),
+            )
+            .order_by(Session.last_active.desc())
+            .limit(limit)
+        )).scalars().all()
+
+    by_id: dict[uuid.UUID, Session] = {}
+    for session in [*channel_sessions, *scratch_sessions]:
+        channel_id = session.parent_channel_id or session.channel_id
+        channel = channel_by_id.get(channel_id)
+        if channel is None:
+            continue
+        if _is_user_visible_channel_session(session, channel) or _is_user_visible_scratch_session(session, channel, auth):
+            by_id[session.id] = session
+
+    sessions = sorted(by_id.values(), key=lambda s: s.last_active or s.created_at, reverse=True)[:limit]
+    if not sessions:
+        return []
+
+    message_counts, section_counts, _first_user_previews = await _session_row_counts_and_previews(db, sessions)
+    latest_previews = await _session_latest_message_previews(db, sessions)
+
+    read_state_by_session: dict[uuid.UUID, SessionReadState] = {}
+    if isinstance(auth, User):
+        read_states = (await db.execute(
+            select(SessionReadState).where(
+                SessionReadState.user_id == auth.id,
+                SessionReadState.session_id.in_([session.id for session in sessions]),
+                SessionReadState.unread_agent_reply_count > 0,
+            )
+        )).scalars().all()
+        read_state_by_session = {state.session_id: state for state in read_states}
+
+    rows: list[RecentSessionRowOut] = []
+    for session in sessions:
+        channel_id = session.parent_channel_id or session.channel_id
+        channel = channel_by_id.get(channel_id)
+        if channel is None:
+            continue
+        preview = latest_previews.get(session.id)
+        read_state = read_state_by_session.get(session.id)
+        rows.append(RecentSessionRowOut(
+            session_id=session.id,
+            channel_id=channel.id,
+            channel_name=channel.name,
+            surface_kind=_session_surface_kind(session),
+            bot_id=session.bot_id,
+            created_at=session.created_at,
+            last_active=session.last_active,
+            label=_session_label(session, preview),
+            summary=session.summary,
+            preview=preview,
+            message_count=message_counts.get(session.id, 0),
+            section_count=section_counts.get(session.id, 0),
+            is_active=session.id == channel.active_session_id,
+            is_current=session.is_current,
+            unread_agent_reply_count=read_state.unread_agent_reply_count if read_state else 0,
+            latest_unread_at=read_state.latest_unread_at if read_state else None,
+        ))
+    return rows
 
 
 def _append_session_match(

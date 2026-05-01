@@ -122,9 +122,11 @@ export function useMarkRead() {
     onSuccess: (data) => {
       if (data.states?.length) {
         mergeReadStatesIntoUnreadCache(queryClient, data.states);
+        queryClient.invalidateQueries({ queryKey: ["recent-sessions"] });
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["unread-state"] });
+      queryClient.invalidateQueries({ queryKey: ["recent-sessions"] });
     },
   });
 }

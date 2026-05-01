@@ -22,6 +22,7 @@ from app.services.machine_control import (
     clear_session_lease_row,
     grant_session_lease,
 )
+from app.services.channel_sessions import RecentSessionListOut, build_recent_session_rows
 from app.services.sessions import store_passive_message
 
 logger = logging.getLogger(__name__)
@@ -178,6 +179,16 @@ class EphemeralSessionCreate(BaseModel):
 class EphemeralSessionOut(BaseModel):
     session_id: uuid.UUID
     parent_channel_id: Optional[uuid.UUID] = None
+
+
+@router.get("/recent", response_model=RecentSessionListOut)
+async def list_recent_sessions(
+    limit: int = Query(8, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(require_scopes("channels.messages:read")),
+):
+    rows = await build_recent_session_rows(db, auth, limit=limit)
+    return RecentSessionListOut(sessions=rows)
 
 
 class ScratchSessionOut(BaseModel):

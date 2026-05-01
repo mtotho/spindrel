@@ -14,6 +14,9 @@ between local agents, harness agents, and runtime bots, read
 Run from the repo root. The screenshot tool reads
 `scripts/screenshots/.env`, which must point at the e2e instance or a local
 development UI backed by the e2e API.
+For native local e2e, leave `SSH_ALIAS` / `SSH_CONTAINER` blank; server helper
+fixtures run in the current checkout with the sourced `native-api.env` instead
+of requiring a Docker app container.
 
 ```bash
 python -m scripts.screenshots stage --only spatial-checks

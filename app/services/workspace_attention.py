@@ -1705,6 +1705,35 @@ async def serialize_issue_work_pack(db: AsyncSession, pack: IssueWorkPack) -> di
     project = await db.get(Project, pack.project_id) if pack.project_id else None
     channel = await db.get(Channel, pack.channel_id) if pack.channel_id else None
     launched_task = await db.get(Task, pack.launched_task_id) if pack.launched_task_id else None
+    source_items: list[dict[str, Any]] = []
+    source_channel_names: dict[uuid.UUID, str | None] = {}
+    for raw_id in pack.source_item_ids or []:
+        try:
+            item_id = uuid.UUID(str(raw_id))
+        except (TypeError, ValueError):
+            continue
+        item = await db.get(WorkspaceAttentionItem, item_id)
+        if item is None:
+            continue
+        channel_name = None
+        if item.channel_id:
+            if item.channel_id not in source_channel_names:
+                item_channel = await db.get(Channel, item.channel_id)
+                source_channel_names[item.channel_id] = item_channel.name if item_channel else None
+            channel_name = source_channel_names[item.channel_id]
+        source_items.append({
+            "id": str(item.id),
+            "title": item.title,
+            "message": item.message,
+            "severity": item.severity,
+            "status": item.status,
+            "channel_id": str(item.channel_id) if item.channel_id else None,
+            "channel_name": channel_name,
+            "evidence": item.evidence or {},
+        })
+    metadata = pack.metadata_ or {}
+    review_actions = metadata.get("review_actions") if isinstance(metadata, dict) else None
+    latest_review_action = review_actions[-1] if isinstance(review_actions, list) and review_actions else None
     return {
         "id": str(pack.id),
         "title": pack.title,
@@ -1721,7 +1750,9 @@ async def serialize_issue_work_pack(db: AsyncSession, pack: IssueWorkPack) -> di
         "channel_name": channel.name if channel else None,
         "launched_task_id": str(pack.launched_task_id) if pack.launched_task_id else None,
         "launched_task_status": launched_task.status if launched_task else None,
-        "metadata": pack.metadata_ or {},
+        "source_items": source_items,
+        "metadata": metadata,
+        "latest_review_action": latest_review_action,
         "created_at": pack.created_at.isoformat() if pack.created_at else None,
         "updated_at": pack.updated_at.isoformat() if pack.updated_at else None,
     }
@@ -1748,6 +1779,142 @@ async def get_issue_work_pack(db: AsyncSession, pack_id: uuid.UUID) -> IssueWork
     pack = await db.get(IssueWorkPack, pack_id)
     if pack is None:
         raise NotFoundError("Issue work pack not found.")
+    return pack
+
+
+async def _parse_issue_work_pack_source_ids(db: AsyncSession, source_item_ids: list[str]) -> list[str]:
+    parsed_item_ids: list[str] = []
+    for raw in source_item_ids or []:
+        try:
+            item_id = str(uuid.UUID(str(raw)))
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(f"Invalid source item id: {raw!r}") from exc
+        item = await db.get(WorkspaceAttentionItem, uuid.UUID(item_id))
+        if item is None:
+            raise ValidationError(f"Source attention item not found: {item_id}")
+        if item_id not in parsed_item_ids:
+            parsed_item_ids.append(item_id)
+    if not parsed_item_ids:
+        raise ValidationError("At least one source item id is required.")
+    return parsed_item_ids
+
+
+def _append_issue_work_pack_review_action(
+    pack: IssueWorkPack,
+    *,
+    action: str,
+    actor: str | None,
+    note: str | None = None,
+    prior_status: str | None = None,
+    now: datetime | None = None,
+) -> None:
+    timestamp = (now or _now()).isoformat()
+    metadata = dict(pack.metadata_ or {})
+    actions = list(metadata.get("review_actions") or [])
+    entry = {
+        "action": action,
+        "actor": actor,
+        "at": timestamp,
+        "prior_status": prior_status or pack.status,
+        "status": pack.status,
+    }
+    clean_note = str(note or "").strip()
+    if clean_note:
+        entry["note"] = clean_note[:2000]
+    actions.append(entry)
+    metadata["review_actions"] = actions[-50:]
+    metadata["latest_review_action"] = entry
+    pack.metadata_ = metadata
+    flag_modified(pack, "metadata_")
+
+
+async def update_issue_work_pack(
+    db: AsyncSession,
+    pack_id: uuid.UUID,
+    *,
+    actor: str | None,
+    fields: dict[str, Any],
+) -> IssueWorkPack:
+    pack = await get_issue_work_pack(db, pack_id)
+    if pack.status == "launched":
+        raise ValidationError("Launched work packs cannot be edited.")
+    if not fields:
+        return pack
+
+    if "title" in fields:
+        clean_title = str(fields.get("title") or "").strip()
+        if not clean_title:
+            raise ValidationError("title is required.")
+        pack.title = clean_title[:500]
+    if "summary" in fields:
+        pack.summary = str(fields.get("summary") or "").strip()[:8000]
+    if "category" in fields:
+        normalized_category = _normalize_work_pack_category(fields.get("category"))
+        pack.category = normalized_category
+        pack.status = "needs_info" if normalized_category == "needs_info" else ("proposed" if pack.status == "needs_info" else pack.status)
+    if "confidence" in fields:
+        pack.confidence = _normalize_confidence(fields.get("confidence"))
+    if "source_item_ids" in fields:
+        pack.source_item_ids = await _parse_issue_work_pack_source_ids(db, [str(item_id) for item_id in fields.get("source_item_ids") or []])
+    if "launch_prompt" in fields:
+        prompt = str(fields.get("launch_prompt") or "").strip()
+        if not prompt:
+            prompt = (
+                f"{pack.title}\n\n"
+                f"{pack.summary}\n\n"
+                "Use the linked issue intake as evidence. Start with a regression test where applicable, "
+                "fix the root cause, run focused verification, and publish a Project run receipt."
+            )
+        pack.launch_prompt = prompt[:12000]
+    if "project_id" in fields:
+        project_id = fields.get("project_id")
+        if project_id is not None and await db.get(Project, project_id) is None:
+            raise ValidationError("Project not found.")
+        pack.project_id = project_id
+    if "channel_id" in fields:
+        channel_id = fields.get("channel_id")
+        if channel_id is not None and await db.get(Channel, channel_id) is None:
+            raise ValidationError("Channel not found.")
+        pack.channel_id = channel_id
+
+    now = _now()
+    pack.updated_at = now
+    _append_issue_work_pack_review_action(pack, action="edited", actor=actor, now=now)
+    await db.commit()
+    await db.refresh(pack)
+    return pack
+
+
+async def transition_issue_work_pack(
+    db: AsyncSession,
+    pack_id: uuid.UUID,
+    *,
+    actor: str | None,
+    action: str,
+    note: str | None = None,
+) -> IssueWorkPack:
+    pack = await get_issue_work_pack(db, pack_id)
+    prior_status = pack.status
+    if action == "dismiss":
+        if pack.status == "launched":
+            raise ValidationError("Launched work packs cannot be dismissed.")
+        pack.status = "dismissed"
+    elif action == "needs_info":
+        if pack.status == "launched":
+            raise ValidationError("Launched work packs cannot be marked needs-info.")
+        pack.status = "needs_info"
+    elif action == "reopen":
+        if pack.status == "launched":
+            raise ValidationError("Launched work packs cannot be reopened.")
+        pack.status = "proposed"
+    else:
+        raise ValidationError(f"Unsupported work pack action: {action}")
+
+    now = _now()
+    pack.updated_at = now
+    _append_issue_work_pack_review_action(pack, action=action, actor=actor, note=note, prior_status=prior_status, now=now)
+    await db.commit()
+    await db.refresh(pack)
     return pack
 
 
@@ -1796,6 +1963,7 @@ async def launch_issue_work_pack_project_run(
     metadata["launched_at"] = pack.updated_at.isoformat()
     pack.metadata_ = metadata
     flag_modified(pack, "metadata_")
+    _append_issue_work_pack_review_action(pack, action="launched", actor=actor, prior_status="proposed", now=pack.updated_at)
     await db.commit()
     await db.refresh(pack)
     return {
@@ -2049,19 +2217,7 @@ async def create_manual_issue_work_pack(
     clean_summary = str(summary or "").strip()
     if not clean_title:
         raise ValidationError("title is required.")
-    parsed_item_ids: list[str] = []
-    for raw in source_item_ids or []:
-        try:
-            item_id = str(uuid.UUID(str(raw)))
-        except (TypeError, ValueError) as exc:
-            raise ValidationError(f"Invalid source item id: {raw!r}") from exc
-        item = await db.get(WorkspaceAttentionItem, uuid.UUID(item_id))
-        if item is None:
-            raise ValidationError(f"Source attention item not found: {item_id}")
-        if item_id not in parsed_item_ids:
-            parsed_item_ids.append(item_id)
-    if not parsed_item_ids:
-        raise ValidationError("At least one source item id is required.")
+    parsed_item_ids = await _parse_issue_work_pack_source_ids(db, source_item_ids)
     if project_id and await db.get(Project, project_id) is None:
         raise ValidationError("Project not found.")
     if channel_id and await db.get(Channel, channel_id) is None:

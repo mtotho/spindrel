@@ -1587,10 +1587,14 @@ async def _describe_image_data(data_url: str) -> str | None:
     """Describe an inline base64 image using the configured vision model."""
     from app.services.attachment_summarizer import _summarize_image
 
+    model = (settings.ATTACHMENT_SUMMARY_MODEL or "").strip()
+    if not model:
+        return None
+
     try:
         return await _summarize_image(
             url=data_url,
-            model=settings.ATTACHMENT_SUMMARY_MODEL,
+            model=model,
             provider_id=settings.ATTACHMENT_SUMMARY_MODEL_PROVIDER_ID or None,
         )
     except Exception:

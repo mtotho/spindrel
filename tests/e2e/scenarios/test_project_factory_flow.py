@@ -109,6 +109,36 @@ async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClie
         "metadata": {"scenario": "project_factory_flow", "kind": "planning"},
     })
 
+    edited_code_pack = await client.update_issue_work_pack(code_pack["id"], {
+        "title": f"Factory E2E reviewed refresh pack {suffix}",
+        "summary": "Reviewed cockpit should preserve sources while refining the Project Review refresh/provenance work.",
+        "confidence": "high",
+        "source_item_ids": [broken_widget["id"], review_gap["id"]],
+        "launch_prompt": "Implement the Project Review refresh/provenance fix with e2e evidence and screenshot proof.",
+        "project_id": project["id"],
+        "channel_id": channel["id"],
+    })
+    assert edited_code_pack["title"].startswith("Factory E2E reviewed refresh pack")
+    assert edited_code_pack["latest_review_action"]["action"] == "edited"
+    assert {item["id"] for item in edited_code_pack["source_items"]} == {broken_widget["id"], review_gap["id"]}
+
+    dismissed_planning = await client.transition_issue_work_pack(
+        needs_info_pack["id"],
+        "dismiss",
+        note="Factory e2e verifies non-code planning notes can be parked.",
+    )
+    assert dismissed_planning["status"] == "dismissed"
+    assert dismissed_planning["latest_review_action"]["action"] == "dismiss"
+    reopened_planning = await client.transition_issue_work_pack(needs_info_pack["id"], "reopen")
+    assert reopened_planning["status"] == "proposed"
+    needs_info_pack = await client.transition_issue_work_pack(
+        needs_info_pack["id"],
+        "needs-info",
+        note="Factory e2e returns the planning note to needs-info before launch.",
+    )
+    assert needs_info_pack["status"] == "needs_info"
+    assert needs_info_pack["latest_review_action"]["action"] == "needs_info"
+
     packs = await client.list_issue_work_packs()
     assert any(pack["id"] == code_pack["id"] and pack["status"] == "proposed" for pack in packs)
     assert any(pack["id"] == needs_info_pack["id"] and pack["status"] == "needs_info" for pack in packs)

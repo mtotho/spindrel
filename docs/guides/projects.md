@@ -189,6 +189,14 @@ backing issue-intake source records when the agent does not provide existing
 source item ids. `report_issue_work_packs` stays reserved for scheduled
 issue-intake triage tasks.
 
+Work Packs are reviewed before launch from the Issue Intake workspace. The
+review cockpit lets an operator refine title, summary, category, confidence,
+launch prompt, Project/channel target, and source items; dismiss the pack; mark
+it needs-info; or reopen it. These are not separate approval states: the only
+launchable status remains `proposed`. Every review mutation appends
+`metadata.review_actions` and updates `latest_review_action`; launched packs are
+immutable except for launch provenance.
+
 ![Project review session launched from selected coding runs](../images/project-workspace-review-launched.png)
 
 Launching a review session creates a normal task from the
@@ -235,6 +243,7 @@ artifacts, not ad hoc local captures:
 | [Review execution access](../images/project-workspace-review-execution-access.png) | Launching a review session can carry the same task-scoped e2e/machine grant for tests, screenshots, and merge verification. |
 | [Review finalized and merged](../images/project-workspace-review-finalized.png) | Accepted review provenance after merge: reviewed status, merged PR, check status, merge method, merge commit, review task, and handoff. |
 | [Project memory-tool transcript](../images/project-workspace-memory-tool.png) | Project-bound channels still render the memory tool result envelope with the expected `path` and completion message. |
+| [Issue intake work-pack review](../images/spatial-check-issue-intake-work-packs.png) | Mission Control Issue Intake renders raw issue notes, Work Pack review controls, source provenance, and Project/channel launch targets before coding-run launch. |
 | [Project terminal](../images/project-workspace-terminal.png) | Project-rooted terminal cwd resolves through the Project work surface. |
 | [Project channel settings](../images/project-workspace-channel-settings.png) | Non-harness channel settings bind to the Project primitive instead of a path-only workspace override. |
 | [Project instances](../images/project-workspace-instances.png) | Fresh Project instance readiness and file handoff are visible from the Project work surface. |

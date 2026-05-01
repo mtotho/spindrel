@@ -33,7 +33,9 @@ from app.services.workspace_attention import (
     serialize_attention_item,
     serialize_attention_items,
     serialize_issue_work_pack,
+    transition_issue_work_pack,
     unassign_attention_item,
+    update_issue_work_pack,
 )
 
 
@@ -122,6 +124,21 @@ class IssueWorkPackCreateRequest(BaseModel):
 class IssueWorkPackLaunchRequest(BaseModel):
     project_id: uuid.UUID
     channel_id: uuid.UUID
+
+
+class IssueWorkPackUpdateRequest(BaseModel):
+    title: str | None = None
+    summary: str | None = None
+    category: str | None = None
+    confidence: str | None = None
+    source_item_ids: list[uuid.UUID] | None = None
+    launch_prompt: str | None = None
+    project_id: uuid.UUID | None = None
+    channel_id: uuid.UUID | None = None
+
+
+class IssueWorkPackActionRequest(BaseModel):
+    note: str | None = None
 
 
 @router.post("")
@@ -311,6 +328,73 @@ async def get_issue_work_pack_route(
     return {"work_pack": await serialize_issue_work_pack(db, pack)}
 
 
+@router.patch("/issue-work-packs/{pack_id}")
+async def update_issue_work_pack_route(
+    pack_id: uuid.UUID,
+    body: IssueWorkPackUpdateRequest,
+    auth=Depends(require_scopes("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    fields = {name: getattr(body, name) for name in body.model_fields_set}
+    if "source_item_ids" in fields and fields["source_item_ids"] is not None:
+        fields["source_item_ids"] = [str(item_id) for item_id in fields["source_item_ids"]]
+    try:
+        pack = await update_issue_work_pack(db, pack_id, actor=actor_label(auth), fields=fields)
+    except NotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"work_pack": await serialize_issue_work_pack(db, pack)}
+
+
+@router.post("/issue-work-packs/{pack_id}/dismiss")
+async def dismiss_issue_work_pack_route(
+    pack_id: uuid.UUID,
+    body: IssueWorkPackActionRequest,
+    auth=Depends(require_scopes("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        pack = await transition_issue_work_pack(db, pack_id, actor=actor_label(auth), action="dismiss", note=body.note)
+    except NotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"work_pack": await serialize_issue_work_pack(db, pack)}
+
+
+@router.post("/issue-work-packs/{pack_id}/needs-info")
+async def needs_info_issue_work_pack_route(
+    pack_id: uuid.UUID,
+    body: IssueWorkPackActionRequest,
+    auth=Depends(require_scopes("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        pack = await transition_issue_work_pack(db, pack_id, actor=actor_label(auth), action="needs_info", note=body.note)
+    except NotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"work_pack": await serialize_issue_work_pack(db, pack)}
+
+
+@router.post("/issue-work-packs/{pack_id}/reopen")
+async def reopen_issue_work_pack_route(
+    pack_id: uuid.UUID,
+    body: IssueWorkPackActionRequest,
+    auth=Depends(require_scopes("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        pack = await transition_issue_work_pack(db, pack_id, actor=actor_label(auth), action="reopen", note=body.note)
+    except NotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"work_pack": await serialize_issue_work_pack(db, pack)}
+
+
 @router.post("/issue-work-packs/{pack_id}/launch-project-run")
 async def launch_issue_work_pack_route(
     pack_id: uuid.UUID,
@@ -328,6 +412,8 @@ async def launch_issue_work_pack_route(
         )
     except NotFoundError as e:
         raise HTTPException(404, str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(400, str(e)) from e
     except ValidationError as e:
         raise HTTPException(400, str(e)) from e
 

@@ -231,9 +231,32 @@ export interface IssueWorkPack {
   channel_name?: string | null;
   launched_task_id?: string | null;
   launched_task_status?: string | null;
+  source_items?: Array<{
+    id: string;
+    title: string;
+    message: string;
+    severity: string;
+    status: string;
+    channel_id?: string | null;
+    channel_name?: string | null;
+    evidence?: Record<string, unknown>;
+  }>;
+  latest_review_action?: Record<string, unknown> | null;
   metadata?: Record<string, unknown>;
   created_at?: string | null;
   updated_at?: string | null;
+}
+
+export interface IssueWorkPackUpdateInput {
+  work_pack_id: string;
+  title?: string;
+  summary?: string;
+  category?: string;
+  confidence?: string;
+  source_item_ids?: string[];
+  launch_prompt?: string;
+  project_id?: string | null;
+  channel_id?: string | null;
 }
 
 export interface AttentionTriageFeedbackInput {
@@ -545,6 +568,38 @@ export function useIssueWorkPacks() {
   });
 }
 
+function invalidateIssueWorkPackQueries(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ISSUE_WORK_PACKS_KEY });
+  qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+  qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
+}
+
+export function useUpdateIssueWorkPack() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ work_pack_id, ...body }: IssueWorkPackUpdateInput) =>
+      apiFetch<{ work_pack: IssueWorkPack }>(`/api/v1/workspace/attention/issue-work-packs/${work_pack_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    onSettled: () => invalidateIssueWorkPackQueries(qc),
+  });
+}
+
+export function useIssueWorkPackAction(action: "dismiss" | "needs-info" | "reopen") {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { work_pack_id: string; note?: string | null }) =>
+      apiFetch<{ work_pack: IssueWorkPack }>(`/api/v1/workspace/attention/issue-work-packs/${body.work_pack_id}/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: body.note ?? null }),
+      }),
+    onSettled: () => invalidateIssueWorkPackQueries(qc),
+  });
+}
+
 export function useLaunchIssueWorkPackProjectRun() {
   const qc = useQueryClient();
   return useMutation({
@@ -555,9 +610,7 @@ export function useLaunchIssueWorkPackProjectRun() {
         body: JSON.stringify({ project_id: body.project_id, channel_id: body.channel_id }),
       }),
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ISSUE_WORK_PACKS_KEY });
-      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
-      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
+      invalidateIssueWorkPackQueries(qc);
       qc.invalidateQueries({ queryKey: ["projects"] });
     },
   });

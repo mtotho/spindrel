@@ -63,14 +63,20 @@ def load() -> Config:
     docs_dir = REPO_ROOT / _optional("DOCS_IMAGES_DIR", "docs/images")
     website_dir = REPO_ROOT / _optional("WEBSITE_IMAGES_DIR", "../spindrel-website/public/images/screenshots")
 
+    ssh_alias = _optional("SSH_ALIAS")
+    ssh_container = _optional("SSH_CONTAINER")
+    if not ssh_alias or not ssh_container:
+        ssh_alias = ""
+        ssh_container = "__local__"
+
     return Config(
         api_url=api_url,
         ui_url=ui_url,
         api_key=_require("SPINDREL_API_KEY"),
         login_email=_optional("SPINDREL_LOGIN_EMAIL"),
         login_password=_optional("SPINDREL_LOGIN_PASSWORD"),
-        ssh_alias=_optional("SSH_ALIAS", "spindrel-bot"),
-        ssh_container=_optional("SSH_CONTAINER", "spindrel-local-e2e-spindrel-1"),
+        ssh_alias=ssh_alias,
+        ssh_container=ssh_container,
         docs_images_dir=docs_dir,
         website_images_dir=website_dir,
     )

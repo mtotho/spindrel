@@ -66,7 +66,11 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
         # channel tiles both render ``<a href="/channels/<uuid>">`` — which
         # only appear once useChannels resolves.
         wait_arg=(
-            'document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+            'document.querySelectorAll(\'[data-testid="home-recent-session-row"]\').length >= 4'
+            ' && document.querySelectorAll(\'[data-testid="home-user-row"]\').length >= 2'
+            ' && !!document.querySelector(\'[data-testid="home-users-section"]\')'
+            ' && !!document.querySelector(\'[data-testid="home-unread-center"]\')'
+            ' && /Unread center/i.test(document.body.innerText)'
         ),
         output="home.png",
     ),
@@ -1302,7 +1306,34 @@ _ATTENTION_REVIEW_DECK_ENDPOINT_INIT = """
     channel_name: null,
     launched_task_id: null,
     launched_task_status: null,
-    metadata: { target_project_hint: "Spindrel", target_channel_hint: "Spindrel Development" },
+    source_items: [
+      {
+        id: issueOne.id,
+        title: issueOne.title,
+        message: issueOne.message,
+        severity: issueOne.severity,
+        status: issueOne.status,
+        channel_id: issueOne.channel_id,
+        channel_name: issueOne.channel_name,
+        evidence: issueOne.evidence
+      },
+      {
+        id: issueTwo.id,
+        title: issueTwo.title,
+        message: issueTwo.message,
+        severity: issueTwo.severity,
+        status: issueTwo.status,
+        channel_id: issueTwo.channel_id,
+        channel_name: issueTwo.channel_name,
+        evidence: issueTwo.evidence
+      }
+    ],
+    metadata: {
+      target_project_hint: "Spindrel",
+      target_channel_hint: "Spindrel Development",
+      review_actions: [{ action: "edited", actor: "user:operator", at: now, prior_status: "proposed", status: "proposed" }]
+    },
+    latest_review_action: { action: "edited", actor: "user:operator", at: now, prior_status: "proposed", status: "proposed" },
     created_at: now,
     updated_at: now
   }];
@@ -1654,14 +1685,27 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
         ),
         output="spatial-check-issue-intake-work-packs.png",
         color_scheme="dark",
+        full_page=True,
         extra_init_scripts=[_ATTENTION_REVIEW_DECK_ENDPOINT_INIT],
+        pre_capture_js=(
+            "const review = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Review'));"
+            "if (!review) throw new Error('Review button missing before issue work-pack capture');"
+            "review.click();"
+            "await new Promise((resolve) => setTimeout(resolve, 200));"
+            "const dismiss = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Dismiss'));"
+            "if (!dismiss) throw new Error('Dismiss button missing after opening issue work-pack review');"
+            "dismiss.scrollIntoView({ block: 'center', inline: 'nearest' });"
+            "await new Promise((resolve) => setTimeout(resolve, 400));"
+        ),
         assert_js=(
             "const text = document.body.innerText;"
             "const lower = text.toLowerCase();"
             "if (!lower.includes('issue intake') || !text.includes('Start issue triage')) throw new Error('issue intake lane missing');"
             "if (!text.includes('Project Runs hides merge evidence') || !text.includes('Codex task could not run e2e screenshots')) throw new Error('raw issue intake missing');"
             "if (!text.includes('Improve Project review evidence framing')) throw new Error('work pack missing');"
-            "if (!text.includes('Spindrel Development') || !text.includes('Launch run')) throw new Error('Project launch target controls missing');"
+            "if (!text.includes('Spindrel Development') || !text.includes('Launch')) throw new Error('Project launch target controls missing');"
+            "if (!text.includes('Review work pack') || !text.includes('Needs info') || !text.includes('Dismiss')) throw new Error('work-pack review controls missing');"
+            "if (!lower.includes('last review: edited')) throw new Error('work-pack review provenance missing');"
             "if (text.includes('No work packs yet')) throw new Error('work pack empty state rendered with seeded pack');"
         ),
     ),
@@ -3995,8 +4039,11 @@ MOBILE_HOME_SPECS: list[ScreenshotSpec] = [
         # ChannelsSection paints.
         wait_arg=(
             '/\\bNew\\b/.test(document.body.innerText)'
-            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
-            ' && /Daily|Showcase|Work/i.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'[data-testid="home-recent-session-row"]\').length >= 3'
+            ' && document.querySelectorAll(\'[data-testid="home-user-row"]\').length >= 2'
+            ' && !!document.querySelector(\'[data-testid="home-users-section"]\')'
+            ' && !!document.querySelector(\'[data-testid="home-unread-center"]\')'
+            ' && /Recent sessions|Unread center|Users/i.test(document.body.innerText)'
         ),
         # Allow attention items + sections to settle.
         pre_capture_js="await new Promise(r => setTimeout(r, 800));",

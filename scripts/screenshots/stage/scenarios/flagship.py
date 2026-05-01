@@ -173,6 +173,22 @@ def stage_flagship(
         home_channel_ids.append(str(ch["id"]))
     state.channels["home_list"] = ",".join(home_channel_ids)
 
+    for index, channel_id in enumerate(home_channel_ids):
+        run_server_helper(
+            ssh_alias=ssh_alias,
+            container=ssh_container,
+            helper_name="seed_home_recent_sessions",
+            args=[channel_id, primary_bot, str(index), "1" if index in (0, 3) else "0"],
+            dry_run=dry_run,
+        )
+    run_server_helper(
+        ssh_alias=ssh_alias,
+        container=ssh_container,
+        helper_name="seed_home_user_activity",
+        args=[primary_bot, ",".join(home_channel_ids)],
+        dry_run=dry_run,
+    )
+
     # 3. Chat-main channel (+ 2 rail widgets)
     chat_main_id = channel_ids_by_client[CHAT_MAIN_CLIENT_ID]
     state.channels["chat_main"] = chat_main_id

@@ -667,6 +667,19 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()["work_packs"]
 
+    async def update_issue_work_pack(self, pack_id: str, payload: dict[str, Any]) -> dict:
+        """PATCH /api/v1/workspace/attention/issue-work-packs/{id}."""
+        resp = await self._client.patch(f"/api/v1/workspace/attention/issue-work-packs/{pack_id}", json=payload)
+        resp.raise_for_status()
+        return resp.json()["work_pack"]
+
+    async def transition_issue_work_pack(self, pack_id: str, action: str, *, note: str | None = None) -> dict:
+        """POST /api/v1/workspace/attention/issue-work-packs/{id}/{action}."""
+        payload = {"note": note} if note else {}
+        resp = await self._client.post(f"/api/v1/workspace/attention/issue-work-packs/{pack_id}/{action}", json=payload)
+        resp.raise_for_status()
+        return resp.json()["work_pack"]
+
     async def launch_issue_work_pack_project_run(
         self,
         pack_id: str,

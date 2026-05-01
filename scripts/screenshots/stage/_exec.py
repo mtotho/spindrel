@@ -1,6 +1,6 @@
-"""SSH + docker exec escape hatch.
+"""Server-side helper escape hatch.
 
-Used for the two narrow cases where the HTTP admin API deliberately does not
+Used for the narrow cases where the HTTP admin API deliberately does not
 expose runtime state fields (by design — we don't want a scoped key to be able
 to fake pipeline progress or mint usage events).
 
@@ -32,11 +32,11 @@ def run_server_helper(
     args: list[str],
     dry_run: bool = False,
 ) -> str:
-    """Copy-and-pipe a helper script into the container and execute it.
+    """Copy-and-pipe a helper script into the target runtime and execute it.
 
-    The script text is read locally, piped through ssh -> docker exec -i, and
-    run as ``python -``. This avoids any file-staging step on the server and
-    keeps the helpers versioned in-repo next to their callers.
+    In native local e2e mode, pass ``container="__local__"`` to run the helper
+    in this checkout. Otherwise the script is read locally, piped through
+    ssh -> docker exec -i, and run as ``python -``.
     """
     script_path = HELPERS_DIR / f"{helper_name}.py"
     if not script_path.exists():
@@ -60,6 +60,21 @@ def run_server_helper(
         return ""
 
     logger.info("Running server helper %s %s", helper_name, args)
+    if container == "__local__":
+        proc = subprocess.run(
+            ["python", "-", *args],
+            input=script,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"Server helper {helper_name} failed (rc={proc.returncode}):\n"
+                f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+            )
+        return proc.stdout
+
     proc = subprocess.run(
         cmd,
         input=script,

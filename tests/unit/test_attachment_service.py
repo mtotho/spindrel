@@ -107,6 +107,64 @@ class TestCreateAttachment:
                 )
                 mock_task.assert_not_called()
 
+    async def test_create_attachment_default_config_does_not_summarize(self):
+        """The production default is opt-in because summaries call an LLM."""
+        with (
+            patch("app.services.attachments.async_session") as mock_session_factory,
+            patch("app.services.attachments._get_bot_attachment_config", new_callable=AsyncMock, return_value={}),
+        ):
+            mock_db = AsyncMock()
+            mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            from app.config import settings
+            from app.services.attachments import create_attachment
+
+            assert settings.ATTACHMENT_SUMMARY_ENABLED is False
+
+            with patch("asyncio.create_task") as mock_task:
+                await create_attachment(
+                    message_id=uuid.uuid4(),
+                    channel_id=None,
+                    url="https://example.com/doc.txt",
+                    filename="doc.txt",
+                    mime_type="text/plain",
+                    size_bytes=500,
+                    posted_by=None,
+                    source_integration="web",
+                )
+                mock_task.assert_not_called()
+
+    async def test_create_attachment_bot_override_enabled_still_summarizes(self):
+        """Bot-level opt-in keeps automatic summaries available."""
+        with (
+            patch("app.services.attachments.async_session") as mock_session_factory,
+            patch(
+                "app.services.attachments._get_bot_attachment_config",
+                new_callable=AsyncMock,
+                return_value={"enabled": True, "model": "vision-test-model"},
+            ),
+        ):
+            mock_db = AsyncMock()
+            mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            from app.services.attachments import create_attachment
+
+            with patch("asyncio.create_task") as mock_task:
+                await create_attachment(
+                    message_id=uuid.uuid4(),
+                    channel_id=None,
+                    url="https://example.com/img.png",
+                    filename="test.png",
+                    mime_type="image/png",
+                    size_bytes=1024,
+                    posted_by=None,
+                    source_integration="web",
+                    bot_id="my-bot",
+                )
+                mock_task.assert_called_once()
+
     async def test_create_attachment_bot_override_disabled(self):
         """Bot-level config can disable summarization even when global is enabled."""
         with (
@@ -317,6 +375,25 @@ class TestGetAttachmentTool:
         data = json.loads(result)
         assert "error" in data
 
+    async def test_describe_attachment_requires_configured_vision_model(self):
+        """describe_attachment should not call an LLM with an empty model."""
+        att = _fake_attachment(description=None)
+
+        with (
+            patch("app.services.attachments.get_attachment_by_id", new_callable=AsyncMock, return_value=att),
+            patch("app.config.settings") as mock_settings,
+            patch("app.services.providers.get_llm_client") as mock_get_client,
+        ):
+            mock_settings.ATTACHMENT_SUMMARY_MODEL = ""
+            mock_settings.ATTACHMENT_SUMMARY_MODEL_PROVIDER_ID = ""
+
+            from app.tools.local.attachments import describe_attachment
+            result = await describe_attachment(str(att.id))
+
+            data = json.loads(result)
+            assert "not configured" in data["error"]
+            mock_get_client.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # test_infer_type
@@ -389,16 +466,11 @@ class TestBotAttachmentConfig:
             config = await _get_bot_attachment_config("nonexistent")
             assert config == {}
 
-    async def test_empty_model_falls_back_to_default(self):
-        """When ATTACHMENT_SUMMARY_MODEL is empty, falls back to DEFAULT_MODEL."""
+    async def test_empty_model_does_not_fall_back_to_default(self):
+        """Automatic summarization must not call the default chat model."""
         att = _fake_attachment(type="image", url="https://cdn.example.com/img.jpg")
 
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "A cat photo."
-
         mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
         with (
             patch("app.services.attachment_summarizer.async_session") as mock_session_factory,
@@ -419,9 +491,7 @@ class TestBotAttachmentConfig:
             from app.services.attachment_summarizer import summarize_attachment
             await summarize_attachment(att.id)
 
-            # LLM was called with the fallback model
-            call_kwargs = mock_client.chat.completions.create.call_args.kwargs
-            assert call_kwargs["model"] == "gemma3:4b"
+            mock_client.chat.completions.create.assert_not_called()
 
     async def test_no_model_at_all_skips_silently(self):
         """When both ATTACHMENT_SUMMARY_MODEL and DEFAULT_MODEL are empty, skip."""
@@ -477,8 +547,23 @@ class TestBotAttachmentConfig:
 
 class TestInferIntegrationFromMetadata:
     def setup_method(self):
+        from app.agent.hooks import IntegrationMeta, _meta_registry, register_integration
         from app.services.attachments import _infer_integration_from_metadata
+
+        self._saved_meta = dict(_meta_registry)
+        _meta_registry.clear()
+        register_integration(IntegrationMeta(
+            integration_type="slack",
+            client_id_prefix="slack:",
+            attachment_file_id_key="slack_file_id",
+        ))
         self._fn = _infer_integration_from_metadata
+
+    def teardown_method(self):
+        from app.agent.hooks import _meta_registry
+
+        _meta_registry.clear()
+        _meta_registry.update(self._saved_meta)
 
     def test_when_slack_file_id_in_meta_then_returns_slack(self):
         assert self._fn({"slack_file_id": "F123"}, "web") == "slack"

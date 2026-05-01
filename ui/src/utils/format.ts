@@ -23,14 +23,15 @@ export function formatBytes(bytes: number): string {
 
 /**
  * Short relative timestamp for tiles: "5m", "2h", "3d", "4w".
- * Empty string for null/invalid input or timestamps in the future.
+ * Empty string for null/invalid input. Future timestamps are treated as now
+ * to absorb small clock skew between API and browser processes.
  */
 export function formatRelativeTime(iso: string | null | undefined): string {
   if (!iso) return "";
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "";
   const diffMs = Date.now() - t;
-  if (diffMs < 0) return "";
+  if (diffMs < 0) return "now";
   const sec = Math.floor(diffMs / 1000);
   if (sec < 60) return "now";
   const min = Math.floor(sec / 60);

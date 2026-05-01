@@ -347,7 +347,17 @@ async def describe_attachment(attachment_id: str, prompt: str = "") -> str:
 
     b64 = base64.b64encode(att.file_data).decode("ascii")
     data_url = f"data:{mime};base64,{b64}"
-    model = settings.ATTACHMENT_SUMMARY_MODEL
+    model = (settings.ATTACHMENT_SUMMARY_MODEL or "").strip()
+    if not model:
+        return json.dumps(
+            {
+                "error": (
+                    "Attachment vision description is not configured. "
+                    "Set ATTACHMENT_SUMMARY_MODEL to use describe_attachment."
+                )
+            },
+            ensure_ascii=False,
+        )
     provider_id = settings.ATTACHMENT_SUMMARY_MODEL_PROVIDER_ID or None
 
     try:

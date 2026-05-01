@@ -32,6 +32,10 @@ the relevant doc, and run `python -m scripts.screenshots check`.
 
 Use the e2e screenshot target configured by `scripts/screenshots/.env` as the
 canonical artifact path.
+For native local e2e, `SSH_ALIAS` and `SSH_CONTAINER` should be blank; the
+pipeline runs server helper fixtures in the current checkout using the sourced
+`scratch/agent-e2e-${E2E_PORT}/native-api.env`. Do not require a Docker app
+container for native local screenshot staging.
 
 ```bash
 python -m scripts.screenshots stage --only spatial-checks

@@ -912,7 +912,7 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     )
 
     # Attachments
-    ATTACHMENT_SUMMARY_ENABLED: bool = True
+    ATTACHMENT_SUMMARY_ENABLED: bool = False
     ATTACHMENT_SUMMARY_MODEL: str = ""
     ATTACHMENT_SUMMARY_MODEL_PROVIDER_ID: str = ""
     ATTACHMENT_VISION_CONCURRENCY: int = 3

@@ -20,6 +20,9 @@ import { usePageRefresh } from "../../hooks/usePageRefresh";
 import { PageHeader } from "../layout/PageHeader";
 import { RefreshableScrollView } from "../shared/RefreshableScrollView";
 import { ChannelsSection } from "./sections/ChannelsSection";
+import { RecentSessionsSection } from "./sections/RecentSessionsSection";
+import { UnreadCenterSection } from "./sections/UnreadCenterSection";
+import { UsersSection } from "./sections/UsersSection";
 import { AttentionSection } from "./sections/AttentionSection";
 import { DailyHealthSection } from "./sections/DailyHealthSection";
 import { MissionControlSection } from "./sections/MissionControlSection";
@@ -152,11 +155,20 @@ export function HomeDashboard() {
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
         <main className="mx-auto box-border flex w-full max-w-[1440px] flex-col gap-5 px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
           <HomeOverview />
+          <div className="xl:hidden">
+            <UnreadCenterSection />
+          </div>
+          <div className="xl:hidden">
+            <UsersSection />
+          </div>
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
             <div className="flex min-w-0 flex-col gap-5">
+              <RecentSessionsSection />
               <ChannelsSection />
             </div>
-            <aside className="flex min-w-0 flex-col gap-5">
+            <aside className="hidden min-w-0 flex-col gap-5 xl:flex">
+              <UnreadCenterSection />
+              <UsersSection />
               <AttentionSection />
               <DailyHealthSection />
               <MissionControlSection />

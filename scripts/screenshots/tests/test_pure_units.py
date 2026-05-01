@@ -144,7 +144,8 @@ def test_resolve_specs_preserves_wait_strategy():
     }
     resolved = {s.name: s for s in resolve_specs(FLAGSHIP_SPECS, staged)}
     assert resolved["home"].wait_kind == "function"
-    assert 'a[href^="/channels/"]' in str(resolved["home"].wait_arg)
+    assert 'data-testid="home-recent-session-row"' in str(resolved["home"].wait_arg)
+    assert 'data-testid="home-unread-center"' in str(resolved["home"].wait_arg)
     assert resolved["widget-dashboard"].wait_kind == "function"
     assert resolved["chat-pipeline-live"].wait_kind == "function"
 
@@ -305,7 +306,7 @@ def test_config_accepts_e2e_url():
     with patch.dict(os.environ, good_env, clear=False):
         cfg = config.load()
         assert cfg.api_url.endswith(":18000")
-        assert cfg.ssh_alias  # has a default
+        assert cfg.ssh_container  # remote container or native local fallback
 
 
 def test_harness_stage_dry_run_stops_before_polling_channel_state():
@@ -629,7 +630,7 @@ def test_spindrel_plan_live_builds_expected_specs():
     assert specs[10].route == "http://ui/channels/channel-1/session/pending-1"
     assert specs[11].chat_mode == "terminal"
     assert specs[12].route == "http://ui/channels/channel-1/session/adherence-negative-1"
-    assert specs[12].scroll_plan_text == "Unsupported outcome"
+    assert specs[12].scroll_plan_text == "Unsupported"
     assert specs[13].chat_mode == "terminal"
     assert specs[14].route == "http://ui/channels/channel-1/session/adherence-retry-1"
     assert specs[15].chat_mode == "terminal"
