@@ -409,6 +409,14 @@ Approval mapping intent (final values from schema):
   `rename`, `rollback`) and app-server review start forms, with mutating thread
   and review commands staying approval-gated. Focused unit coverage passed
   (`78 passed`) and `verify_schema_against_binary("codex")` passed locally.
+- 2026-05-01 Codex native slash screenshot follow-up: the local screenshot
+  helper now applies `HARNESS_PARITY_SCREENSHOT_ONLY` before provisioning
+  runtime-specific scratch sessions/config reads, so Codex-only captures do not
+  require a Claude fixture channel. The slash preset now includes a durable
+  `/resume` proof image alongside `/plugins`; focused live parity passed on the
+  agent-owned native API at port `18102`, captured
+  `docs/images/harness-codex-native-resume-result-dark.png`, and verified the
+  harness guide's screenshot references.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

@@ -123,7 +123,7 @@ _SELECTOR_SCREENSHOT_RULES: tuple[tuple[str, str], ...] = (
     ("project_instruction_file_discovery", "harness-*-project-instruction-discovery"),
     (
         "codex and native_slash_direct_commands",
-        "harness-native-slash-picker-dark,harness-codex-native-plugins-result-dark",
+        "harness-native-slash-picker-dark,harness-codex-native-plugins-result-dark,harness-codex-native-resume-result-dark",
     ),
     ("claude and native_slash_direct_commands", "harness-claude-native-skills-result-dark"),
     (

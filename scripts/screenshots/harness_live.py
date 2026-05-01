@@ -454,6 +454,10 @@ def _native_slash_specs(
         "document.body.innerText.includes('codex plugin install spindrel-fixture-nonexistent') "
         "&& document.body.innerText.toLowerCase().includes('terminal command')"
     )
+    codex_resume_wait = (
+        "document.body.innerText.toLowerCase().includes('codex resume') "
+        "|| document.body.innerText.toLowerCase().includes('runtime command completed')"
+    )
     claude_result_wait = "document.body.innerText.toLowerCase().includes('claude code skills')"
     return [
         CaptureSpec(
@@ -490,6 +494,21 @@ def _native_slash_specs(
             submit_slash=True,
             submit_ready_js=picker_wait,
             submit_selector='[data-testid="chat-composer-send"]',
+        ),
+        CaptureSpec(
+            name="harness-codex-native-resume-result-dark",
+            route=codex_route,
+            wait_js=codex_resume_wait,
+            contains=("Codex", "resume"),
+            theme="dark",
+            channel_id=codex_channel_id,
+            chat_mode="default",
+            slash_query="/resume",
+            submit_slash=True,
+            submit_ready_js=(
+                "document.body.innerText.toLowerCase().includes('/resume') "
+                "|| document.body.innerText.toLowerCase().includes('resume')"
+            ),
         ),
         CaptureSpec(
             name="harness-claude-native-skills-result-dark",
@@ -746,10 +765,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
     )
 
     async with httpx.AsyncClient(base_url=api_url, headers=headers, timeout=timeout) as client:
-        original_configs = {
-            target.channel_id: await _api(client, "GET", f"/api/v1/channels/{target.channel_id}/config")
-            for target in targets
-        }
+        original_configs: dict[str, dict] = {}
         sessions: dict[tuple[str, str], str] = {}
         cleanup_workspace_paths: list[tuple[str, str]] = []
 
@@ -898,19 +914,31 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             "harness-native-slash-picker-dark",
             "harness-codex-native-plugins-result-dark",
             "harness-codex-native-plugin-install-handoff-dark",
+            "harness-codex-native-resume-result-dark",
             "harness-claude-native-skills-result-dark",
         )
         if _should_include(args.only, *native_slash_names):
-            codex_native_session = await _create_channel_session(
-                client,
-                channel_id=args.codex_channel_id,
+            codex_native_names = (
+                "harness-native-slash-picker-dark",
+                "harness-codex-native-plugins-result-dark",
+                "harness-codex-native-plugin-install-handoff-dark",
+                "harness-codex-native-resume-result-dark",
             )
-            claude_native_session = await _create_channel_session(
-                client,
-                channel_id=args.claude_channel_id,
+            claude_native_names = ("harness-claude-native-skills-result-dark",)
+            codex_native_session = (
+                await _create_channel_session(client, channel_id=args.codex_channel_id)
+                if _should_include(args.only, *codex_native_names)
+                else ""
             )
-            sessions[("codex", "native_slash")] = codex_native_session
-            sessions[("claude", "native_slash")] = claude_native_session
+            claude_native_session = (
+                await _create_channel_session(client, channel_id=args.claude_channel_id)
+                if _should_include(args.only, *claude_native_names)
+                else ""
+            )
+            if codex_native_session:
+                sessions[("codex", "native_slash")] = codex_native_session
+            if claude_native_session:
+                sessions[("claude", "native_slash")] = claude_native_session
             specs.extend(_native_slash_specs(
                 browser_url,
                 codex_channel_id=args.codex_channel_id,
@@ -966,6 +994,12 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                 for spec in specs:
                     print(f"capturing {spec.name}", flush=True)
                     if spec.channel_id and spec.chat_mode:
+                        if spec.channel_id not in original_configs:
+                            original_configs[spec.channel_id] = await _api(
+                                client,
+                                "GET",
+                                f"/api/v1/channels/{spec.channel_id}/config",
+                            )
                         await _api(
                             client,
                             "PATCH",

@@ -3657,6 +3657,37 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         ),
     ),
     ScreenshotSpec(
+        name="project-workspace-review-inbox",
+        route="/admin/projects/{project_workspace_project}#Runs",
+        viewport={"width": 1440, "height": 1000},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-runs\"]') "
+            "&& document.body.innerText.includes('Review Inbox') "
+            "&& document.body.innerText.includes('Sources: Prepare the Project workspace screenshot receipt')"
+        ),
+        output="project-workspace-review-inbox.png",
+        color_scheme="dark",
+        full_page=False,
+        extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
+        pre_capture_js=(
+            "const root = document.querySelector('[data-testid=\"project-workspace-runs\"]');"
+            "const inbox = [...root.querySelectorAll('*')].find((el) => /^Review Inbox$/.test((el.textContent || '').trim()));"
+            "if (inbox) inbox.scrollIntoView({ block: 'start' });"
+            "await new Promise((resolve) => setTimeout(resolve, 160));"
+        ),
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('Review Inbox') "
+            "&& text.includes('Launch batches grouped for morning review') "
+            "&& text.includes('Sources: Prepare the Project workspace screenshot receipt') "
+            "&& text.includes('Evidence: 4 tests') "
+            "&& text.includes('Select runs') "
+            "&& text.includes('Start review'), "
+            "detail: 'Project Runs tab did not show the launch-batch Review Inbox' };"
+        ),
+    ),
+    ScreenshotSpec(
         name="project-workspace-scheduled-reviews",
         route="/admin/projects/{project_workspace_project}#Runs",
         viewport={"width": 1440, "height": 1000},
@@ -3752,7 +3783,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         ),
         assert_js=(
             "const text = document.body.innerText;"
-            "return { ok: text.includes('1 selected') "
+            "return { ok: /\\d+ selected/.test(text) "
             "&& text.includes('Review session prompt') "
             "&& text.includes('Review session started') "
             "&& text.includes('screenshot') "

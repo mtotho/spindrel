@@ -267,6 +267,7 @@ artifacts, not ad hoc local captures:
 
 | Artifact | What it proves |
 |---|---|
+| [Project Review Inbox](../images/project-workspace-review-inbox.png) | Launch-batch morning review queue with source Work Packs, run readiness, evidence counts, Select runs, and Start review actions. |
 | [Project Runs cockpit](../images/project-workspace-runs.png) | Coding-run launch, Review Inbox launch-batch readiness, launch-batch grouping/review controls, selected-run review prompt, batch mark-reviewed/review-session controls, branch/PR progress, continuation action, handoff links, and receipt evidence. |
 | [Coding-run execution access](../images/project-workspace-execution-access.png) | Launching a coding run can grant one existing e2e/machine target with explicit inspect/exec and agent-tool controls. |
 | [Review session launched](../images/project-workspace-review-launched.png) | Clicking Start review on a selected run returns a review task and surfaces the task link in the cockpit. |
