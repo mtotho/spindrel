@@ -3,10 +3,9 @@ import { useCallback, useState, useEffect, useRef } from "react";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
-import { useGoBack } from "@/src/hooks/useGoBack";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
-import { ArrowLeft, ExternalLink, Zap } from "lucide-react";
+import { ArrowLeft, ExternalLink, Hash, Zap } from "lucide-react";
 import {
   useChannelSettings,
   useUpdateChannelSettings,
@@ -64,6 +63,11 @@ const IDLE_CHILD_SAVE_STATE: ChildSaveState = {
   isError: false,
   lastSavedAt: null,
 };
+
+export function channelSettingsBackTarget(channelId: string | undefined, fromDashboard: boolean): string {
+  if (!channelId) return "/";
+  return fromDashboard ? `/widgets/channel/${channelId}` : `/channels/${channelId}`;
+}
 
 function buildChannelSettingsForm(settings: ChannelSettings): Partial<ChannelSettings> {
   return {
@@ -144,7 +148,14 @@ export default function ChannelSettingsScreen() {
   const isAdmin = useIsAdmin();
   const { channelId } = useParams<{ channelId: string }>();
   const fromDashboard = new URLSearchParams(location.search).get("from") === "dashboard";
-  const goBack = useGoBack(fromDashboard ? `/widgets/channel/${channelId}` : `/channels/${channelId}`);
+  const backTarget = channelSettingsBackTarget(channelId, fromDashboard);
+  const channelTarget = channelId ? `/channels/${channelId}` : "/";
+  const goBack = useCallback(() => {
+    navigate(backTarget, { replace: true });
+  }, [backTarget, navigate]);
+  const openChannel = useCallback(() => {
+    navigate(channelTarget, { replace: true });
+  }, [channelTarget, navigate]);
   const { refreshing, onRefresh } = usePageRefresh();
   const { data: channel } = useChannel(channelId);
   const { data: settings, isLoading } = useChannelSettings(channelId);
@@ -358,6 +369,14 @@ export default function ChannelSettingsScreen() {
             </h1>
             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
               <span className="text-xs text-text-dim">Settings</span>
+              <a
+                className="header-bot-link inline-flex items-center gap-0.5 text-[11px] text-accent hover:underline"
+                href={channelTarget}
+                onClick={(e) => { e.preventDefault(); openChannel(); }}
+              >
+                <Hash size={10} className="text-accent" />
+                Open channel
+              </a>
               {settings?.bot_id && (
                 <a
                   className="header-bot-link inline-flex items-center gap-0.5 text-[11px] text-accent hover:underline"
