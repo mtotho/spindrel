@@ -4,7 +4,8 @@
 # Examples:
 #   ./scripts/run_harness_parity_local_batch.sh --preset smoke
 #   ./scripts/run_harness_parity_local_batch.sh --preset fast --jobs 3
-#   ./scripts/run_harness_parity_local_batch.sh --preset slash --dry-run
+#   ./scripts/run_harness_parity_local_batch.sh --preset sdk --screenshots docs
+#   ./scripts/run_harness_parity_local_batch.sh --preset all --screenshots docs
 
 set -euo pipefail
 
@@ -17,6 +18,7 @@ PREPARE=true
 SCREENSHOTS="off"
 DRY_RUN=false
 LIST=false
+FAIL_ON_SKIPS=false
 RUN_DIR="$PROJECT_ROOT/scratch/agent-e2e/harness-parity-runs/$(date -u +%Y%m%dT%H%M%SZ)"
 
 usage() {
@@ -24,9 +26,10 @@ usage() {
 Usage: run_harness_parity_local_batch.sh [options]
 
 Options:
-  --preset NAME       smoke, slash, bridge, ui, fast, or deep (default: smoke)
+  --preset NAME       smoke, slash, bridge, sdk, ui, fast, deep, or all (default: smoke)
   --jobs N            max parallel slices (default: 2)
   --screenshots MODE  auto, feedback, docs, or off (default: off)
+  --fail-on-skips     fail if pytest reports any skipped tests
   --skip-prepare      do not run prepare-harness-parity first
   --dry-run           print commands without running them
   --list              list slices for the selected preset
@@ -59,6 +62,10 @@ while [[ $# -gt 0 ]]; do
             SCREENSHOTS="${1#--screenshots=}"
             shift
             ;;
+        --fail-on-skips)
+            FAIL_ON_SKIPS=true
+            shift
+            ;;
         --skip-prepare)
             PREPARE=false
             shift
@@ -89,6 +96,7 @@ if ! [[ "$JOBS" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 declare -a SLICES
+FULL_SUITE=false
 case "${PRESET,,}" in
     smoke)
         SLICES=(
@@ -107,10 +115,19 @@ case "${PRESET,,}" in
         ;;
     bridge)
         SLICES=(
-            "bridge|bridge_tool_inventory_and_direct_invocation"
-            "writes|bridge_default_mode_mutation_requires_approval"
+            "bridge|bridge_tools_persist_and_renderable"
+            "writes|default_mode_bridge_write_approval_resume"
             "writes|safe_workspace_write_read_delete"
-            "memory|memory_explicit_read_uses_bridge"
+            "memory|memory_hint_requires_explicit_read"
+        )
+        ;;
+    sdk)
+        SLICES=(
+            "core|core_streams_partial_text_before_final"
+            "skills|native_image_semantic_reasoning"
+            "project|project_instruction_file_discovery"
+            "skills|claude and claude_native_todo_progress_persists"
+            "skills|claude and claude_native_subagent_persists"
         )
         ;;
     ui)
@@ -127,7 +144,9 @@ case "${PRESET,,}" in
             "core|codex and core_parity_controls_trace_and_context"
             "core|claude and core_parity_controls_trace_and_context"
             "plan|plan_mode_round_trip"
+            "core|core_streams_partial_text_before_final"
             "skills|native_image_input_manifest"
+            "skills|native_image_semantic_reasoning"
             "skills|claude_project_local_native_skill_invocation"
             "replay|persisted_tool_replay_survives_refetch"
         )
@@ -137,23 +156,37 @@ case "${PRESET,,}" in
             "core|codex and native_slash_direct_commands"
             "core|claude and native_slash_direct_commands"
             "core|core_parity_controls_trace_and_context"
-            "bridge|bridge_tool_inventory_and_direct_invocation"
+            "core|core_streams_partial_text_before_final"
+            "bridge|bridge_tools_persist_and_renderable"
             "terminal|terminal_tool_output_is_sequential"
             "plan|plan_mode_round_trip"
             "writes|safe_workspace_write_read_delete"
-            "memory|memory_explicit_read_uses_bridge"
+            "memory|memory_hint_requires_explicit_read"
             "skills|native_image_input_manifest"
+            "skills|native_image_semantic_reasoning"
             "skills|claude_project_local_native_skill_invocation"
+            "project|project_instruction_file_discovery"
+            "skills|claude and claude_native_todo_progress_persists"
+            "skills|claude and claude_native_subagent_persists"
             "replay|persisted_tool_replay_survives_refetch"
         )
         ;;
+    all)
+        FULL_SUITE=true
+        FAIL_ON_SKIPS=true
+        SLICES=("replay|")
+        ;;
     *)
-        echo "Unknown preset '$PRESET'; use smoke, slash, bridge, ui, fast, or deep." >&2
+        echo "Unknown preset '$PRESET'; use smoke, slash, bridge, sdk, ui, fast, deep, or all." >&2
         exit 2
         ;;
 esac
 
 if [[ "$LIST" == true ]]; then
+    if [[ "$FULL_SUITE" == true ]]; then
+        printf '%-8s %s\n' "replay" "<full suite; no -k selector; fail-on-skips enabled>"
+        exit 0
+    fi
     for slice in "${SLICES[@]}"; do
         tier="${slice%%|*}"
         selector="${slice#*|}"
@@ -164,15 +197,56 @@ fi
 
 cd "$PROJECT_ROOT"
 
+screenshots_for_selector() {
+    local selector="$1"
+    case "$selector" in
+        *core_streams_partial_text_before_final*)
+            echo "harness-*-streaming-deltas"
+            ;;
+        *native_image_semantic_reasoning*)
+            echo "harness-*-image-semantic-reasoning"
+            ;;
+        *project_instruction_file_discovery*)
+            echo "harness-*-project-instruction-discovery"
+            ;;
+        *claude_native_todo_progress_persists*)
+            echo "harness-claude-todowrite-progress"
+            ;;
+        *claude_native_subagent_persists*)
+            echo "harness-claude-native-subagent"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+format_run_command() {
+    local tier="$1"
+    local screenshots="$2"
+    local selector="$3"
+    local screenshot_only="$4"
+    if [[ -n "$screenshot_only" && "$screenshots" != "off" ]]; then
+        printf 'HARNESS_PARITY_SCREENSHOT_ONLY=%q ./scripts/run_harness_parity_local.sh --tier %q --screenshots %q -k %q\n' \
+            "$screenshot_only" "$tier" "$screenshots" "$selector"
+    else
+        printf './scripts/run_harness_parity_local.sh --tier %q --screenshots %q -k %q\n' \
+            "$tier" "$screenshots" "$selector"
+    fi
+}
+
 if [[ "$DRY_RUN" == true ]]; then
     if [[ "$PREPARE" == true ]]; then
         echo "python scripts/agent_e2e_dev.py prepare-harness-parity"
     fi
+    if [[ "$FULL_SUITE" == true ]]; then
+        echo "HARNESS_PARITY_FAIL_ON_SKIPS=true HARNESS_PARITY_PYTEST_JUNIT_XML=$RUN_DIR/all-replay.xml ./scripts/run_harness_parity_local.sh --tier replay --screenshots $SCREENSHOTS"
+        exit 0
+    fi
     for slice in "${SLICES[@]}"; do
         tier="${slice%%|*}"
         selector="${slice#*|}"
-        printf './scripts/run_harness_parity_local.sh --tier %q --screenshots %q -k %q\n' \
-            "$tier" "$SCREENSHOTS" "$selector"
+        format_run_command "$tier" "$SCREENSHOTS" "$selector" "$(screenshots_for_selector "$selector")"
     done
     exit 0
 fi
@@ -182,10 +256,26 @@ echo "Harness local batch"
 echo "  preset: $PRESET"
 echo "  jobs: $JOBS"
 echo "  screenshots: $SCREENSHOTS"
+echo "  fail on skips: $FAIL_ON_SKIPS"
 echo "  logs: $RUN_DIR"
 
 if [[ "$PREPARE" == true ]]; then
     python scripts/agent_e2e_dev.py prepare-harness-parity
+fi
+
+if [[ "$FULL_SUITE" == true ]]; then
+    log_file="$RUN_DIR/all-replay.log"
+    export HARNESS_PARITY_FAIL_ON_SKIPS=true
+    export HARNESS_PARITY_PYTEST_JUNIT_XML="$RUN_DIR/all-replay.xml"
+    {
+        echo "tier=replay"
+        echo "selector=<full suite>"
+        echo "fail_on_skips=true"
+        echo
+        ./scripts/run_harness_parity_local.sh --tier replay --screenshots "$SCREENSHOTS"
+    } >"$log_file" 2>&1
+    echo "Harness local all-suite passed. Logs: $RUN_DIR"
+    exit 0
 fi
 
 declare -a PIDS=()
@@ -196,14 +286,29 @@ run_slice() {
     local tier="$2"
     local selector="$3"
     local log_file="$RUN_DIR/${index}-${tier}.log"
+    local screenshot_only
+    screenshot_only="$(screenshots_for_selector "$selector")"
     {
         echo "tier=$tier"
         echo "selector=$selector"
+        if [[ -n "$screenshot_only" && "$SCREENSHOTS" != "off" ]]; then
+            echo "screenshot_only=$screenshot_only"
+        fi
         echo
-        ./scripts/run_harness_parity_local.sh \
-            --tier "$tier" \
-            --screenshots "$SCREENSHOTS" \
-            -k "$selector"
+        if [[ -n "$screenshot_only" && "$SCREENSHOTS" != "off" ]]; then
+            HARNESS_PARITY_SCREENSHOT_ONLY="$screenshot_only" \
+                HARNESS_PARITY_PYTEST_JUNIT_XML="$RUN_DIR/${index}-${tier}.xml" \
+                ./scripts/run_harness_parity_local.sh \
+                --tier "$tier" \
+                --screenshots "$SCREENSHOTS" \
+                -k "$selector"
+        else
+            HARNESS_PARITY_PYTEST_JUNIT_XML="$RUN_DIR/${index}-${tier}.xml" \
+                ./scripts/run_harness_parity_local.sh \
+                --tier "$tier" \
+                --screenshots "$SCREENSHOTS" \
+                -k "$selector"
+        fi
     } >"$log_file" 2>&1
 }
 
@@ -219,6 +324,7 @@ wait_one() {
 }
 
 failures=0
+export HARNESS_PARITY_FAIL_ON_SKIPS="$FAIL_ON_SKIPS"
 for i in "${!SLICES[@]}"; do
     slice="${SLICES[$i]}"
     tier="${slice%%|*}"

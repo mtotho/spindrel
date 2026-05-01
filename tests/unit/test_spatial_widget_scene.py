@@ -1,4 +1,6 @@
-from app.services.workspace_spatial import _score_widget_scene
+from types import SimpleNamespace
+
+from app.services.workspace_spatial import _pin_contract_summary, _score_widget_scene
 
 
 def test_spatial_widget_scene_score_reports_overlaps_duplicates_and_tiny_widgets():
@@ -28,3 +30,17 @@ def test_spatial_widget_scene_score_reports_overlaps_duplicates_and_tiny_widgets
     assert score["clipped_count"] == 1
     assert score["tiny_count"] == 1
     assert "1 widget overlap pair(s)" in score["warnings"]
+
+
+def test_pin_contract_summary_reads_presentation_snapshot():
+    pin = SimpleNamespace(
+        widget_origin={
+            "definition_kind": "html_widget",
+            "instantiation_kind": "library_pin",
+            "widget_ref": "core/example",
+        },
+        widget_presentation_snapshot={"presentation_family": "panel"},
+        envelope={"content_type": "text/html"},
+    )
+
+    assert _pin_contract_summary(pin)["presentation_family"] == "panel"

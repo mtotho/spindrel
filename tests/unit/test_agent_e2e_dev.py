@@ -9,6 +9,35 @@ import pytest
 from scripts import agent_e2e_dev
 
 
+def test_project_run_guard_blocks_repo_dev_bootstrap(monkeypatch):
+    monkeypatch.setenv("SPINDREL_PROJECT_RUN_GUARD", "1")
+
+    with pytest.raises(SystemExit, match="Refusing to run repo-dev e2e bootstrap"):
+        agent_e2e_dev._reject_project_run_bootstrap("prepare-harness-parity")
+
+
+def test_project_run_guard_allows_explicit_infrastructure_override(monkeypatch):
+    monkeypatch.setenv("SPINDREL_PROJECT_RUN_GUARD", "1")
+    monkeypatch.setenv("SPINDREL_ALLOW_REPO_DEV_BOOTSTRAP", "1")
+
+    agent_e2e_dev._reject_project_run_bootstrap("prepare-harness-parity")
+
+
+def test_resolve_scratch_dir_isolates_non_default_port():
+    path = agent_e2e_dev._resolve_scratch_dir({"E2E_PORT": "18100"})
+
+    assert path == agent_e2e_dev.REPO_ROOT / "scratch" / "agent-e2e-18100"
+
+
+def test_resolve_scratch_dir_prefers_explicit_state_dir():
+    path = agent_e2e_dev._resolve_scratch_dir({
+        "E2E_PORT": "18100",
+        "SPINDREL_AGENT_E2E_STATE_DIR": "scratch/custom-e2e-state",
+    })
+
+    assert path == agent_e2e_dev.REPO_ROOT / "scratch" / "custom-e2e-state"
+
+
 def test_write_env_redacts_nothing_but_writes_gitignored_local_env(monkeypatch, tmp_path):
     env_path = tmp_path / ".env.agent-e2e"
     monkeypatch.setattr(agent_e2e_dev, "LOCAL_ENV", env_path)
@@ -28,12 +57,38 @@ def test_write_env_redacts_nothing_but_writes_gitignored_local_env(monkeypatch, 
 
     assert agent_e2e_dev.cmd_write_env(args) == 0
     body = env_path.read_text()
+    assert "E2E_MODE=external" in body
     assert "E2E_PORT=19000" in body
     assert "E2E_IMAGE=spindrel:e2e" in body
     assert "E2E_LLM_API_KEY=secret-key" in body
     assert "ENCRYPTION_KEY=" in body
     assert "JWT_SECRET=" in body
     assert env_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_write_env_auto_leases_agent_owned_port(monkeypatch, tmp_path):
+    env_path = tmp_path / ".env.agent-e2e"
+    monkeypatch.setattr(agent_e2e_dev, "LOCAL_ENV", env_path)
+    monkeypatch.setattr(agent_e2e_dev, "_pick_available_port", lambda preferred: 19123)
+
+    args = argparse.Namespace(
+        host="localhost",
+        port="auto",
+        api_key="test-key",
+        base_url="",
+        llm_base_url="https://example.invalid/v1",
+        llm_api_key="secret-key",
+        model="gpt-test",
+        provider="openai-compatible",
+        force=False,
+        allow_production=False,
+    )
+
+    assert agent_e2e_dev.cmd_write_env(args) == 0
+    body = env_path.read_text()
+    assert "E2E_PORT=19123" in body
+    assert "SPINDREL_E2E_URL=http://localhost:19123" in body
+    assert "SPINDREL_AGENT_E2E_STATE_DIR=scratch/agent-e2e-19123" in body
 
 
 def test_write_env_refuses_production_like_base_url(monkeypatch, tmp_path):
@@ -53,6 +108,81 @@ def test_write_env_refuses_production_like_base_url(monkeypatch, tmp_path):
 
     with pytest.raises(SystemExit, match="refusing production-like target"):
         agent_e2e_dev.cmd_write_env(args)
+
+
+def test_merge_previous_native_api_env_preserves_alternate_dependency_ports(monkeypatch, tmp_path):
+    native_env = tmp_path / "native-api.env"
+    native_env.write_text(
+        "\n".join(
+            [
+                "E2E_PORT=19001",
+                "DATABASE_URL=postgresql+asyncpg://agent:agent@localhost:19132/agentdb",
+                "SEARXNG_URL=http://localhost:19133",
+            ]
+        )
+        + "\n"
+    )
+    monkeypatch.setattr(agent_e2e_dev, "NATIVE_API_ENV", native_env)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("SEARXNG_URL", raising=False)
+    monkeypatch.setenv("E2E_PORT", "18001")
+
+    merged = agent_e2e_dev._merge_previous_native_api_env({"E2E_PORT": "18000"})
+
+    assert merged["E2E_PORT"] == "18000"
+    assert merged["DATABASE_URL"] == "postgresql+asyncpg://agent:agent@localhost:19132/agentdb"
+    assert merged["SEARXNG_URL"] == "http://localhost:19133"
+
+
+def test_prepare_harness_parity_skip_setup_starts_native_api_before_admin_calls(monkeypatch, tmp_path):
+    native_env = tmp_path / "native-api.env"
+    native_env.write_text(
+        "DATABASE_URL=postgresql+asyncpg://agent:agent@localhost:19132/agentdb\n"
+        "SEARXNG_URL=http://localhost:19133\n"
+    )
+    monkeypatch.setattr(agent_e2e_dev, "NATIVE_API_ENV", native_env)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("SEARXNG_URL", raising=False)
+    calls: list[str] = []
+
+    def fake_start(api_url, api_key, env, *, startup_timeout):
+        calls.append(f"start:{env['DATABASE_URL']}")
+        return api_url
+
+    def fake_set_enabled(api_url, api_key, integration_id):
+        calls.append(f"enable:{integration_id}")
+
+    monkeypatch.setattr(agent_e2e_dev, "_start_native_api", fake_start)
+    monkeypatch.setattr(agent_e2e_dev, "_set_integration_enabled", fake_set_enabled)
+    monkeypatch.setattr(agent_e2e_dev, "_install_integration_dependencies", lambda *args, **kwargs: None)
+    monkeypatch.setattr(agent_e2e_dev, "_restart_native_api", lambda api_url, api_key, env, *, timeout: api_url)
+    monkeypatch.setattr(agent_e2e_dev, "_ensure_project", lambda *args, **kwargs: {"id": "project-id"})
+    monkeypatch.setattr(agent_e2e_dev, "_wait_for_harness_runtime", lambda *args, **kwargs: {"ok": True})
+    monkeypatch.setattr(agent_e2e_dev, "_validate_claude_live_auth_native", lambda: None)
+    monkeypatch.setattr(agent_e2e_dev, "_ensure_harness_parity_bot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(agent_e2e_dev, "_ensure_harness_parity_channel", lambda *args, **kwargs: "channel-id")
+    monkeypatch.setattr(agent_e2e_dev, "_write_harness_parity_env", lambda *args, **kwargs: None)
+
+    args = argparse.Namespace(
+        api_url="http://localhost:18000",
+        api_key="key",
+        runtime=["codex"],
+        project_path="common/projects/harness-parity",
+        skip_setup=True,
+        no_build=False,
+        skip_ui_build=False,
+        docker_app=False,
+        skip_live_auth_check=True,
+        startup_timeout=1,
+        runtime_timeout=1,
+        allow_production=False,
+    )
+
+    assert agent_e2e_dev.cmd_prepare_harness_parity(args) == 0
+    assert calls[:2] == [
+        "start:postgresql+asyncpg://agent:agent@localhost:19132/agentdb",
+        "enable:codex",
+    ]
 
 
 def test_write_auth_override_mounts_existing_auth_dirs(monkeypatch, tmp_path):
@@ -80,7 +210,7 @@ def test_write_auth_override_mounts_existing_auth_dirs(monkeypatch, tmp_path):
     assert f"{claude_home}:/home/spindrel/.claude:rw" in body
 
 
-def test_merged_env_uses_auth_override_when_present(monkeypatch, tmp_path):
+def test_merged_env_does_not_add_app_container_auth_override(monkeypatch, tmp_path):
     env_path = tmp_path / ".env.agent-e2e"
     override = tmp_path / "compose.auth.override.yml"
     env_path.write_text("E2E_API_KEY=test-key\n")
@@ -91,7 +221,16 @@ def test_merged_env_uses_auth_override_when_present(monkeypatch, tmp_path):
 
     env = agent_e2e_dev._merged_env()
 
-    assert env["E2E_COMPOSE_OVERRIDES"] == str(override)
+    assert "E2E_COMPOSE_OVERRIDES" not in env
+
+
+def test_compose_overrides_adds_auth_override_only_for_app_container(monkeypatch, tmp_path):
+    override = tmp_path / "compose.auth.override.yml"
+    override.write_text("services: {}\n")
+    monkeypatch.setattr(agent_e2e_dev, "AUTH_OVERRIDE", override)
+
+    assert agent_e2e_dev._compose_overrides({}, include_auth_override=False) == []
+    assert agent_e2e_dev._compose_overrides({}, include_auth_override=True) == [override]
 
 
 def test_compose_env_persists_missing_local_secrets(monkeypatch, tmp_path):
@@ -112,6 +251,13 @@ def test_compose_env_persists_missing_local_secrets(monkeypatch, tmp_path):
     assert "ENCRYPTION_KEY=stable-fernet-key" in body
     assert "JWT_SECRET=" in body
     assert env_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_compose_file_has_safe_dummy_llm_default_for_dependency_commands():
+    compose_body = agent_e2e_dev.COMPOSE_FILE.read_text()
+
+    assert "E2E_LLM_BASE_URL:-http://127.0.0.1:9/v1" in compose_body
+    assert "E2E_LLM_BASE_URL:?" not in compose_body
 
 
 def test_write_env_subscription_mode_uses_placeholder_until_oauth(monkeypatch, tmp_path, capsys):
@@ -197,6 +343,9 @@ def test_commands_prints_subscription_handoff_when_configured(monkeypatch, tmp_p
     assert agent_e2e_dev.cmd_commands(argparse.Namespace(env_file=".env.agent-e2e")) == 0
     out = capsys.readouterr().out
     assert "python scripts/agent_e2e_dev.py prepare" in out
+    assert "native-api.env" in out
+    assert "E2E_KEEP_RUNNING=1 pytest tests/e2e/ -k \"test_health\"" in out
+    assert "E2E_COMPOSE_OVERRIDES" not in out
     assert "subscription handoff:" in out
     assert "bootstrap-subscription" in out
     assert "prepare-project-factory-smoke" in out
@@ -221,13 +370,18 @@ def test_prepare_builds_recreates_stack_and_waits_for_health(monkeypatch, tmp_pa
         calls.append(cmd)
 
     monkeypatch.setattr(agent_e2e_dev, "_run", fake_run)
+    monkeypatch.setattr(agent_e2e_dev, "_compose_container_status_lines", lambda *, project=None: [])
     monkeypatch.setattr(
         agent_e2e_dev,
         "_run_best_effort",
         lambda cmd, *, env=None, timeout=120: best_effort_calls.append(cmd),
     )
-    removed_services: list[str] = []
-    monkeypatch.setattr(agent_e2e_dev, "_remove_compose_service_containers", removed_services.append)
+    removed_services: list[tuple[str, str]] = []
+
+    def fake_remove_service(service: str, *, project: str = agent_e2e_dev.APP_COMPOSE_PROJECT):
+        removed_services.append((service, project))
+
+    monkeypatch.setattr(agent_e2e_dev, "_remove_compose_service_containers", fake_remove_service)
     monkeypatch.setattr(agent_e2e_dev, "_check_url", lambda url, key: (True, '{"status":"ok"}'))
 
     assert agent_e2e_dev.cmd_prepare(
@@ -242,12 +396,14 @@ def test_prepare_builds_recreates_stack_and_waits_for_health(monkeypatch, tmp_pa
 
     assert calls[0][:4] == ["docker", "build", "-t", "spindrel:e2e"]
     assert calls[1][-3:] == ["--remove-orphans", "postgres", "searxng"]
+    assert "--wait" in calls[1]
+    assert "--wait-timeout" in calls[1]
     assert best_effort_calls[0][-2:] == ["stop", "spindrel"]
     assert best_effort_calls[1][-3:] == ["rm", "-f", "spindrel"]
-    assert removed_services == ["spindrel"]
+    assert removed_services == [("spindrel", agent_e2e_dev.APP_COMPOSE_PROJECT)]
     assert calls[2][-3:] == ["-d", "--no-deps", "spindrel"]
     assert "-p" in calls[1]
-    assert "spindrel-local-e2e" in calls[1]
+    assert agent_e2e_dev.APP_COMPOSE_PROJECT in calls[1]
 
 
 def test_prepare_deps_starts_only_dependency_services(monkeypatch, tmp_path, capsys):
@@ -267,6 +423,7 @@ def test_prepare_deps_starts_only_dependency_services(monkeypatch, tmp_path, cap
         calls.append(cmd)
 
     monkeypatch.setattr(agent_e2e_dev, "_run", fake_run)
+    monkeypatch.setattr(agent_e2e_dev, "_compose_container_status_lines", lambda *, project=None: [])
 
     assert agent_e2e_dev.cmd_prepare_deps(
         argparse.Namespace(
@@ -278,7 +435,10 @@ def test_prepare_deps_starts_only_dependency_services(monkeypatch, tmp_path, cap
 
     assert len(calls) == 1
     assert calls[0][-3:] == ["--remove-orphans", "postgres", "searxng"]
+    assert "--wait" in calls[0]
+    assert "--wait-timeout" in calls[0]
     assert "spindrel" not in calls[0]
+    assert agent_e2e_dev.DEPENDENCY_COMPOSE_PROJECT in calls[0]
     out = capsys.readouterr().out
     assert "DATABASE_URL=postgresql+asyncpg://agent:agent@localhost:16432/agentdb" in out
     assert "SEARXNG_URL=http://localhost:19080" in out
@@ -287,7 +447,7 @@ def test_prepare_deps_starts_only_dependency_services(monkeypatch, tmp_path, cap
 
 def test_prepare_deps_retries_marked_for_removal_containers(monkeypatch):
     calls: list[list[str]] = []
-    removed: list[str] = []
+    removed: list[tuple[str, str]] = []
     sleeps: list[int] = []
 
     def fake_run(cmd, *, env=None, timeout=600):
@@ -296,14 +456,68 @@ def test_prepare_deps_retries_marked_for_removal_containers(monkeypatch):
             raise SystemExit("Error response from daemon: container is marked for removal and cannot be started")
 
     monkeypatch.setattr(agent_e2e_dev, "_run", fake_run)
-    monkeypatch.setattr(agent_e2e_dev, "_remove_compose_service_containers", removed.append)
+    monkeypatch.setattr(agent_e2e_dev, "_compose_container_status_lines", lambda *, project=None: [])
+    def fake_remove_service(service: str, *, project: str = agent_e2e_dev.APP_COMPOSE_PROJECT):
+        removed.append((service, project))
+
+    monkeypatch.setattr(agent_e2e_dev, "_remove_compose_service_containers", fake_remove_service)
     monkeypatch.setattr(agent_e2e_dev.time, "sleep", sleeps.append)
 
     agent_e2e_dev._start_dependency_services({}, [])
 
     assert len(calls) == 2
-    assert removed == ["postgres", "searxng"]
+    assert removed == [
+        ("postgres", agent_e2e_dev.DEPENDENCY_COMPOSE_PROJECT),
+        ("searxng", agent_e2e_dev.DEPENDENCY_COMPOSE_PROJECT),
+    ]
     assert sleeps == [2]
+
+
+def test_prepare_deps_reports_docker_daemon_removal_state(monkeypatch):
+    def fake_run(cmd, *, env=None, timeout=600):
+        raise SystemExit("Error response from daemon: container is marked for removal and cannot be started")
+
+    monkeypatch.setattr(agent_e2e_dev, "_run", fake_run)
+    monkeypatch.setattr(agent_e2e_dev, "_remove_compose_service_containers", lambda service, *, project=None: None)
+    monkeypatch.setattr(agent_e2e_dev.time, "sleep", lambda seconds: None)
+    status_calls = 0
+
+    def fake_status(*, project=None):
+        nonlocal status_calls
+        status_calls += 1
+        if status_calls == 1:
+            return []
+        return ["abc123 spindrel-local-e2e-runtime-deps-postgres-1 Dead"]
+
+    monkeypatch.setattr(agent_e2e_dev, "_compose_container_status_lines", fake_status)
+
+    with pytest.raises(SystemExit) as exc_info:
+        agent_e2e_dev._start_dependency_services({}, [])
+
+    message = str(exc_info.value)
+    assert "stuck in Docker removal state" in message
+    assert "Do not switch to a private compose project" in message
+    assert agent_e2e_dev.DEPENDENCY_COMPOSE_PROJECT in message
+    assert "abc123 spindrel-local-e2e-runtime-deps-postgres-1 Dead" in message
+
+
+def test_prepare_deps_fails_fast_on_dead_compose_containers(monkeypatch):
+    calls: list[list[str]] = []
+    monkeypatch.setattr(agent_e2e_dev, "_run", lambda cmd, *, env=None, timeout=600: calls.append(cmd))
+    monkeypatch.setattr(
+        agent_e2e_dev,
+        "_compose_container_status_lines",
+        lambda *, project=None: ["abc123 spindrel-local-e2e-runtime-deps-searxng-1 Dead"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        agent_e2e_dev._start_dependency_services({}, [])
+
+    message = str(exc_info.value)
+    assert "has Docker containers in Dead state" in message
+    assert "Restart Docker" in message
+    assert "abc123 spindrel-local-e2e-runtime-deps-searxng-1 Dead" in message
+    assert calls == []
 
 
 def test_native_api_process_env_uses_host_dependency_urls(monkeypatch, tmp_path):
@@ -623,8 +837,11 @@ def test_wipe_db_runs_compose_down_with_volume_only_when_explicit(monkeypatch, t
     assert calls[0][-3:] == ["down", "-v", "--remove-orphans"]
 
 
-def test_bootstrap_subscription_prepares_stack_before_oauth(monkeypatch):
+def test_bootstrap_subscription_prepares_stack_before_oauth(monkeypatch, tmp_path):
     calls: list[str] = []
+    env_path = tmp_path / ".env.agent-e2e"
+    env_path.write_text("E2E_API_KEY=key\n")
+    monkeypatch.setattr(agent_e2e_dev, "LOCAL_ENV", env_path)
 
     monkeypatch.setattr(agent_e2e_dev, "_prepare_stack", lambda **kwargs: calls.append("prepare"))
     monkeypatch.setattr(agent_e2e_dev, "_ensure_provider", lambda api_url, api_key, provider_id: calls.append("provider"))

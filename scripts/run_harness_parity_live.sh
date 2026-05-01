@@ -89,6 +89,9 @@ export HARNESS_PARITY_PROJECT_TIMEOUT="${HARNESS_PARITY_PROJECT_TIMEOUT:-600}"
 export HARNESS_PARITY_CAPTURE_SCREENSHOTS="${HARNESS_PARITY_CAPTURE_SCREENSHOTS:-auto}"
 export HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR="${HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR:-/tmp/spindrel-harness-live-screenshots}"
 export HARNESS_PARITY_SCREENSHOT_ONLY="${HARNESS_PARITY_SCREENSHOT_ONLY:-}"
+export HARNESS_PARITY_FAIL_ON_SKIPS="${HARNESS_PARITY_FAIL_ON_SKIPS:-false}"
+export HARNESS_PARITY_PYTEST_JUNIT_XML="${HARNESS_PARITY_PYTEST_JUNIT_XML:-}"
+export HARNESS_PARITY_ALLOWED_SKIP_REGEX="${HARNESS_PARITY_ALLOWED_SKIP_REGEX:-Claude Code-specific|Codex app-server owns|does not advertise native compaction}"
 
 is_local_e2e_host() {
     case "$E2E_HOST" in
@@ -300,6 +303,8 @@ echo "  Project timeout: ${HARNESS_PARITY_PROJECT_TIMEOUT}"
 echo "  Capture screenshots: ${HARNESS_PARITY_CAPTURE_SCREENSHOTS}"
 echo "  Screenshot only: ${HARNESS_PARITY_SCREENSHOT_ONLY:-<all>}"
 echo "  Screenshot output: ${HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR}"
+echo "  Fail on skips: ${HARNESS_PARITY_FAIL_ON_SKIPS}"
+echo "  Allowed skip regex: ${HARNESS_PARITY_ALLOWED_SKIP_REGEX:-<none>}"
 echo "  Health wait: ${HARNESS_PARITY_HEALTH_WAIT_TIMEOUT}"
 echo ""
 
@@ -311,7 +316,31 @@ fi
 wait_for_server_health
 preflight_api_surface
 
-"$PYTEST_BIN" tests/e2e/scenarios/test_harness_live_parity.py -q -rs "${PYTEST_ARGS[@]}"
+PYTEST_CMD=("$PYTEST_BIN" tests/e2e/scenarios/test_harness_live_parity.py -q -rs)
+if [[ -n "$HARNESS_PARITY_PYTEST_JUNIT_XML" ]]; then
+    mkdir -p "$(dirname "$HARNESS_PARITY_PYTEST_JUNIT_XML")"
+    PYTEST_CMD+=(--junitxml "$HARNESS_PARITY_PYTEST_JUNIT_XML")
+fi
+PYTEST_CMD+=("${PYTEST_ARGS[@]}")
+
+set +e
+"${PYTEST_CMD[@]}"
+pytest_status=$?
+set -e
+
+if [[ "${HARNESS_PARITY_FAIL_ON_SKIPS,,}" =~ ^(1|true|yes)$ ]]; then
+    if [[ -z "$HARNESS_PARITY_PYTEST_JUNIT_XML" ]]; then
+        echo "HARNESS_PARITY_FAIL_ON_SKIPS requires HARNESS_PARITY_PYTEST_JUNIT_XML" >&2
+        exit 1
+    fi
+    "$PYTHON_BIN" -m scripts.harness_parity_junit_skips \
+        "$HARNESS_PARITY_PYTEST_JUNIT_XML" \
+        --allowed-skip-regex "$HARNESS_PARITY_ALLOWED_SKIP_REGEX"
+fi
+
+if (( pytest_status != 0 )); then
+    exit "$pytest_status"
+fi
 
 tier_at_least() {
     local current="$1"

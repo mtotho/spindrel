@@ -1,0 +1,478 @@
+---
+tags: [track, ui, spatial-canvas]
+status: active
+updated: 2026-04-30 (Project planets.)
+---
+
+# Track — Spatial Canvas
+
+## North Star
+
+A workspace-scope **infinite plane** where every channel and every channel-associated widget lives as a draggable tile. `/` becomes the canvas on desktop. `Ctrl+Shift+Space` (Cmd+Shift+Space on mac) toggles it as an overlay from any other page — it swaps the main content area; sidebar stays. Double-click a channel tile → animated zoom-dive into that channel's existing widget dashboard. Foundation for the "infinite widget canvas" vision; future dimensions (edges, activity pulses, more node types) stack on top.
+
+Design intent: replace the throwaway `HomeGrid` (a "desktopified command palette") with a surface that *is* the workspace — channels networked in the middle, widgets living freely around them. Giant DND, semantic zoom, iframes-on-world-at-close-zoom, route-change-on-dive.
+
+Mission Control relationship: this track owns the spatial substrate and map
+interaction mechanics. [[mission-control-vision]] owns the orchestration
+product direction layered on top: Mission Control as workspace operator,
+missions as work objects, channels as rooms, and the canvas as an actionable
+professional work map.
+
+## Status
+
+2026-04-27 follow-up: shortened migration 263's Alembic revision id to
+`263_spatial_landmarks` after production startup hit the default
+`alembic_version.version_num VARCHAR(32)` limit. The migration is now
+idempotent for retry after the failed version-table update; the revision-chain
+guard passes.
+
+2026-04-27 UI follow-up: mobile Home Hub and desktop Starboard Hub now share
+route-aware section targets. Mobile opens full Attention, Daily Health, Context
+Bloat, Memory Center, and pinned-widget pages; desktop Starboard stays
+contextual for Attention/Health/Bloat station switches. Pinned widget full view
+adds a desktop collapse-to-space handoff that selects and safely zooms out to
+the matching spatial widget tile.
+
+Same-day polish: Hub/Starboard-linked pages now carry contextual Back/Menu
+state into list/detail pages, so mobile can return to Home or Canvas without
+losing the global menu. Attention Hub moved assignment controls up into the
+primary detail flow and dropped heavy wrapper borders in favor of tonal surfaces.
+
+Same-day interaction follow-up: an empty-space click on the canvas now clears
+the selected object and closes Starboard, while a background pan/grab keeps the
+panel open. The click path is pinned by a pointer-drift regression helper so
+selection dismissal does not regress back to pointer-down behavior.
+
+Same-day Command Center follow-up: the Starboard Hub station now opens Command
+Center instead of the older hub list. It groups assigned Attention work by bot,
+shows one active next-heartbeat assignment per bot/channel heartbeat, exposes
+upcoming work and recent heartbeat/task/report activity, and keeps quick-add
+channel intake in the same surface. `core/command_center_native` is available
+as an optional removable world widget from Launch Bay; the fixed landmark opens
+the built-in Command Center surface directly.
+
+Same-day Mission Control follow-up: Command Center evolved into Mission
+Control. The Starboard fixed station now owns mission creation, bot-lane
+assignment, run-now/pause/resume controls, recent progress, and task/trace
+links. Missions are rendered back onto the spatial map as anchored markers
+tethered to the assigned bot or scoped channel, so bot position now carries
+coordination meaning instead of being only decorative. `Cmd/Ctrl+K` opens
+channel/session destinations by default; the canvas fly-to action remains
+available as the secondary `Cmd/Ctrl+Enter` action.
+
+2026-04-28 Mission Control readiness pass: added a dedicated read-only
+`/api/v1/workspace/mission-control` model that groups missions and assigned
+Attention signals into bot lanes with per-assignment spatial advisories
+(`ready`, `far`, `blocked`, `unknown`). Advisory status uses the assigned bot's
+global canvas node, the mission/assignment target channel node, and the
+channel-scoped spatial-bot policy; workspace missions without a channel target
+stay `unknown` and still show nearby mapped objects. `/hub/mission-control` is
+the durable route, while `/hub/command-center` remains a compatibility alias.
+
+2026-04-28 widget interaction follow-up: framed spatial widget tiles now split
+ownership explicitly. The header owns spatial selection and drag/open affordances;
+the body owns widget interaction. The old transparent iframe activation shield
+was removed, and body pointer/click events stop before the canvas drag/selection
+layer so embedded buttons, links, scroll regions, and iframes work directly.
+Double-click on the tile wrapper still opens the full widget page.
+
+2026-04-28 existing-primitives map-state pass: added a read-only spatial map
+state model for current workspace primitives, independent of the speculative
+Mission Control/missions roadmap. The map now rolls up channels, bots, world
+widgets, landmarks, upcoming heartbeats/tasks, recent task/error activity, widget
+cron/event sources, and active Attention warnings into object state. Canvas
+tiles, the selected-object rail, and Starboard object rows show compact
+status/meta so selecting any channel/bot/widget/landmark starts to answer what
+it is, what source owns it, what happened recently, what is scheduled next, and
+whether it needs attention. This is intentionally substrate work: future
+operator/mission surfaces may consume it, but the spatial canvas must remain
+useful with the workspace primitives that exist today.
+
+2026-04-28 useful-now follow-up: Starboard now defaults to a Map Brief surface
+instead of Mission Control. Selecting a channel, bot, widget, or landmark opens
+Starboard to an object inspector with source, next work, recent activity,
+warnings, and concrete actions. Canvas tiles use compact state markers instead
+of long failure labels; hover cards carry the one-line explanation. Trace
+errors now attach to channel/bot objects when trace metadata includes those
+ids, while unmapped errors still roll up to Daily Health.
+
+Same-day interaction correction: single object selection no longer renders the
+floating selection rail. Starboard Map Brief is the only selected-object detail
+surface for channels, bots, widgets, and landmarks; the rail remains only for
+aggregate cluster affordances. Attention rings are visual-only, with a small
+explicit alert badge as the click target so warning selection cannot steal
+ordinary channel/bot/widget clicks.
+
+Same-day Map Brief cohesion pass: selected channels, bots, widgets, and
+landmarks now get a persistent world anchor distinct from attention rings.
+Starboard-aware jump framing centers targets in the visible canvas area to the
+left of an open/resized panel. Map Brief now groups objects into attention,
+nearby, and all buckets, dedupes repeated warning/recent signals, trims panel
+width/padding pressure, and delays/suppresses hover cards while a selected
+object inspector is open.
+
+Same-day feedback-loop pass: `scripts/screenshots --only spatial-checks` now
+stages the e2e spatial + attention scenario and runs browser-level canvas
+checks against the configured UI, including local `localhost:5173` during
+development. The checks capture Map Brief selection, Starboard-aware Jump
+framing, attention badge selection, hover suppression while Map Brief is open,
+and density smoke. Selected-object actions now remain visible even when an
+object has no rich map-state brief, so `Jump here` is always available.
+
+Same-day fundamentals sweep: Map Brief selected-object content now has explicit
+top clearance under the Starboard station selector and flatter inspector chrome
+using state pills plus a low-contrast tonal surface instead of a heavy warning
+card.
+Zoomed-out clusters are navigation-only: click focuses cluster bounds, the old
+floating selection rail no longer appears, and hover cards are suppressed during
+overview/cluster zoom so the map stays calm until the user zooms into inspectable
+objects.
+
+Same-day cluster interaction correction: channel clusters now behave as
+ambiguous groups, not hidden channel targets. Single click focuses immediately
+with no delayed timer, double-click also focuses/zooms toward the group instead
+of diving into the winner, and the old focus-lens hint no longer competes with
+cluster wayfinding. Direct channel opening remains available once an individual
+channel tile is visible or from the explicit context menu action.
+
+Same-day quiet triage pass: the selected-object inspector now avoids colored
+side-stripe chrome entirely; severity is carried by compact status chips, subtle
+ring/background tone, and explicit warning/recent/next chips. Related-object
+rows only get a restrained raised hover surface when they need attention, and
+the selected canvas anchor uses a one-pixel ring with softer severity opacity.
+The screenshot capture now asserts selected briefs expose tone metadata and do
+not regress to side-stripe treatment.
+
+Same-day cluster drilldown correction: clicking or double-clicking a far-zoom
+channel cluster now lands just past the uncluster threshold instead of fitting
+the cluster up into preview zoom. Cluster focus stays navigation-only: no
+Starboard selection, no hover card, no route dive. Screenshot assertions now
+pin the target scale above cluster exit and below channel preview range.
+
+Same-day orientation follow-up: cluster focus now animates the camera instead
+of jumping, then briefly marks the revealed member channels so the user can
+understand what just separated. Selected-object anchors no longer render a
+second label for channels/bots/widgets; those objects keep their own tile label
+and the anchor is only the selection outline. Landmark anchors may still show
+their label because landmarks do not always have persistent tile text.
+
+Same-day actionable map pass: the backend map-state service now derives a
+read-only `cue` for every existing canvas object from current primitives:
+warnings become `investigate`, queued/running work becomes `next`, recent
+activity becomes `recent`, and idle objects stay `quiet`. Map Brief groups and
+sorts by those cues, selected-object briefs lead with the actionable cue, and
+zoomed-out clusters summarize aggregate work like "to inspect" or "next"
+without opening selection chrome. Quiet cues remain available to the inspector
+and grouping model but do not add noisy map pills.
+
+Same-day object reveal follow-up: Map Brief row clicks and Jump actions now use
+the animated camera tween path instead of immediate camera commits, preserving
+Starboard-aware framing while making object-to-object navigation feel spatial.
+The same object reveal animation is used for minimap clicks and palette-driven
+channel/widget fly-to actions; Map Brief single-click selection no longer waits
+on a double-click timer.
+
+Same-day glanceability pass: existing map cues now have a shared canvas visual
+language. Non-quiet channel, bot, widget, and landmark objects render a subtle
+halo plus icon-only badge in world space; selected objects suppress duplicate
+halo chrome while keeping the cue available. A low-chrome Action Compass shows
+the top three actionable objects from the Starboard object model, ranked by cue
+priority with viewport bias, and row hover/focus highlights the matching map
+cue. The feature adds no new persisted state and no new toggle.
+
+Same-day Map Brief actionability pass: selected objects with active Attention
+items now expose inline target actions in Map Brief. The primary path is
+`Acknowledge target`, backed by the existing bulk target acknowledge endpoint;
+`Open in Attention` remains secondary for full triage. The selected inspector
+keeps severity as compact chips/action copy instead of forcing users through a
+red information wall. The spatial screenshot scenario now searches for offscreen
+objects before selecting them and asserts the inline attention action exists.
+
+Same-day map-first triage pass: the Action Compass is now a clearer
+`Needs action` queue instead of a vague `Now` box. Rows show target, object
+type, cue, reason, and count; the currently selected actionable object is pinned
+into the queue so the map, compass, and Map Brief agree on the active target.
+The screenshot scenario now asserts the compass exposes this queue language and
+marks the selected row.
+
+Same-day scheduled-work satellite check: channel-bound heartbeats and scheduled
+tasks now have local tethered satellites around their channel while remaining
+visible in the Now Well timeline. Heartbeat satellites target channel
+Automation settings; task satellites target the automation detail. The
+`spatial-checks` screenshot bundle now stages a channel-bound QA automation,
+jumps to the QA object before asserting satellites, and writes
+`spatial-check-channel-schedule-satellites.png` as the visual artifact.
+
+Same-day Starboard contract cleanup: Map Brief remains the object-local
+inspector, and Attention work moves through the full Mission Control Review
+deck. Starboard actions were relabeled to `Open Review`, `Review signal`, and
+`Review finding`; the old target signal flow is documented as select target ->
+Map Brief -> full deck when needed. Cluster focus, selected anchors, and shallow
+Starboard copy are now pinned by the spatial surface tests.
+
+Same-day Action Compass follow-up: the canvas `Next actions` card now treats the
+full Mission Control Review queue as the primary bulk path. Rows remain
+object-local inspection shortcuts, while `Review all` opens the review deck for
+the whole queue. Users can minimize the compass into a sticky compact marker so
+the map keeps a quiet signal without forcing the card to stay open.
+
+2026-04-30 channel-widget projection pass: channel-associated widgets no longer
+have a user-facing dashboard-only/spatial-only distinction. Creating a channel
+dashboard pin creates the paired Spatial Canvas widget placement; creating a
+channel-sourced spatial widget creates the paired channel dashboard pin. The two
+placements keep independent geometry, but projection metadata links their pin
+rows and delete/unpin removes the paired projection.
+
+Same-day attention cue cleanup: cluster and widget aggregate objects no longer
+paint duplicate non-interactive attention badges on top of their existing cue
+summary. The remaining per-object attention badge opens Mission Control Review
+directly for that item, preserving object selection first but avoiding inert
+red markers that look clickable and do nothing. The separate object cue marker
+layer now also uses real buttons that select the target object instead of
+decorative warning icons.
+
+Same-day Project planet visual cleanup: Project nodes no longer render as a
+flat CSS disk. They now use a deterministic SVG project system with a lit core,
+local shell rings, channel moons, and zoom-tiered labels. Project orbit chrome
+is local to the project at overview zoom; long member tethers only appear once
+the map is zoomed in enough to inspect relationships.
+
+| Phase | Status | Description |
+|---|---|---|
+| P0 — Prototypes | ✅ shipped 2026-04-24 | `scratch/alt-ui-prototypes/spatial-canvas.html` + `gossamer-web.html`. Validated semantic zoom + pan/zoom feel. Gossamer parked as future HUD variant. |
+| **P1.0 — Integration spike** | 🔬 scaffolded — verify | Code shipped 2026-04-26. `ui/src/components/spatial-canvas/SpatialCanvasOverlay.tsx` + `ui/src/hooks/useSpatialOverlayShortcut.ts` + UI store flag + AppShell wiring. `Ctrl+Shift+Space` toggles. Tiles seed from real `useChannels()`. **Manual verification still required** for all three proofs before unblocking P1: (a) open `/channels/:id` with a streaming reply, toggle overlay on/off — stream must NOT drop or refetch; (b) double-click a tile, 300ms scale-translate animation completes BEFORE `router.push` fires, no flash on route swap; (c) wheel-over-iframe-body zooms canvas while inactive, click-to-activate makes iframe scroll/click work, Esc deactivates. Wheel listener attached with `{ passive: false }` on the viewport ref (React's synthetic `onWheel` is passive — silent preventDefault was a tripwire). |
+| P1 — Backend | ✅ shipped 2026-04-26 | `WorkspaceSpatialNode` (`app/db/models.py`) with nullable channel_id / widget_pin_id FKs (cascade delete) + CHECK constraint exactly-one + partial unique indexes per target + persisted `seed_index`. Migration 247 creates the table and seeds the reserved `workspace:spatial` dashboard row. Service (`app/services/workspace_spatial.py`): `list_nodes` (upserts missing channel rows on read with monotonic seed_index, golden-angle phyllotaxis math), `update_node_position`, `delete_node` (explicit child-then-parent delete for SQLite test parity), and atomic `pin_widget_to_canvas` that uses `create_pin(commit=False)` so pin + node land in one transaction. Reserved-slug helpers added: `WORKSPACE_SPATIAL_DASHBOARD_KEY` + `is_workspace_spatial_slug` + `is_reserved_listing_slug` on both backend and `ui/src/stores/dashboards.ts`. Endpoints at `/api/v1/workspace/spatial/{nodes,nodes/:id,widget-pins}`. React Query hooks in `ui/src/api/hooks/useWorkspaceSpatial.ts` (optimistic update, invalidate on settle). Tests: `tests/integration/test_workspace_spatial.py` 10/10 pass. |
+| P1.5 — Canvas shell | ✅ shipped 2026-04-26 | `ui/src/components/spatial-canvas/SpatialCanvas.tsx` is the real backend-driven canvas: pan via background pointer-down + manual `addEventListener("wheel", { passive: false })` zoom, tile drag via `@dnd-kit/core` (delta divided by `camera.scale` to convert screen pixels → world pixels), animate-then-navigate dive on channel double-click. Renders one tile per `WorkspaceSpatialNode` row at its persisted `world_x/y` (server fills via golden-angle phyllotaxis on `seed_index`). `SpatialCanvasOverlay` is now a thin shell — toggles `<SpatialCanvas />` open/close at AppShell-level + close button + animate-then-close-on-dive (`onAfterDive` prop). `app/(app)/index.tsx` mounts `<SpatialCanvas />` directly on desktop; mobile keeps `HomeChannelsList`. `HomeGrid` left in place but no longer routed (preserved for rollback per decision 1). Reserved-slug filtering already shipped in P1. Typecheck clean for spatial-canvas surface; pre-existing unrelated TS errors (stashed WIP) untouched. |
+| P2 — Channel tiles | ✅ shipped 2026-04-25; identity pass 2026-04-26; cosmic-body 2026-04-26; planets 2026-04-26 | `ui/src/components/spatial-canvas/ChannelTile.tsx` — three semantic-zoom levels switched on `camera.scale`. Each channel renders as a deterministic procedural **planet** (the prior "blob" / "cosmic-body" approaches read as misshapen colored splotches at the on-screen tile sizes that actually matter — internal gradient structure was invisible). Inline SVG composition per tile: atmosphere halo (transparent through 78% radius → soft outer halo in `channelHue(id)`; warm/unread doubles the alpha) + optional Saturn-style ring back-half drawn behind the sphere + sphere with fixed upper-left light source (lit edge → mid → terminator → dark side, four-stop radial gradient) + per-channel surface clipped to the sphere (one of `smooth` / `bands` / `swirl` / `spots` / `mottled`, distributed evenly via independent LCG walk) + specular highlight upper-left + ring front-half clipped to the lower viewBox half + optional orbiting moon (with a small lit-side shadow circle). Accessory probability ~50% none / 25% ring / 25% moon — independent stream so accessories don't correlate with hue. Helpers in `cosmicBody.ts`: `planetTraits(id)` (full deterministic trait set), `planetAtmosphereStops` / `planetSphereStops` (gradient stops), `planetBandRects` / `planetSpotCircles` / `planetMottledCircles` / `planetSwirlPath` (surface geometry), `planetRingProps` / `planetMoonProps` (accessories). `viewBox="-10 -10 120 120"` so moons orbiting just outside the 40-radius sphere have headroom. Bot pills are circular emoji avatars (lookup by `useBots()` for `avatar_emoji`, fallback `🤖`). Snapshot tier (zoom ≥ 1.0) progressive-discloses a one-line `last_message_preview` + `recent_message_count_24h` badge. **Dot tier collapses to a clean radial-gradient sphere with `borderRadius: 50%` (no lumpy organic radius — committing to "planets" as the visual idiom)**; warm intensity adds a hue-tinted boxShadow halo at this tier. `dotColor` / `channelHue` exports unchanged — `UsageDensityLayer`, `MovementHistoryLayer`, orbital `UpcomingTile`, and the minimap all consume them. 8 unit tests in `cosmicBody.test.ts` pin determinism per id, surface distribution across ids, accessory probability bounds, ring angle bounds, moon position outside sphere but inside extended viewBox, atmosphere alpha boost on warm, band count 3..5, spot count 2..4 with all spots inside the sphere. |
+| P3c — Pin-to-canvas from dashboard pins | ✅ shipped 2026-04-25; refined 2026-04-25 | `PinnedToolWidget.tsx` chrome rows (both standard header and overlay-chrome variants) gained a hover-reveal `LayoutGrid` icon button. The button now sends the source dashboard pin id to `/workspace/spatial/widget-pins`; server-side projection copies the canonical pin metadata and, for native widgets like Notes/Todo, reuses the source channel `WidgetInstance`. Spatial tile labels default to `{channel name} {widget label}` (for example `QA Todo`). Follow-up: projection pinning is idempotent, the remove button deletes all matching duplicate projections in one click, and `list_nodes()` cleans stale node rows whose backing pin vanished. Direct canvas/native catalog pins still create fresh synthetic native instances. |
+| P3a — Widget tiles (static) + pin action | ✅ shipped 2026-04-25 | Backend: `app/services/workspace_spatial.py::list_nodes` now returns `(node, pin)` tuples; `serialize_node(node, pin=...)` embeds `serialize_pin()` payload inline (envelope + tool + display label + source_bot_id + presentation/contract snapshots). One follow-up `SELECT ... WHERE id IN (...)` per list call covers all widget pins — no per-row N+1. Tests still 10/10 pass. Frontend: `ui/src/components/spatial-canvas/WidgetTile.tsx` with three static zoom levels (chip <0.4, chip+title 0.4–0.6, expanded card ≥0.6) reading from the embedded `pin` payload. `usePinWidgetToCanvas` mutation already in place from P1; new `PinToCanvasButton` in `WidgetCard.tsx` (sibling of "Add to dashboard") fires it for any in-message widget — `LayoutGrid` icon, "Pin to canvas" → "pinned to canvas" flash on success, invalidates the spatial-nodes query so the canvas shows the new tile next time it lists. |
+| P3b — Widget tiles (live iframe + shield) | ✅ shipped 2026-04-25 | `WidgetTile.CardView` (zoom ≥ 0.6) now mounts `<InteractiveHtmlRenderer>` directly when the tile is inside the camera viewport. Tile chrome: drag-handle strip on top (always pannable + dnd-kit drag handle), iframe body underneath, transparent `<button>` shield over the iframe body that captures click → activates the tile (handing pointer events to the iframe). When activated the iframe wrapper stops pointerdown propagation so dnd-kit can't start a drag inside the widget. **Viewport culling**: `SpatialCanvas` computes `viewportWorldBounds` (camera-derived world rect, expanded by 1 viewport on each side for keepalive — pan a viewport away without remounting iframes). Only tiles intersecting that box get a live iframe; others render a static body. Iframe-pin auth is reused via `dashboardPinId={pin.id}` — pins on the reserved `workspace:spatial` dashboard mint with the same `/widget-auth/mint` flow as channel-dashboard pins. **Activation lifecycle**: one tile activated at a time (`activatedTileId` state on the canvas); Esc / canvas-background pointerdown / drag-start all deactivate. **Known limit**: panning farther than 1 viewport away unmounts the iframe (state lost). Full `PINNED_WIDGET_IFRAME_POOL`-style DOM-transplant parking is deferred — the 1-viewport margin covers ~95% of typical interactions and avoids the cross-React-tree complexity. |
+| P4 — Overlay + chrome | ✅ shipped 2026-04-25 | `Ctrl+Shift+Space` global toggle (`useSpatialOverlayShortcut`). `<Outlet />` stays mounted beneath. **Contextual camera on open**: `SpatialCanvasOverlay` parses `useLocation().pathname` for `/channels/:id` and passes `initialFlyToChannelId` to `SpatialCanvas`; a one-shot effect calls `flyToChannel` once nodes load, so opening from a channel route lands on that tile instead of the last-saved camera. Re-mounting on overlay close+reopen re-evaluates the route. **Keyboard**: `F` fits all nodes (8% margin, falls back to `DEFAULT_CAMERA` when empty); `+` / `=` zooms 1.2× around viewport center; `-` / `_` zooms 0.83×; `Esc` closes overlay. All guarded against input focus, modifier keys, dive transition, and active drag. **`zoomAroundPoint` helper** extracted from the wheel listener — single anchor-zoom math used by wheel, keyboard, and pinch (P11). **Right-click context menus**: new `SpatialContextMenu` portal component (Tailwind chrome, Esc/scroll/outside-click dismissal). `SpatialCanvas`'s `onContextMenu` walks `e.target.closest("[data-tile-kind]")` + hit-tests via `pointerToWorld` to resolve target. Menus by kind — channel: Dive / Fly / Mini chat / Unpin · widget: Activate / Open source / Reset size / Unpin · bot: Mini chat / Open admin / Reset position · background: Add widget here / Recenter / Fit all / Trails cycle / Toggle lines. "Add widget here" passes `pinPositionOverride` through to `CanvasLibrarySheet` so the new pin lands at the right-click position. **Move-here pickers + coord clamp** (2026-04-25 follow-up): background menu now offers `Move channel/widget/bot here…`; clicking opens a second-level picker that lists every existing node of that kind alphabetically — selecting one centers it on the right-click world point. Doubles as the escape hatch for tiles that drift off-screen via a glitched drag (Cmd+K palette still works as a parallel route). Server-side `update_node_position` rejects `|world_x|` or `|world_y|` > `WORLD_COORD_LIMIT` (50 000) plus non-finite values so a corrupted dnd-kit delta cannot fling a tile to ~1e9 world units. Regression test: `test_world_coord_clamp_rejects_pathological_drag`. |
+| P24 — Interaction performance pass | ✅ shipped 2026-04-26; follow-up 2026-04-26 | Camera pan/zoom/pinch now update the world transform imperatively on `requestAnimationFrame` and commit React camera state after idle or gesture end, so routine movement no longer re-renders the full canvas tree per input event. Viewport rects are cached by `ResizeObserver`, lens focal updates are rAF-throttled, camera persistence is debounced, ambient halo/star animations pause under `.spatial-camera-moving`, usage baseline data fetches only when spike-compare mode is enabled, channel lookup for bot nodes is precomputed, and widget resize preview originally wrote to React Query at most once per frame. Follow-up: parent canvas now owns usage/baseline data once and passes groups into `UsageDensityLayer`; channel bot avatars are hoisted into a single bot lookup; manual bot drag mutates the node shell DOM while dragging and commits once; widget resize mutates the node shell DOM while dragging and commits once; push-through dive pulse is CSS-timed instead of a React state update per frame; tile shells use containment. Split modules: `DraggableNode`, `BotNode`, `SpatialCanvasChrome`, `MovementTraceLayer`, `widgetOverviewClusters`, `spatialIdentity`. `npx tsc --noEmit` clean. |
+| P26 — HUD radial menu + push-through dive | ✅ shipped 2026-04-26; **radial removed in favor of canvas-aware ⌘K 2026-04-26** | Replaced the 5-button bottom-right cluster (Add / Trails / Map / Now / Recenter) with a **radial command menu** (`SpatialRadialMenu.tsx`) triggered by `Q` keydown or 350ms long-press on canvas background (touch). 8 wedges at 45° apart: Recenter (12:00), Activity cycle (1:30), Lines toggle (3:00), Trails cycle (4:30), Now (6:00), Map toggle (7:30), Bots toggle (9:00), Fit all (10:30). Toggled-on wedges show accent fill so the user can see "what's currently on" at a glance. Top-right cluster simplified to `[+ Add]` + existing `<UsageDensityChrome />` (Activity / Lines / `[⚙]`) + new `[⌘ Q]` `<ShortcutChip />` (hover-popover lists every shortcut: Q, Space, F, +/−, Esc, right-click, long-press). `LensHint` rewritten to onboarding-only: flashes once per browser, fades after 6s, sets `spatial.onboarding.lensHintSeen` localStorage flag. **Mobile-ready**: top-right buttons hide their text labels at `<sm` (640px); minimap responsive (200×140 / 140×100 / hidden); dnd-kit single `PointerSensor` replaced with `MouseSensor` (8px distance) + `TouchSensor` (350ms delay, 8px tolerance) so a finger swipe past a tile pans the canvas instead of accidentally dragging the tile. **Push-through dive**: sustained zoom into a channel tile commits the existing `diveToChannel` flow without requiring a double-click. Trigger = `camera.scale ≥ MAX_SCALE * 0.85` AND viewport center inside a channel tile bbox (with 20% margin) for `DIVE_DWELL_MS = 450ms` continuous. Visual cue (`DivePulseOverlay.tsx`) — accent vignette tightens + `→ #channel-name` crosshair fades in as the dwell progresses; cancel by zooming out, panning the center off the tile, or starting a drag. Reuses the same 300ms animation + AppShell continuity guarantee as double-click. New constants in `spatialGeometry.ts`: `DIVE_SCALE_THRESHOLD`, `DIVE_DWELL_MS`, `DIVE_VIEWPORT_MARGIN`, `LENS_HINT_SEEN_KEY`. **2026-04-26 dive-loop fix**: the "Beam to spatial canvas" button on a channel header used to dump users back at whatever camera state was in localStorage — frequently still high zoom over the source tile, which immediately re-armed push-through dive and sucked them back into the channel they just left. Fix has two pieces: (1) `ChannelHeader.tsx` writes `sessionStorage["spatial.beamFromChannel"] = { channelId, ts }` before navigating; `SpatialCanvas` consumes the flag on next mount, looks up the source tile in `nodes`, and recenters the camera on it at `DIVE_SCALE_THRESHOLD * 0.7` (≈1.78, well below the 2.55 dive threshold) — beam-up now feels intentional ("you're back, here's where you were"). (2) `mountedAtRef = useRef(Date.now())` + `if (Date.now() - mountedAtRef.current < 1500) return` at the top of the dive-candidate detection useEffect — defensive cooldown that catches every other path that lands the user at high zoom over a tile (route changes, hot reload, future entry points). |
+| P27 — Memory Observatory | ✅ shipped 2026-04-26; triage + 48h default follow-ups 2026-04-26 | Fixed far-left spatial landmark for `/admin/learning#Memory` data. New admin aggregate endpoint `/api/v1/admin/learning/memory-observatory` groups existing memory file tool-call activity into active bot lanes, hot memory-file bodies, recent write sparks, correlation/run bursts, and deterministic triage findings. Canvas renders it as a non-draggable system landmark (not a `workspace_spatial_nodes` row, not duplicate bot actors): far zoom = label/count glow; mid zoom = bot arcs + hot files + sparks; close zoom = memory-only search lens, time filters, highlighted matches, result list, source inspection through `SourceFileInspector`, and a Top Findings panel. Findings are read-only rule outputs for hot churn, hygiene-heavy files, large bursts, dated-log scatter, and quiet bots; clicking one highlights related marks and opens a finding-specific inspector with rule rationale/evidence before any source follow-through. The default observatory window is now 48h (`days=2`), with close-zoom filters for 24h / 48h / 7d / 30d / All. `Cmd/Ctrl+K` gains "Canvas: Fly to Memory Observatory"; recording helper `__spindrelSpatial.flyToMemory()` added. Tests: backend aggregate/finding unit tests, layout helper node tests, UI typecheck. |
+| P28 — Nearby edge beacons | ✅ shipped 2026-04-26 | Offscreen entities now expose subtle screen-edge beacons only when they are just beyond the viewport, not from across the whole map. V1 covers Memory Observatory, Now Well, channels, widgets, and visible bots. Candidates hide when onscreen, drop when farther than the near-edge threshold, clamp to the nearest viewport edge, point toward the target, sort by offscreen distance, cap visible markers, and click through to existing fly-to camera actions. Visibility persists in `localStorage` (`spatial.landmarkBeacons.visible`), has a `Cmd/Ctrl+K` toggle, and lives under Starboard → Controls → Wayfinding. Geometry helper tests cover onscreen hiding, left/bottom edge placement, and too-far suppression. |
+| P28.5 — Starboard panel | ✅ shipped 2026-04-26; station follow-up 2026-04-27 | Right-side Starboard panel replaces one-off canvas control popovers. It is now a full-height docked command surface with header stations: Command Center (bot assignment board, next heartbeat timing, upcoming work, recent reports, Attention detail/create), Controls (command palette, attention signals, connection lines, Activity halos, bot visibility, edge beacons), Objects (positioned channels/widgets/bots/fixed landmarks sorted by distance from current viewport center, client-side search, click-to-fly, Starboard-local right-click actions), Attention (focused target review/legacy lane), and Launch Bay. The last selected station persists in `localStorage`; panel wheel/context-menu events stay local to Starboard. |
+| P29 — Attention Beacons + Hub | ✅ shipped 2026-04-26; Command Center follow-up 2026-04-27 | `WorkspaceAttentionItem` persists shared attention/work-intake state separate from spatial positions. Bot-authored beacons are placed/resolved through heartbeat-facing tools behind `allow_attention_beacons`; the Heartbeat tab toggle now round-trips through the channel spatial-policy API. Structured `ToolCall` / `TraceEvent` / `HeartbeatRun` failures surface as admin-only system beacons; user-authored items can be created from Command Center quick-add. Canvas signals render in a high-z world overlay anchored to bound nodes/clusters with inverse scaling, so they move with targets through pan/zoom/drag without being clipped by nearby widgets. The Command Center landmark now sits above the seed center as the start-zone intake anchor; edge beacon, channel header count, command palette, and mapped signals open Starboard's Command Center station when the canvas is mounted. Grouped beacon clicks open target-scoped review (`target · N of M issues`) with a compact same-target issue list, and acknowledge/resolve advances to the next active same-target item. V1 assignment supports `next_heartbeat` injection and `run_now` attention tasks, both investigate/report only, with bot findings stored back on the item via `report_attention_assignment`. `next_heartbeat` now targets only the channel heartbeat bot and injects at most one queued assignment per heartbeat, severity-first then oldest assignment. Follow-up cleanup: canvas defaults to Browse mode with Arrange/Shift-drag for moving items; badges collapsed to one target-owned rim signal with no idle count text; map visibility lives in the right-side Starboard Controls tab; target/global bulk acknowledge is available; acknowledge hides the active item immediately while source-event fingerprints prevent detector rescans from reopening it; noisy single file-tool misses are suppressed. |
+| P25 — Far-zoom clustering + agent map view | ✅ shipped 2026-04-26 | Channels now gain a second far-overview tier below `0.22` zoom (exit hysteresis above `0.26`): nearby channel dots collapse by screen-space proximity, the highest token-usage channel in the current Activity window wins the main dot, recency breaks ties, satellites + `+N` indicate hidden neighbors, click frames members, and double-click dives into the winner. Clustered channel halos/connection lines suppress individual hidden members; aggregate cluster glow respects the Activity toggle. Bot spatial policy gained `allow_map_view`, a new read-only `view_spatial_canvas` tool returns only human-visible viewport surface data (labels, tiers, cluster counts, satellite hues, focus tokens, screen ratios, connection summaries; no widget iframe contents or hidden cluster names), and `ChannelHeartbeat.append_spatial_map_overview` can inject a compact whole-map summary when enabled and permitted. Migration 253 adds the heartbeat flag. Verification: UI typecheck clean, clustering unit test passes; spatial integration file is skipped in this environment. |
+| P5 — Activity pulses | 🚧 backlog | SSE-driven tile pulses on real-time events. Requires a workspace-scope event stream (not just per-channel) and a good visual vocab — design work. |
+| P6 — User-drawn edges | 🚧 backlog | Whiteboard-style draw-line gesture between two tiles. Purely informational — no layout force. |
+| P7 — Minimap | ✅ shipped 2026-04-26; responsive 2026-04-26 | Bottom-left corner minimap renders channel dots, faint widget rectangles, and bot avatar emojis at world positions auto-fit (with viewport coverage so the rect overlay stays in frame). Camera-derived viewport rect overlay shows current camera. Click anywhere = `flyToWorldPoint` centers the world point in the viewport at `min(1.0, currentScale)`, mirroring `flyToChannel`'s scale-cap pattern (preserves user's zoom below 1.0, drops to preview zoom from above to avoid landing in an empty void). Faint by default (~32% opacity) with hover ramp to ~95% so it doesn't compete with the canvas. Map toggle moved into the radial menu (P26); visibility persists in `localStorage` (`spatial.minimap.visible`). Now responsive — 200×140 ≥640px, 140×100 at 400–639px, hidden below 400px so it doesn't overlap mobile chrome. New file: `Minimap.tsx`; spatialGeometry gains `MINIMAP_VISIBLE_KEY` + `loadMinimapVisible`. Activity halos / Now Well intentionally NOT rendered into the minimap (per user — keeps it legible). |
+| P8 — Cmd+K integration | ✅ shipped 2026-04-25; canvas-aware mode 2026-04-26 | New `paletteOverrides` store (`ui/src/stores/paletteOverrides.ts`) — single global `channelPick` handler slot, last-registered wins. `SpatialCanvas` registers a `flyToChannel(channelId)` callback on mount, clears on unmount; `CommandPalette.selectItem` consults it before route navigation when the selected item is a pure channel href (`/channels/:id`, no trailing path). Fly camera math mirrors `flyToWell`: capped at `targetScale = min(1.0, ...)` so the user lands at "preview" zoom, not a single-tile-fills-screen overshoot. Lens auto-disengages on fly. Falls through to default `navigate()` when no canvas is mounted, when picking channel-settings (`/channels/:id/settings`), or when picking any non-channel item. **2026-04-26 — canvas-aware mode + radial replacement.** `paletteOverrides` extended with `surface: "canvas" \| null`, `widgetPick`, `extraItems`, `onMapChannelIds` slots. While the canvas is mounted: (1) the 8 former-radial commands (Recenter / Fit all / Now / cycle Activity / cycle Trails / toggle Lines / toggle Map / toggle Bots) register via `usePaletteActions.register("spatial-canvas", …)` and appear under a new top-most `Canvas` group; (2) every pinned widget node is contributed as an item under a new `On the map` group; (3) channels that exist as spatial nodes are re-badged from `Channels` into `On the map`; (4) every fly-to-able row gets a `⌘↵ Open` affordance — primary `Enter` flies the camera (channels → `flyToChannel`, widgets → `flyToNodeById`), secondary `Cmd/Ctrl+Enter` always navigates to the standalone route. `CATEGORY_ORDER` in `admin-items.ts` hoists `Canvas` and `On the map` to positions 0 and 1; absence of items at those categories outside the canvas surface keeps the palette unchanged elsewhere. Touch long-press on canvas background now opens ⌘K instead of the deleted radial. `SpatialRadialMenu.tsx` deleted. |
+| P9 — Channel-dashboard mirrors | 🚧 backlog | Every widget pinned to a channel dashboard also auto-projects near its channel tile (Q3 Option #2). Revisit once users have lived with independent-pins. |
+| P10 — Embedded live channel at max zoom | 🚧 backlog | Q4 Option #2 — deepest zoom dives into an embedded live channel page inside the canvas, no route change. Requires `ChannelDashboardMultiCanvas` / `ChatMessageArea` / composer to be embeddable under a CSS transform; probably a rewrite, scroll math is the hard part. |
+| P11 — Mobile canvas | 🚧 backlog | Touch-native canvas. Desktop-only in Phase 1–4; `HomeChannelsList` is mobile home until then. |
+| P12 — Whiteboard polish | 🚧 backlog | Multi-select, undo/redo, snap-to-grid, align commands. |
+| P13 — More node types | 🚧 backlog | Files, workflows, pinned sessions as first-class canvas citizens. The table uses nullable target columns rather than `node_type`; each new durable target needs a nullable FK / unique partial index / widened exactly-one CHECK. Bots shipped under P20 via `bot_id` without an FK because bot definitions are registry-backed. |
+| P14 — Gossamer HUD variant | 🚧 backlog | Refined version of `scratch/alt-ui-prototypes/gossamer-web.html` packaged as a native widget (Standing Orders precedent) that ticks strand vibrations from the SSE event bus. Complementary to the canvas, not a replacement. |
+| P16 — Focus+context lens (fisheye) | ✅ shipped 2026-04-25 | Hold-to-engage fisheye (default key: `Space`). Cursor is the focal point and tracks live while held. Tiles within `lensRadius` (`0.35 × min(viewportW, viewportH)` screen px) stay at native position; tiles outside are pulled toward the focal point and shrunk via `r' = lensRadius + log₂(1 + (r-lensRadius)/lensRadius) * lensRadius`. Position + size shrink applied uniformly to all tiles (channels and widgets). Implementation: `projectFisheye()` in `SpatialCanvas.tsx` runs in the render pass — no DB writes, world coords untouched. Each `DraggableNode` composes its transform stack: `translate(<dnd-drag>) translate(<lens dx,dy in world>) scale(<size>)`. CSS transition is 250ms ease-out only during the engage/disengage settle window (`lensSettling` state); while steady-engaged + cursor moving, transition is `none` so tiles track the cursor without lag. Counter-scaled labels (`ChannelTile.DotView`, `WidgetTile.ChipTitleView`) accept an `extraScale` prop and incorporate it into their existing `1/zoom` formula so labels stay readable at the lens edge. Lens drops automatically on pan-start, drag-start, and dive (avoids fighting non-linear edge math + the dive animation). Guards against engage during input focus, modifier-key combos, and key-repeat. Drag-from-outside-lens drift acknowledged as a v1 limitation — release the lens first. |
+| P16.1 — Lens chrome / sticky toggle | 🚧 backlog | If hold-to-engage gets tiring, add a chrome-bar toggle button that sticky-engages the lens (focal point still follows cursor). Currently no UI surface for the lens — discoverability is via tooltip + the Track. |
+| P17 — Semantic zoom expansion (clustering) | 🚧 backlog | Hierarchical zoom: as the user zooms IN past a per-type threshold, a tile's children "spring out" as their own sub-tiles around it; zooming OUT collapses them back into the parent. Channel → sessions → tasks is the canonical hierarchy. At zoom 1.0–1.5 a channel renders as today; at zoom 1.5+ the channel tile dissolves into a constellation of session tiles around its previous bounding box; at zoom 2.5+ each session further dissolves into its task tiles. Reuses the same chip / preview / snapshot vocabulary at each level. Storage: ephemeral — sub-tile positions are computed on the fly (radial layout around parent center, similar to the satellite ring used for widget pins). Pinning a sub-tile (session, task) into a permanent canvas position promotes it to a real `WorkspaceSpatialNode` row — same node-type-by-FK pattern as channels and widgets, just adding `session_id` / `task_id` columns when the time comes. Pairs with P16: the lens is the *navigational* answer to crowding; clustering is the *structural* answer. Both belong on the Track. |
+| P15 — Now Well + orbital scheduled tasks | ✅ shipped 2026-04-25 | Original linear "time-horizon strand" design pivoted to an orbital gravity-well after brainstorming with the user. New landmark `NowWell` at fixed world coords `(0, 2200)` — squashed concentric ellipses (vertical squash 0.55) + dark inner radial gradient + live `now · HH:MM` clock text. Reads as an isometric hole in the floor. Time-band rings now use explicit piecewise stops (`15m`, `1h`, `6h`, `12h`, `1d`, `2d`, `3d`, `5d`, `1w`) with major labels at `1h`, `6h`, `12h`, `1d`, `3d`, `1w`, giving the `1d→1w` horizon real space instead of log-compressing everything together. `UpcomingTile` orbits the well: position = polar `(WELL_X + r·cos(θ), WELL_Y + r·sin(θ)·0.55)` where `r` comes from the piecewise time stops (R_MIN=110, R_MAX=650, horizon=1 week) and `θ` = stable hash of identity key. Near-overlapping items get a small deterministic tangential fan-out in the same coarse radius/angle bucket; full count-badge clustering remains P15.2. Visual polish deliberately stays background-only: black center, very soft neutral/blue-violet haze blobs, no orange center or foreground accretion streaks that compete with task glyphs. Three semantic-zoom levels: far → tiny channel-hued dot, mid → diamond glyph (rotated 45° square, ~28 px), close → glyph + title + relative time. Imminent-boost: items < 60 min get bumped up a zoom tier so they're readable without zooming in. Type-specific inner icons: `task` → Clock, `heartbeat` → Activity, `memory_hygiene` → Sparkles. Color: channel hue when `channel_id` is present, else bot-id hue. Pure render-time math — NOT `WorkspaceSpatialNode` rows. Uses the workspace spatial upcoming endpoint (`useSpatialUpcomingActivity`) so desktop canvas data is not coupled to admin payload shape; admin-only memory hygiene stays out of workspace canvas. Shared helpers own orbit math, hrefs, labels, tile color, and relative-time text so the native upcoming widget and spatial canvas do not drift. A 5s client tick (`tickedNow`) advances orbit radii smoothly between fetches. Click: task → task detail, heartbeat → channel. The Now Well and orbital tiles now compose through the same P16 fisheye projection path. New chrome `[Now]` button next to `[Recenter]` flies camera to frame the well. |
+| P15.1 — Type filter chip | 🚧 backlog | Pill near `[Now]` to toggle `task` / `heartbeat` / `memory_hygiene` visibility on the well. Useful once heartbeat density saturates the inner rings. |
+| P15.2 — Cluster overlapping orbital tiles | 🚧 backlog | When N items land at the same `(r, θ)` cell, render a count-badge cluster instead of overlapping diamonds. Hover/zoom expands. Most useful for heartbeat-heavy workspaces. |
+| P15.3 — Recently-fired shrapnel | 🚧 backlog | Past events linger briefly inside the well (a "crashed in" residue) before fading. Requires a "recently completed" endpoint in `/api/v1/admin/upcoming-activity` (or a sibling). Adds a sense of past-versus-future continuity. |
+| P15.4 — Well center → task list | ✅ shipped 2026-04-25 | The center accent dot of the `NowWell` is now a transparent button overlay sized to the inner dark hole; click navigates to `/admin/tasks`. The well wrapper stays `pointer-events: none`; only the inner button surface receives events. The `[Now]` chrome button still flies the camera (look at it vs go to it = two distinct actions). |
+| P15.5 — Tile pulse on schedule fire | 🚧 backlog | When an `UpcomingTile`'s `scheduled_at` crosses `now`, brief flash on the tile + a subtle ripple on the well center to confirm something just fired. Pairs with P15.3 (lingering past tiles). Pure render-time animation on the existing client tick. |
+| P18 — Token-usage density halos | ✅ shipped 2026-04-25 | Default-on layer that renders glow halos behind each channel tile. Halo radius + opacity scale together with token volume; both ride a sqrt curve (`t = sqrt(channelTokens / maxChannelTokens)`) so 200k vs 1.5m reads as a clearly distinct ~36% vs 100% — the original log scaling compressed those to ~86% vs 100% which read as "all or nothing." Halos use the channel's stable `channelHue(id)` so they amplify the dot's identity rather than introducing a parallel color system. Three intensity tiers cycled by the **Activity** chrome button (top-right): `subtle` (default — radius 60–220px, opacity 0.15–0.42, soft pastel sat/lightness), `bold` (radius 100–360px, opacity 0.30–0.78, vibrant), `off`. State persists in `localStorage` (`spatial.density.intensity`). A gear popover next to the button hosts advanced controls: time window (`24h` / `7d` / `30d`), `Spike colors` (formerly "Deviation only" — tints halos by current vs prior-period ratio, cool below baseline / warm above, 1k-token noise floor), `Breathe` (CSS `spatial-halo-breathe` keyframe — opacity dips to 75% then back + scale 1.0→1.04, duration scales with volume so heavier halos breathe slower). Reuses `useUsageBreakdown({ group_by: "channel" })`; backend `BreakdownGroup` gained a `key` field so the UI can join by `channel_id`. New files: `UsageHalo.tsx`, `UsageDensityLayer.tsx`, `UsageDensityChrome.tsx`. Halos sit inside the world-transform div but are NOT projected through the P16 lens (fisheye-warped halos misread volume; they stay round in world space — slight edge desync accepted as ambient-signal trade-off). Native `title` tooltip carries `tokens · cost · calls` (or `× prior period` in spike mode); richer hover panel parked. |
+| P19 — Widget → channel connection lines | ✅ shipped 2026-04-25 | Default-on layer that draws a faint dashed quadratic-bezier curve from each pinned widget tile to its `pin.source_channel_id` channel tile. Toggleable via the **Lines** chrome button next to **Activity**; state persists in `localStorage` (`spatial.connections.enabled`). Hover any widget tile → its outgoing line brightens to accent color (canvas-level `hoveredNodeId` state, propagated via a new `onHoverChange` prop on `DraggableNode`). Lines render in a single SVG sized to the bounding rect of all endpoints (margin 200 world px), so pan/zoom apply via the world transform. Tripwire guard: `source_channel_id` may point to a deleted channel — skip the line when no matching channel node is in the result set. Lens compatibility deferred (endpoints don't project through `projectFisheye` yet; the lens auto-disengages on most interactions, so the v1 trade-off is acceptable). |
+| P19.1 — Lens-projected lines + halos | 🚧 backlog | Project halo centers and connection-line endpoints through the same `projectFisheye` math used by tiles, so they stay aligned at the lens edge. Polish — current v1 limitation accepted. |
+| P19.2 — Token-usage hover panel | 🚧 backlog | Replace the native `title` tooltip on `UsageHalo` with a richer floating panel: tokens / cost / calls breakdown by model, mini sparkline of the last N days. Reuses `useUsageBreakdown`'s per-model rollup. |
+| P19.3 — Bot satellites | 🧭 superseded by P20 | Original tiny-moon concept replaced with first-class bot nodes so bots can carry canonical positions and later act on nearby objects. Membership still influences initial placement: bot nodes seed near a primary/member channel. |
+| P20 — Spatial bot movement + awareness | ✅ shipped 2026-04-26 | Bot participation now auto-seeds `workspace_spatial_nodes.bot_id` rows for primary/member bots only. A channel-level policy at `Channel.config["spatial_bots"][bot_id]` gates spatial awareness, self movement, object tugs, nearby inspection, step sizes, budgets, radii, trace TTL, and `minimum_clearance_steps` (default 3) so bots treat overlapping/too-close nodes as already adjacent instead of crowding them. Bot tools: `describe_canvas_neighborhood`, `move_on_canvas`, `tug_spatial_object`, `inspect_nearby_spatial_object`. Context assembly injects a small `[spatial_canvas]` block when awareness is enabled: bot position, policy, radius, floor neighbors, center distance, edge gap, overlap/too-close flags, and nearby nodes with kind/last movement. Tugs can move channels/widgets/bots within tug radius and emit a real assistant message in the channel ("moved X one step...") with structured `spatial_movement` metadata. The canvas renders bot nodes as compact tiles, movement traces fade using policy TTL, and clicking a bot opens a reusable `ChatSession` dock for the resolved channel. **2026-04-25 clearance fix:** bot seeding no longer uses the original fixed 150-unit orbit; new bot nodes pick a deterministic clearance-tested ring position around their primary/member channel, untouched old overlapping spawn rows are narrowly repaired, and `move_on_canvas` crowding errors name the blocking object plus before/after edge gap. Bot-to-bot spatial notes / command cards remain Phase 2. |
+| P21 — Spatial heartbeat prompt + bot-owned widgets | ✅ shipped 2026-04-26 | Heartbeat settings now own the spatial runtime controls: Participants shows status only, while Heartbeat exposes the canned spatial prompt toggle plus per-bot awareness/movement/tug/inspect/widget-management policy. `ChannelHeartbeat.append_spatial_prompt` appends a standard spatial-turn instruction block to heartbeat prompts; enabling it seeds awareness-only policy defaults for the primary bot when no policy exists. Bot profiles gained `avatar_emoji` and bot canvas/list surfaces intentionally ignore `avatar_url` for bot presentation. Existing bot nodes are expanded to a larger 260x180 footprint; the canvas renders visually distinct emoji bot actors that stay readable when zoomed out. Bot dragging uses direct pointer-to-world math instead of dnd-kit deltas to fix zoom-offset divergence. New tools `pin_spatial_widget`, `move_spatial_widget`, `resize_spatial_widget`, and `remove_spatial_widget` let a bot arrange only widgets it owns, behind `allow_spatial_widget_management`. |
+| P22.1 — Blockyard (collaborative voxel building) | ✅ shipped 2026-04-25 | Second game in the spatial-canvas games framework. Pivot from Ecosystem Sim's subtraction/conflict gameplay (which wasn't reading as fun) to additive, legible building. Backend `app/services/games/blockyard.py` + spec `core/game_blockyard` in `native_app_widgets._REGISTRY`. State: sparse 3D grid `{"x,y,z" → {bot, type, label?, ts}}` with default bounds 16×16×8. Bot actions `place` / `remove` (own blocks only) / `inspect` (free, no turn cost). User actions add `set_player_color` and `clear_blocks` plus user-side `place`/`remove` with no ownership restriction. Block vocabulary: stone, wood, glass, dirt, water, wool, light, leaves, sand, brick. Placement rule: target cell must touch the ground (z=0) or another block on a face — keeps builds anchored without making trees/lights impossible. Per-bot color from SHA-256 of bot id. Renderer `BlockyardWidget.tsx` is an isometric SVG voxel scene: top-diamond + left/right rhombus faces per cube, painter's-algorithm sort by `(x+y, z)`, owner-color stripe along front-top edge, alpha for glass/water, glow halo on `light` blocks, hover-preview cube on the next-stack-z, click-to-place hit diamonds layered over each (x,y) column, right-side block palette with a remove-mode toggle. Settings drawer reuses `GameParticipantsSection` / `GamePhaseSection` / `GameTurnLogSection` plus a player-color picker and clear-world maintenance button. Heartbeat injection is automatic via the shared `GAME_WIDGET_PREFIX` check. Block-grid snapshot in `summarize` so bots see the whole world (sorted z→y→x) plus the last 5 turns. 2026-04-25 follow-ups: native action validation errors after rollback now return the real action error instead of `MissingGreenlet` (regression pinned through `invoke_widget_action(action="inspect")`); the close-up frameless canvas grabber now uses direct pointer-capture dragging so the game body can stay click-through/pannable while the grabber still moves the tile; zoomed-out diamond/title views use whole-glyph dragging because no grabber is visible there. |
+| P23 — Movement-history comet-tail trails | ✅ shipped 2026-04-25 | Long-running per-node movement log rendered as a fading polyline behind each tile. New `WorkspaceSpatialNode.position_history: JSONB` column (migration 252) with 72h TTL + 30-entry cap enforced by `_append_position_history` (`app/services/workspace_spatial.py`). All three coordinate-mutation paths — `update_node_position`, `move_bot_node`, `tug_spatial_node` — capture `(prev_x, prev_y)` and append before commit. No-op moves (z-only / size-only / same-coord patches) are skipped so the trail isn't polluted. `serialize_node` exposes `position_history` to the API; UI `SpatialNode` type extended. New `MovementHistoryLayer.tsx` renders chained `<line>` segments per node with opacity (0.08→0.45 default, 0.30→0.85 emphasized) + stroke width (0.8→2.4 px screen) interpolated oldest→newest, divided by camera scale to stay visually steady. Color: `channelHue(id)` for channel + bot trails (each id gets its own stable hue), `text-dim` token for widget tugs. Three modes via new `[Trails]` chrome button — `off` / `hover` (default; lights up on hover only so 15+ tiles don't spaghetti) / `all`. Mode persists in `localStorage` (`spatial.trails.mode`). `ManualBotNode` and channel `DraggableNode` now propagate `onHoverChange` so all node kinds can light their trails (previously only widgets fired hover). The existing `MovementTraceLayer` (single bright TTL arrow) stays untouched on top of the trail layer. 4 new integration tests cover append-on-drag, no-op-skip, length cap, and TTL prune (23/23 spatial green). |
+| P22.2 — Game polish: directives, smarter hints, settings UX, Storybook 1v1 | ✅ shipped 2026-04-26 | All four phases shipped in one session. **Phase A — framework directive system + smarter hints:** `apply_directive` / `clear_directive` / `directive_block` helpers on `app/services/games/__init__.py`; new `localize(state, bot_id)` callback registry consumed by the heartbeat block; new pure-fn `app/services/games/hints.py` with `neighborhood_snapshot` (3D ASCII layers around an anchor), `bot_pacing_nudge` (low/high count vs others), `unused_block_types`, `recent_failures`, `notable_labels`. `build_active_games_block` now emits `Directive:` + per-bot localize output before the global digest. **Phase B — Blockyard sophistication:** new user actions `set_bounds` (SETUP only, 4..64 per axis), `set_blocks_per_turn` (1..5), `set_directive`; real per-actor budget enforcement via `state["round_placements"]`; round-advance rewritten to use `state["round_done"]` so multi-block budgets actually allow back-to-back placements; `notable_labels` exposed in summarize so bots can build on each other's named pieces; localize callback composes neighborhood snapshot + remaining budget + pacing nudge + unused block types. **Phase C — Settings UX:** new shared `GameDirectiveSection` + `GameWorldEditableSection`; phase buttons gained lucide icons (Play/Pause/Square/RotateCcw); participants picker migrated off inline `style`-colored tints to Tailwind tokens with a per-bot identity dot; BlockyardWidget wires the new sections (directive textarea above editable bounds + blocks-per-turn). **Phase D — Storybook 1v1:** `app/services/games/storybook.py` (`core/game_storybook`) with state `{title, genre, stanza_cap, sentence_cap_per_turn, stanzas[]}`, bot action `add_stanza` (sentence-count enforced via `_count_sentences`), user setters for title/genre/caps/directive plus `delete_last_stanza` escape hatch; auto-ends on `stanza_cap`. New `StorybookWidget.tsx` is a manuscript-style serif column with author chips, relative timestamps, and an inline composer with sentence counter (Cmd+Enter to send). Registered in `native_app_widgets._REGISTRY` and `registry.tsx`. **Tests:** 71 new (`test_games_framework.py`, `test_games_blockyard.py`, `test_games_storybook.py`), all green; pre-existing `TestHeartbeatBlock` ecosystem tests fixed (commit `eb4502d3` had switched heartbeat lookup to require a `WidgetDashboardPin` join; tests didn't seed pins). 86/86 game tests pass; UI typecheck clean. |
+| P22 — Game widgets framework + Ecosystem Sim + canvas library sheet | ✅ shipped 2026-04-25 | Spatial canvas became playable. New games framework lives in `app/services/games/` (shared turn helpers, dispatch registry, `summarize_state_for_prompt`) and rides the existing native-widget machinery: game state in `WidgetInstance.state`, moves through `invoke_widget_action`, no new bot-tool surface. `dispatch_native_widget_action` gained an optional `bot_id` so handlers can enforce per-bot participation and turn order. Heartbeat assembly appends a `[active_games]` block (via `app/services/games/heartbeat.py::build_active_games_block`) listing every spatial game where the channel's primary bot is in `state.participants` and `state.last_actor != bot_id` — the bot picks up the pin id, summary, and available actions. **Ecosystem Sim** (`core/game_ecosystem`) ships as the first game: 12×12 board, deterministic seed cells, `define_species` / `expand` / `evolve_trait` / `eat_neighbor` for bots; `set_participants` / `set_phase` / `set_environment` / `advance_round` user-only environment controls. Drought halves food, bloom doubles, food sources grant their owner +amount per round. Renderer is a deep-space stage with a procedural asteroid silhouette + clip-pathed cell grid + trait-driven SVG vegetation glyphs (aggressive thorns, photosynthetic halo, luminous core, fast motion lines, thorny polygons, etc.) + weather tints + slow-drift float animation respecting `prefers-reduced-motion`. **Canvas library sheet**: new `[+ Add]` chrome button next to `[Now]`/`[Recenter]` opens a side sheet that mounts the existing `WidgetLibrary` in `mode="pin"` — first place on the canvas to discover and pin native widgets without leaving for `/widgets`. Pins land at camera center (320×220 default for native widgets). 15/15 ecosystem integration tests + 14 spatial regression tests green. |
+
+## Design decisions (locked)
+
+1. **Route model** — `/` IS the canvas on desktop. `HomeGrid` retires (preserved behind a dev flag if we want a rollback). Mobile keeps `HomeChannelsList`.
+2. **Overlay model** — `Ctrl+Shift+Space` toggles canvas in an **AppShell-level layer** (`ui/src/components/layout/AppShell.tsx`) that renders **above** the route `<Outlet />` without unmounting it. The outlet stays mounted but inert (pointer-events off, aria-hidden) while the canvas is open. This keeps `useChannelEvents` / SSE streams, `useChannelChat` state, composer drafts, and transient route state alive across toggles. Transition: 180–220ms ease-out + slight scale-in from 0.96. Sidebar stays. Not a z-index overlay over the sidebar; occupies the same bounds as the main content area. ESC or same hotkey dismisses.
+3. **Channel positioning** — Hybrid: deterministic **phyllotaxis (golden-angle)** seed on first appearance; user drag pins forever. No relayout on membership change. If a channel has no node row, one gets created at the next seed slot on first render.
+4. **World pins are independent** — World-scope widget pins are their own rows. A widget can be pinned to both a channel dashboard AND the world (two `widget_dashboard_pins` rows, no coordinate projection). Channel-dashboard edits never touch the world.
+5. **Channel zoom-in — animate-then-navigate** — On double-click, animation runs to completion first (~300ms CSS transform on canvas root to tile's rect), **then** `router.push('/channels/:id')` fires. The animation completes in the AppShell transition layer, which survives the route change, so there's no mid-animation unmount flash. Crossfade the channel page on enter. Channel page is **never** embedded in canvas; P10 reconsiders. (Earlier draft said "router.push mid-animation" — that would unmount `/` and kill the canvas before the transition finished.)
+6. **Data model — nullable-FK shape, not polymorphic-target** — New `workspace_spatial_nodes` table:
+   - `id` (pk)
+   - `channel_id` (UUID, nullable, FK `channels.id` ON DELETE CASCADE)
+   - `widget_pin_id` (UUID, nullable, FK `widget_dashboard_pins.id` ON DELETE CASCADE)
+   - `bot_id` (Text, nullable; registry-backed bot id, no DB FK)
+   - **CHECK constraint**: exactly one of `channel_id` / `widget_pin_id` / `bot_id` is non-null
+   - `world_x` / `world_y` / `world_w` / `world_h` (Float)
+   - `z_index` (Int, default 0)
+   - `seed_index` (Int, nullable) — monotonic counter written once on insert, used for deterministic phyllotaxis position; **never recomputed**. Guards against cross-tab races and post-delete shifts.
+   - `last_movement` (JSONB, nullable) — short-lived trace payload for bot self-moves and object tugs (`from`, `to`, actor, channel, TTL / expiry)
+   - `pinned_at` / `updated_at` timestamps
+   - Unique partial indexes on `channel_id` (WHERE NOT NULL), `widget_pin_id` (WHERE NOT NULL), and `bot_id` (WHERE NOT NULL) — one spatial node per target.
+
+   Nullable-FK over polymorphic-`target_id` because the DB enforces referential integrity natively (cascade-on-delete handles channel deletions, dashboard pin deletions, and migration edge cases without application-side cleanup jobs). Registry-backed bots are the exception: they use `bot_id` text and the service only auto-seeds bots that participate in channels. Future DB-backed node types (`file`, `session`, `task`) add new nullable FK columns + widen the CHECK — slightly more surface area in exchange for compiler-verified integrity.
+
+   No coupling of `channels` or `widget_dashboard_pins` to spatial concerns — neither table gains columns for this.
+7. **Auto-populate** — All channels auto-appear. Widgets are opt-in via explicit "Pin to workspace canvas" action. No data-derived edges.
+8. **Edges** — None in Phase 1. User-drawn only when added (P6). No auto-edges from shared bots / shared integrations / cross-refs.
+9. **Semantic zoom** — Channel tiles: `<0.4` colored dot, `0.4–1.0` preview tile, `>1.0` expanded snapshot. Widget tiles: `<0.4` chip, `0.4–0.6` chip+title, `≥0.6` live iframe. Live-iframe threshold doubles as the performance-culling threshold.
+10. **Rendering stack** — Custom outer `<div>` with `transform: translate() scale()` for world pan/zoom. Tiles are absolutely-positioned children with their own `transform: translate()`. **Build pan/zoom gesture layer directly** (~150 lines, proven in the prototype) — no new dep. **Tile drag** uses `@dnd-kit/core` (already in `ui/package.json`). **No `@use-gesture/react`** (not installed; not worth the compatibility spike when 150 lines of wheel/pointer handlers does the job). **No react-flow** (edges aren't MVP, iframe-as-node content fights the lib). **No tldraw** (bundle size + wrong product shape). Widgets on world reuse existing `WidgetCard` component, iframe contract, SDK, theme — only the coordinate system and gesture-shield overlay change.
+11. **Hotkey** — `Ctrl+Shift+Space` (Cmd on mac). Contextual camera: current route = `/channels/:id` → overlay opens centered on that tile with a short pan animation; else last camera position from `localStorage` (`spatial.camera.{x,y,scale}`).
+12. **Scope today** — Single-workspace. `workspace_spatial_nodes` reserves a future `workspace_id` column but doesn't populate it yet.
+
+## Key invariants
+
+- **Route outlet never unmounts for the canvas.** Canvas lives in an AppShell-level layer. Opening/closing the overlay must not interrupt active SSE streams in `useChannelChat.ts`, widget event taps, composer drafts, or transient route state. Acceptance criterion, not an implementation detail.
+- **`workspace:spatial` is a reserved dashboard slug.** Export `WORKSPACE_SPATIAL_DASHBOARD_KEY` from backend and `isWorkspaceSpatialSlug()` predicate from `ui/src/stores/dashboards.ts` and matching backend helper. Every surface that enumerates dashboards must exclude reserved slugs: `userList` in `dashboards.ts` (currently only filters `channel:*`), dashboard tabs, target pickers, recents, sidebar dashboard lists, anywhere `widget_dashboards.slug` is listed. Missing this is how the review caught it would leak.
+- **Atomic pin + node creation.** One backend service method / endpoint creates the `widget_dashboard_pins` row and the `workspace_spatial_nodes` row in one transaction. The frontend never calls them separately. Failing the second call must roll back the first — no orphan pins on `workspace:spatial`.
+- **Phyllotaxis seed is persisted, never recomputed.** Each new node row gets a `seed_index` on insert (monotonic counter, DB-side or a dedicated sequence). Position is derived from `seed_index` only. No "count rows + 1" logic. Safe across tabs; stable after deletes.
+- **Iframe gesture handling is mandatory, not polish.** Live iframe tiles at scale ≥0.6 must not swallow canvas pan/zoom. Mechanism: drag-handle chrome strip always pans; iframe body has a transparent shield that blocks pointer events until tile is "activated" by click; Esc / click-outside deactivates. Reuse keepalive patterns from `InteractiveHtmlRenderer.tsx` so panning past / culling / reactivating doesn't force iframe remounts.
+- `workspace_spatial_nodes` is the **one source of truth** for world positions. Don't let channel positions leak into `channels` columns. Don't let world widget positions leak into `widget_dashboard_pins.grid_layout`.
+- Bot spatial autonomy is channel-scoped. Position is global per bot (`workspace_spatial_nodes.bot_id`), but awareness/movement/tug/inspect access is controlled by the channel's `config["spatial_bots"][bot_id]` policy. Defaults are off.
+- Spatial heartbeat prompting is opt-in per channel heartbeat via `ChannelHeartbeat.append_spatial_prompt`; the canned prompt is appended to heartbeat runs, not duplicated into ordinary chat turns.
+- Bot presentation is emoji-first for Spindrel surfaces. `bots.avatar_emoji` drives bot canvas/list avatars; bot UI should not fall back to `avatar_url` for spatial bot identity.
+- Bot-owned widget management is permissioned separately from object tugging. `allow_spatial_widget_management` only permits create/move/resize/remove for spatial widgets whose `source_bot_id` matches the acting bot.
+- Attention Items are domain state, not spatial nodes. `workspace_attention_items` owns lifecycle, dedupe, evidence, and future assignment shape; Beacons are the canvas rendering attached to existing channel/bot/widget/system targets. `workspace_spatial_nodes` remains position-only.
+- Bot-authored Attention Beacons are opt-in per channel bot policy via `allow_attention_beacons`; source bots may update/resolve only their own items, while humans can override.
+- Bot-reported issues are also Attention Items. Scheduled tasks and heartbeats
+  can opt into `allow_issue_reporting`, which injects `report_issue`; the map
+  should render those as high-priority attention state on the target, not as a
+  separate spatial primitive.
+- User-authored Attention Items are first-class work-intake items, visible to normal channel viewers, and can be assigned from Mission Control / the compatibility Command Center intake API.
+- Workspace Missions are the long-lived coordination layer for bot work. They are visible in Mission Control and on the map, but execution stays task-backed so runs keep the existing scheduler, model overrides, tracing, and task result surfaces.
+- Spatial object state is sourced from existing primitives first. The canvas may
+  render mission/run state when that system is proven, but it must not depend on
+  missions to explain channels, bots, widgets, landmarks, upcoming work, recent
+  activity, or warnings.
+- Mission Control AI is a suggestion layer over the same mission system: it persists operator briefs and editable drafts, grounds suggestions in tasks/missions/channels/bots/spatial state, treats Attention as weak signal, and requires human approval before creating any mission.
+- Mission cadence is separate from channel heartbeat cadence. Assigning a mission to a channel does not mutate or override `ChannelHeartbeat`; mission intervals create their own `mission_tick` task rows and can be paused/resumed independently.
+- System Attention Beacons come from structured persisted failures and are admin-only. Raw server logs are evidence/follow-up material, not a direct v1 source.
+- Attention assignments are investigate/report only. `next_heartbeat` injects at most one compact assignment block into the channel heartbeat bot's heartbeat; `run_now` creates an `attention_assignment` task with the narrow report tool.
+- Attention signals must be anchored in world space to their bound target or cluster and render above neighboring node chrome; the overlay must follow pan/zoom/drag without visual detachment or widget clipping. Map signals are severity/attention cues only: one rim signal per target, no idle count text, with counts/actions/evidence owned by the Hub.
+- Movement is intentionally low-authority. Bots move by bounded cardinal steps, not arbitrary coordinates; object tugs require proximity and produce visible traces. Tugs also publish a synthetic assistant message into the active channel so spatial state changes are auditable in chat history.
+- Bot proximity is center-distance for ranking, edge-gap for judgment. `minimum_clearance_steps` defaults to 3, context calls out overlapping/too-close neighbors, and self-move tools should reject moves that worsen under-clearance crowding.
+- Bot spawn positions must satisfy default edge clearance from current canvas nodes. A fixed center-distance orbit is not enough because bot/channel/widget rectangles are large; test rectangle edge gaps, not just center radius.
+- Far-zoom node hit targets must follow the visible glyph/title, not the full stored node rectangle. The stored rect is still used for layout and drag measurement, but invisible empty space should not steal background pan gestures.
+- Browse mode is inspect-first. Clicking a canvas object selects it and exposes explicit rail actions; only Arrange mode can move nodes. Shift-drag is intentionally not a movement override.
+- Bot chat, bot settings, widget activation, source-channel navigation, landmark opens, and cluster focus/dive are explicit actions from the selected-object rail, Starboard row actions, or context menus. Plain bot/widget clicks select only.
+- World widget pins reuse existing `widget_dashboard_pins` plumbing: synthetic `workspace:spatial` dashboard slug, normal `envelope` / `widget_contract_snapshot` / `widget_presentation_snapshot` / `source_bot_id` / iframe auth. **No second widget host path.**
+- Channel-dashboard native-widget promotions are projections, not clones. Notes/Todo promoted from a channel dashboard reuse the source pin's `widget_instance_id`, while direct canvas/native catalog pins keep using fresh synthetic instances.
+- Channel page (`ChannelDashboardMultiCanvas`, `ChatMessageArea`, composer, right dock) is never embedded in the canvas. Canvas always delegates via route change. P10 is the only phase allowed to revisit this.
+- No live SSE-driven pulses in Phase 1–4. Unread counts come from cached channel state; no new event-bus subscriptions.
+- No legacy framing. `HomeGrid` retirement is net-new-direction, not "deprecated" — new code paths are unconditional.
+- Mobile is unchanged through Phase 4. The canvas is desktop-only until P11.
+
+## 2026-04-29 — Visual shape polish pass
+
+The latest visual-only pass keeps the Canvas + Deck direction but reduces chrome noise on the world itself. Alert beacons are compact anchored badges instead of detached red rings, selected objects get a softer spotlight, bots now read as small radar/drone actors instead of generic red-ring avatars, channel clusters are calmer and less card-like, and widget tiles use lighter outlines. The Action Compass was tightened into a more horizontal map guide, while Starboard's inspector sections were flattened so local detail reads as object evidence rather than nested panels.
+
+This pass deliberately did not change the Attention/Operator flow or backend contracts. It only changes visual hierarchy and hit-cue shape so later workflow changes have a calmer canvas to sit on.
+
+## 2026-04-30 — Spatial screenshot verification
+
+The e2e `spatial-checks` bundle is back to a clean docs refresh. Follow-up
+fixed the object-inspector path so Starboard rows select/inspect objects while
+explicit review actions enter Mission Control Review, fixed canvas attention
+badge clicks to open the local Starboard inspector instead of a blank/deep
+review route, and prevented `/hub/attention?mode=runs` from auto-selecting the
+first finding out from under the run-log view. The screenshot fixture now seeds
+deterministic Mission Control Review data so docs captures show a populated
+decision deck and sweep receipt instead of empty/live-noise state.
+
+Verification on 2026-04-30: `spatial-checks` stage succeeded, browser capture
+passed `12/12`, `python -m scripts.screenshots check` passed with `91/91` docs
+references, UI `tsc --noEmit` passed, `spatialSelectionSurfaces.test.ts` passed
+`17/17`, and screenshot pure units passed `37/37`. Reviewed the refreshed
+Map Brief, attention badge, review deck, run-log, view controls, cluster, and
+density images before accepting them as documentation artifacts.
+
+## 2026-04-30 — Runtime spatial widget stewardship
+
+Added the missing perception loop for bot-owned spatial widgets. Runtime bots
+now have a channel-centered `inspect_spatial_widget_scene` tool that exposes
+widget rectangles, screen bounds, clipping, overlap pairs, duplicate labels,
+ownership/manageability, source channel, widget origin/contract hints, and
+short content summaries. `preview_spatial_widget_changes` lets a bot dry-run
+move/resize/remove/pin candidates and compare overlap/widget-count metrics
+before mutating.
+
+The spatial heartbeat prompt and canvas context now instruct bots to inspect
+and preview before editing. The Spatial Widget Steward heartbeat profile applies
+the runtime `widgets/spatial_stewardship` skill plus the scene/preview/owned
+widget tools to an existing channel heartbeat, preserving channel context
+instead of creating a separate widget-factory task. Spatial widget mutation
+tools now require recent scene inspection in the current channel/bot context and
+record a reason field. Follow-up tightened this from "inspect before mutate" to
+"inspect, preview the exact intended operation, then mutate": pin/move/resize/
+remove tools now reject calls unless the same bot/channel recently previewed the
+matching action, target/widget, and material parameters such as move steps,
+resize dimensions, pin coordinates, size, and label.
+
+Verification: Python compile passed for touched backend files; focused unit
+slice passed (`16 passed`); UI `tsc --noEmit --pretty false` passed. Follow-up
+verification added an e2e scenario that creates a spatial steward bot and
+asserts `inspect_spatial_widget_scene -> preview_spatial_widget_changes ->
+pin_spatial_widget` ordering for an exact pin request; collect-only passes, but
+the live e2e run is currently blocked locally by missing `E2E_LLM_BASE_URL`.
+The DB-backed spatial scene integration tests were selected but skipped under
+the local integration profile (`2 skipped, 37 deselected`), so pure unit
+regressions cover overlap/duplicate/clipping scoring and exact-preview guard
+semantics locally.
+
+Visual feedback follow-up: `spatial-checks` staging succeeded and browser
+capture passed 10/12 against `localhost:5173`; the two Mission Control Review
+captures timed out on the `attention-command-deck-what-now` selector. The
+successfully refreshed Map Brief and canvas view-controls artifacts were
+inspected and looked coherent; docs image reference check still passed `91/91`.
+
+## 2026-04-30 — Project planets
+
+Added first-class Project representation to the Spatial Canvas substrate.
+`workspace_spatial_nodes` now has a nullable `project_id` target with the same
+exactly-one-target invariant as channels, widgets, bots, and landmarks. Projects
+with attached channels auto-seed as larger planet nodes near their channel
+centroid; dragging the Project node translates member channel nodes and
+channel-sourced widget nodes as one constellation.
+
+The map-state and upcoming-activity projections now understand Project coding
+run schedule tasks. Project schedule rows remain ordinary scheduled `Task`
+records with the `project_coding_run_schedule` preset marker, but the canvas
+attaches their next/recent state to the Project object and renders them as
+Project-run satellites orbiting the Project planet instead of duplicating them
+around channels or the Now Well.
+
+UI follow-through: Project planets render as selectable world objects, Project
+orbit/tether chrome uses the existing connection-line preference, Starboard
+Objects/edge beacons/context menus/palette entries include Projects, and Map
+Brief actions route to Project detail and Runs.
+
+2026-04-30 fast-load pass: the canvas now has a bootstrap-first loading path.
+`/api/v1/workspace/spatial/bootstrap` returns only first-paint spatial nodes and
+minimal channel/bot/project/widget summaries; the React canvas paints from that
+payload, then idles into full node hydration, enriched channels/bots, map-state,
+attention, missions, upcoming schedules, task definitions, and usage density.
+The bot-node ensure path was bulked so spatial reads no longer query each bot
+one at a time. Existing full endpoints remain the detail/hydration path.
+
+## Acceptance criteria (Phase 1 gate)
+
+A Phase 1 ship requires all five to pass — by manual verification at minimum, with regression tests where feasible.
+
+1. **Live stream continuity**: Open `/channels/:id` with an in-flight bot response. Toggle canvas overlay (Ctrl+Shift+Space) on, then off. The streaming response continues uninterrupted — no token gap, no re-request, no SSE reconnection.
+2. **Zoom-dive no flash**: Double-click a channel tile. The 300ms zoom animation completes. Channel page appears after animation, not during. No black/white flash, no visible unmount.
+3. **Iframe-with-pan**: With a live widget tile on the canvas at close zoom, wheel-over-the-widget-body pans/zooms the canvas (not scrolls the widget). After clicking into the tile to activate, wheel and click affect the widget. Esc deactivates; pan/zoom returns to canvas.
+4. **Reserved slug isolation**: `workspace:spatial` row exists in `widget_dashboards` and is *not* visible in dashboard tabs, target pickers, recents, sidebar, or any API response that enumerates user dashboards.
+5. **Orphan safety**: Delete a channel directly in the DB. The corresponding `workspace_spatial_nodes` row cascades out. Delete a world-pinned widget. The corresponding spatial node cascades out. No orphan rows; no app errors on next canvas load.
+
+## References
+
+- Prototypes: `scratch/alt-ui-prototypes/spatial-canvas.html`, `scratch/alt-ui-prototypes/gossamer-web.html`
+- Existing home (to be replaced): `ui/src/components/home/HomeGrid.tsx`, `ui/app/(app)/index.tsx`
+- Existing widget dashboard (model for widget rendering): `ui/app/(app)/widgets/ChannelDashboardMultiCanvas.tsx`
+- Pin model: `app/db/models.py` → `WidgetDashboardPin`
+- Widget system canonical: `docs/guides/widget-system.md`
+- UI design canonical: `docs/guides/ui-design.md` (add "Spatial" as a third archetype when P1 lands)
+- Precedent for native-widget-ticks-on-events: Standing Orders (2026-04-24)
+- Precedent for scaled mini-view: OmniPanel
+
+## Relationship to other work
+
+- Extends the dashboard concept (P12 positional zones) to a **workspace-scope surface**. Channel dashboards remain the close-zoom destination.
+- `Track - Integration Rich Results` — rich tool-result widgets that land on channel dashboards will be pinnable to the world canvas for free via P3's "Pin to workspace canvas" action.
+- `Track - Automations` / Standing Orders — ticking-native-widget precedent; Gossamer HUD (P14) follows the same pattern.

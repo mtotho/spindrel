@@ -66,6 +66,7 @@ OPERATOR_TRIAGE_BOT_ID = "orchestrator"
 OPERATOR_TRIAGE_TOOL_NAME = "report_attention_triage_batch"
 REPORT_ISSUE_TOOL_NAME = "report_issue"
 ISSUE_WORK_PACK_TOOL_NAME = "report_issue_work_packs"
+CONVERSATIONAL_ISSUE_WORK_PACK_TOOL_NAME = "create_issue_work_packs"
 AUTO_SIGNAL_REOPEN_COOLDOWN = timedelta(hours=24)
 SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2, "critical": 3}
 BOT_REPORT_CATEGORIES = {
@@ -107,6 +108,8 @@ ISSUE_INTAKE_CATEGORIES = {
     "bug",
     "regression",
     "quality",
+    "idea",
+    "planning",
     "feature",
     "test_failure",
     "config_issue",
@@ -2015,6 +2018,18 @@ def _normalize_confidence(value: Any) -> str:
     return confidence if confidence in {"low", "medium", "high"} else "medium"
 
 
+def _issue_category_hint_for_work_pack(category: str) -> str:
+    return {
+        "code_bug": "bug",
+        "test_failure": "test_failure",
+        "config_issue": "config_issue",
+        "environment_issue": "environment_issue",
+        "user_decision": "user_decision",
+        "not_code_work": "planning",
+        "needs_info": "planning",
+    }.get(category, "other")
+
+
 async def create_manual_issue_work_pack(
     db: AsyncSession,
     *,
@@ -2028,6 +2043,7 @@ async def create_manual_issue_work_pack(
     project_id: uuid.UUID | None = None,
     channel_id: uuid.UUID | None = None,
     metadata: dict[str, Any] | None = None,
+    source: str = "manual",
 ) -> IssueWorkPack:
     clean_title = str(title or "").strip()
     clean_summary = str(summary or "").strip()
@@ -2074,7 +2090,7 @@ async def create_manual_issue_work_pack(
             **(metadata or {}),
             "created_by": actor,
             "created_at": now.isoformat(),
-            "source": "manual",
+            "source": source,
         },
         created_at=now,
         updated_at=now,
@@ -2093,7 +2109,8 @@ async def create_manual_issue_work_pack(
         triage.update({
             "state": "packed" if pack.status == "proposed" else pack.status,
             "work_pack_ids": pack_ids,
-            "manual": True,
+            "manual": source == "manual",
+            "source": source,
             "actor": actor,
             "updated_at": now.isoformat(),
         })
@@ -2104,6 +2121,123 @@ async def create_manual_issue_work_pack(
     await db.commit()
     await db.refresh(pack)
     return pack
+
+
+async def create_conversational_issue_work_packs(
+    db: AsyncSession,
+    *,
+    bot_id: str,
+    channel_id: uuid.UUID | None,
+    packs: list[dict[str, Any]],
+    session_id: uuid.UUID | None = None,
+    task_id: uuid.UUID | None = None,
+    project_id: uuid.UUID | None = None,
+    latest_correlation_id: uuid.UUID | None = None,
+) -> list[IssueWorkPack]:
+    if not bot_id:
+        raise ValidationError("bot_id is required.")
+    if channel_id is None:
+        raise ValidationError("Conversational work-pack creation requires channel context.")
+    if not packs:
+        raise ValidationError("At least one work pack is required.")
+
+    channel = await db.get(Channel, channel_id)
+    if channel is None:
+        raise ValidationError("Channel not found.")
+    default_project_id = project_id or channel.project_id
+    if default_project_id and await db.get(Project, default_project_id) is None:
+        raise ValidationError("Project not found.")
+
+    created: list[IssueWorkPack] = []
+    for raw_pack in packs:
+        pack = dict(raw_pack or {})
+        title = str(pack.get("title") or "").strip()
+        summary = str(pack.get("summary") or "").strip()
+        if not title:
+            raise ValidationError("Each work pack needs a title.")
+        if not summary:
+            raise ValidationError("Each work pack needs a summary.")
+
+        pack_channel_id = channel_id
+        if pack.get("channel_id"):
+            try:
+                pack_channel_id = uuid.UUID(str(pack["channel_id"]))
+            except (TypeError, ValueError) as exc:
+                raise ValidationError(f"Invalid channel_id: {pack.get('channel_id')!r}") from exc
+            if await db.get(Channel, pack_channel_id) is None:
+                raise ValidationError("Channel not found.")
+
+        pack_project_id = default_project_id
+        if pack.get("project_id"):
+            try:
+                pack_project_id = uuid.UUID(str(pack["project_id"]))
+            except (TypeError, ValueError) as exc:
+                raise ValidationError(f"Invalid project_id: {pack.get('project_id')!r}") from exc
+            if await db.get(Project, pack_project_id) is None:
+                raise ValidationError("Project not found.")
+
+        source_ids: list[str] = []
+        for raw_item_id in pack.get("source_item_ids") or pack.get("item_ids") or []:
+            try:
+                item_id = str(uuid.UUID(str(raw_item_id)))
+            except (TypeError, ValueError) as exc:
+                raise ValidationError(f"Invalid source item id: {raw_item_id!r}") from exc
+            item = await db.get(WorkspaceAttentionItem, uuid.UUID(item_id))
+            if item is None:
+                raise ValidationError(f"Source attention item not found: {item_id}")
+            if item_id not in source_ids:
+                source_ids.append(item_id)
+
+        category = _normalize_work_pack_category(pack.get("category"))
+        confidence = _normalize_confidence(pack.get("confidence"))
+        if not source_ids:
+            raw_tags = pack.get("tags") or []
+            clean_tags = raw_tags if isinstance(raw_tags, list) else [raw_tags]
+            source_item = await publish_issue_intake(
+                db,
+                bot_id=bot_id,
+                channel_id=pack_channel_id,
+                title=title,
+                summary=summary,
+                severity=str(pack.get("severity") or "warning"),
+                category_hint=str(pack.get("category_hint") or _issue_category_hint_for_work_pack(category)),
+                project_hint=str(pack.get("target_project_hint") or pack.get("project_hint") or "").strip() or None,
+                tags=[*clean_tags, "conversation-work-pack"],
+                latest_correlation_id=latest_correlation_id,
+            )
+            source_ids.append(str(source_item.id))
+
+        launch_prompt = str(pack.get("launch_prompt") or pack.get("prompt") or "").strip()
+        metadata = {
+            "rationale": str(pack.get("rationale") or "").strip()[:4000] or None,
+            "target_project_hint": str(pack.get("target_project_hint") or pack.get("project_hint") or "").strip()[:300] or None,
+            "target_channel_hint": str(pack.get("target_channel_hint") or pack.get("channel_hint") or "").strip()[:300] or None,
+            "non_code_reason": str(pack.get("non_code_reason") or "").strip()[:2000] or None,
+            "conversation": {
+                "bot_id": bot_id,
+                "channel_id": str(pack_channel_id),
+                "session_id": str(session_id) if session_id else None,
+                "task_id": str(task_id) if task_id else None,
+                "correlation_id": str(latest_correlation_id) if latest_correlation_id else None,
+                "summary": str(pack.get("conversation_summary") or pack.get("planning_summary") or "").strip()[:4000] or None,
+            },
+        }
+        work_pack = await create_manual_issue_work_pack(
+            db,
+            actor=f"bot:{bot_id}",
+            title=title,
+            summary=summary,
+            category=category,
+            confidence=confidence,
+            source_item_ids=source_ids,
+            launch_prompt=launch_prompt,
+            project_id=pack_project_id,
+            channel_id=pack_channel_id,
+            metadata=metadata,
+            source="conversation",
+        )
+        created.append(work_pack)
+    return created
 
 
 async def report_issue_work_packs(

@@ -16,9 +16,11 @@ from app.db.models import Channel, Project, ProjectInstance, ProjectRunReceipt, 
 from app.services.agent_activity import list_agent_activity
 from app.services.execution_receipts import create_execution_receipt
 from app.services.project_instances import cleanup_project_instance
+from app.services.project_dependency_stacks import project_dependency_stack_spec
 from app.services.project_run_handoff import CommandRunner, _clip, _default_command_runner, merge_project_run_handoff, prepare_project_run_handoff
 from app.services.project_run_receipts import serialize_project_run_receipt
 from app.services.project_runtime import load_project_runtime_environment, project_snapshot
+from app.services.project_task_execution_context import ProjectTaskExecutionContext
 from app.services.projects import normalize_project_path, project_directory_from_project
 from app.services.run_presets import get_run_preset
 
@@ -191,8 +193,6 @@ def _safe_runtime_target(runtime_payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _safe_dependency_stack_target(project: Project) -> dict[str, Any]:
-    from app.services.project_dependency_stacks import project_dependency_stack_spec
-
     spec = project_dependency_stack_spec(project)
     return {
         "configured": spec.configured,
@@ -412,19 +412,24 @@ def _project_coding_run_prompt(
         f"- Repository path: {repo_path}\n"
         f"- Base branch: {base_branch}\n"
         f"- Work branch: {branch}\n"
-        f"- E2E/runtime configured keys: {configured_keys}\n"
+        f"- Runtime/dev/dependency configured keys: {configured_keys}\n"
         f"- Missing runtime secret bindings: {missing_secrets}\n\n"
         "Project Dependency Stack:\n"
         f"- {dependency_stack_line}\n"
         "- If configured, use get_project_dependency_stack and manage_project_dependency_stack for Docker-backed databases/dependencies, logs, restarts, rebuilds, service exec, and dependency health.\n"
         "- Start any app/dev server yourself with native bash on your own unused or assigned port; do not restart another agent's server process.\n"
-        "- Do not run raw docker or docker compose in a harness shell; edit the Project compose file and call manage_project_dependency_stack(action=\"reload\") when stack shape changes.\n\n"
+        "- Do not run raw docker or docker compose in a harness shell; edit the Project compose file and call manage_project_dependency_stack(action=\"reload\") when stack shape changes.\n"
+        "- Do not wrap unit tests in Docker, Dockerfile.test, docker compose, or dependency stacks. Run repo-local tests with the native Project shell/runtime env.\n\n"
+        "Project-run boundary:\n"
+        "- Do not bootstrap, restart, or reconfigure the host Spindrel API/e2e server for ordinary Project work.\n"
+        "- Do not run repo-dev bootstrap helpers such as scripts/agent_e2e_dev.py prepare, start-api, or prepare-harness-parity unless this task explicitly asks you to change that infrastructure.\n"
+        "- Use the runtime env, Dependency Stack tools, and your own source-run dev process instead.\n\n"
         f"{dev_target_block}\n"
         f"{_machine_access_prompt_block(machine_target_grant)}\n"
         "Guided handoff requirements:\n"
         "1. Before editing, inspect git status and update from the base branch when safe.\n"
         f"2. Create or switch to the work branch `{branch}` before making changes.\n"
-        "3. Use the Project runtime env and run_e2e_tests(status) before UI/e2e work.\n"
+        "3. Use the Project runtime env, dependency stack env, and assigned dev targets for repo-local tests, app/dev servers, and screenshots.\n"
         "4. If GitHub credentials and gh are available, push the branch and open a draft PR. "
         "If not, publish a blocked or needs_review receipt with the exact blocker.\n"
         "5. publish_project_run_receipt must include branch, base_branch, changed files, tests, screenshots, dev target status, and handoff URL when available.\n\n"
@@ -575,55 +580,35 @@ async def create_project_coding_run(
         raise ValueError("Project coding-run preset is not registered")
 
     task_id = uuid.uuid4()
-    run_defaults = project_coding_run_defaults(project, request=body.request, task_id=task_id)
-    runtime = await load_project_runtime_environment(db, project)
-    runtime_target = _safe_runtime_target(runtime.safe_payload())
-    dev_targets = await allocate_project_run_dev_targets(db, project, task_id=task_id)
+    ctx = await ProjectTaskExecutionContext.fresh(
+        db,
+        project,
+        task_id=task_id,
+        request=body.request,
+        machine_grant=body.machine_target_grant,
+        source_work_pack_id=body.source_work_pack_id,
+        schedule_task_id=body.schedule_task_id,
+        schedule_run_number=body.schedule_run_number,
+    )
     prompt = _project_coding_run_prompt(
         base_prompt=preset.task_defaults.prompt,
         project=project,
         request=body.request,
-        defaults=run_defaults,
-        runtime_target=runtime_target,
-        dev_targets=dev_targets,
+        defaults={"branch": ctx.branch, "base_branch": ctx.base_branch, "repo": ctx.repo},
+        runtime_target=ctx.runtime_target.to_persisted(),
+        dev_targets=[t.to_persisted() for t in ctx.dev_targets],
         machine_target_grant=body.machine_target_grant,
     )
-    ecfg = _execution_config_from_preset(
-        preset.task_defaults,
-        project=project,
-        project_id=project.id,
-        run_defaults=run_defaults,
-        runtime_target=runtime_target,
-        dev_targets=dev_targets,
-        request=body.request,
-        machine_target_grant=body.machine_target_grant,
-        source_work_pack_id=body.source_work_pack_id,
-    )
-    ecfg["project_coding_run"]["root_task_id"] = str(task_id)
-    if body.schedule_task_id:
-        ecfg["project_coding_run"]["schedule_task_id"] = str(body.schedule_task_id)
-    if body.schedule_run_number is not None:
-        ecfg["project_coding_run"]["schedule_run_number"] = int(body.schedule_run_number)
     task = Task(
         id=task_id,
-        bot_id=channel.bot_id,
-        client_id=channel.client_id,
-        session_id=channel.active_session_id,
-        channel_id=channel.id,
         prompt=prompt,
-        title=preset.task_defaults.title,
         scheduled_at=None,
         status="pending",
-        task_type=preset.task_defaults.task_type,
-        dispatch_type=channel.integration if channel.integration and channel.dispatch_config else "none",
-        dispatch_config=dict(channel.dispatch_config) if channel.integration and channel.dispatch_config else None,
-        execution_config=ecfg,
         recurrence=None,
         parent_task_id=body.schedule_task_id,
-        max_run_seconds=preset.task_defaults.max_run_seconds,
-        trigger_config=dict(preset.task_defaults.trigger_config),
         created_at=_utcnow(),
     )
+    ctx.apply_to_task(task, channel=channel)
     db.add(task)
     await db.flush()
     await _attach_task_machine_grant(
@@ -967,39 +952,31 @@ async def continue_project_coding_run(
     body: ProjectCodingRunContinue,
 ) -> Task:
     parent = await _load_project_coding_task(db, project, task_id)
-    parent_cfg = _task_run_config(parent)
-    parent_lineage = _lineage_config(parent, parent_cfg)
-    root_task_id = uuid.UUID(parent_lineage["root_task_id"])
-    continuation_index = await _next_continuation_index(db, project, root_task_id)
-    receipt = (await _latest_run_receipts_by_task(db, project.id, [parent.id])).get(parent.id)
-    prior_evidence = _prior_evidence_context(receipt)
-
-    preset = get_run_preset(PROJECT_CODING_RUN_PRESET_ID)
-    if preset is None:
-        raise ValueError("Project coding-run preset is not registered")
     channel = await db.get(Channel, parent.channel_id) if parent.channel_id else None
     if channel is None or channel.project_id != project.id:
         raise ValueError("coding run not found")
+    preset = get_run_preset(PROJECT_CODING_RUN_PRESET_ID)
+    if preset is None:
+        raise ValueError("Project coding-run preset is not registered")
+
+    parent_ctx = ProjectTaskExecutionContext.from_task(parent)
+    root_task_id = uuid.UUID(parent_ctx.lineage.root_task_id)
+    continuation_index = await _next_continuation_index(db, project, root_task_id)
+    receipt = (await _latest_run_receipts_by_task(db, project.id, [parent.id])).get(parent.id)
+    prior_evidence = _prior_evidence_context(receipt)
+    feedback = body.feedback.strip()
 
     new_task_id = uuid.uuid4()
-    fallback_defaults = project_coding_run_defaults(
+    ctx = await ProjectTaskExecutionContext.from_parent(
+        db,
         project,
-        request=str(parent_cfg.get("request") or project.name),
-        task_id=root_task_id,
+        parent,
+        new_task_id=new_task_id,
+        feedback=feedback,
+        prior_evidence=prior_evidence,
+        continued_from_handoff_url=prior_evidence.get("handoff_url"),
+        continuation_index=continuation_index,
     )
-    run_defaults = {
-        "branch": parent_cfg.get("branch") or fallback_defaults.get("branch"),
-        "base_branch": parent_cfg.get("base_branch") or fallback_defaults.get("base_branch"),
-        "repo": parent_cfg.get("repo") or fallback_defaults.get("repo") or {},
-    }
-    runtime_target = dict(parent_cfg.get("runtime_target") or {})
-    if not runtime_target:
-        runtime = await load_project_runtime_environment(db, project)
-        runtime_target = _safe_runtime_target(runtime.safe_payload())
-    dev_targets = list(parent_cfg.get("dev_targets") or [])
-    if not dev_targets:
-        dev_targets = await allocate_project_run_dev_targets(db, project, task_id=new_task_id)
-    feedback = body.feedback.strip()
     continuation_context = {
         "feedback": feedback,
         "parent_task_id": str(parent.id),
@@ -1010,53 +987,28 @@ async def continue_project_coding_run(
     prompt = _project_coding_run_prompt(
         base_prompt=preset.task_defaults.prompt,
         project=project,
-        request=str(parent_cfg.get("request") or ""),
-        defaults=run_defaults,
-        runtime_target=runtime_target,
-        dev_targets=dev_targets,
+        request=ctx.request,
+        defaults={"branch": ctx.branch, "base_branch": ctx.base_branch, "repo": ctx.repo},
+        runtime_target=ctx.runtime_target.to_persisted(),
+        dev_targets=[t.to_persisted() for t in ctx.dev_targets],
         machine_target_grant=None,
         continuation=continuation_context,
     )
-    ecfg = _execution_config_from_preset(
-        preset.task_defaults,
-        project=project,
-        project_id=project.id,
-        run_defaults=run_defaults,
-        runtime_target=runtime_target,
-        dev_targets=dev_targets,
-        request=str(parent_cfg.get("request") or ""),
-        machine_target_grant=None,
-    )
-    parent_ecfg = parent.execution_config if isinstance(parent.execution_config, dict) else {}
-    ecfg["session_target"] = dict(parent_ecfg.get("session_target") or ecfg["session_target"])
-    ecfg["project_instance"] = dict(parent_ecfg.get("project_instance") or ecfg["project_instance"])
-    ecfg["project_coding_run"].update({
-        "parent_task_id": str(parent.id),
-        "root_task_id": str(root_task_id),
-        "continuation_index": continuation_index,
-        "continuation_feedback": feedback,
-        "continued_from_handoff_url": prior_evidence.get("handoff_url"),
-        "prior_evidence": prior_evidence,
-    })
     task = Task(
         id=new_task_id,
-        bot_id=channel.bot_id,
-        client_id=channel.client_id,
-        session_id=channel.active_session_id,
-        channel_id=channel.id,
         prompt=prompt,
-        title=f"{preset.task_defaults.title} follow-up {continuation_index}",
         scheduled_at=None,
         status="pending",
-        task_type=preset.task_defaults.task_type,
-        dispatch_type=channel.integration if channel.integration and channel.dispatch_config else "none",
-        dispatch_config=dict(channel.dispatch_config) if channel.integration and channel.dispatch_config else None,
-        execution_config=ecfg,
         recurrence=None,
-        max_run_seconds=preset.task_defaults.max_run_seconds,
-        trigger_config=dict(preset.task_defaults.trigger_config),
         created_at=_utcnow(),
     )
+    ctx.apply_to_task(task, channel=channel)
+    task.title = f"{preset.task_defaults.title} follow-up {continuation_index}"
+    parent_ecfg = parent.execution_config if isinstance(parent.execution_config, dict) else {}
+    if isinstance(parent_ecfg.get("session_target"), dict):
+        task.execution_config["session_target"] = dict(parent_ecfg["session_target"])
+    if isinstance(parent_ecfg.get("project_instance"), dict):
+        task.execution_config["project_instance"] = dict(parent_ecfg["project_instance"])
     db.add(task)
     await db.commit()
     await db.refresh(task)
@@ -1331,8 +1283,8 @@ async def _coding_run_row(
 
     machine_target_grant = await task_machine_grant_payload(db, task)
     dependency_stack = await get_project_dependency_stack(db, project, task_id=task.id, scope="task")
+    ctx = ProjectTaskExecutionContext.from_task(task)
     cfg = _task_run_config(task)
-    lineage = _lineage_config(task, cfg)
     updated_at = (
         receipt.created_at.isoformat()
         if receipt is not None and receipt.created_at is not None
@@ -1345,18 +1297,19 @@ async def _coding_run_row(
         "id": str(task.id),
         "project_id": str(project.id),
         "status": _run_status(task, receipt),
-        "request": cfg.get("request") or "",
-        "branch": cfg.get("branch"),
-        "base_branch": cfg.get("base_branch"),
-        "repo": cfg.get("repo") or {},
-        "runtime_target": cfg.get("runtime_target") or {},
-        "dev_targets": cfg.get("dev_targets") or [],
+        "request": ctx.request or "",
+        "branch": ctx.branch,
+        "base_branch": ctx.base_branch,
+        "repo": dict(ctx.repo),
+        "runtime_target": ctx.runtime_target.to_persisted(),
+        "dev_targets": [t.to_persisted() for t in ctx.dev_targets],
         "dependency_stack": dependency_stack,
-        "source_work_pack_id": cfg.get("source_work_pack_id"),
-        "parent_task_id": lineage["parent_task_id"],
-        "root_task_id": lineage["root_task_id"],
-        "continuation_index": lineage["continuation_index"],
-        "continuation_feedback": lineage["continuation_feedback"],
+        "dependency_stack_preflight": cfg.get("dependency_stack_preflight") or {},
+        "source_work_pack_id": ctx.source_work_pack_id,
+        "parent_task_id": ctx.lineage.parent_task_id,
+        "root_task_id": ctx.lineage.root_task_id,
+        "continuation_index": ctx.lineage.continuation_index,
+        "continuation_feedback": ctx.lineage.continuation_feedback,
         "continuations": [],
         "task": _task_summary(task, machine_target_grant=machine_target_grant),
         "receipt": _receipt_summary(receipt),
@@ -1615,16 +1568,28 @@ async def create_project_coding_run_review_session(
     for task in selected_tasks:
         rows.append(await _coding_run_row(db, project, task, receipts_by_task.get(task.id)))
 
-    first_cfg = _task_run_config(selected_tasks[0])
-    repo = first_cfg.get("repo") if isinstance(first_cfg.get("repo"), dict) else {}
-    repo_path = str(repo.get("path") or "").strip() or None
+    first_ctx = ProjectTaskExecutionContext.from_task(selected_tasks[0])
+    repo_path = str(first_ctx.repo.get("path") or "").strip() or None
     if repo_path is None:
         repo_path = str(_first_repo(project_snapshot(project)).get("path") or "").strip() or None
     cwd = _project_repo_cwd(project, repo_path)
-    runtime = await load_project_runtime_environment(db, project)
-    env = os.environ.copy()
-    env.update({str(key): str(value) for key, value in runtime.env.items()})
     operator_prompt = body.prompt.strip() or "Review the selected runs and report decisions. Do not merge unless this prompt explicitly asks you to merge."
+
+    new_task_id = uuid.uuid4()
+    ctx = await ProjectTaskExecutionContext.review(
+        db,
+        project,
+        task_id=new_task_id,
+        selected_task_ids=[task.id for task in selected_tasks],
+        operator_prompt=operator_prompt,
+        merge_method=_normal_merge_method(body.merge_method),
+        repo_path=repo_path,
+        machine_grant=body.machine_target_grant,
+        granted_by_user_id=body.granted_by_user_id,
+    )
+    env = os.environ.copy()
+    env.update(ctx.env_for_subprocess())
+
     template = (
         f"{preset.task_defaults.prompt}\n\n"
         "Operator review request:\n{{operator_prompt}}\n\n"
@@ -1649,46 +1614,15 @@ async def create_project_coding_run_review_session(
         cwd=cwd,
         env=env,
     )
-    defaults = preset.task_defaults
     task = Task(
-        id=uuid.uuid4(),
-        bot_id=channel.bot_id,
-        client_id=channel.client_id,
-        session_id=channel.active_session_id,
-        channel_id=channel.id,
+        id=new_task_id,
         prompt=prompt,
-        title=defaults.title,
         scheduled_at=None,
         status="pending",
-        task_type=defaults.task_type,
-        dispatch_type=channel.integration if channel.integration and channel.dispatch_config else "none",
-        dispatch_config=dict(channel.dispatch_config) if channel.integration and channel.dispatch_config else None,
-        execution_config={
-            "run_preset_id": PROJECT_CODING_RUN_REVIEW_PRESET_ID,
-            "skills": list(defaults.skills),
-            "tools": list(defaults.tools),
-            "post_final_to_channel": defaults.post_final_to_channel,
-            "history_mode": defaults.history_mode,
-            "history_recent_count": defaults.history_recent_count,
-            "skip_tool_approval": defaults.skip_tool_approval,
-            "session_target": dict(defaults.session_target or {}),
-            "project_instance": dict(defaults.project_instance or {}),
-            "allow_issue_reporting": defaults.allow_issue_reporting,
-            "harness_effort": defaults.harness_effort,
-            "project_coding_run_review": {
-                "project_id": str(project.id),
-                "selected_task_ids": [str(task.id) for task in selected_tasks],
-                "operator_prompt": operator_prompt,
-                "merge_method": _normal_merge_method(body.merge_method),
-                "repo_path": repo_path,
-                "machine_target_grant": _machine_target_grant_summary(body.machine_target_grant),
-            },
-        },
         recurrence=None,
-        max_run_seconds=defaults.max_run_seconds,
-        trigger_config=dict(defaults.trigger_config),
         created_at=_utcnow(),
     )
+    ctx.apply_to_task(task, channel=channel)
     db.add(task)
     await db.flush()
     await _attach_task_machine_grant(

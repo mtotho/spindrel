@@ -17,6 +17,35 @@ if TYPE_CHECKING:
 MAX_REPLAY_LAPSED_RETRIES = 8
 
 
+def _inline_image_file_metadata(attachments: Any, existing: Any) -> list[dict[str, Any]]:
+    """Mirror inline image attachments into persisted file metadata.
+
+    The web composer sends both fields: ``attachments`` feeds the runtime
+    vision input, while ``file_metadata`` creates the chat attachment row that
+    the UI renders after persistence. Live harness tests often construct the
+    HTTP payload directly, so keep that parity by filling the persistence side
+    when callers only provide the runtime side.
+    """
+    metadata = [dict(item) for item in existing] if isinstance(existing, list) else []
+    if metadata or not isinstance(attachments, list):
+        return metadata
+
+    for item in attachments:
+        if not isinstance(item, dict):
+            continue
+        mime_type = str(item.get("mime_type") or "application/octet-stream")
+        content = item.get("content")
+        if item.get("type") != "image" or not mime_type.startswith("image/") or not isinstance(content, str):
+            continue
+        metadata.append({
+            "filename": str(item.get("name") or "attachment"),
+            "mime_type": mime_type,
+            "size_bytes": len(content),
+            "file_data": content,
+        })
+    return metadata
+
+
 @dataclass
 class ChatResponse:
     """Response from the non-streaming /chat endpoint."""
@@ -227,6 +256,12 @@ class E2EClient:
             "msg_metadata": {"sender_type": "human", "source": "e2e-test"},
             **kwargs,
         }
+        mirrored_file_metadata = _inline_image_file_metadata(
+            payload.get("attachments"),
+            payload.get("file_metadata"),
+        )
+        if mirrored_file_metadata:
+            payload["file_metadata"] = mirrored_file_metadata
         if channel_id:
             payload["channel_id"] = channel_id
         if client_id:
@@ -700,9 +735,14 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def create_channel_session(self, channel_id: str) -> str:
+    async def create_channel_session(self, channel_id: str, source_session_id: str | None = None) -> str:
         """POST /api/v1/channels/{channel_id}/sessions and return the new session id."""
-        resp = await self._client.post(f"/api/v1/channels/{channel_id}/sessions")
+        kwargs = (
+            {"json": {"source_session_id": source_session_id}}
+            if source_session_id
+            else {}
+        )
+        resp = await self._client.post(f"/api/v1/channels/{channel_id}/sessions", **kwargs)
         if resp.status_code == 404 and _response_detail(resp).lower() == "not found":
             reset_resp = await self._client.post(f"/api/v1/channels/{channel_id}/reset")
             if reset_resp.status_code >= 500:
@@ -891,6 +931,25 @@ class E2EClient:
         resp = await self._client.get("/api/v1/admin/tools")
         resp.raise_for_status()
         return list(resp.json() or [])
+
+    async def execute_admin_tool(
+        self,
+        tool_name: str,
+        *,
+        arguments: dict[str, Any],
+        bot_id: str | None = None,
+        channel_id: str | None = None,
+    ) -> dict:
+        resp = await self._client.post(
+            f"/api/v1/admin/tools/{tool_name}/execute",
+            json={
+                "arguments": arguments,
+                "bot_id": bot_id or self.default_bot_id,
+                "channel_id": channel_id,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     async def get_channel_config(self, channel_id: str) -> dict:
         resp = await self._client.get(f"/api/v1/channels/{channel_id}/config")

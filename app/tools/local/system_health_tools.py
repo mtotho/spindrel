@@ -15,6 +15,7 @@ from sqlalchemy import desc, select
 
 from app.db.engine import async_session
 from app.db.models import SystemHealthSummary
+from app.services.system_health_preflight import build_system_health_preflight
 from app.tools.registry import register
 
 
@@ -103,3 +104,71 @@ async def get_latest_health_summary(
             "attention_item_id": str(row.attention_item_id) if row.attention_item_id else None,
             "message": "ok",
         }, ensure_ascii=False)
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "get_system_health_preflight",
+        "description": (
+            "Return a read-only live health preflight before triaging recent errors. "
+            "Use this first for health triage, daily-health follow-up, or closing server-health findings. "
+            "It includes runtime/build identity, recent-error review-state counts, warnings, and a recommended next action."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "since": {
+                    "type": "string",
+                    "description": "Recent-error window e.g. '2h', '24h', '7d'. Default '24h'.",
+                },
+                "services": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional subset of allowed log source names. Default = all.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum findings to inspect and return. Default 50, max 500.",
+                },
+            },
+            "required": [],
+        },
+    },
+}, safety_tier="readonly", returns={
+    "type": "object",
+    "properties": {
+        "schema_version": {"type": "string"},
+        "generated_at": {"type": "string"},
+        "runtime": {"type": "object"},
+        "window": {"type": "object"},
+        "recent_errors": {"type": "object"},
+        "review_counts": {"type": "object"},
+        "severity_counts": {"type": "object"},
+        "warnings": {"type": "array", "items": {"type": "object"}},
+        "recommended_next_action": {"type": "string"},
+    },
+    "required": [
+        "schema_version",
+        "runtime",
+        "window",
+        "recent_errors",
+        "review_counts",
+        "warnings",
+        "recommended_next_action",
+    ],
+})
+async def get_system_health_preflight(
+    since: str = "24h",
+    services: list[str] | None = None,
+    limit: int = 50,
+    **_: object,
+) -> str:
+    async with async_session() as db:
+        payload = await build_system_health_preflight(
+            db,
+            since=since,
+            services=services,
+            limit=limit,
+        )
+    return json.dumps(payload, ensure_ascii=False)

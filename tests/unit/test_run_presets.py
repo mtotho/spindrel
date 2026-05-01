@@ -74,15 +74,15 @@ def test_project_coding_run_defaults_to_fresh_project_receipt_flow():
     assert defaults["max_run_seconds"] == 7200
     assert "prepare_project_run_handoff" in defaults["tools"]
     assert "publish_project_run_receipt" in defaults["tools"]
-    assert "run_e2e_tests" in defaults["tools"]
+    assert "run_e2e_tests" not in defaults["tools"]
     assert defaults["skills"] == [
         "workspace/project_coding_runs",
         "workspace/files",
         "workspace/member",
-        "e2e_testing",
     ]
     assert "prepare_project_run_handoff" in defaults["prompt"]
     assert "publish_project_run_receipt" in defaults["prompt"]
+    assert "Testing is defined by the Project repo" in defaults["prompt"]
 
 
 def test_project_coding_run_review_defaults_to_selected_run_finalizer():
@@ -102,8 +102,8 @@ def test_project_coding_run_review_defaults_to_selected_run_finalizer():
         "workspace/project_coding_runs",
         "workspace/files",
         "workspace/member",
-        "e2e_testing",
     ]
+    assert "run_e2e_tests" not in defaults["tools"]
     assert "get_project_coding_run_review_context" in defaults["prompt"]
     assert "Only accepted finalizations mark Project coding runs reviewed" in defaults["prompt"]
 

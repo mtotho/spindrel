@@ -132,6 +132,10 @@ class ResetResponse(BaseModel):
     previous_session_id: Optional[uuid.UUID]
 
 
+class NewChannelSessionRequest(BaseModel):
+    source_session_id: Optional[uuid.UUID] = None
+
+
 class HistoryMessageOut(BaseModel):
     id: uuid.UUID
     session_id: uuid.UUID
@@ -1008,6 +1012,7 @@ async def inject_channel_message(
 @router.post("/{channel_id}/reset", response_model=ResetResponse)
 async def reset_channel(
     channel_id: uuid.UUID,
+    body: NewChannelSessionRequest | None = None,
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("channels.messages:write")),
 ):
@@ -1018,7 +1023,11 @@ async def reset_channel(
     _check_protected(channel, _auth)
 
     previous = channel.active_session_id
-    new_session_id = await reset_channel_session(db, channel)
+    new_session_id = await reset_channel_session(
+        db,
+        channel,
+        source_session_id=body.source_session_id if body else None,
+    )
 
     return ResetResponse(
         channel_id=channel_id,
@@ -1030,6 +1039,7 @@ async def reset_channel(
 @router.post("/{channel_id}/sessions", response_model=ResetResponse)
 async def create_channel_session(
     channel_id: uuid.UUID,
+    body: NewChannelSessionRequest | None = None,
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("channels.messages:write")),
 ):
@@ -1040,7 +1050,11 @@ async def create_channel_session(
     _check_protected(channel, _auth)
 
     previous = channel.active_session_id
-    new_session_id = await create_detached_channel_session(db, channel)
+    new_session_id = await create_detached_channel_session(
+        db,
+        channel,
+        source_session_id=body.source_session_id if body else None,
+    )
 
     return ResetResponse(
         channel_id=channel_id,

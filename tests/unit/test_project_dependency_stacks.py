@@ -9,9 +9,11 @@ from app.db.models import DockerStack, Project, ProjectInstance, Task
 from app.services.docker_stacks import StackValidationError
 from app.services.project_dependency_stacks import (
     ensure_project_dependency_stack_instance,
+    preflight_task_dependency_stack,
     prepare_project_dependency_stack,
     project_dependency_stack_spec,
 )
+from app.services.project_runtime import load_project_runtime_environment_for_id
 from app.services.project_instances import project_directory_from_instance
 
 
@@ -149,3 +151,85 @@ services:
 
     with pytest.raises(StackValidationError, match="must stay inside the Project root"):
         await prepare_project_dependency_stack(db_session, project, runtime=runtime)
+
+
+@pytest.mark.asyncio
+async def test_preflight_task_dependency_stack_prepares_env_before_agent_turn(db_session, monkeypatch):
+    workspace_id = uuid.uuid4()
+    project = Project(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        name="Factory Fixture",
+        slug="factory-fixture",
+        root_path=f"common/projects/factory-{uuid.uuid4().hex[:8]}",
+        metadata_={
+            "blueprint_snapshot": {
+                "env": {"APP_ENV": "test"},
+                "dependency_stack": {
+                    "compose": """
+services:
+  postgres:
+    image: postgres:16
+    ports:
+      - "0:5432"
+""",
+                    "env": {"DATABASE_URL": "postgresql://agent:agent@${postgres.host}:${postgres.5432}/app"},
+                    "commands": {"db-ready": "pg_isready"},
+                },
+            }
+        },
+    )
+    task = Task(
+        id=uuid.uuid4(),
+        bot_id="agent",
+        channel_id=uuid.uuid4(),
+        execution_config={"project_coding_run": {"project_id": str(project.id)}},
+        status="pending",
+        task_type="agent",
+    )
+    db_session.add_all([project, task])
+    await db_session.commit()
+
+    async def fake_create(**kwargs):
+        stack = DockerStack(
+            id=uuid.uuid4(),
+            name=kwargs["name"],
+            created_by_bot=kwargs["bot_id"],
+            compose_definition=kwargs["compose_definition"],
+            project_name="spindrel-test-factory",
+            status="stopped",
+            exposed_ports={},
+        )
+        db_session.add(stack)
+        await db_session.commit()
+        return stack
+
+    async def fake_start(stack, force_recreate=False):
+        stack.status = "running"
+        stack.network_name = "spindrel-test-factory_default"
+        stack.exposed_ports = {"postgres": [{"host_port": 39123, "container_port": 5432, "protocol": "tcp"}]}
+        await db_session.commit()
+        return stack
+
+    monkeypatch.setattr("app.services.project_dependency_stacks.stack_service.create", fake_create)
+    monkeypatch.setattr("app.services.project_dependency_stacks.stack_service.start", fake_start)
+
+    preflight = await preflight_task_dependency_stack(db_session, task=task, project=project)
+
+    assert preflight["ok"] is True
+    assert preflight["status"] == "running"
+    assert preflight["scope"] == "task"
+    assert preflight["env_keys"] == [
+        "DATABASE_URL",
+        "PROJECT_DEPENDENCY_POSTGRES_5432_PORT",
+        "PROJECT_DEPENDENCY_POSTGRES_HOST",
+        "PROJECT_DEPENDENCY_STACK_HOST",
+        "PROJECT_DEPENDENCY_STACK_ID",
+        "PROJECT_DEPENDENCY_STACK_NETWORK",
+    ]
+    runtime = await load_project_runtime_environment_for_id(db_session, project.id, task_id=task.id)
+    assert runtime is not None
+    assert runtime.env["APP_ENV"] == "test"
+    assert runtime.env["DATABASE_URL"] == "postgresql://agent:agent@host.docker.internal:39123/app"
+    assert runtime.env["SPINDREL_PROJECT_RUN_GUARD"] == "1"
+    assert runtime.env["SPINDREL_PROJECT_TASK_ID"] == str(task.id)

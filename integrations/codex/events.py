@@ -84,6 +84,7 @@ def translate_notification(
         envelope = None
         surface = None
         summary = None
+        execution_surface_text = ""
         if kind == schema.ITEM_KIND_FILE_CHANGE:
             diff_body = (
                 _extract_diff_body(item)
@@ -104,6 +105,8 @@ def translate_notification(
         elif kind == schema.ITEM_KIND_COMMAND_EXECUTION:
             command_output = _pop_codex_command_output_for_item(result_meta, tool_id)
             if command_output:
+                if looks_like_execution_surface_failure(command_output):
+                    execution_surface_text = command_output
                 envelope, summary = build_text_tool_result(
                     tool_name=tool_name,
                     tool_call_id=tool_id or None,
@@ -133,11 +136,17 @@ def translate_notification(
             surface=surface,
             summary=summary,
         )
-        if kind == schema.ITEM_KIND_COMMAND_EXECUTION and is_error and _looks_like_execution_surface_failure(result_summary):
+        if (
+            kind == schema.ITEM_KIND_COMMAND_EXECUTION
+            and is_error
+            and (
+                looks_like_execution_surface_failure(result_summary)
+                or looks_like_execution_surface_failure(execution_surface_text)
+            )
+        ):
             result_meta["is_error"] = True
-            result_meta["error"] = (
-                "Codex native command execution surface failed: "
-                f"{result_summary}"
+            result_meta["error"] = format_execution_surface_failure(
+                execution_surface_text or result_summary
             )
         return
 
@@ -191,16 +200,26 @@ def translate_notification(
         if turn_error:
             result_meta["is_error"] = True
             if isinstance(turn_error, dict):
-                result_meta["error"] = turn_error.get("message") or str(turn_error)
+                message = turn_error.get("message") or str(turn_error)
             else:
-                result_meta["error"] = str(turn_error)
+                message = str(turn_error)
+            result_meta["error"] = (
+                format_execution_surface_failure(message)
+                if looks_like_execution_surface_failure(message)
+                else message
+            )
         result_meta["completed"] = True
         return
 
     if method == schema.NOTIFICATION_ERROR:
         err = params.get("error") if isinstance(params.get("error"), dict) else params
+        message = (err or {}).get("message") or "codex error"
         result_meta["is_error"] = True
-        result_meta["error"] = (err or {}).get("message") or "codex error"
+        result_meta["error"] = (
+            format_execution_surface_failure(message)
+            if looks_like_execution_surface_failure(message)
+            else message
+        )
         return
 
     logger.debug("codex: unhandled notification %s", method)
@@ -488,16 +507,18 @@ def _looks_like_generic_command_status(text: str) -> bool:
     }
 
 
-def _looks_like_execution_surface_failure(text: str) -> bool:
+def looks_like_execution_surface_failure(text: str) -> bool:
     normalized = " ".join(text.strip().lower().split())
     if not normalized:
         return False
     failure_markers = (
         "sandbox namespace",
         "namespace error",
+        "create new namespace",
         "failed to enter namespace",
         "failed to create namespace",
         "failed to join namespace",
+        "no permissions to create new namespace",
         "setns",
         "unshare",
         "bubblewrap",
@@ -505,6 +526,14 @@ def _looks_like_execution_surface_failure(text: str) -> bool:
         "seccomp",
     )
     return any(marker in normalized for marker in failure_markers)
+
+
+def format_execution_surface_failure(text: str) -> str:
+    return (
+        "Codex native shell execution surface failed before a usable command result. "
+        "This is a harness/runtime sandbox problem, not a missing repo command: "
+        f"{text}"
+    )
 
 
 def _pop_codex_command_output_for_item(result_meta: dict[str, Any], item_id: str) -> str | None:

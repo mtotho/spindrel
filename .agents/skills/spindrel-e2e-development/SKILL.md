@@ -18,14 +18,16 @@ This is a repo-dev skill. It is not imported into Spindrel runtime skills.
 ## Boundary
 
 - **Local dev mode** means a repo-dev agent in this source checkout. It may run
-  Python, pytest, screenshot scripts, and the local helper directly. For source
-  iteration, use the helper to start Docker-backed dependencies and run the
+  Python, pytest, screenshot scripts, and the local helper directly from the
+  repo venv. Unit/backend tests run natively; do not wrap them in Docker,
+  Dockerfile.test, or docker compose. For source iteration, use the helper to
+  start Docker-backed dependencies only when services are needed, then run the
   API/UI yourself from this checkout on unused ports.
 - **Spindrel dev mode** means Codex/Claude running inside a Project-bound
   channel or Project coding run. It uses native shell/edit tools for
   Project-root code work only.
 - Harness agents must use task-granted Spindrel tools for e2e, screenshots,
-  server/machine actions, Docker/compose, and receipts.
+  server/machine actions, Docker/compose dependency control, and receipts.
 - Project Dependency Stacks are the normal Docker path for Project coding runs:
   agents edit source/compose files in the Project root, then use
   `get_project_dependency_stack` and `manage_project_dependency_stack` to prepare,
@@ -34,23 +36,65 @@ This is a repo-dev skill. It is not imported into Spindrel runtime skills.
 - Project coding runs may include assigned dev targets such as
   `SPINDREL_DEV_API_PORT` / `SPINDREL_DEV_API_URL`. Use those for source-run
   servers and report their status in `publish_project_run_receipt`.
-- Normal Spindrel bots use runtime skills such as `e2e_testing` and tools such
-  as `run_e2e_tests`.
+- Project Factory agents run repo-local tests and feedback-loop scripts with
+  native shell inside the Project work surface. Spindrel supplies dependency
+  stacks, runtime env, dev targets, screenshots, and receipts; it does not
+  replace the Project's own test commands with a Spindrel-specific test tool or
+  a Docker-wrapped unit-test runner.
+- When a harness agent is executing an ordinary Project coding run, do not run
+  repo-dev bootstrap helpers such as `scripts/agent_e2e_dev.py prepare`,
+  `start-api`, or `prepare-harness-parity`. Those commands are for the outer
+  repo-dev operator setting up the host test server. Inside the Project run,
+  use injected env, Dependency Stack tools, and your own source-run dev process
+  on the assigned port.
+
+## Port Ownership
+
+Each repo-dev agent owns its native Spindrel API/UI process and port. Do not use
+a shared fixed API/UI port in instructions or tests. Start with
+`python scripts/agent_e2e_dev.py write-env --port auto`, source
+`.env.agent-e2e`, then keep using the `SPINDREL_E2E_URL` and `E2E_PORT` values
+from that env for helper commands, pytest, Playwright, and screenshots. Never
+restart another agent's native API/UI process.
+
+The default local dependency Compose project is `spindrel-local-e2e-runtime-deps`.
+It is the shared Postgres/SearXNG stack for native repo-dev agents and it
+reuses the durable `spindrel-local-e2e_postgres-data` volume. The separate
+`spindrel-local-e2e` project is only for explicit Docker app-container fallback.
+If dependency setup gets wedged, fix or diagnose `prepare-deps`, Docker status,
+and the helper's stale-container repair path. Do not switch agents to private
+Compose projects, and do not wipe the durable DB/auth state unless the user
+explicitly asked for a reset.
+
+Keep these ports distinct:
+
+- **Agent-owned Spindrel API/UI port**: `E2E_PORT` serves that agent's native
+  Spindrel product under test.
+- **Dependency ports**: `E2E_POSTGRES_PORT` and `E2E_SEARXNG_PORT` expose the
+  local e2e backing services.
+- **Project app ports**: `SPINDREL_DEV_*_PORT` values are assigned to Project
+  coding runs for the app/server being developed. A Project agent must use its
+  assigned dev target port and must not restart the host Spindrel API/UI port.
 
 Fresh Project Instances are disposable Project roots. Dependency Stack instances
 are run-scoped Docker stacks attached to those roots when the Project declares a
-stack spec. Do not use raw Docker from a harness shell.
+stack spec. Project coding runs preflight the task-scoped stack before the
+first agent turn when a stack is configured, then inject the dependency env
+into the task runtime from the start. Do not use raw Docker from a harness
+shell, and do not use dependency stacks to run unit tests.
 
 ## Commands
 
 Prepare a local e2e env:
 
 ```bash
-python scripts/agent_e2e_dev.py write-env
+python scripts/agent_e2e_dev.py write-env --port auto
+set -a && source .env.agent-e2e && set +a
 python scripts/agent_e2e_dev.py prepare-deps
 python scripts/agent_e2e_dev.py start-api --build-ui
 python scripts/agent_e2e_dev.py doctor
 python scripts/agent_e2e_dev.py commands
+set -a && source "scratch/agent-e2e-${E2E_PORT}/native-api.env" && set +a
 ```
 
 If `doctor` reports `subscription bootstrap: connected`, do not ask the user to
@@ -58,17 +102,19 @@ repeat browser/device-code OAuth. Normal `prepare-deps` preserves the local e2e
 DB and only starts shared dependencies. Start the Spindrel app/API/UI from this
 checkout on your own unused ports while iterating. The explicit DB reset
 command is `python scripts/agent_e2e_dev.py wipe-db --yes`.
-If the default Docker compose project has stale/dead containers that Docker
-cannot remove, use `E2E_COMPOSE_PROJECT=<unique-name>` with alternate
-`E2E_POSTGRES_PORT` / `E2E_SEARXNG_PORT` values instead of deleting provider
-state.
+If the dependency Compose project has stale/dead containers that Docker cannot
+remove, treat that as a helper/stack bug to repair. Capture the failing command
+and Docker state, then fix the default dependency-stack behavior instead of
+switching to a private Compose project.
+The helper intentionally fails fast when Docker reports Dead dependency
+containers because Docker can hang while trying to recreate them.
 
 Use `python scripts/agent_e2e_dev.py prepare` only when you intentionally need
 the full local Docker e2e stack with an app container. Normal harness parity
 setup now uses Docker for dependencies only and runs the API natively from this
 checkout.
 
-The containerized app fallback can still mount native harness auth:
+Explicit containerized infrastructure mode can still mount native harness auth:
 
 ```bash
 python scripts/agent_e2e_dev.py write-auth-override
@@ -83,6 +129,7 @@ python scripts/agent_e2e_dev.py prepare-harness-parity
 ./scripts/run_harness_parity_local.sh --tier skills -k "native_image_input_manifest"
 ./scripts/run_harness_parity_local_batch.sh --preset smoke
 ./scripts/run_harness_parity_local_batch.sh --preset fast --jobs 3
+./scripts/run_harness_parity_local_batch.sh --preset sdk --screenshots docs
 ```
 
 Use `--runtime codex` or `--runtime claude-code` on `prepare-harness-parity`
@@ -104,12 +151,13 @@ fails, refresh the mounted auth with:
 claude auth login
 ```
 
-Use `prepare-harness-parity --docker-app` only for the containerized app
-fallback.
+Use `prepare-harness-parity --docker-app` only for explicit containerized
+infrastructure work.
 
 Use `run_harness_parity_local_batch.sh` for fast iteration: `smoke` is the
-cheap confidence pass, `fast` covers core/plan/skills/replay, and `deep` is for
-broader pre-deploy scrutiny. Logs are written under
+cheap confidence pass, `sdk` targets documented SDK parity gaps with durable
+screenshots, `fast` covers core/plan/skills/replay, and `deep` is for broader
+pre-deploy scrutiny. Logs are written under
 `scratch/agent-e2e/harness-parity-runs/`.
 
 Prepare screenshots:
@@ -157,9 +205,11 @@ Required closeout flow for UI/e2e evidence:
 Project Factory contract check:
 
 ```bash
-python scripts/agent_e2e_dev.py doctor
-python scripts/agent_e2e_dev.py prepare
 set -a && source .env.agent-e2e && set +a
+python scripts/agent_e2e_dev.py doctor
+python scripts/agent_e2e_dev.py prepare-deps
+python scripts/agent_e2e_dev.py start-api --build-ui
+set -a && source "scratch/agent-e2e-${E2E_PORT}/native-api.env" && set +a
 E2E_KEEP_RUNNING=1 pytest tests/e2e/scenarios/test_project_factory_flow.py -v
 ```
 
@@ -168,6 +218,36 @@ work-pack triage, Project coding-run launch, receipts, review sessions, or
 review finalization. It proves the durable spine: rough issue notes -> work
 packs -> Project coding run -> PR-like receipt -> review context -> accepted
 finalization -> reviewed provenance.
+
+Generic Project Factory feedback loop:
+
+1. Prepare the Project work surface and branch.
+2. Expect configured Project coding runs to preflight their task-scoped
+   Dependency Stack before the first turn. If preflight failed, inspect/fix the
+   Project compose file and use `manage_project_dependency_stack(action="reload")`.
+3. Use Project Dependency Stack tools for Docker-backed databases/services.
+4. Use injected runtime/dependency env in native shell commands.
+5. Start the app/dev server yourself on the assigned dev target port when
+   present.
+6. Run the Project's own tests/scripts, such as `pytest`, `npm test`,
+   Playwright, Cypress, or a repo smoke script.
+7. Capture screenshots against the server you started.
+8. Publish a Project run receipt with commands, results, dev target status,
+   dependency stack evidence, screenshots, and handoff/PR state.
+
+Do not use `prepare-harness-parity` or `start-api` from inside the harness task
+to set up a normal Project run. A live generic Project Factory attempt proved
+that doing so can restart an outer repo-dev agent's native API/UI process with
+the wrong database port and interrupt the run. The correct fix is to use the already-injected
+Project env and start only the Project's own dev process.
+Project task runtimes export `SPINDREL_PROJECT_RUN_GUARD=1`, and the local
+helper refuses those bootstrap commands unless
+`SPINDREL_ALLOW_REPO_DEV_BOOTSTRAP=1` is set for an explicit infrastructure
+task.
+
+Do not route generic Project Factory work through a Spindrel-specific bot tool.
+The Spindrel `tests/e2e/` suite is just another repo-local test suite when the
+Project being edited is Spindrel itself.
 
 Live Project Factory PR smoke (opt-in, opens a real draft PR):
 
@@ -180,17 +260,41 @@ python scripts/agent_e2e_dev.py prepare-project-factory-smoke \
 
 PROJECT_FACTORY_LIVE_PR=1 \
 E2E_MODE=external \
-E2E_HOST=localhost \
-E2E_PORT=18000 \
+E2E_HOST=$E2E_HOST \
+E2E_PORT=$E2E_PORT \
 E2E_KEEP_RUNNING=1 \
 pytest tests/e2e/scenarios/test_project_factory_live_pr_smoke.py -v -s
 ```
 
-Use `E2E_MODE=external` here. The helper already built and prepared the local
-`:18000` stack; letting pytest start compose again can fail on stale or missing
+Use `E2E_MODE=external` here. The helper already prepared the agent-owned
+native API/UI; letting pytest start compose again can fail on stale or missing
 provider env. The test writes
 `scratch/agent-e2e/project-factory-live-pr-smoke.json` for screenshot capture
 and review notes.
+
+Generic live Project Factory loop (opt-in, no external repo):
+
+```bash
+set -a && source .env.agent-e2e && set +a
+PROJECT_FACTORY_GENERIC_LOOP=1 \
+PROJECT_FACTORY_RUNTIME=codex \
+E2E_MODE=external \
+E2E_HOST=$E2E_HOST \
+E2E_PORT=$E2E_PORT \
+E2E_API_KEY=e2e-test-key-12345 \
+E2E_BOT_ID=default \
+E2E_KEEP_RUNNING=1 \
+pytest tests/e2e/scenarios/test_project_factory_generic_live_loop.py -v -s
+```
+
+Use this after dependency-stack preflight, dev-target env, runtime handoff, or
+receipt-evidence changes. It launches a real harness agent against a generated
+fixture Project and expects normal Project-local commands, a native source-run
+server, screenshot/evidence output, and a Project run receipt. It writes
+`scratch/agent-e2e/project-factory-generic-live-loop.json`; use that artifact
+to capture Product UI proof from the Project Runs page, session transcript, and
+served fixture app, then place durable images in `docs/images/` and reference
+them from the relevant guide.
 
 ## Lessons Learned
 
@@ -214,10 +318,21 @@ and review notes.
   should intentionally reset provider/OAuth state.
 - Screenshot staging should use deterministic fixtures for documentation
   transcripts. Do not depend on a live model turn to render a docs artifact.
-- Harness parity can now run locally against `localhost:18000` through
-  `run_harness_parity_local.sh`; use `--screenshots feedback` for throwaway
+- Harness parity can now run locally against the agent-owned native API/UI
+  through `run_harness_parity_local.sh`; use `--screenshots feedback` for throwaway
   visual review and `--screenshots docs` only when intentionally refreshing
   checked-in `docs/images/harness-*` fixtures.
+- Before closing broad Codex/Claude SDK parity work, run
+  `./scripts/run_harness_parity_local_batch.sh --preset all --screenshots docs`.
+  The `all` preset is sequential, runs the replay tier without a `-k` selector,
+  writes JUnit XML next to its log, and fails on unexpected pytest skips so
+  provider auth, browser-runtime, and SDK-surface gaps do not look like local
+  passes. Runtime-specific intentional skips are allowlisted by
+  `HARNESS_PARITY_ALLOWED_SKIP_REGEX`.
+- Keep deep SDK parity coverage close to documented native surfaces. Current
+  required scenarios include Project cwd instruction discovery, mid-stream text
+  deltas, image semantic reasoning, Claude `TodoWrite` progress persistence,
+  and Claude `Agent`/`Task` subagent result persistence.
 - `prepare-harness-parity` installs Codex/Claude integration deps, restarts the
   native local API so the harness modules reload, then creates stable
   parity bots/channels with baseline bridge tools and writes
@@ -239,15 +354,20 @@ and review notes.
   owns the compose source; coding runs get task-scoped dependency instances so
   parallel runs do not restart the same database/services. App/dev servers are
   native per-agent processes outside the dependency stack.
+- Dependency-stack preflight belongs before the first harness turn for Project
+  coding runs. If a stack is configured, the run should start with env keys
+  such as `DATABASE_URL` already available; the tool remains available for
+  reloads, health checks, logs, and recovery.
 - Native local parity sets `CONFIG_STATE_FILE=` by default so source-mode API
   startup does not replay exported config into a fresh e2e DB. Opt into config
   restore explicitly only when that is the thing under test.
 - Native local parity uses the repo-seeded `default` bot for e2e health checks;
   the compose-only `e2e` bot is not available unless a containerized app run
   mounts `tests/e2e/bot.e2e.yaml`.
-- If the default compose project gets stuck in Docker removal state, verify
-  with a unique `E2E_COMPOSE_PROJECT` and alternate Postgres/SearXNG ports.
-  Do not delete the durable default DB/auth state to unblock a proof run.
+- If the dependency compose project gets stuck in Docker removal state, debug
+  and repair that shared dependency stack. Do not switch to a private compose
+  project, and do not delete the durable default DB/auth state to unblock a
+  proof run.
 - Native Project parity dogfood requires both product UI evidence and the
   generated app screenshot. Capture and link the Project detail, Project
   channels binding, Codex session transcript, and generated app artifacts

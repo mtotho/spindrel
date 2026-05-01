@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -5,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, IssueWorkPack, Session, Task, ToolCall, TraceEvent
+from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, IssueWorkPack, Project, Session, Task, ToolCall, TraceEvent, WorkspaceAttentionItem
 from app.routers.api_v1_workspace_attention import resolve_attention as resolve_attention_route
 from app.services.workspace_attention import (
     _is_operator_triage_sweep_candidate,
@@ -17,6 +18,7 @@ from app.services.workspace_attention import (
     build_attention_brief_from_serialized,
     build_attention_assignment_block,
     create_attention_triage_run,
+    create_conversational_issue_work_packs,
     create_issue_intake_note,
     create_manual_issue_work_pack,
     create_user_attention_item,
@@ -246,6 +248,130 @@ async def test_create_manual_issue_work_pack_links_source_items(db_session):
     triage = refreshed.evidence["issue_triage"]
     assert triage["state"] == "packed"
     assert triage["work_pack_ids"] == [str(pack.id)]
+
+
+@pytest.mark.asyncio
+async def test_create_conversational_issue_work_packs_auto_creates_source_intake(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects/spindrel",
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="codex",
+        client_id="project-agent-work-packs",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    packs = await create_conversational_issue_work_packs(
+        db_session,
+        bot_id="codex",
+        channel_id=channel_id,
+        session_id=session_id,
+        packs=[{
+            "title": "Split Project Factory into work units",
+            "summary": "Create proposed work packs from the planning conversation.",
+            "category": "code_bug",
+            "confidence": "high",
+            "conversation_summary": "User and Codex planned the next project-factory phase.",
+            "launch_prompt": "Implement the conversational work-pack creation primitive.",
+        }],
+    )
+
+    assert len(packs) == 1
+    pack = packs[0]
+    assert pack.status == "proposed"
+    assert pack.project_id == project_id
+    assert pack.channel_id == channel_id
+    assert pack.metadata_["source"] == "conversation"
+    assert pack.metadata_["created_by"] == "bot:codex"
+    assert pack.metadata_["conversation"]["bot_id"] == "codex"
+    assert pack.metadata_["conversation"]["session_id"] == str(session_id)
+    assert pack.source_item_ids and len(pack.source_item_ids) == 1
+
+    source = await db_session.get(WorkspaceAttentionItem, uuid.UUID(pack.source_item_ids[0]))
+    assert source is not None
+    assert source.evidence["issue_intake"]["source"] == "conversation"
+    assert source.evidence["issue_triage"]["state"] == "packed"
+    assert source.evidence["issue_triage"]["source"] == "conversation"
+    assert source.evidence["issue_triage"]["work_pack_ids"] == [str(pack.id)]
+
+
+@pytest.mark.asyncio
+async def test_report_issue_work_packs_rejects_normal_conversation_context(db_session):
+    with pytest.raises(ValidationError, match="requires a triage task context"):
+        await report_issue_work_packs(
+            db_session,
+            bot_id="codex",
+            triage_task_id=None,
+            packs=[{
+                "title": "Not allowed here",
+                "summary": "The triage reporter must remain task-scoped.",
+                "category": "code_bug",
+                "confidence": "medium",
+                "source_item_ids": [str(uuid.uuid4())],
+            }],
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_issue_work_packs_tool_uses_normal_agent_channel_context(
+    db_session,
+    patched_async_sessions,
+    agent_context,
+    monkeypatch,
+):
+    from app.tools import registry
+    from app.tools.local import workspace_attention as attention_tools
+
+    monkeypatch.setattr(attention_tools, "async_session", patched_async_sessions)
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects/spindrel",
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="codex",
+        client_id="project-agent-tool-work-packs",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+    agent_context(bot_id="codex", channel_id=channel_id, session_id=uuid.uuid4())
+
+    assert "create_issue_work_packs" in registry._tools
+    assert registry.get_tool_context_requirements("create_issue_work_packs") == (True, True)
+
+    raw = await attention_tools.create_issue_work_packs(packs=[{
+        "title": "Conversation-generated work pack",
+        "summary": "A normal Project-bound agent should be able to publish this pack.",
+        "category": "code_bug",
+        "confidence": "medium",
+    }])
+    payload = json.loads(raw)
+
+    assert payload["count"] == 1
+    assert payload["work_packs"][0]["metadata"]["source"] == "conversation"
+    assert payload["work_packs"][0]["project_id"] == str(project_id)
 
 
 @pytest.mark.asyncio

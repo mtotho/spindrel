@@ -245,6 +245,96 @@ def test_command_namespace_failure_marks_turn_as_execution_surface_error():
     assert "execution surface failed" in meta["error"]
 
 
+def test_command_output_delta_bwrap_failure_marks_execution_surface_error_even_with_generic_summary():
+    emitter, ids, parts, meta = _harness()
+    ids["cmd1"] = "bash -lc pwd"
+
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMMAND_OUTPUT_DELTA,
+            params={
+                "itemId": "cmd1",
+                "chunk": {"text": "bwrap: No permissions to create new namespace\n"},
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMPLETED,
+            params={
+                "item": {
+                    "id": "cmd1",
+                    "kind": "commandExecution",
+                    "isError": True,
+                    "summary": "exited 1",
+                },
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert emitter.calls[0][1]["is_error"] is True
+    assert emitter.calls[0][1]["surface"] == "rich_result"
+    assert meta["is_error"] is True
+    assert "native shell execution surface failed" in meta["error"]
+    assert "bwrap" in meta["error"]
+
+
+def test_turn_completed_bwrap_failure_marks_execution_surface_error():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.NOTIFICATION_TURN_COMPLETED,
+            params={
+                "turn": {
+                    "error": {
+                        "message": "bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged user namespaces"
+                    }
+                }
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert meta["is_error"] is True
+    assert "native shell execution surface failed" in meta["error"]
+    assert "bwrap" in meta["error"]
+
+
+def test_notification_error_bwrap_failure_marks_execution_surface_error():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.NOTIFICATION_ERROR,
+            params={
+                "error": {
+                    "message": "bwrap: No permissions to create new namespace"
+                }
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert meta["is_error"] is True
+    assert "native shell execution surface failed" in meta["error"]
+    assert "not a missing repo command" in meta["error"]
+
+
 def test_command_regular_failure_does_not_abort_turn():
     emitter, ids, parts, meta = _harness()
     ids["cmd1"] = "bash -lc cat missing.txt"

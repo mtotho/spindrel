@@ -41,6 +41,12 @@ Default ambiguous procedural work to a skill candidate. Prefer a tool/API only
 when the agent needs fresh runtime state, side effects, permission enforcement,
 atomicity, or data too large/stale for text.
 
+Example: live health triage is split. The fresh runtime/error snapshot belongs
+in `GET /api/v1/system-health/preflight` and `get_system_health_preflight`.
+The decision procedure for promoting or resolving findings belongs in the
+runtime skill `diagnostics/health_triage` and the repo-dev skill
+`spindrel-live-health-triage`.
+
 Use the full rubric in
 [`references/feature-placement-rubric.md`](references/feature-placement-rubric.md)
 whenever the user asks what should become a skill, when a review warning should

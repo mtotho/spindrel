@@ -253,13 +253,19 @@ export function ChannelChatSession({
   const channelSlashLocalHandlers = useMemo(
     () => ({
       clear: async () => {
-        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${source.channelId}/sessions`, { method: "POST" });
+        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${source.channelId}/sessions`, {
+          method: "POST",
+          body: JSON.stringify({ source_session_id: src.sessionId }),
+        });
         queryClient.invalidateQueries({ queryKey: ["session-messages"] });
         queryClient.invalidateQueries({ queryKey: ["channel", source.channelId] });
         navigate(`/channels/${source.channelId}/session/${result.new_session_id}`);
       },
       new: async () => {
-        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${source.channelId}/sessions`, { method: "POST" });
+        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${source.channelId}/sessions`, {
+          method: "POST",
+          body: JSON.stringify({ source_session_id: src.sessionId }),
+        });
         queryClient.invalidateQueries({ queryKey: ["session-messages"] });
         queryClient.invalidateQueries({ queryKey: ["channel", source.channelId] });
         navigate(`/channels/${source.channelId}/session/${result.new_session_id}`);

@@ -156,6 +156,7 @@ The companion agent-first introspection tools are:
 - `get_agent_work_snapshot` — returns only missions and Attention Items assigned to the current bot, with the next recommended work action.
 - `get_agent_status_snapshot` — returns only current task/heartbeat status, stale-run detection, latest failure evidence, and heartbeat schedule state.
 - `get_agent_activity_log` — returns replayable tool, Attention, Mission, Project, widget, and execution-receipt evidence.
+- `get_system_health_preflight` — returns runtime/build identity, live recent-error review counts, warnings, and the next recommended health-triage action.
 - `publish_execution_receipt` — records the outcome of an approval-gated or agent-important action after the normal mutation path has already succeeded.
 - `run_agent_doctor` — returns only the readiness findings and concrete next actions.
 

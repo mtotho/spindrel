@@ -27,6 +27,7 @@ pytest.importorskip("claude_agent_sdk")
 from claude_agent_sdk import (  # noqa: E402
     AssistantMessage,
     ResultMessage,
+    StreamEvent,
     SystemMessage,
     TextBlock,
     ThinkingBlock,
@@ -42,8 +43,10 @@ from app.services.agent_harnesses.base import (  # noqa: E402
     TurnContext,
 )
 from integrations.claude_code.harness import _build_claude_query_input  # noqa: E402
+from integrations.claude_code.harness import _allowed_tools_for_mode  # noqa: E402
 from integrations.claude_code.harness import _bridge_message  # noqa: E402
 from integrations.claude_code.harness import _extract_claude_system_slash_commands  # noqa: E402
+from integrations.claude_code.harness import _set_partial_message_streaming_kwarg  # noqa: E402
 
 
 class _RecordingEmitter:
@@ -134,6 +137,73 @@ def test_text_block_emits_token_and_appends_to_final_text():
 
     assert emitter.calls == [("token", {"delta": "hello world"})]
     assert final_text_parts == ["hello world"]
+
+
+def test_partial_message_streaming_kwarg_is_enabled_when_sdk_supports_it():
+    class Options:
+        def __init__(self, include_partial_messages: bool = False) -> None:
+            self.include_partial_messages = include_partial_messages
+
+    options_kwargs: dict = {}
+
+    _set_partial_message_streaming_kwarg(Options, options_kwargs)
+
+    assert options_kwargs == {"include_partial_messages": True}
+
+
+def test_bypass_allowed_tools_include_native_claude_code_sdk_surfaces():
+    allowed = set(_allowed_tools_for_mode("bypassPermissions"))
+
+    assert {"Agent", "Skill", "TodoWrite", "ToolSearch"}.issubset(allowed)
+    assert "AskUserQuestion" not in allowed
+
+
+def test_restricted_allowed_tools_do_not_bypass_mutating_or_orchestration_surfaces():
+    allowed = set(_allowed_tools_for_mode("default"))
+
+    assert {"Read", "Glob", "Grep", "WebSearch"}.issubset(allowed)
+    assert "Skill" not in allowed
+    assert "Agent" not in allowed
+    assert "TodoWrite" not in allowed
+    assert "AskUserQuestion" not in allowed
+
+
+def test_stream_event_text_deltas_emit_incremental_tokens_and_suppress_duplicate_final_text():
+    emitter = _RecordingEmitter()
+    final_text_parts: list[str] = []
+    result_meta: dict = {}
+
+    for text in ("hello ", "world"):
+        _bridge_message(
+            StreamEvent(
+                uuid="event-id",
+                session_id="session-id",
+                event={
+                    "type": "content_block_delta",
+                    "delta": {"type": "text_delta", "text": text},
+                },
+            ),
+            ctx=_ctx(),
+            emit=emitter,
+            tool_name_by_use_id={},
+            final_text_parts=final_text_parts,
+            result_meta=result_meta,
+        )
+
+    _bridge_message(
+        AssistantMessage(content=[TextBlock(text="hello world")], model="claude-sonnet-4-6"),
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id={},
+        final_text_parts=final_text_parts,
+        result_meta=result_meta,
+    )
+
+    assert emitter.calls == [
+        ("token", {"delta": "hello "}),
+        ("token", {"delta": "world"}),
+    ]
+    assert final_text_parts == ["hello ", "world"]
 
 
 def test_system_init_slash_inventory_extracts_nested_sdk_payload():
@@ -686,6 +756,103 @@ def test_mixed_assistant_blocks_in_default_mode():
     assert kinds == ["thinking", "token", "tool_start"]
     assert final_text_parts == ["Reading the file..."]
     assert tool_name_by_use_id == {"tu_3": "Read"}
+
+
+def test_todo_write_result_persists_progress_summary():
+    emitter = _RecordingEmitter()
+    result_meta: dict = {}
+    tool_name_by_use_id: dict[str, str] = {}
+    msg_start = AssistantMessage(
+        content=[
+            ToolUseBlock(
+                id="tu_todo",
+                name="TodoWrite",
+                input={
+                    "todos": [
+                        {"content": "Inspect SDK docs", "status": "completed"},
+                        {"content": "Add parity tests", "status": "in_progress"},
+                    ]
+                },
+            )
+        ],
+        model="claude-sonnet-4-6",
+    )
+    msg_result = UserMessage(
+        content=[ToolResultBlock(tool_use_id="tu_todo", content="Todo list updated", is_error=False)]
+    )
+
+    _bridge_message(
+        msg_start,
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id=tool_name_by_use_id,
+        final_text_parts=[],
+        result_meta=result_meta,
+    )
+    _bridge_message(
+        msg_result,
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id=tool_name_by_use_id,
+        final_text_parts=[],
+        result_meta=result_meta,
+    )
+
+    result_call = [call for call in emitter.calls if call[0] == "tool_result"][-1][1]
+    assert result_call["tool_name"] == "TodoWrite"
+    assert result_call["surface"] == "rich_result"
+    assert result_call["summary"]["kind"] == "progress"
+    assert result_call["summary"]["subject_type"] == "todo"
+    assert result_call["summary"]["todo_count"] == 2
+    assert result_call["envelope"]["tool_call_id"] == "tu_todo"
+
+
+def test_claude_task_result_persists_subagent_summary():
+    emitter = _RecordingEmitter()
+    result_meta: dict = {}
+    tool_name_by_use_id: dict[str, str] = {}
+    msg_start = AssistantMessage(
+        content=[
+            ToolUseBlock(
+                id="tu_task",
+                name="Task",
+                input={
+                    "description": "Review harness parity",
+                    "subagent_type": "general-purpose",
+                    "prompt": "Inspect SDK parity gaps and summarize.",
+                },
+            )
+        ],
+        model="claude-sonnet-4-6",
+    )
+    msg_result = UserMessage(
+        content=[ToolResultBlock(tool_use_id="tu_task", content="Found two gaps.", is_error=False)]
+    )
+
+    _bridge_message(
+        msg_start,
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id=tool_name_by_use_id,
+        final_text_parts=[],
+        result_meta=result_meta,
+    )
+    _bridge_message(
+        msg_result,
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id=tool_name_by_use_id,
+        final_text_parts=[],
+        result_meta=result_meta,
+    )
+
+    result_call = [call for call in emitter.calls if call[0] == "tool_result"][-1][1]
+    assert result_call["tool_name"] == "Task"
+    assert result_call["surface"] == "rich_result"
+    assert result_call["summary"]["kind"] == "subagent"
+    assert result_call["summary"]["subject_type"] == "agent"
+    assert result_call["summary"]["subagent_type"] == "general-purpose"
+    assert "Inspect SDK parity" in result_call["summary"]["prompt_preview"]
 
 
 # ----------------------------------------------------------------------------

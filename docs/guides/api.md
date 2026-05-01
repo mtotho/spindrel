@@ -212,12 +212,20 @@ Integration readiness is read-only in v1. The `integrations` section summarizes 
 Daily health summaries remain available at `/api/v1/system-health/summaries/*`.
 For on-demand triage, use:
 
+- `GET /api/v1/system-health/preflight?since=24h&limit=50`
 - `GET /api/v1/system-health/runtime`
 - `GET /api/v1/system-health/recent-errors?since=24h&services=&limit=50&include_attention=true`
 - `POST /api/v1/system-health/recent-errors/promote`
 - `POST /api/v1/workspace/attention/{id}/resolve`
 
-`runtime` is the authenticated build/process identity preflight. It reports
+`preflight` is the read-only agent entrypoint. It combines authenticated
+build/process identity, recent-error findings, Attention review-state counts,
+warnings such as missing build SHA, and a compact `recommended_next_action`
+such as `triage_recent_errors` or `no_current_errors`. Runtime bots can call
+the equivalent `get_system_health_preflight` tool before loading
+`diagnostics/health_triage`.
+
+`runtime` is the authenticated build/process identity read. It reports
 safe fields such as package version, process start time, uptime, hostname,
 best-effort container id, build commit/ref/time/source/deploy id when the
 deployment supplied them, and stable feature flags. Use it to confirm which

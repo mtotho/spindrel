@@ -13,15 +13,23 @@ that are clearly benign, duplicate, external, stale, or already recovered.
 
 ## Start read-only
 
-1. If `call_api` is available, call `GET /api/v1/system-health/runtime` first
-   to confirm package version, process start time, uptime, build metadata when
-   supplied, and the `recent_errors_review_state` feature flag. `/health` only
+1. Call `get_system_health_preflight(since="24h")` first when available. It
+   returns runtime/build identity, recent-error review-state counts, warnings,
+   and `recommended_next_action`.
+2. If that tool is missing but `call_api` is available, call
+   `GET /api/v1/system-health/preflight?since=24h` or fall back to
+   `GET /api/v1/system-health/runtime` plus recent errors. `/health` only
    proves liveness.
-2. Call `get_latest_health_summary(include_findings=true, max_findings=20)`.
-3. If the summary is stale, empty, or the user asks what is happening now, call
+3. Call `get_latest_health_summary(include_findings=true, max_findings=20)`.
+4. If the summary is stale, empty, or the user asks what is happening now, call
    `get_recent_server_errors(since="2h", limit=20)` or widen to `24h`.
-4. Summarize by `severity`, `service`, `signature`, `count`, and `last_seen`.
+5. Summarize by `severity`, `service`, `signature`, `count`, and `last_seen`.
    Do not paste raw logs unless the user needs surrounding context.
+
+If preflight returns `recommended_next_action: "no_current_errors"`, do not
+promote or resolve anything unless the user explicitly asks you to re-check a
+specific finding. Treat `missing_build_sha` as deploy metadata debt, not a code
+bug by itself.
 
 ## Promote findings for durable review
 

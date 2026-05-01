@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -9,6 +10,21 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = ROOT / ".agents" / "manifest.json"
 DIAGNOSTICS_SKILL_DIR = ROOT / "skills" / "diagnostics"
+AGENT_TEST_GUIDANCE_PATHS = [
+    ROOT / "AGENTS.md",
+    ROOT / ".agents",
+    ROOT / "skills" / "workspace" / "project_coding_runs.md",
+    ROOT / "docs" / "guides" / "agent-e2e-development.md",
+    ROOT / "docs" / "guides" / "projects.md",
+    ROOT / "app" / "services" / "run_presets.py",
+    ROOT / "app" / "services" / "project_coding_runs.py",
+]
+DOCKER_UNIT_TEST_PATTERNS = [
+    re.compile(r"docker\s+build\s+-f\s+Dockerfile\.test", re.IGNORECASE),
+    re.compile(r"docker\s+run[^\n]*(pytest|unit tests?)", re.IGNORECASE),
+    re.compile(r"docker\s+compose\s+run[^\n]*(pytest|unit tests?|test command)", re.IGNORECASE),
+    re.compile(r"run via Dockerfile\.test", re.IGNORECASE),
+]
 NEW_SKILL_IDS = {
     "spindrel-backend-operator",
     "spindrel-ui-operator",
@@ -30,6 +46,16 @@ def _split_frontmatter(skill_markdown: str) -> tuple[dict, str]:
     assert skill_markdown.startswith("---\n")
     _, frontmatter, body = skill_markdown.split("---\n", 2)
     return yaml.safe_load(frontmatter), body
+
+
+def _agent_guidance_files() -> list[Path]:
+    files: list[Path] = []
+    for path in AGENT_TEST_GUIDANCE_PATHS:
+        if path.is_dir():
+            files.extend(sorted(p for p in path.rglob("*") if p.is_file()))
+        elif path.exists():
+            files.append(path)
+    return files
 
 
 def test_repo_agent_manifest_is_repo_dev_only() -> None:
@@ -91,6 +117,19 @@ def test_new_repo_agent_skills_keep_runtime_boundary_explicit() -> None:
         assert "repo-dev skill" in body
         assert "not a spindrel runtime skill" in body
         assert "must not be imported into app skill tables" in body
+
+
+def test_agent_facing_guidance_does_not_reintroduce_docker_unit_test_runner() -> None:
+    offenders: list[str] = []
+    for path in _agent_guidance_files():
+        rel = path.relative_to(ROOT)
+        text = path.read_text(errors="ignore")
+        for pattern in DOCKER_UNIT_TEST_PATTERNS:
+            for match in pattern.finditer(text):
+                line_no = text.count("\n", 0, match.start()) + 1
+                offenders.append(f"{rel}:{line_no}: {match.group(0)!r}")
+
+    assert offenders == []
 
 
 def test_integration_skill_preserves_integration_boundaries() -> None:

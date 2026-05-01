@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Project, ProjectSecretBinding, SecretValue, Task
+from app.db.models import Project, ProjectDependencyStackInstance, ProjectSecretBinding, SecretValue, Task
 from app.services.encryption import decrypt
 from app.services.secret_registry import redact
 
@@ -212,6 +212,23 @@ def _task_dev_target_env(task: Task | None) -> dict[str, str]:
     return values
 
 
+async def _task_dependency_stack_env(db: AsyncSession, task: Task | None) -> dict[str, str]:
+    if task is None:
+        return {}
+    stack = (await db.execute(
+        select(ProjectDependencyStackInstance)
+        .where(
+            ProjectDependencyStackInstance.task_id == task.id,
+            ProjectDependencyStackInstance.deleted_at.is_(None),
+        )
+        .order_by(ProjectDependencyStackInstance.updated_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    if stack is None or stack.status not in {"running", "stopped"} or not isinstance(stack.env, dict):
+        return {}
+    return {str(key): str(value) for key, value in stack.env.items()}
+
+
 async def load_project_runtime_environment(
     db: AsyncSession,
     project: Project,
@@ -248,8 +265,12 @@ async def load_project_runtime_environment_for_id(
     except ValueError:
         return runtime
     task = await db.get(Task, task_uuid)
-    dev_env = _task_dev_target_env(task)
-    return _with_extra_env(runtime, dev_env, extra_keys=tuple(sorted(dev_env)))
+    extra_env: dict[str, str] = {}
+    extra_env["SPINDREL_PROJECT_RUN_GUARD"] = "1"
+    extra_env["SPINDREL_PROJECT_TASK_ID"] = str(task_uuid)
+    extra_env.update(await _task_dependency_stack_env(db, task))
+    extra_env.update(_task_dev_target_env(task))
+    return _with_extra_env(runtime, extra_env, extra_keys=tuple(sorted(extra_env)))
 
 
 def redact_known_values(text: str, values: Mapping[str, str]) -> str:

@@ -67,6 +67,26 @@ async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClie
         "tags": ["planning"],
     })
 
+    conversational = await client.execute_admin_tool(
+        "create_issue_work_packs",
+        bot_id=client.default_bot_id,
+        channel_id=channel["id"],
+        arguments={
+            "packs": [{
+                "title": f"Factory E2E conversational pack {suffix}",
+                "summary": "A normal Project-bound agent can turn a planning conversation into a proposed work pack.",
+                "category": "needs_info",
+                "confidence": "medium",
+                "conversation_summary": "The user and agent discussed a future planning item.",
+            }],
+        },
+    )
+    assert conversational["error"] is None
+    conversational_pack = conversational["result"]["work_packs"][0]
+    assert conversational_pack["status"] == "needs_info"
+    assert conversational_pack["metadata"]["source"] == "conversation"
+    assert conversational_pack["source_item_ids"]
+
     code_pack = await client.create_issue_work_pack({
         "title": f"Factory E2E review refresh pack {suffix}",
         "summary": "Fix stale Project Review run list and durable reviewed provenance together.",
@@ -92,6 +112,7 @@ async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClie
     packs = await client.list_issue_work_packs()
     assert any(pack["id"] == code_pack["id"] and pack["status"] == "proposed" for pack in packs)
     assert any(pack["id"] == needs_info_pack["id"] and pack["status"] == "needs_info" for pack in packs)
+    assert any(pack["id"] == conversational_pack["id"] and pack["metadata"]["source"] == "conversation" for pack in packs)
 
     launched = await client.launch_issue_work_pack_project_run(
         code_pack["id"],

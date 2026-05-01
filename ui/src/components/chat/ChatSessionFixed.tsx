@@ -221,13 +221,19 @@ export function FixedSessionChatSession({
     () => ({
       clear: async () => {
         if (!parentChannelId) return;
-        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${parentChannelId}/sessions`, { method: "POST" });
+        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${parentChannelId}/sessions`, {
+          method: "POST",
+          body: JSON.stringify({ source_session_id: sessionId }),
+        });
         qc.invalidateQueries({ queryKey: ["session-messages"] });
         navigate(`/channels/${parentChannelId}/session/${result.new_session_id}`);
       },
       new: async () => {
         if (!parentChannelId) return;
-        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${parentChannelId}/sessions`, { method: "POST" });
+        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${parentChannelId}/sessions`, {
+          method: "POST",
+          body: JSON.stringify({ source_session_id: sessionId }),
+        });
         qc.invalidateQueries({ queryKey: ["session-messages"] });
         navigate(`/channels/${parentChannelId}/session/${result.new_session_id}`);
       },
@@ -249,7 +255,7 @@ export function FixedSessionChatSession({
       split: () => onOpenSessionSplit?.(),
       focus: () => onToggleFocusLayout?.(),
     }),
-    [navigate, onOpenSessionSplit, onOpenSessions, onToggleFocusLayout, parentChannelId, qc, sessionModelGroups, setModelOverride],
+    [navigate, onOpenSessionSplit, onOpenSessions, onToggleFocusLayout, parentChannelId, qc, sessionId, sessionModelGroups, setModelOverride],
   );
   const handleSlashCommand = useSlashCommandExecutor({
     availableCommands: availableSlashCommands,

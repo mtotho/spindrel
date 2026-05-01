@@ -317,6 +317,57 @@ async def ensure_project_dependency_stack_instance(
     return instance
 
 
+def _safe_preflight_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    instance = payload.get("instance") if isinstance(payload.get("instance"), dict) else payload
+    env = instance.get("env") if isinstance(instance, dict) else {}
+    return {
+        "configured": True,
+        "status": instance.get("status") if isinstance(instance, dict) else payload.get("status"),
+        "instance_id": instance.get("id") if isinstance(instance, dict) else payload.get("id"),
+        "scope": instance.get("scope") if isinstance(instance, dict) else payload.get("scope"),
+        "source_path": instance.get("source_path") if isinstance(instance, dict) else payload.get("source_path"),
+        "env_keys": sorted(str(key) for key in env) if isinstance(env, dict) else [],
+        "command_keys": sorted(str(key) for key in (instance.get("commands") or {})) if isinstance(instance, dict) else [],
+    }
+
+
+async def preflight_task_dependency_stack(
+    db: AsyncSession,
+    *,
+    task: Task,
+    project: Project,
+    project_instance: ProjectInstance | None = None,
+) -> dict[str, Any]:
+    """Prepare a task-scoped dependency stack before the agent receives env."""
+    spec = project_dependency_stack_spec(project)
+    if not spec.configured:
+        return {"configured": False, "status": "not_configured", "env_keys": [], "command_keys": []}
+
+    runtime = await ensure_project_dependency_stack_instance(
+        db,
+        project,
+        task=task,
+        project_instance=project_instance,
+        scope="task",
+    )
+    try:
+        payload = await prepare_project_dependency_stack(db, project, runtime=runtime)
+        return {**_safe_preflight_payload(payload), "ok": True}
+    except Exception as exc:
+        await db.refresh(runtime)
+        return {
+            "configured": True,
+            "ok": False,
+            "status": runtime.status,
+            "instance_id": str(runtime.id),
+            "scope": runtime.scope,
+            "source_path": runtime.source_path or spec.source_path,
+            "env_keys": [],
+            "command_keys": sorted((spec.commands or {}).keys()),
+            "error": redact(str(exc))[:1000],
+        }
+
+
 async def _project_dir_for_dependency(project: Project, runtime: ProjectDependencyStackInstance) -> ProjectDirectory:
     if runtime.project_instance_id is not None:
         # The caller's session may have a stale project object. Load the instance

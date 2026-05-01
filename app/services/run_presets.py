@@ -37,15 +37,15 @@ PROJECT_CODING_RUN_PROMPT = """Implement the requested Project task in this Proj
 
 Before editing, load the `workspace/project_coding_runs` runtime skill if it is not already loaded.
 Before changing files, inspect the workspace state and get latest from the Project's configured development branch when it is safe to do so. Use the Project root as the working directory for file, exec, harness, and screenshot work. If this run is in a fresh Project instance, keep changes inside that instance.
-If you are running through a Codex or Claude Code harness, use native tools for repo-local file edits and commands only. E2E checks, screenshots, server/machine actions, Docker/compose control, and receipts must use the task-granted Spindrel tools; do not rely on ambient Docker/socket access from the native shell.
-If the Project declares a Dependency Stack, use get_project_dependency_stack and manage_project_dependency_stack for Docker-backed databases/dependencies, logs, restarts, rebuilds, and service commands. Start app/dev servers yourself with native bash on your own unused or assigned port. Do not run raw docker or docker compose in the harness shell.
+If you are running through a Codex or Claude Code harness, use native tools for repo-local file edits, shell commands, tests, and app/dev server processes. Do not wrap unit tests in Docker, Dockerfile.test, or docker compose. Docker-backed dependencies must use the task-granted Project Dependency Stack tools; do not rely on ambient Docker/socket access from the native shell.
+If the Project declares a Dependency Stack, use get_project_dependency_stack and manage_project_dependency_stack for Docker-backed databases/dependencies, logs, restarts, rebuilds, and service commands. Use the returned/injected dependency env in repo-local scripts. Start app/dev servers yourself with native bash on your own unused or assigned port. Do not run raw docker or docker compose in the harness shell, and do not use dependency stacks to run unit tests.
 
 Expected workflow:
 1. Understand the bug or feature request and read the relevant code before editing.
 2. Call prepare_project_run_handoff(action="prepare_branch") before editing so the Project page records branch readiness.
 3. Make focused code changes.
-4. Run the smallest relevant tests first, then broaden as needed.
-5. For UI changes, run the Project's typecheck and capture screenshots against the configured e2e-testing server when available. Use run_e2e_tests(status) first to confirm the target URL.
+4. Run the smallest relevant tests first with the native Project shell/runtime env, then broaden as needed.
+5. For UI changes, run the Project's typecheck/tests, start the project app on the assigned dev target port when present, and capture screenshots against that app. Testing is defined by the Project repo, not by a Spindrel-specific e2e tool.
 6. Prepare a review handoff: call prepare_project_run_handoff(action="open_pr") when GitHub credentials and gh are available, or record the blocker from that tool result.
 7. Call publish_project_run_receipt before finishing so the Project page has a durable review record. Receipt retries are idempotent when task, handoff, git metadata, or an explicit idempotency_key is stable."""
 
@@ -54,8 +54,8 @@ PROJECT_CODING_RUN_REVIEW_PROMPT = """Review the selected Project coding runs an
 
 Before deciding, load the `workspace/project_coding_runs` runtime skill if it is not already loaded and call get_project_coding_run_review_context for the current review task.
 Use the Project root as the working directory. Inspect each selected run's task, receipt, PR, tests, screenshots, and reviewer-visible evidence before making a decision. If the operator asked you to merge accepted PRs, merge only the runs you accept.
-If you are running through a Codex or Claude Code harness, use native tools for repo-local inspection only. E2E checks, screenshots, server/machine actions, Docker/compose control, merge/finalizer actions, and receipts must use task-granted Spindrel tools.
-If stack-backed dependencies are needed, use get_project_dependency_stack and manage_project_dependency_stack; do not use raw docker or docker compose in the harness shell.
+If you are running through a Codex or Claude Code harness, use native tools for repo-local inspection, test commands, and app/dev server checks. Do not wrap unit tests in Docker, Dockerfile.test, or docker compose. Docker-backed dependency control, merge/finalizer actions, and receipts must use task-granted Spindrel tools.
+If stack-backed dependencies are needed, use get_project_dependency_stack and manage_project_dependency_stack; do not use raw docker or docker compose in the harness shell, and do not use dependency stacks to run unit tests.
 
 Finalization rules:
 1. Call get_project_coding_run_review_context before finalizing selected runs.
@@ -160,14 +160,12 @@ PROJECT_CODING_RUN = RunPreset(
             "workspace/project_coding_runs",
             "workspace/files",
             "workspace/member",
-            "e2e_testing",
         ),
         tools=(
             "file",
             "exec_command",
             "get_project_dependency_stack",
             "manage_project_dependency_stack",
-            "run_e2e_tests",
             "prepare_project_run_handoff",
             "publish_project_run_receipt",
         ),
@@ -203,14 +201,12 @@ PROJECT_CODING_RUN_REVIEW = RunPreset(
             "workspace/project_coding_runs",
             "workspace/files",
             "workspace/member",
-            "e2e_testing",
         ),
         tools=(
             "file",
             "exec_command",
             "get_project_dependency_stack",
             "manage_project_dependency_stack",
-            "run_e2e_tests",
             "prepare_project_run_handoff",
             "get_project_coding_run_review_context",
             "finalize_project_coding_run_review",

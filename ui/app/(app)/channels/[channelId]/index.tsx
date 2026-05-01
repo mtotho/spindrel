@@ -581,11 +581,14 @@ export default function ChatScreen() {
   }, [currentPlanSessionId, queryClient]);
   const openNewVisibleSession = useCallback(async () => {
     if (!channelId) return;
-    const result = await apiFetch<{ new_session_id: string }>(`/channels/${channelId}/sessions`, { method: "POST" });
+    const result = await apiFetch<{ new_session_id: string }>(`/channels/${channelId}/sessions`, {
+      method: "POST",
+      body: JSON.stringify({ source_session_id: currentPlanSessionId ?? undefined }),
+    });
     setDismissedAutoCompactSession(result.new_session_id);
     void queryClient.invalidateQueries({ queryKey: ["session-messages"] });
     navigate(`/channels/${channelId}/session/${result.new_session_id}`);
-  }, [channelId, navigate, queryClient]);
+  }, [channelId, currentPlanSessionId, navigate, queryClient]);
   const disableAutoCompactionPrompts = useCallback(async () => {
     if (!channelId) return;
     await apiFetch(`/api/v1/admin/channels/${channelId}/settings`, {

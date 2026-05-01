@@ -25,6 +25,8 @@ services:
       - ../../integrations/web_search/config/searxng/settings.yml:/etc/searxng/settings.yml:ro
     environment:
       - SEARXNG_BASE_URL=http://localhost:8080/
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONPYCACHEPREFIX=/tmp/searxng-pycache
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
       interval: 3s
@@ -47,7 +49,7 @@ services:
       # Database
       DATABASE_URL: postgresql+asyncpg://agent:agent@postgres:5432/agentdb
       # LLM provider (reads LLM_BASE_URL with LITELLM_BASE_URL alias)
-      LITELLM_BASE_URL: ${E2E_LLM_BASE_URL:?set E2E_LLM_BASE_URL to your LLM endpoint}
+      LITELLM_BASE_URL: ${E2E_LLM_BASE_URL:-http://127.0.0.1:9/v1}
       LITELLM_API_KEY: ${E2E_LLM_API_KEY:-}
       DEFAULT_MODEL: ${E2E_DEFAULT_MODEL:-gemini-2.5-flash-lite}
       # Disable features that need Docker socket or external services
@@ -85,3 +87,4 @@ services:
 
 volumes:
   postgres-data:
+    name: ${E2E_POSTGRES_VOLUME:-spindrel-local-e2e_postgres-data}

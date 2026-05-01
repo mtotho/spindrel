@@ -457,6 +457,77 @@ async def _bind_project_instance_if_requested(
     )
 
 
+def _project_dependency_preflight_prompt(preflight: dict[str, Any] | None) -> str:
+    if not preflight or not preflight.get("configured"):
+        return ""
+    env_keys = ", ".join(preflight.get("env_keys") or []) or "none"
+    command_keys = ", ".join(preflight.get("command_keys") or []) or "none"
+    if preflight.get("ok") is False:
+        return (
+            "\n\nProject Dependency Stack preflight:\n"
+            f"- Status: {preflight.get('status') or 'failed'}\n"
+            f"- Source: {preflight.get('source_path') or 'inline spec'}\n"
+            f"- Error: {preflight.get('error') or 'unknown error'}\n"
+            "- The stack is not ready. Inspect the Project compose file, fix it if needed, then use manage_project_dependency_stack(action=\"reload\" or \"prepare\").\n"
+        )
+    return (
+        "\n\nProject Dependency Stack preflight:\n"
+        f"- Status: {preflight.get('status') or 'running'}\n"
+        f"- Scope: {preflight.get('scope') or 'task'}\n"
+        f"- Source: {preflight.get('source_path') or 'inline spec'}\n"
+        f"- Runtime env keys now available: {env_keys}\n"
+        f"- Declared stack commands: {command_keys}\n"
+        "- Use these dependency env values with native Project commands; continue to use manage_project_dependency_stack for logs, health, reloads, restarts, and service exec.\n"
+    )
+
+
+async def _preflight_project_dependency_stack_if_requested(
+    db: Any,
+    *,
+    task: Task,
+    project_instance: Any | None,
+    prepared: _PreparedTaskRun,
+) -> dict[str, Any] | None:
+    cfg = prepared.ecfg.get("project_coding_run")
+    if not isinstance(cfg, dict):
+        return None
+    dep_cfg = cfg.get("dependency_stack")
+    if not isinstance(dep_cfg, dict) or not dep_cfg.get("configured"):
+        return None
+    project_id = cfg.get("project_id")
+    if not project_id:
+        return None
+    from app.db.models import Project
+    from app.services.project_dependency_stacks import preflight_task_dependency_stack
+
+    try:
+        project_uuid = uuid.UUID(str(project_id))
+    except (TypeError, ValueError):
+        return None
+    project = await db.get(Project, project_uuid)
+    if project is None:
+        return None
+    preflight = await preflight_task_dependency_stack(
+        db,
+        task=task,
+        project=project,
+        project_instance=project_instance,
+    )
+    cfg["dependency_stack_preflight"] = preflight
+    dep_cfg["preflight_status"] = preflight.get("status")
+    dep_cfg["preflight_env_keys"] = list(preflight.get("env_keys") or [])
+    dep_cfg["preflight_ok"] = preflight.get("ok") if preflight.get("configured") else None
+    task.execution_config = prepared.ecfg
+    db_task = await db.get(Task, task.id)
+    if db_task is not None:
+        db_task.execution_config = prepared.ecfg
+    prompt_addendum = _project_dependency_preflight_prompt(preflight)
+    if prompt_addendum:
+        prepared.task_prompt = f"{prepared.task_prompt.rstrip()}{prompt_addendum}"
+    await db.commit()
+    return preflight
+
+
 async def _run_normal_agent_task(
     prepared: _PreparedTaskRun,
     *,
@@ -847,6 +918,12 @@ async def run_task(task: Task, *, deps: TaskRunHostDeps) -> None:
                 instance_db,
                 task=task,
                 execution_config=prepared.ecfg,
+            )
+            await _preflight_project_dependency_stack_if_requested(
+                instance_db,
+                task=task,
+                project_instance=project_instance,
+                prepared=prepared,
             )
             current_project_instance_id.set(project_instance.id if project_instance is not None else None)
         current_task_id.set(task.id)

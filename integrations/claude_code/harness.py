@@ -90,10 +90,13 @@ _CLAUDE_MCP_MUTATING_SUBCOMMANDS = {"add", "login", "logout", "remove"}
 # instead of letting the SDK's transient prompt surface handle it.
 _BYPASS_ALLOWED: tuple[str, ...] = (
     "Read", "Glob", "Grep", "Bash", "Edit", "Write",
-    "Task", "WebFetch", "WebSearch", "ExitPlanMode",
+    "Task", "Agent", "Skill", "TodoWrite", "ToolSearch",
+    "WebFetch", "WebSearch", "ExitPlanMode",
 )
 _RESTRICTED_ALLOWED: tuple[str, ...] = ("Read", "Glob", "Grep", "WebSearch")
 _TEXT_RESULT_TOOLS: frozenset[str] = frozenset({"Read", "Bash", "Glob", "Grep"})
+_PROGRESS_RESULT_TOOLS: frozenset[str] = frozenset({"TodoWrite"})
+_SUBAGENT_RESULT_TOOLS: frozenset[str] = frozenset({"Agent", "Task"})
 
 
 def _allowed_tools_for_mode(mode: str) -> list[str]:
@@ -469,6 +472,7 @@ class ClaudeCodeRuntime:
             options_kwargs["model"] = ctx.model
         _set_effort_kwarg(ClaudeAgentOptions, options_kwargs, ctx.effort)
         _set_env_kwarg(ClaudeAgentOptions, options_kwargs, ctx.env)
+        _set_partial_message_streaming_kwarg(ClaudeAgentOptions, options_kwargs)
         _set_streaming_permission_hooks(ClaudeAgentOptions, options_kwargs)
         # ctx.runtime_settings is reserved for future Claude/Codex-specific knobs.
 
@@ -578,6 +582,7 @@ class ClaudeCodeRuntime:
             options_kwargs["model"] = ctx.model
         _set_effort_kwarg(ClaudeAgentOptions, options_kwargs, ctx.effort)
         _set_env_kwarg(ClaudeAgentOptions, options_kwargs, ctx.env)
+        _set_partial_message_streaming_kwarg(ClaudeAgentOptions, options_kwargs)
         _set_streaming_permission_hooks(ClaudeAgentOptions, options_kwargs)
         opts = ClaudeAgentOptions(**options_kwargs)
 
@@ -1054,6 +1059,27 @@ def _set_env_kwarg(
         )
 
 
+def _set_partial_message_streaming_kwarg(
+    options_cls: Any,
+    options_kwargs: dict[str, Any],
+) -> None:
+    """Enable documented SDK StreamEvent deltas when the installed SDK supports them."""
+    try:
+        sig = inspect.signature(options_cls)
+        names = set(sig.parameters)
+    except Exception:
+        names = set(getattr(options_cls, "__annotations__", {}) or {})
+    if "include_partial_messages" in names:
+        options_kwargs["include_partial_messages"] = True
+    elif "includePartialMessages" in names:
+        options_kwargs["includePartialMessages"] = True
+    else:
+        logger.warning(
+            "claude-code: installed ClaudeAgentOptions exposes no partial-message "
+            "streaming kwarg; text will arrive as complete AssistantMessage blocks"
+        )
+
+
 def _attach_claude_mcp_bridge(
     ctx: TurnContext,
     options_kwargs: dict[str, Any],
@@ -1241,6 +1267,7 @@ def _bridge_message(
     from claude_agent_sdk import (  # type: ignore
         AssistantMessage,
         ResultMessage,
+        StreamEvent,
         SystemMessage,
         TextBlock,
         ThinkingBlock,
@@ -1249,18 +1276,42 @@ def _bridge_message(
         UserMessage,
     )
 
+    if isinstance(msg, StreamEvent):
+        event = msg.event or {}
+        if event.get("type") == "content_block_delta":
+            delta = event.get("delta") or {}
+            delta_type = delta.get("type")
+            if delta_type == "text_delta":
+                text = delta.get("text") or ""
+                if text:
+                    emit.token(text)
+                    final_text_parts.append(text)
+                    result_meta["claude_streamed_text_delta_seen"] = True
+            elif delta_type == "thinking_delta":
+                thinking = delta.get("thinking") or ""
+                if thinking:
+                    emit.thinking(thinking)
+                    result_meta["claude_streamed_thinking_delta_seen"] = True
+        return
+
     if isinstance(msg, AssistantMessage):
         for block in msg.content:
             if isinstance(block, TextBlock):
-                emit.token(block.text)
-                final_text_parts.append(block.text)
+                if not result_meta.get("claude_streamed_text_delta_seen"):
+                    emit.token(block.text)
+                    final_text_parts.append(block.text)
             elif isinstance(block, ThinkingBlock):
-                emit.thinking(block.thinking)
+                if not result_meta.get("claude_streamed_thinking_delta_seen"):
+                    emit.thinking(block.thinking)
             elif isinstance(block, ToolUseBlock):
                 tool_name_by_use_id[block.id] = block.name
                 tool_inputs = result_meta.setdefault("claude_tool_inputs", {})
                 if isinstance(tool_inputs, dict):
                     tool_inputs[block.id] = block.input or {}
+                parent_ids = result_meta.setdefault("claude_tool_parent_ids", {})
+                parent_id = getattr(block, "parent_tool_use_id", None)
+                if isinstance(parent_ids, dict) and parent_id:
+                    parent_ids[block.id] = str(parent_id)
                 emit.tool_start(
                     tool_name=block.name,
                     tool_call_id=block.id,
@@ -1317,6 +1368,26 @@ def _bridge_message(
                         if rich:
                             envelope, summary = rich
                             envelope = {**envelope, "tool_call_id": block.tool_use_id}
+                            surface = "rich_result"
+                            result_summary = envelope["plain_body"]
+                    if (
+                        not block.is_error
+                        and envelope is None
+                        and tool_name in (_PROGRESS_RESULT_TOOLS | _SUBAGENT_RESULT_TOOLS)
+                    ):
+                        rich = _build_claude_structured_tool_result(
+                            tool_name=tool_name,
+                            tool_call_id=block.tool_use_id,
+                            tool_input=tool_input if isinstance(tool_input, dict) else {},
+                            parent_tool_use_id=(
+                                (result_meta.get("claude_tool_parent_ids") or {}).get(block.tool_use_id)
+                                if isinstance(result_meta.get("claude_tool_parent_ids"), dict)
+                                else None
+                            ),
+                            raw_summary=result_summary,
+                        )
+                        if rich:
+                            envelope, summary = rich
                             surface = "rich_result"
                             result_summary = envelope["plain_body"]
                     if (
@@ -1443,6 +1514,71 @@ def _summarize_tool_result(content: Any) -> str:
         return joined if len(joined) <= 4000 else joined[:4000] + "…"
     # Fallback for unexpected shapes.
     return str(content)[:4000]
+
+
+def _build_claude_structured_tool_result(
+    *,
+    tool_name: str,
+    tool_call_id: str,
+    tool_input: dict[str, Any],
+    parent_tool_use_id: str | None,
+    raw_summary: str,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Build renderable envelopes for Claude SDK-native progress/subagent tools."""
+    if tool_name == "TodoWrite":
+        todos = tool_input.get("todos")
+        count = len(todos) if isinstance(todos, list) else 0
+        label = f"Updated {count} todo{'s' if count != 1 else ''}"
+        preview = raw_summary or label
+        envelope, summary = build_text_tool_result(
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+            body=preview,
+            label=label,
+            summary_kind="progress",
+            subject_type="todo",
+            preview_text=preview,
+        )
+        if isinstance(todos, list):
+            summary["todo_count"] = count
+            summary["todos"] = [
+                {
+                    "content": item.get("content"),
+                    "status": item.get("status"),
+                    "activeForm": item.get("activeForm"),
+                }
+                for item in todos
+                if isinstance(item, dict)
+            ][:20]
+        return envelope, summary
+
+    if tool_name in _SUBAGENT_RESULT_TOOLS:
+        label = str(
+            tool_input.get("description")
+            or tool_input.get("subagent_type")
+            or tool_input.get("agent")
+            or "Claude subagent"
+        )
+        preview = raw_summary or label
+        envelope, summary = build_text_tool_result(
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+            body=preview,
+            label=label,
+            summary_kind="subagent",
+            subject_type="agent",
+            preview_text=preview,
+        )
+        if parent_tool_use_id:
+            summary["parent_tool_use_id"] = parent_tool_use_id
+            envelope["parent_tool_use_id"] = parent_tool_use_id
+        if prompt := tool_input.get("prompt"):
+            summary["prompt_preview"] = str(prompt)[:240]
+        if subagent_type := tool_input.get("subagent_type"):
+            summary["subagent_type"] = str(subagent_type)
+        return envelope, summary
+
+    return None
 
 
 def _build_claude_file_change_result(

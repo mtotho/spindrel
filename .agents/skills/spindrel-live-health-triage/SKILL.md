@@ -25,17 +25,24 @@ or triage live server issues before or after backend/runtime work.
 
 ## Fetch Current Findings
 
-First confirm the deployed build/process identity:
+First call the preflight endpoint:
+
+```
+GET /api/v1/system-health/preflight?since=24h&limit=50
+```
+
+Use it to check package version, process `started_at`, `uptime_seconds`,
+container identity, build commit/ref/time/source/deploy id when supplied,
+recent-error `review_counts`, warnings, and `recommended_next_action`.
+
+If preflight is missing, fall back to deployed build/process identity:
 
 ```
 GET /api/v1/system-health/runtime
 ```
 
-Use this to check package version, process `started_at`, `uptime_seconds`,
-container identity, build commit/ref/time/source/deploy id when supplied, and
-the `recent_errors_review_state` feature flag. `/health` only proves the server
-is alive; it does not prove the image contains the health triage features you
-expect.
+`/health` only proves the server is alive; it does not prove the image contains
+the health triage features you expect.
 
 When working from the repo checkout, compare live `build.commit_sha` to:
 
@@ -48,7 +55,12 @@ before triage and treat missing/old API features as likely deploy staleness, not
 as a code regression. If the live SHA is `null`, say the deploy path has not
 stamped build metadata yet and fall back to OpenAPI feature checks.
 
-Call:
+If preflight recommends `no_current_errors`, do not promote or resolve anything
+unless the user asks about a specific finding. If it warns `missing_build_sha`,
+treat that as deploy metadata debt and fall back to OpenAPI feature checks.
+
+Call recent errors when preflight recommends triage or when you need the full
+finding payload:
 
 ```
 GET /api/v1/system-health/recent-errors?since=24h&limit=50&include_attention=true

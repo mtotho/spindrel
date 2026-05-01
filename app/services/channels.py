@@ -1,4 +1,5 @@
 """Channel service: first-class persistent container for conversations."""
+import copy
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 INTEGRATION_CLIENT_PREFIXES = ("slack:", "discord:", "teams:", "github:")
+HARNESS_SETTINGS_KEY = "harness_settings"
 
 
 def _default_model() -> str:
@@ -303,6 +305,8 @@ async def ensure_active_session(
 async def reset_channel_session(
     db: AsyncSession,
     channel: Channel,
+    *,
+    source_session_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     """Create a new session for the channel and set it as active.
 
@@ -319,12 +323,18 @@ async def reset_channel_session(
         has_integration = result.scalar_one_or_none() is not None
 
     session_id = uuid.uuid4()
+    inherited_metadata = await _inherited_harness_session_metadata(
+        db,
+        channel=channel,
+        source_session_id=source_session_id,
+    )
     session = Session(
         id=session_id,
         client_id=channel.client_id or f"channel:{channel.id}",
         bot_id=channel.bot_id,
         channel_id=channel.id,
         locked=has_integration,
+        metadata_=inherited_metadata,
     )
     db.add(session)
     await db.flush()
@@ -339,6 +349,8 @@ async def reset_channel_session(
 async def create_detached_channel_session(
     db: AsyncSession,
     channel: Channel,
+    *,
+    source_session_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     """Create a channel-bound session without changing the channel primary.
 
@@ -355,18 +367,55 @@ async def create_detached_channel_session(
         has_integration = result.scalar_one_or_none() is not None
 
     session_id = uuid.uuid4()
+    inherited_metadata = await _inherited_harness_session_metadata(
+        db,
+        channel=channel,
+        source_session_id=source_session_id,
+    )
     session = Session(
         id=session_id,
         client_id=channel.client_id or f"channel:{channel.id}",
         bot_id=channel.bot_id,
         channel_id=channel.id,
         locked=has_integration,
+        metadata_=inherited_metadata,
     )
     db.add(session)
     channel.updated_at = datetime.now(timezone.utc)
     await db.flush()
     await db.commit()
     return session_id
+
+
+async def _inherited_harness_session_metadata(
+    db: AsyncSession,
+    *,
+    channel: Channel,
+    source_session_id: uuid.UUID | None = None,
+) -> dict:
+    """Copy harness model/effort settings from the current channel session.
+
+    Native harness model picks are per-session so split panes do not clobber
+    each other, but "new session" should feel like the runtime CLI: the user's
+    last selected model/effort carries forward. Only the harness settings blob
+    is inherited; plans, approvals, compaction state, and turn metadata stay
+    session-local.
+    """
+    source_id = source_session_id or channel.active_session_id
+    if source_id is None:
+        return {}
+
+    source = await db.get(Session, source_id)
+    if source is None:
+        return {}
+    source_channel_id = source.channel_id or source.parent_channel_id
+    if source_channel_id != channel.id:
+        return {}
+
+    raw_settings = (source.metadata_ or {}).get(HARNESS_SETTINGS_KEY)
+    if not isinstance(raw_settings, dict) or not raw_settings:
+        return {}
+    return {HARNESS_SETTINGS_KEY: copy.deepcopy(raw_settings)}
 
 
 async def switch_channel_session(

@@ -1497,7 +1497,11 @@ def _pin_contract_summary(pin: WidgetDashboardPin | None) -> dict[str, Any]:
     if pin is None:
         return {}
     origin = pin.widget_origin if isinstance(pin.widget_origin, dict) else {}
-    presentation = pin.widget_presentation if isinstance(pin.widget_presentation, dict) else {}
+    presentation = (
+        pin.widget_presentation_snapshot
+        if isinstance(pin.widget_presentation_snapshot, dict)
+        else {}
+    )
     envelope = pin.envelope if isinstance(pin.envelope, dict) else {}
     return {
         "definition_kind": origin.get("definition_kind"),

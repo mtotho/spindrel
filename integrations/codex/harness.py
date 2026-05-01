@@ -33,7 +33,12 @@ from integrations.codex.approvals import (
     mode_to_codex_policy,
     mode_to_codex_turn_policy,
 )
-from integrations.codex.events import normalize_token_usage, translate_notification
+from integrations.codex.events import (
+    format_execution_surface_failure,
+    looks_like_execution_surface_failure,
+    normalize_token_usage,
+    translate_notification,
+)
 from integrations.sdk import (
     AuthStatus,
     ChannelEventEmitter,
@@ -423,8 +428,13 @@ class CodexRuntime:
                             result_meta["error"] = str(exc)
                         except Exception as exc:
                             logger.exception("codex: turn stream consumer failed")
+                            message = str(exc)
                             result_meta["is_error"] = True
-                            result_meta["error"] = str(exc)
+                            result_meta["error"] = (
+                                format_execution_surface_failure(message)
+                                if looks_like_execution_surface_failure(message)
+                                else message
+                            )
                     if result_meta.get("completed") or result_meta.get("is_error"):
                         break
             finally:

@@ -33,7 +33,15 @@ def test_tool_profiles_group_agent_first_surfaces():
     assert agent_capabilities._profile_for_tool("emit_html_widget") == "widgets"
     assert agent_capabilities._profile_for_tool("record_plan_progress") == "planning"
     assert agent_capabilities._profile_for_tool("get_recent_server_errors") == "diagnostics"
+    assert agent_capabilities._profile_for_tool("get_system_health_preflight") == "diagnostics"
     assert agent_capabilities._profile_for_tool("machine_run_probe") == "diagnostics"
+
+
+def test_system_health_preflight_is_core_agent_tool():
+    import app.tools.local.system_health_tools  # noqa: F401
+
+    assert "get_system_health_preflight" in agent_capabilities.CORE_AGENT_TOOLS
+    assert "get_system_health_preflight" in local_tools
 
 
 def test_runtime_context_budget_normalization_and_thresholds():
@@ -136,6 +144,39 @@ def test_skill_opportunities_recommend_existing_widget_and_integration_skills():
         "diagnostics",
     ]
     assert by_feature["integration_readiness"]["coverage_status"] == "covered"
+    assert payload["creation_candidates"] == []
+
+
+def test_skill_opportunities_recommend_health_triage_for_server_health_attention():
+    manifest = {
+        "skills": {"bot_enrolled": [], "channel_enrolled": []},
+        "widgets": {"readiness": "ready", "missing_skills": []},
+        "integrations": {"summary": {}},
+        "coding_run": {"readiness": "needs_project"},
+        "project": {"attached": False},
+        "runtime_context": {"recommendation": "continue"},
+        "work_state": {
+            "attention": [{
+                "id": "attn-1",
+                "target_kind": "system",
+                "target_id": "server-health",
+            }],
+        },
+        "doctor": {"findings": [], "pending_repair_requests": []},
+    }
+
+    payload = agent_capabilities._skill_opportunity_payload(manifest)
+
+    by_feature = {entry["feature_id"]: entry for entry in payload["recommended_now"]}
+    health = by_feature["health_triage"]
+    assert health["first_action"] == 'get_skill("diagnostics/health_triage")'
+    assert health["coverage_status"] == "covered"
+    assert health["suggested_owner"] == "existing_runtime_skill"
+    assert health["missing_skill_ids"] == [
+        "diagnostics/health_triage",
+        "diagnostics/recent_errors",
+        "diagnostics/health_summary",
+    ]
     assert payload["creation_candidates"] == []
 
 
@@ -289,7 +330,6 @@ def test_skill_opportunities_recommend_project_coding_run_runtime_skill():
         "workspace/project_coding_runs",
         "workspace/files",
         "workspace/member",
-        "e2e_testing",
     ]
     assert project["first_action"] == 'get_skill("workspace/project_coding_runs")'
     assert project["labels"]["workspace/project_coding_runs"] == "Project coding runs"
@@ -302,7 +342,6 @@ def test_project_coding_run_payload_includes_review_tools(monkeypatch):
         "exec_command": {},
         "get_project_dependency_stack": {},
         "manage_project_dependency_stack": {},
-        "run_e2e_tests": {},
         "prepare_project_run_handoff": {},
         "schedule_project_coding_run": {},
         "get_project_coding_run_review_context": {},

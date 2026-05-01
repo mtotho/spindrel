@@ -34,7 +34,6 @@ Not every skill fits a cluster. These sit at the top level:
 - `skill_authoring` — how to capture patterns as a skill, frontmatter schema, lifecycle.
 - `programmatic_tool_use` — `run_script` for chaining tool calls in one pass.
 - `generate_image` — image generation with attachments.
-- `e2e_testing` — running the test harness, reading results.
 
 ## How skill IDs work
 

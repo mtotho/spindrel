@@ -22,17 +22,51 @@ import urllib.request
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LOCAL_ENV = REPO_ROOT / ".env.agent-e2e"
-SCRATCH_DIR = REPO_ROOT / "scratch" / "agent-e2e"
-AUTH_OVERRIDE = SCRATCH_DIR / "compose.auth.override.yml"
+DEFAULT_PORT = 18100
+DEFAULT_SCRATCH_DIR = REPO_ROOT / "scratch" / "agent-e2e"
+DEFAULT_APP_COMPOSE_PROJECT = "spindrel-local-e2e"
+DEFAULT_DEPENDENCY_COMPOSE_PROJECT = "spindrel-local-e2e-runtime-deps"
+DEFAULT_POSTGRES_VOLUME = "spindrel-local-e2e_postgres-data"
+
+
+def _safe_state_suffix(value: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in value.strip())
+    return safe.strip("-_") or "custom"
+
+
+def _resolve_scratch_dir(environ: dict[str, str] | None = None) -> Path:
+    env = environ if environ is not None else os.environ
+    explicit = env.get("SPINDREL_AGENT_E2E_STATE_DIR") or env.get("E2E_STATE_DIR")
+    if explicit:
+        path = Path(explicit).expanduser()
+        return path if path.is_absolute() else REPO_ROOT / path
+    port = env.get("E2E_PORT", "").strip()
+    if port:
+        return REPO_ROOT / "scratch" / f"agent-e2e-{_safe_state_suffix(port)}"
+    compose_project = env.get("E2E_COMPOSE_PROJECT", "").strip()
+    if compose_project and compose_project != DEFAULT_APP_COMPOSE_PROJECT:
+        return REPO_ROOT / "scratch" / f"agent-e2e-{_safe_state_suffix(compose_project)}"
+    return DEFAULT_SCRATCH_DIR
+
+
+SCRATCH_DIR = _resolve_scratch_dir()
+# App-container fallback state stays stable for the shared compose project. Do
+# not key this off the agent-owned native API state dir; doing so changes the
+# compose config files for the default dependency project and can force
+# unnecessary container recreates.
+AUTH_OVERRIDE = DEFAULT_SCRATCH_DIR / "compose.auth.override.yml"
 HARNESS_PARITY_ENV = SCRATCH_DIR / "harness-parity.env"
 NATIVE_API_ENV = SCRATCH_DIR / "native-api.env"
 NATIVE_API_PID = SCRATCH_DIR / "native-api.pid"
 NATIVE_API_LOG = SCRATCH_DIR / "native-api.log"
 SCREENSHOT_ENV = REPO_ROOT / "scripts" / "screenshots" / ".env"
 DEFAULT_API_KEY = "e2e-test-key-12345"
-DEFAULT_PORT = 18000
 DEFAULT_IMAGE = "spindrel:e2e"
-COMPOSE_PROJECT = os.environ.get("E2E_COMPOSE_PROJECT", "spindrel-local-e2e")
+APP_COMPOSE_PROJECT = os.environ.get("E2E_COMPOSE_PROJECT", DEFAULT_APP_COMPOSE_PROJECT)
+DEPENDENCY_COMPOSE_PROJECT = os.environ.get(
+    "E2E_DEPENDENCY_COMPOSE_PROJECT",
+    DEFAULT_DEPENDENCY_COMPOSE_PROJECT,
+)
 COMPOSE_FILE = REPO_ROOT / "tests" / "e2e" / "docker-compose.e2e.yml"
 SUBSCRIPTION_DUMMY_BASE_URL = "http://127.0.0.1:9/v1"
 SUBSCRIPTION_DEFAULT_MODEL = "gpt-5.4-mini"
@@ -83,6 +117,30 @@ HARNESS_PARITY_RUNTIME_CONFIG = {
 
 
 PRODUCTION_PORTS = {8000}
+PROJECT_RUN_BLOCKED_COMMANDS = {
+    "prepare",
+    "prepare-deps",
+    "start-api",
+    "bootstrap-subscription",
+    "prepare-harness-parity",
+    "prepare-project-factory-smoke",
+    "wipe-db",
+}
+
+
+def _reject_project_run_bootstrap(command: str) -> None:
+    if os.environ.get("SPINDREL_PROJECT_RUN_GUARD") != "1":
+        return
+    if os.environ.get("SPINDREL_ALLOW_REPO_DEV_BOOTSTRAP") == "1":
+        return
+    if command not in PROJECT_RUN_BLOCKED_COMMANDS:
+        return
+    raise SystemExit(
+        "Refusing to run repo-dev e2e bootstrap command from inside a Project "
+        "coding run. Use injected Project env, Dependency Stack tools, and a "
+        "source-run dev process on the assigned port. Set "
+        "SPINDREL_ALLOW_REPO_DEV_BOOTSTRAP=1 only for an explicit infrastructure task."
+    )
 
 
 def _git_value(*args: str) -> str:
@@ -190,9 +248,20 @@ def _ensure_local_env_value(env: dict[str, str], key: str, value_factory) -> str
 def _merged_env() -> dict[str, str]:
     env = dict(os.environ)
     env.update({k: v for k, v in _read_env_file(LOCAL_ENV).items() if k not in env})
-    if "E2E_COMPOSE_OVERRIDES" not in env and AUTH_OVERRIDE.exists():
-        env["E2E_COMPOSE_OVERRIDES"] = str(AUTH_OVERRIDE)
     return env
+
+
+def _merge_previous_native_api_env(env: dict[str, str]) -> dict[str, str]:
+    """Carry forward the last native API process env when setup is skipped."""
+    previous = _read_env_file(NATIVE_API_ENV)
+    if not previous:
+        return env
+    merged = dict(env)
+    for key, value in previous.items():
+        if key in os.environ:
+            continue
+        merged[key] = value
+    return merged
 
 
 def _base_url(env: dict[str, str]) -> str:
@@ -269,19 +338,26 @@ def _is_local_url(url: str) -> bool:
     return parsed.hostname in {"localhost", "127.0.0.1", "::1"}
 
 
-def _compose_overrides(env: dict[str, str]) -> list[Path]:
-    return [
+def _compose_overrides(env: dict[str, str], *, include_auth_override: bool = False) -> list[Path]:
+    overrides = [
         Path(path).expanduser()
         for path in env.get("E2E_COMPOSE_OVERRIDES", "").split(":")
         if path.strip()
     ]
+    if include_auth_override and not overrides and AUTH_OVERRIDE.exists():
+        overrides.append(AUTH_OVERRIDE)
+    return overrides
 
 
-def _compose_cmd(overrides: list[Path], *args: str) -> list[str]:
+def _compose_cmd(
+    overrides: list[Path],
+    *args: str,
+    project: str = APP_COMPOSE_PROJECT,
+) -> list[str]:
     cmd = ["docker", "compose", "-f", str(COMPOSE_FILE)]
     for override in overrides:
         cmd.extend(["-f", str(override)])
-    cmd.extend(["-p", COMPOSE_PROJECT])
+    cmd.extend(["-p", project])
     cmd.extend(args)
     return cmd
 
@@ -293,6 +369,7 @@ def _compose_env(env: dict[str, str], *, api_url: str, api_key: str) -> dict[str
     compose_env = dict(os.environ)
     compose_env.update(env)
     compose_env.setdefault("E2E_IMAGE", DEFAULT_IMAGE)
+    compose_env.setdefault("E2E_POSTGRES_VOLUME", DEFAULT_POSTGRES_VOLUME)
     compose_env["E2E_PORT"] = str(parsed.port or DEFAULT_PORT)
     compose_env["E2E_API_KEY"] = api_key
     compose_env.setdefault("E2E_BOT_CONFIG", str(REPO_ROOT / "tests" / "e2e" / "bot.e2e.yaml"))
@@ -513,7 +590,11 @@ def _ensure_built_ui() -> None:
 
 
 def _run(cmd: list[str], *, env: dict[str, str] | None = None, timeout: int = 600) -> None:
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        output = ((exc.stdout or "") + (exc.stderr or "")).strip()
+        raise SystemExit(f"command timed out after {timeout}s: {' '.join(cmd)}\n{output[-4000:]}") from exc
     if result.returncode == 0:
         return
     output = (result.stdout + result.stderr).strip()
@@ -527,14 +608,14 @@ def _run_best_effort(cmd: list[str], *, env: dict[str, str] | None = None, timeo
         return
 
 
-def _remove_compose_service_containers(service: str) -> None:
+def _remove_compose_service_containers(service: str, *, project: str = APP_COMPOSE_PROJECT) -> None:
     result = subprocess.run(
         [
             "docker",
             "ps",
             "-aq",
             "--filter",
-            f"label=com.docker.compose.project={COMPOSE_PROJECT}",
+            f"label=com.docker.compose.project={project}",
             "--filter",
             f"label=com.docker.compose.service={service}",
         ],
@@ -549,8 +630,61 @@ def _remove_compose_service_containers(service: str) -> None:
         _run_best_effort(["docker", "rm", "-f", *ids], timeout=60)
 
 
-def _start_dependency_services(compose_env: dict[str, str], overrides: list[Path]) -> None:
-    cmd = _compose_cmd(overrides, "up", "-d", "--remove-orphans", "postgres", "searxng")
+def _compose_container_status_lines(*, project: str = APP_COMPOSE_PROJECT) -> list[str]:
+    result = subprocess.run(
+        [
+            "docker",
+            "ps",
+            "-a",
+            "--filter",
+            f"label=com.docker.compose.project={project}",
+            "--format",
+            "{{.ID}} {{.Names}} {{.Status}}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def _raise_if_compose_project_has_dead_containers(project: str) -> None:
+    status_lines = _compose_container_status_lines(project=project)
+    dead_lines = [line for line in status_lines if " Dead" in line or line.endswith(" Dead")]
+    if not dead_lines:
+        return
+    status = "\n".join(f"  {line}" for line in dead_lines)
+    raise SystemExit(
+        f"local Spindrel e2e dependency stack {project!r} has Docker containers in Dead state.\n"
+        "Docker can hang indefinitely trying to recreate or remove Dead containers, so the helper "
+        "is stopping before it wedges the terminal. Restart Docker, then rerun "
+        "`python scripts/agent_e2e_dev.py prepare-deps`. Do not use a private compose project "
+        "and do not wipe the DB/auth volume.\n"
+        f"Dead containers:\n{status}"
+    )
+
+
+def _start_dependency_services(
+    compose_env: dict[str, str],
+    overrides: list[Path],
+    *,
+    project: str = DEPENDENCY_COMPOSE_PROJECT,
+) -> None:
+    _raise_if_compose_project_has_dead_containers(project)
+    cmd = _compose_cmd(
+        overrides,
+        "up",
+        "-d",
+        "--wait",
+        "--wait-timeout",
+        "90",
+        "--remove-orphans",
+        "postgres",
+        "searxng",
+        project=project,
+    )
     last_exc: SystemExit | None = None
     for attempt in range(4):
         try:
@@ -562,11 +696,20 @@ def _start_dependency_services(compose_env: dict[str, str], overrides: list[Path
                 raise
             last_exc = exc
         print("dependency containers were in a transient Docker removal state; draining stale containers")
-        _remove_compose_service_containers("postgres")
-        _remove_compose_service_containers("searxng")
+        _remove_compose_service_containers("postgres", project=project)
+        _remove_compose_service_containers("searxng", project=project)
         time.sleep(2 + attempt)
     assert last_exc is not None
-    raise last_exc
+    status_lines = _compose_container_status_lines(project=project)
+    status = "\n".join(f"  {line}" for line in status_lines) if status_lines else "  <unavailable>"
+    raise SystemExit(
+        f"local Spindrel e2e dependency stack {project!r} is stuck in Docker removal state.\n"
+        "Do not switch to a private compose project and do not wipe the DB/auth volume. "
+        "Coordinate a Docker daemon restart, then rerun `python scripts/agent_e2e_dev.py prepare-deps`.\n"
+        f"Current default stack containers:\n{status}\n"
+        f"Original failure:\n{last_exc}"
+    )
+
 
 
 def _prepare_stack(
@@ -587,7 +730,7 @@ def _prepare_stack(
 
     image = env.get("E2E_IMAGE", DEFAULT_IMAGE)
     compose_env = _compose_env(env, api_url=api_url, api_key=api_key)
-    overrides = _compose_overrides(env)
+    overrides = _compose_overrides(env, include_auth_override=True)
 
     if build:
         print(f"building current source image {image}")
@@ -606,13 +749,13 @@ def _prepare_stack(
         )
 
     print(f"starting Spindrel e2e dependencies on {api_url}")
-    _start_dependency_services(compose_env, overrides)
+    _start_dependency_services(compose_env, overrides, project=APP_COMPOSE_PROJECT)
     print("recreating Spindrel e2e app container from current image")
-    _run_best_effort(_compose_cmd(overrides, "stop", "spindrel"), env=compose_env)
-    _run_best_effort(_compose_cmd(overrides, "rm", "-f", "spindrel"), env=compose_env)
-    _remove_compose_service_containers("spindrel")
+    _run_best_effort(_compose_cmd(overrides, "stop", "spindrel", project=APP_COMPOSE_PROJECT), env=compose_env)
+    _run_best_effort(_compose_cmd(overrides, "rm", "-f", "spindrel", project=APP_COMPOSE_PROJECT), env=compose_env)
+    _remove_compose_service_containers("spindrel", project=APP_COMPOSE_PROJECT)
     _run(
-        _compose_cmd(overrides, "up", "-d", "--no-deps", "spindrel"),
+        _compose_cmd(overrides, "up", "-d", "--no-deps", "spindrel", project=APP_COMPOSE_PROJECT),
         env=compose_env,
         timeout=180,
     )
@@ -645,10 +788,11 @@ def _prepare_dependencies_only(
 
     compose_env = _compose_env(env, api_url=api_url, api_key=api_key)
     overrides = _compose_overrides(env)
-    _start_dependency_services(compose_env, overrides)
+    _start_dependency_services(compose_env, overrides, project=DEPENDENCY_COMPOSE_PROJECT)
     postgres_port = compose_env.get("E2E_POSTGRES_PORT", "15432")
     searxng_port = compose_env.get("E2E_SEARXNG_PORT", "18080")
     print("Spindrel e2e dependencies are running")
+    print(f"  compose project: {DEPENDENCY_COMPOSE_PROJECT}")
     print(f"  DATABASE_URL=postgresql+asyncpg://agent:agent@localhost:{postgres_port}/agentdb")
     print(f"  SEARXNG_URL=http://localhost:{searxng_port}")
     print("Start the Spindrel app from this source checkout on your own unused port.")
@@ -663,9 +807,9 @@ def _restart_spindrel_app_container(api_url: str, api_key: str, env: dict[str, s
     if not shutil.which("docker"):
         raise SystemExit("docker is required to restart the local Spindrel e2e app container")
     compose_env = _compose_env(env, api_url=api_url, api_key=api_key)
-    overrides = _compose_overrides(env)
+    overrides = _compose_overrides(env, include_auth_override=True)
     print("restarting Spindrel e2e app container so newly installed harness deps load")
-    _run(_compose_cmd(overrides, "restart", "spindrel"), env=compose_env, timeout=120)
+    _run(_compose_cmd(overrides, "restart", "spindrel", project=APP_COMPOSE_PROJECT), env=compose_env, timeout=120)
     deadline = time.time() + timeout
     last_detail = ""
     while time.time() < deadline:
@@ -740,7 +884,11 @@ def cmd_wipe_db(args: argparse.Namespace) -> int:
     compose_env = _compose_env(env, api_url=api_url, api_key=args.api_key or _api_key(env))
     overrides = _compose_overrides(env)
     print("wiping local Spindrel e2e database volume")
-    _run(_compose_cmd(overrides, "down", "-v", "--remove-orphans"), env=compose_env, timeout=180)
+    _run(
+        _compose_cmd(overrides, "down", "-v", "--remove-orphans", project=DEPENDENCY_COMPOSE_PROJECT),
+        env=compose_env,
+        timeout=180,
+    )
     return 0
 
 
@@ -1101,7 +1249,7 @@ def _write_harness_parity_env(
         (
             "HARNESS_PARITY_AGENT_CONTAINER="
             if native_app
-            else f"HARNESS_PARITY_AGENT_CONTAINER={COMPOSE_PROJECT}-spindrel-1"
+            else f"HARNESS_PARITY_AGENT_CONTAINER={APP_COMPOSE_PROJECT}-spindrel-1"
         ),
         "HARNESS_PARITY_CAPTURE_SCREENSHOTS=auto",
         "HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR=/tmp/spindrel-harness-local-screenshots",
@@ -1122,6 +1270,9 @@ def _write_harness_parity_env(
 
 def cmd_prepare_harness_parity(args: argparse.Namespace) -> int:
     env = _merged_env()
+    native_app = not args.docker_app
+    if native_app and args.skip_setup:
+        env = _merge_previous_native_api_env(env)
     api_url = (args.api_url or _base_url(env)).rstrip("/")
     _require_non_production(api_url, allow_production=args.allow_production)
     api_key = args.api_key or _api_key(env)
@@ -1130,7 +1281,6 @@ def cmd_prepare_harness_parity(args: argparse.Namespace) -> int:
     if unknown:
         raise SystemExit(f"unsupported harness parity runtime(s): {', '.join(unknown)}")
 
-    native_app = not args.docker_app
     if args.docker_app:
         _ensure_auth_override()
         env = _merged_env()
@@ -1152,6 +1302,8 @@ def cmd_prepare_harness_parity(args: argparse.Namespace) -> int:
                 build=not args.no_build,
                 startup_timeout=args.startup_timeout,
             )
+    elif native_app:
+        api_url = _start_native_api(api_url, api_key, env, startup_timeout=args.startup_timeout)
 
     for runtime in runtimes:
         config = HARNESS_PARITY_RUNTIME_CONFIG[runtime]
@@ -1202,7 +1354,7 @@ def cmd_prepare_harness_parity(args: argparse.Namespace) -> int:
             if native_app:
                 _validate_claude_live_auth_native()
             else:
-                _validate_claude_live_auth(f"{COMPOSE_PROJECT}-spindrel-1")
+                _validate_claude_live_auth(f"{APP_COMPOSE_PROJECT}-spindrel-1")
         _ensure_harness_parity_bot(
             api_url,
             api_key,
@@ -1303,6 +1455,12 @@ def cmd_prepare_project_factory_smoke(args: argparse.Namespace) -> int:
 def cmd_write_env(args: argparse.Namespace) -> int:
     if args.base_url:
         _require_non_production(args.base_url, allow_production=args.allow_production)
+    raw_port = str(args.port or "auto").strip()
+    if raw_port.lower() in {"auto", "0"}:
+        port = str(_pick_available_port(DEFAULT_PORT))
+    else:
+        port = raw_port
+    e2e_url = args.base_url.rstrip("/") if args.base_url else f"http://{args.host}:{port}"
     provider = getattr(args, "provider", "openai-compatible")
     llm_base_url = args.llm_base_url
     llm_api_key = args.llm_api_key
@@ -1318,9 +1476,9 @@ def cmd_write_env(args: argparse.Namespace) -> int:
     jwt_secret = env_values.get("JWT_SECRET") or os.urandom(32).hex()
     lines = [
         "# Local Spindrel agent e2e development env. Gitignored.",
-        f"E2E_MODE=compose",
+        "E2E_MODE=external",
         f"E2E_HOST={args.host}",
-        f"E2E_PORT={args.port}",
+        f"E2E_PORT={port}",
         f"E2E_API_KEY={args.api_key}",
         f"E2E_LLM_BASE_URL={llm_base_url}",
         f"E2E_LLM_API_KEY={llm_api_key}",
@@ -1328,13 +1486,13 @@ def cmd_write_env(args: argparse.Namespace) -> int:
         f"E2E_IMAGE={DEFAULT_IMAGE}",
         "E2E_KEEP_RUNNING=1",
         f"SPINDREL_AGENT_E2E_PROVIDER={provider}",
+        f"SPINDREL_AGENT_E2E_STATE_DIR=scratch/agent-e2e-{port}",
+        f"SPINDREL_E2E_URL={e2e_url}",
         f"ENCRYPTION_KEY={encryption_key}",
         f"JWT_SECRET={jwt_secret}",
     ]
     if provider == "subscription":
         lines.append("SPINDREL_PROVIDER=chatgpt-subscription")
-    if args.base_url:
-        lines.append(f"SPINDREL_E2E_URL={args.base_url.rstrip('/')}")
     _write_text(LOCAL_ENV, "\n".join(lines) + "\n", force=args.force)
     if provider == "subscription":
         print(
@@ -1464,13 +1622,30 @@ def cmd_bootstrap_subscription(args: argparse.Namespace) -> int:
     _require_non_production(api_url, allow_production=args.allow_production)
     api_key = args.api_key or _api_key(env)
     if not args.skip_setup:
-        _prepare_stack(
-            api_url=api_url,
-            api_key=api_key,
-            env=env,
-            build=not args.no_build,
-            startup_timeout=args.startup_timeout,
-        )
+        if env.get("E2E_MODE") == "external":
+            if args.no_build:
+                ok, detail = _check_url(api_url, api_key)
+                if not ok:
+                    raise SystemExit(
+                        "native Spindrel API is not healthy; run "
+                        "`python scripts/agent_e2e_dev.py start-api --build-ui` first "
+                        f"or omit --no-build. Health check: {detail}"
+                    )
+            else:
+                api_url = _ensure_native_api(
+                    api_url=api_url,
+                    api_key=api_key,
+                    env=env,
+                    startup_timeout=args.startup_timeout,
+                )
+        else:
+            _prepare_stack(
+                api_url=api_url,
+                api_key=api_key,
+                env=env,
+                build=not args.no_build,
+                startup_timeout=args.startup_timeout,
+            )
     provider_id = args.provider_id
     try:
         _ensure_provider(api_url, api_key, provider_id)
@@ -1521,20 +1696,23 @@ def cmd_bootstrap_subscription(args: argparse.Namespace) -> int:
 def cmd_commands(args: argparse.Namespace) -> int:
     env_file = args.env_file
     prefix = f"set -a && source {env_file} && set +a && "
-    overrides = ""
-    if AUTH_OVERRIDE.exists():
-        overrides = f"E2E_COMPOSE_OVERRIDES={AUTH_OVERRIDE} "
     env = _merged_env()
     subscription = env.get("SPINDREL_AGENT_E2E_PROVIDER") == "subscription"
+    native_env_file = str(NATIVE_API_ENV.relative_to(REPO_ROOT)) if NATIVE_API_ENV.exists() else str(NATIVE_API_ENV)
+    native_prefix = f"set -a && source {native_env_file} && set +a && "
+    if not NATIVE_API_ENV.exists():
+        native_prefix = "# after start-api writes native-api.env: " + native_prefix
     print("fresh local e2e:")
-    print("  python scripts/agent_e2e_dev.py prepare-deps")
-    print("  # then start the API/UI from this checkout on unused ports")
-    print("  python scripts/agent_e2e_dev.py prepare")
-    print(f"  {prefix}{overrides}E2E_KEEP_RUNNING=1 pytest tests/e2e/ -k \"test_health\" -v")
+    print("  python scripts/agent_e2e_dev.py write-env --port auto")
+    print(f"  {prefix}python scripts/agent_e2e_dev.py prepare-deps")
+    print(f"  {prefix}python scripts/agent_e2e_dev.py start-api --build-ui")
+    print(f"  {native_prefix}E2E_KEEP_RUNNING=1 pytest tests/e2e/ -k \"test_health\" -v")
+    print("  # Full Docker app-container fallback only:")
+    print(f"  {prefix}python scripts/agent_e2e_dev.py prepare")
     if subscription:
         print("subscription handoff:")
-        print("  python scripts/agent_e2e_dev.py bootstrap-subscription --api-url http://localhost:18000")
-        print("  pytest tests/e2e/ -k \"test_chat_basic or test_tool_usage\" -v")
+        print(f"  {prefix}python scripts/agent_e2e_dev.py bootstrap-subscription --api-url \"$SPINDREL_E2E_URL\"")
+        print(f"  {native_prefix}E2E_KEEP_RUNNING=1 pytest tests/e2e/ -k \"test_chat_basic or test_tool_usage\" -v")
     print("project workspace screenshots:")
     print("  python -m scripts.screenshots stage --only project-workspace")
     print("  python -m scripts.screenshots capture --only project-workspace")
@@ -1543,8 +1721,6 @@ def cmd_commands(args: argparse.Namespace) -> int:
     print("  python scripts/agent_e2e_dev.py prepare-harness-parity")
     print("  ./scripts/run_harness_parity_local.sh --tier core")
     print("  ./scripts/run_harness_parity_local.sh --tier skills -k \"native_image_input_manifest\"")
-    print("external target status from a Spindrel bot:")
-    print('  run_e2e_tests(action="status")')
     print("project factory local PR smoke:")
     print(
         "  python scripts/agent_e2e_dev.py prepare-project-factory-smoke "
@@ -1597,7 +1773,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     write_env = sub.add_parser("write-env")
     write_env.add_argument("--host", default="localhost")
-    write_env.add_argument("--port", default=str(DEFAULT_PORT))
+    write_env.add_argument(
+        "--port",
+        default="auto",
+        help="Local native API/UI port, or 'auto' to lease the first free port near 18100.",
+    )
     write_env.add_argument("--api-key", default=DEFAULT_API_KEY)
     write_env.add_argument("--base-url", default="")
     write_env.add_argument(
@@ -1690,6 +1870,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    _reject_project_run_bootstrap(str(args.command))
     return int(args.func(args) or 0)
 
 

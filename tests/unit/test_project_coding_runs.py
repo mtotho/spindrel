@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from app.db.models import Channel, ExecutionReceipt, Project, ProjectRunReceipt, Task, TaskMachineGrant
+from app.db.models import Channel, ExecutionReceipt, Project, ProjectDependencyStackInstance, ProjectRunReceipt, Task, TaskMachineGrant
 from app.services.project_coding_runs import (
     ProjectCodingRunCreate,
     ProjectCodingRunReviewFinalize,
@@ -179,7 +179,9 @@ async def test_project_coding_run_allocates_dev_targets_and_runtime_env(db_sessi
     )
     db_session.add_all([project, channel])
     await db_session.commit()
-    monkeypatch.setattr("app.services.project_coding_runs._is_port_listening", lambda port, host="127.0.0.1": port == 31100)
+    fake_listening = lambda port, host="127.0.0.1": port == 31100
+    monkeypatch.setattr("app.services.project_coding_runs._is_port_listening", fake_listening)
+    monkeypatch.setattr("app.services.project_task_execution_context.default_port_prober", fake_listening)
 
     task = await create_project_coding_run(
         db_session,
@@ -201,6 +203,53 @@ async def test_project_coding_run_allocates_dev_targets_and_runtime_env(db_sessi
     assert runtime is not None
     assert runtime.env["SPINDREL_DEV_API_PORT"] == "31101"
     assert runtime.env["SPINDREL_DEV_API_URL"] == "http://127.0.0.1:31101"
+
+
+@pytest.mark.asyncio
+async def test_project_runtime_merges_task_dependency_stack_env(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Generic App",
+        slug="generic-app",
+        root_path="common/projects/generic-app",
+        metadata_={"blueprint_snapshot": {"env": {"APP_ENV": "test"}}},
+    )
+    task = Task(
+        id=task_id,
+        workspace_id=workspace_id,
+        title="Project coding run",
+        channel_id=uuid.uuid4(),
+        task_type="agent",
+        status="running",
+        execution_config={"project_coding_run": {"project_id": str(project_id)}},
+    )
+    stack = ProjectDependencyStackInstance(
+        project_id=project_id,
+        task_id=task_id,
+        scope="task",
+        status="running",
+        env={
+            "DATABASE_URL": "postgresql://agent:agent@host.docker.internal:39001/app",
+            "PROJECT_DEPENDENCY_STACK_ID": "stack-1",
+        },
+    )
+    db_session.add_all([project, task, stack])
+    await db_session.commit()
+
+    runtime = await load_project_runtime_environment_for_id(db_session, project_id, task_id=task_id)
+
+    assert runtime is not None
+    assert runtime.env["APP_ENV"] == "test"
+    assert runtime.env["DATABASE_URL"] == "postgresql://agent:agent@host.docker.internal:39001/app"
+    assert runtime.env["SPINDREL_PROJECT_RUN_GUARD"] == "1"
+    assert runtime.env["SPINDREL_PROJECT_TASK_ID"] == str(task_id)
+    payload = runtime.safe_payload()
+    assert "DATABASE_URL" in payload["env_default_keys"]
+    assert "postgresql://agent:agent" not in str(payload)
 
 
 @pytest.mark.asyncio

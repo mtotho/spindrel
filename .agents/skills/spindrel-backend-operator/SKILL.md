@@ -37,5 +37,8 @@ This is a repo-dev skill for agents editing Spindrel source. It is not a Spindre
 
 ## Completion Standard
 
-Run the smallest relevant backend tests first, then broaden only as needed.
+Run the smallest relevant backend tests first with native `PYTHONPATH=. pytest`
+inside the repo venv, then broaden only as needed. If a DB-backed slice needs
+Python 3.12 and the active venv is not Python 3.12, report that environment
+blocker; do not wrap unit tests in Docker, Dockerfile.test, or docker compose.
 Always finish with `git diff --check` over touched files.

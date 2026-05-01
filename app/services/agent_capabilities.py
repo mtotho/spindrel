@@ -41,6 +41,7 @@ CORE_AGENT_TOOLS = (
     "get_agent_work_snapshot",
     "get_agent_activity_log",
     "get_agent_status_snapshot",
+    "get_system_health_preflight",
     "publish_execution_receipt",
     "get_tool_info",
     "get_skill",
@@ -57,7 +58,6 @@ PROJECT_CODING_RUN_TOOLS = (
     "exec_command",
     "get_project_dependency_stack",
     "manage_project_dependency_stack",
-    "run_e2e_tests",
     "prepare_project_run_handoff",
     "schedule_project_coding_run",
     "get_project_coding_run_review_context",
@@ -102,6 +102,7 @@ SKILL_OPPORTUNITY_SKILL_LABELS: dict[str, str] = {
     "orchestrator/integration_builder": "Integration builder",
     "diagnostics": "Diagnostics",
     "diagnostics/health_summary": "Health summary",
+    "diagnostics/health_triage": "Health triage",
     "diagnostics/traces": "Trace diagnostics",
     "workspace": "Workspace operations",
     "workspace/files": "Workspace files",
@@ -149,6 +150,17 @@ RUNTIME_SKILL_COVERAGE_AUDIT: dict[str, dict[str, Any]] = {
         "small_model_reason": "Smaller models are likely to jump to raw logs without explicit diagnostic ordering.",
         "suggested_owner": "existing_runtime_skill",
     },
+    "health_triage": {
+        "coverage_status": "covered",
+        "nearest_existing_skill_ids": [
+            "diagnostics/health_triage",
+            "diagnostics/recent_errors",
+            "diagnostics/health_summary",
+        ],
+        "why_skill_shaped": "Health triage is an ordered review workflow over preflight, recent-error review states, Attention promotion, and evidence-based resolution.",
+        "small_model_reason": "Smaller models need explicit rules so they do not resolve likely code bugs or re-promote already reviewed duplicates.",
+        "suggested_owner": "existing_runtime_skill",
+    },
     "project_coding_run": {
         "coverage_status": "covered",
         "nearest_existing_skill_ids": [
@@ -156,9 +168,8 @@ RUNTIME_SKILL_COVERAGE_AUDIT: dict[str, dict[str, Any]] = {
             "workspace",
             "workspace/files",
             "workspace/member",
-            "e2e_testing",
         ],
-        "why_skill_shaped": "Project coding runs are ordered implementation/review workflows over Project work surfaces, file tools, e2e evidence, handoff receipts, and finalization tools.",
+        "why_skill_shaped": "Project coding runs are ordered implementation/review workflows over Project work surfaces, repo-local commands, dependency stacks, dev targets, screenshots, handoff receipts, and finalization tools.",
         "small_model_reason": "Smaller models need the Project run procedure and review manifest before editing a Project root or finalizing PRs.",
         "suggested_owner": "existing_runtime_skill",
     },
@@ -1825,6 +1836,23 @@ def _skill_opportunity_payload(manifest: dict[str, Any]) -> dict[str, Any]:
     recommendations: list[dict[str, Any]] = []
     candidates: list[dict[str, Any]] = []
 
+    assigned_attention = (manifest.get("work_state") or {}).get("attention") or []
+    has_server_health_attention = any(
+        isinstance(item, dict)
+        and item.get("target_kind") == "system"
+        and item.get("target_id") == "server-health"
+        for item in assigned_attention
+    )
+    if has_server_health_attention:
+        recommendations.append(_skill_recommendation(
+            feature_id="health_triage",
+            feature_label="Health triage",
+            skill_ids=["diagnostics/health_triage", "diagnostics/recent_errors", "diagnostics/health_summary"],
+            reason="Server-health Attention needs the preflight and evidence-based triage workflow before promoting or resolving findings.",
+            when_to_load="Before acting on server-health Attention, daily-health follow-up, or recent-error resolution.",
+            enrolled=enrolled,
+        ))
+
     widgets = manifest.get("widgets") or {}
     if widgets.get("readiness") in {"ready", "needs_skills"} or widgets.get("missing_skills"):
         recommendations.append(_skill_recommendation(
@@ -1872,8 +1900,8 @@ def _skill_opportunity_payload(manifest: dict[str, Any]) -> dict[str, Any]:
         recommendations.append(_skill_recommendation(
             feature_id="project_coding_run",
             feature_label="Project coding run",
-            skill_ids=["workspace/project_coding_runs", "workspace/files", "workspace/member", "e2e_testing"],
-            reason="Project coding runs and reviews need a repeatable procedure for Project roots, evidence, handoffs, and finalization.",
+            skill_ids=["workspace/project_coding_runs", "workspace/files", "workspace/member"],
+            reason="Project coding runs and reviews need a repeatable procedure for Project roots, repo-local verification, dependency stacks, evidence, handoffs, and finalization.",
             when_to_load="Before starting, continuing, reviewing, merging, or finalizing Project coding runs.",
             enrolled=enrolled,
         ))

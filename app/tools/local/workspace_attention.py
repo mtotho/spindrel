@@ -10,6 +10,7 @@ from app.agent.context import (
     current_correlation_id,
     current_issue_reporting_enabled,
     current_run_origin,
+    current_session_id,
     current_task_id,
 )
 from app.db.engine import async_session
@@ -155,12 +156,74 @@ PUBLISH_ISSUE_INTAKE_SCHEMA = {
                 "severity": {"type": "string", "enum": ["info", "warning", "error", "critical"]},
                 "category_hint": {
                     "type": "string",
-                    "enum": ["bug", "regression", "quality", "feature", "test_failure", "config_issue", "environment_issue", "user_decision", "other"],
+                    "enum": ["bug", "regression", "quality", "idea", "planning", "feature", "test_failure", "config_issue", "environment_issue", "user_decision", "other"],
                 },
                 "project_hint": {"type": "string"},
                 "tags": {"type": "array", "items": {"type": "string"}},
             },
             "required": ["title", "summary"],
+        },
+    },
+}
+
+
+CREATE_ISSUE_WORK_PACKS_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "create_issue_work_packs",
+        "description": (
+            "Create proposed issue work packs from the current planning conversation. "
+            "Use this after the user asks you to turn a plan, rough issue list, or multi-part track "
+            "into launchable Project work units. This does not launch Project coding runs."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "string",
+                    "description": "Optional Project id for all packs. Defaults to the current channel's Project.",
+                },
+                "packs": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "summary": {"type": "string"},
+                            "category": {
+                                "type": "string",
+                                "enum": ["code_bug", "test_failure", "config_issue", "environment_issue", "user_decision", "not_code_work", "needs_info", "other"],
+                            },
+                            "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+                            "source_item_ids": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Optional existing issue-intake/Attention item ids. If omitted, Spindrel creates backing conversation intake items.",
+                            },
+                            "launch_prompt": {
+                                "type": "string",
+                                "description": "Prompt to use later when this pack is launched as a Project coding run.",
+                            },
+                            "rationale": {"type": "string"},
+                            "conversation_summary": {"type": "string"},
+                            "project_id": {
+                                "type": "string",
+                                "description": "Optional per-pack Project id override.",
+                            },
+                            "channel_id": {
+                                "type": "string",
+                                "description": "Optional per-pack channel id override.",
+                            },
+                            "target_project_hint": {"type": "string"},
+                            "target_channel_hint": {"type": "string"},
+                            "non_code_reason": {"type": "string"},
+                            "tags": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["title", "summary", "category", "confidence"],
+                    },
+                },
+            },
+            "required": ["packs"],
         },
     },
 }
@@ -295,6 +358,36 @@ async def publish_issue_intake(
         except (NotFoundError, ValidationError) as exc:
             return json.dumps({"error": str(exc)})
     return json.dumps({"item": payload}, default=str)
+
+
+@register(CREATE_ISSUE_WORK_PACKS_SCHEMA, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
+async def create_issue_work_packs(packs: list[dict], project_id: str | None = None) -> str:
+    bot_id = current_bot_id.get()
+    if not bot_id:
+        return json.dumps({"error": "No bot context available."})
+    parsed_project_id = None
+    if project_id:
+        try:
+            parsed_project_id = uuid.UUID(str(project_id))
+        except (TypeError, ValueError):
+            return json.dumps({"error": f"Invalid project_id: {project_id!r}"})
+    async with async_session() as db:
+        try:
+            from app.services.workspace_attention import create_conversational_issue_work_packs as create, serialize_issue_work_pack
+            rows = await create(
+                db,
+                bot_id=bot_id,
+                channel_id=current_channel_id.get(),
+                packs=packs,
+                session_id=current_session_id.get(),
+                task_id=current_task_id.get(),
+                project_id=parsed_project_id,
+                latest_correlation_id=current_correlation_id.get(),
+            )
+            payload = [await serialize_issue_work_pack(db, row) for row in rows]
+        except (NotFoundError, ValidationError) as exc:
+            return json.dumps({"error": str(exc)})
+    return json.dumps({"work_packs": payload, "count": len(payload)}, default=str)
 
 
 @register(REPORT_ISSUE_WORK_PACKS_SCHEMA, safety_tier="mutating", requires_bot_context=True)

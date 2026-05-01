@@ -10,6 +10,7 @@ from app.routers.api_v1_system_health import (
     RECENT_ERRORS_SOURCE_ID,
     RECENT_ERRORS_TARGET_ID,
     PromoteRecentErrorsRequest,
+    get_system_health_preflight,
     get_recent_errors,
     promote_recent_errors,
 )
@@ -26,6 +27,7 @@ from app.services.system_health_summary import (
     generate_daily_summary,
     latest_summary,
 )
+from app.services.system_health_preflight import build_system_health_preflight
 from app.services.workspace_attention import place_attention_item
 
 
@@ -197,6 +199,132 @@ async def test_recent_errors_api_includes_matching_attention_state(db_session):
     assert payload["findings"][0]["attention"]["id"] == str(item.id)
     assert payload["findings"][0]["attention"]["status"] == "open"
     assert payload["findings"][0]["review_state"] == "open"
+
+
+@pytest.mark.asyncio
+async def test_system_health_preflight_no_findings_warns_on_unstamped_build(db_session):
+    with patch(
+        "app.services.system_health_preflight.collect_findings",
+        new=AsyncMock(return_value=[]),
+    ):
+        payload = await build_system_health_preflight(
+            db_session,
+            since="2h",
+            services=["agent-server"],
+            limit=10,
+        )
+
+    assert payload["schema_version"] == "system-health-preflight.v1"
+    assert payload["window"] == {
+        "since": "2h",
+        "services": ["agent-server"],
+        "limit": 10,
+    }
+    assert payload["recent_errors"] == {"total": 0, "findings": []}
+    assert payload["review_counts"] == {}
+    assert payload["recommended_next_action"] == "no_current_errors"
+    assert any(warning["code"] == "missing_build_sha" for warning in payload["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_system_health_preflight_recommends_triage_for_open_errors(db_session):
+    finding = _make_finding(service="agent-server", count=2, severity="error", title="Boom")
+    await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id=RECENT_ERRORS_SOURCE_ID,
+        channel_id=None,
+        target_kind="system",
+        target_id=RECENT_ERRORS_TARGET_ID,
+        title="Boom",
+        severity="error",
+        dedupe_key=finding.dedupe_key,
+    )
+
+    with patch(
+        "app.services.system_health_preflight.collect_findings",
+        new=AsyncMock(return_value=[finding]),
+    ):
+        payload = await build_system_health_preflight(db_session, since="24h")
+
+    assert payload["review_counts"] == {"open": 1}
+    assert payload["severity_counts"] == {"error": 2}
+    assert payload["recent_errors"]["findings"][0]["review_state"] == "open"
+    assert payload["recommended_next_action"] == "triage_recent_errors"
+
+
+@pytest.mark.asyncio
+async def test_system_health_preflight_ignores_resolved_duplicates_for_action(db_session):
+    root = _make_finding(service="agent-server", count=2, severity="error", title="Root")
+    duplicate = _make_finding(service="agent-server", count=2, severity="error", title="Wrapper")
+    duplicate.dedupe_key = "log-agent-server-wrapper"
+    root_item = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id=RECENT_ERRORS_SOURCE_ID,
+        channel_id=None,
+        target_kind="system",
+        target_id=RECENT_ERRORS_TARGET_ID,
+        title="Root",
+        severity="error",
+        dedupe_key=root.dedupe_key,
+    )
+    duplicate_item = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id=RECENT_ERRORS_SOURCE_ID,
+        channel_id=None,
+        target_kind="system",
+        target_id=RECENT_ERRORS_TARGET_ID,
+        title="Wrapper",
+        severity="error",
+        dedupe_key=duplicate.dedupe_key,
+    )
+    from app.services.workspace_attention import resolve_attention_item
+
+    await resolve_attention_item(
+        db_session,
+        root_item.id,
+        resolved_by="api_key:ops",
+        resolution="duplicate",
+        duplicate_of=duplicate_item.id,
+        note="Covered elsewhere.",
+    )
+    await resolve_attention_item(
+        db_session,
+        duplicate_item.id,
+        resolved_by="api_key:ops",
+        resolution="duplicate",
+        duplicate_of=root_item.id,
+        note="Covered by root.",
+    )
+
+    with patch(
+        "app.services.system_health_preflight.collect_findings",
+        new=AsyncMock(return_value=[root, duplicate]),
+    ):
+        payload = await build_system_health_preflight(db_session, since="24h")
+
+    assert payload["review_counts"] == {"resolved_duplicate": 2}
+    assert payload["recommended_next_action"] == "no_current_errors"
+
+
+@pytest.mark.asyncio
+async def test_system_health_preflight_route_returns_payload(db_session):
+    with patch(
+        "app.services.system_health_preflight.collect_findings",
+        new=AsyncMock(return_value=[]),
+    ):
+        payload = await get_system_health_preflight(
+            since="2h",
+            services=["agent-server"],
+            limit=20,
+            auth=None,
+            db=db_session,
+        )
+
+    assert payload["schema_version"] == "system-health-preflight.v1"
+    assert payload["window"]["services"] == ["agent-server"]
 
 
 @pytest.mark.asyncio

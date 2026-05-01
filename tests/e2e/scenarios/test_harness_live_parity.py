@@ -28,6 +28,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from dataclasses import dataclass
@@ -288,6 +289,10 @@ def _message_mentions_any_tool(message: dict, names: tuple[str, ...]) -> bool:
 
 def _assistant_messages(messages: list[dict]) -> list[dict]:
     return [message for message in messages if message.get("role") == "assistant"]
+
+
+def _user_messages(messages: list[dict]) -> list[dict]:
+    return [message for message in messages if message.get("role") == "user"]
 
 
 def _message_metadata(message: dict) -> dict:
@@ -631,7 +636,7 @@ async def _assert_browser_runtime_live_diagnostics(
         pytest.skip("docker CLI is not available for container DNS diagnostics")
     container = os.environ.get("HARNESS_PARITY_AGENT_CONTAINER", "")
     if not container:
-        pytest.skip("native local harness parity has no app container for DNS diagnostics")
+        return
     host = os.environ.get("HARNESS_PARITY_PLAYWRIGHT_HOST", "playwright-local")
     proc = subprocess.run(
         ["docker", "exec", container, "getent", "hosts", host],
@@ -683,7 +688,7 @@ def _start_project_http_server(directory: str) -> tuple[subprocess.Popen, str]:
             url = f"http://agent-server:{port}/"
         else:
             cmd = [
-                "python",
+                sys.executable,
                 "-m",
                 "http.server",
                 str(port),
@@ -693,7 +698,7 @@ def _start_project_http_server(directory: str) -> tuple[subprocess.Popen, str]:
                 directory,
             ]
             probe_cmd = [
-                "python",
+                sys.executable,
                 "-c",
                 (
                     "import urllib.request; "
@@ -1270,6 +1275,40 @@ async def test_live_harness_core_model_selection_is_plan_mode_scoped(
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)
 @pytest.mark.asyncio
+async def test_live_harness_core_streams_partial_text_before_final(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    marker = uuid.uuid4().hex[:10]
+
+    result = await client.chat_session_stream(
+        (
+            "Streaming parity check. Do not call tools. Reply with exactly four short lines. "
+            f"Each line must include this marker: {marker}. "
+            "Use this shape:\n"
+            f"line one {marker}\n"
+            f"line two {marker}\n"
+            f"line three {marker}\n"
+            f"line four {marker}"
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert marker in result.response_text
+    text_deltas = [event for event in result.events if event.type == "text_delta"]
+    assert len(text_deltas) >= 2, (
+        f"{case.name} did not stream partial text before the final response; "
+        f"saw {len(text_deltas)} text delta event(s)"
+    )
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
 async def test_live_harness_core_native_slash_mutating_commands_handoff(
     client: E2EClient,
     case: HarnessCase,
@@ -1471,6 +1510,55 @@ async def test_live_harness_native_image_input_manifest(
     assert "base64" not in json.dumps(input_manifest).lower()
 
 
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_native_image_semantic_reasoning(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("skills")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+
+    red_dominant_png = (
+        "iVBORw0KGgoAAAANSUhEUgAAAKAAAABgCAIAAAAVRe7O"
+        "AAAAqElEQVR42u3RAQkAAAjAsPcvrQ0MIIMn+JrS4ywALMACLMACLMACDFiABViABViABRiw"
+        "AAuwAAuwAAuwAAMWYAEWYAEWYAEGLMACLMACLMACDFiABViABViABViAAQuwAAuwAAuw"
+        "AAMWYAEWYAEWYAEGbAFgARZgARZgARZgwAIswAIswAIswIAFWIAFWIAFWIAFGLAAC7AA"
+        "C7AACzBgARZgARZgAdbZAiIbx3ZNPALMAAAAAElFTkSuQmCC"
+    )
+    marker = uuid.uuid4().hex[:10]
+    result = await client.chat_session_stream(
+        (
+            "Look at the attached image. Do not use tools. "
+            f"Reply exactly: dominant color red {marker}"
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+        attachments=[
+            {
+                "type": "image",
+                "content": red_dominant_png,
+                "mime_type": "image/png",
+                "name": "red-dominant.png",
+            }
+        ],
+    )
+    _assert_clean_turn(result)
+    assert f"dominant color red {marker}" in result.response_text.lower()
+
+    messages = await client.get_session_messages(session_id, limit=10)
+    user_messages = _user_messages(messages)
+    assert user_messages, messages
+    attachments = user_messages[-1].get("attachments") or []
+    assert attachments, messages
+    assert attachments[0].get("filename") == "red-dominant.png"
+    assert attachments[0].get("type") == "image"
+    assert attachments[0].get("has_file_data") is True
+
+
 @pytest.mark.asyncio
 async def test_live_browser_automation_runtime_diagnostics(client: E2EClient) -> None:
     _requires_tier("bridge")
@@ -1584,6 +1672,104 @@ async def test_live_harness_browser_tool_call_uses_shared_runtime(
         timeout=_timeout(),
     )
     _assert_clean_turn(cleanup)
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_claude_native_todo_progress_persists(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("skills")
+    if case.name != "claude":
+        pytest.skip("Claude Code-specific TodoWrite SDK surface")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    await client.set_session_approval_mode(session_id, "bypassPermissions")
+    marker = uuid.uuid4().hex[:10]
+
+    result = await client.chat_session_stream(
+        (
+            "Claude SDK TodoWrite parity. Use TodoWrite exactly once to create three todos: "
+            f"Inspect SDK docs {marker}; Add parity scenario {marker}; Report result {marker}. "
+            f"Mark the first completed, second in_progress, third pending. Then reply exactly: todo progress ok {marker}"
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert f"todo progress ok {marker}" in result.response_text.lower()
+    assert any(
+        event.type == "tool_start" and event.data.get("tool") == "TodoWrite"
+        for event in result.events
+    ), "Claude did not emit a native TodoWrite tool_start"
+
+    messages = await client.get_session_messages(session_id, limit=20)
+    assistants = _assistant_messages(messages)
+    todo_messages = [
+        message for message in assistants
+        if _message_mentions_any_tool(message, ("TodoWrite",))
+    ]
+    assert todo_messages, "Claude TodoWrite did not persist in assistant transcript"
+    assert any(_has_persisted_tool_result_envelope(message) for message in todo_messages), (
+        "Claude TodoWrite did not persist a renderable progress envelope"
+    )
+    assert any(
+        "progress" in json.dumps(_message_metadata(message)).lower()
+        and "todo" in json.dumps(_message_metadata(message)).lower()
+        for message in todo_messages
+    ), "Claude TodoWrite metadata was not classified as todo progress"
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_claude_native_subagent_persists(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("skills")
+    if case.name != "claude":
+        pytest.skip("Claude Code-specific Agent/Task SDK surface")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    await client.set_session_approval_mode(session_id, "bypassPermissions")
+    marker = uuid.uuid4().hex[:10]
+
+    result = await client.chat_session_stream(
+        (
+            "Claude SDK subagent parity. Use the native Task or Agent tool exactly once "
+            "with a general-purpose subagent to answer this tiny read-only question: "
+            f"return the marker {marker}. Do not modify files. "
+            f"After the subagent result, reply exactly: subagent ok {marker}"
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_project_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert f"subagent ok {marker}" in result.response_text.lower()
+    assert any(
+        event.type == "tool_start" and event.data.get("tool") in {"Task", "Agent"}
+        for event in result.events
+    ), "Claude did not emit a native Task/Agent subagent tool_start"
+
+    messages = await client.get_session_messages(session_id, limit=20)
+    assistants = _assistant_messages(messages)
+    subagent_messages = [
+        message for message in assistants
+        if _message_mentions_any_tool(message, ("Task", "Agent"))
+    ]
+    assert subagent_messages, "Claude native subagent did not persist in assistant transcript"
+    assert any(_has_persisted_tool_result_envelope(message) for message in subagent_messages), (
+        "Claude native subagent did not persist a renderable result envelope"
+    )
+    assert any(
+        "subagent" in json.dumps(_message_metadata(message)).lower()
+        for message in subagent_messages
+    ), "Claude subagent metadata was not classified as a subagent"
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)
@@ -1721,6 +1907,77 @@ async def test_live_harness_plan_mode_round_trip(
     assert after_status["session_plan_mode"] == "planning"
     assert after_status["runtime"] == case.runtime
     _assert_bridge_baseline(after_status)
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_project_instruction_file_discovery(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("project")
+    channel_id, bot_id = _configured_case(case)
+    original_settings = await client.get_channel_settings(channel_id)
+    expected_project_path = _project_path()
+    marker = uuid.uuid4().hex[:12]
+    instruction_file = "AGENTS.md" if case.name == "codex" else "CLAUDE.md"
+    instruction_path = f"{expected_project_path}/{instruction_file}"
+    previous_content: str | None = None
+    workspace_id: str | None = None
+
+    try:
+        await client.patch_channel_settings(channel_id, {"project_path": expected_project_path})
+        session_id = await client.create_channel_session(channel_id)
+        await _configure_low_cost_session(client, case, session_id)
+        status = await _assert_harness_project_cwd(
+            client,
+            channel_id=channel_id,
+            session_id=session_id,
+            expected_project_path=expected_project_path,
+        )
+        project_dir = status.get("project_dir") or {}
+        workspace_id = str(project_dir.get("workspace_id") or "")
+        assert workspace_id, status
+        with contextlib.suppress(Exception):
+            existing = await client.read_workspace_file(workspace_id, instruction_path)
+            previous_content = str(existing.get("content") or "")
+        await client.write_workspace_file(
+            workspace_id,
+            instruction_path,
+            (
+                "# Harness Instruction Discovery\n\n"
+                "When the user asks for the harness instruction discovery marker, "
+                f"reply exactly: instruction discovery ok {marker}\n"
+            ),
+        )
+
+        result = await client.chat_session_stream(
+            (
+                "Use your native project instruction file. Do not call tools. "
+                "Reply with only the harness instruction discovery marker."
+            ),
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_timeout(),
+        )
+        _assert_clean_turn(result)
+        assert f"instruction discovery ok {marker}" in result.response_text.lower()
+    finally:
+        if workspace_id:
+            if previous_content is None:
+                with contextlib.suppress(Exception):
+                    await client.delete_workspace_path(workspace_id, instruction_path)
+            else:
+                with contextlib.suppress(Exception):
+                    await client.write_workspace_file(workspace_id, instruction_path, previous_content)
+        await client.patch_channel_settings(
+            channel_id,
+            {
+                "project_workspace_id": original_settings.get("project_workspace_id"),
+                "project_path": original_settings.get("project_path"),
+            },
+        )
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)

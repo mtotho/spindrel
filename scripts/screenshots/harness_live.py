@@ -611,6 +611,80 @@ def _project_terminal_specs(ui_url: str, target: RuntimeTarget, session_id: str)
     ]
 
 
+def _sdk_deep_specs(
+    ui_url: str,
+    target: RuntimeTarget,
+    *,
+    stream_session_id: str | None = None,
+    image_session_id: str | None = None,
+    instruction_session_id: str | None = None,
+    todo_session_id: str | None = None,
+    subagent_session_id: str | None = None,
+) -> list[CaptureSpec]:
+    specs: list[CaptureSpec] = []
+    if stream_session_id:
+        specs.append(CaptureSpec(
+            name=f"harness-{target.name}-streaming-deltas",
+            route=f"{ui_url}/channels/{target.channel_id}/session/{stream_session_id}",
+            wait_js="document.body.innerText.toLowerCase().includes('line one')",
+            contains=("line one", "line two", "line three", "line four"),
+            theme="dark",
+            channel_id=target.channel_id,
+            chat_mode="default",
+        ))
+    if image_session_id:
+        specs.append(CaptureSpec(
+            name=f"harness-{target.name}-image-semantic-reasoning",
+            route=f"{ui_url}/channels/{target.channel_id}/session/{image_session_id}",
+            wait_js=(
+                "document.body.innerText.toLowerCase().includes('dominant color red') "
+                "&& !!document.querySelector('[data-testid=\"chat-attachment-image-file\"]"
+                "[data-attachment-name=\"red-dominant.png\"]')"
+            ),
+            contains=("dominant color red",),
+            theme="dark",
+            channel_id=target.channel_id,
+            chat_mode="default",
+        ))
+    if instruction_session_id:
+        specs.append(CaptureSpec(
+            name=f"harness-{target.name}-project-instruction-discovery",
+            route=f"{ui_url}/channels/{target.channel_id}/session/{instruction_session_id}",
+            wait_js="document.body.innerText.toLowerCase().includes('instruction discovery ok')",
+            contains=("instruction discovery ok",),
+            theme="dark",
+            channel_id=target.channel_id,
+            chat_mode="default",
+        ))
+    if todo_session_id:
+        specs.append(CaptureSpec(
+            name="harness-claude-todowrite-progress",
+            route=f"{ui_url}/channels/{target.channel_id}/session/{todo_session_id}",
+            wait_js=(
+                "document.body.innerText.toLowerCase().includes('todo progress ok') "
+                "&& document.body.innerText.includes('TodoWrite')"
+            ),
+            contains=("todo progress ok", "TodoWrite"),
+            theme="dark",
+            channel_id=target.channel_id,
+            chat_mode="terminal",
+        ))
+    if subagent_session_id:
+        specs.append(CaptureSpec(
+            name="harness-claude-native-subagent",
+            route=f"{ui_url}/channels/{target.channel_id}/session/{subagent_session_id}",
+            wait_js=(
+                "document.body.innerText.toLowerCase().includes('subagent ok') "
+                "&& (document.body.innerText.includes('Agent') || document.body.innerText.includes('Task'))"
+            ),
+            contains=("subagent ok",),
+            theme="dark",
+            channel_id=target.channel_id,
+            chat_mode="terminal",
+        ))
+    return specs
+
+
 def _native_edit_terminal_specs(ui_url: str, channel_id: str, session_id: str) -> list[CaptureSpec]:
     route = f"{ui_url}/channels/{channel_id}/session/{session_id}"
     wait = (
@@ -724,6 +798,65 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                 specs.extend(_project_terminal_specs(browser_url, target, project_session))
                 specs.extend(_mobile_context_specs(browser_url, target, project_session))
                 specs.extend(_plan_mode_switcher_specs(browser_url, target, project_session))
+
+            sdk_names = (
+                f"harness-{target.name}-streaming-deltas",
+                f"harness-{target.name}-image-semantic-reasoning",
+                f"harness-{target.name}-project-instruction-discovery",
+            )
+            if target.name == "claude":
+                sdk_names = (
+                    *sdk_names,
+                    "harness-claude-todowrite-progress",
+                    "harness-claude-native-subagent",
+                )
+            if _should_include(args.only, *sdk_names):
+                stream_session = image_session = instruction_session = None
+                todo_session = subagent_session = None
+                if _should_include(args.only, f"harness-{target.name}-streaming-deltas"):
+                    stream_session = await _find_session(
+                        client,
+                        channel_id=target.channel_id,
+                        label_fragment="Streaming parity check",
+                    )
+                    sessions[(target.name, "streaming")] = stream_session
+                if _should_include(args.only, f"harness-{target.name}-image-semantic-reasoning"):
+                    image_session = await _find_session(
+                        client,
+                        channel_id=target.channel_id,
+                        label_fragment="dominant color red",
+                    )
+                    sessions[(target.name, "image_semantic")] = image_session
+                if _should_include(args.only, f"harness-{target.name}-project-instruction-discovery"):
+                    instruction_session = await _find_session(
+                        client,
+                        channel_id=target.channel_id,
+                        label_fragment="instruction discovery ok",
+                    )
+                    sessions[(target.name, "instruction_discovery")] = instruction_session
+                if target.name == "claude" and _should_include(args.only, "harness-claude-todowrite-progress"):
+                    todo_session = await _find_session(
+                        client,
+                        channel_id=target.channel_id,
+                        label_fragment="todo progress ok",
+                    )
+                    sessions[(target.name, "todowrite")] = todo_session
+                if target.name == "claude" and _should_include(args.only, "harness-claude-native-subagent"):
+                    subagent_session = await _find_session(
+                        client,
+                        channel_id=target.channel_id,
+                        label_fragment="subagent ok",
+                    )
+                    sessions[(target.name, "subagent")] = subagent_session
+                specs.extend(_sdk_deep_specs(
+                    browser_url,
+                    target,
+                    stream_session_id=stream_session,
+                    image_session_id=image_session,
+                    instruction_session_id=instruction_session,
+                    todo_session_id=todo_session,
+                    subagent_session_id=subagent_session,
+                ))
 
         style_names = (
             "harness-style-command-default-dark",

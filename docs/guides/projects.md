@@ -98,9 +98,10 @@ attached to the task, run e2e checks when relevant, and publish
 `publish_project_run_receipt` evidence.
 
 Project coding agents that use Codex or Claude Code are harness agents: native
-tools own file edits and repo-local commands inside the Project root, but
-e2e-testing, screenshots, server/machine actions, and Docker/compose control
-must go through task-scoped Spindrel grants. See
+tools own file edits and repo-local commands inside the Project root, including
+unit tests. Do not wrap unit tests in Docker, Dockerfile.test, or docker
+compose. E2e-testing, screenshots, server/machine actions, and Docker/compose
+dependency control must go through task-scoped Spindrel grants. See
 [Agent E2E Development](agent-e2e-development.md) for the full boundary.
 
 ## Dev Targets
@@ -131,13 +132,21 @@ their own app/dev server processes from source on assigned or unused ports. A
 manual shared Project dependency stack is available from the Project Setup
 surface for interactive development.
 
+When a Project coding run starts and the Project has a dependency stack,
+Spindrel preflights the task-scoped stack before the first harness turn. The run
+prompt and Runs API expose only secret-safe readiness fields: status, source,
+declared commands, and env key names. The actual connection values are injected
+into Project terminals, exec, and harness turns through the Project runtime env
+so project-local commands can use values such as `DATABASE_URL` immediately.
+
 Agents may adjust stack shape during a session by editing the Project compose
 file and calling `manage_project_dependency_stack(action="reload")`. The compose
 file diff is then reviewable in the same PR as the code change. Phase 1 keeps
 the Docker red line at Spindrel: harness shells should not call raw `docker` or
 `docker compose`, and dependency stack validation rejects Docker sockets,
 privileged containers, host networking, dangerous host mounts, and mounts
-outside the Project root or dependency scratch path.
+outside the Project root or dependency scratch path. Dependency stacks are for
+backing services, not for running unit tests.
 
 ![Project coding run execution access](../images/project-workspace-execution-access.png)
 
@@ -172,6 +181,14 @@ fresh server state. `finalize_project_coding_run_review` keeps accepted-only
 reviewed semantics and returns structured error fields when a run was not
 selected or a merge/finalization step is blocked.
 
+Normal Project-bound agents can also turn a planning conversation into proposed
+work packs before any coding run launches. `publish_issue_intake` captures a
+single rough note for later triage; `create_issue_work_packs` creates one or
+more proposed work packs from the current conversation and automatically creates
+backing issue-intake source records when the agent does not provide existing
+source item ids. `report_issue_work_packs` stays reserved for scheduled
+issue-intake triage tasks.
+
 ![Project review session launched from selected coding runs](../images/project-workspace-review-launched.png)
 
 Launching a review session creates a normal task from the
@@ -192,9 +209,13 @@ evidence receipt that was reviewed.
 Receipts are idempotent by task, handoff URL, git handoff metadata, or an
 explicit `idempotency_key`. Retrying `publish_project_run_receipt` updates the
 same review record instead of creating a stack of duplicate receipts. The
-`run_e2e_tests` tool resolves the same `E2E_*` target used by the test harness,
-so agents running on the main server can probe or execute tests against the
-configured e2e-testing server before adding screenshot evidence.
+Project Factory verification loop is Project-defined: agents run repo-local
+commands and tests from the Project work surface, use injected runtime and
+Dependency Stack env, start app/dev servers on assigned dev target ports, and
+attach screenshots plus command results to the receipt.
+Ordinary Project runs must not bootstrap or restart the host Spindrel e2e/API
+server; source-run app processes belong on the run's own assigned or unused
+ports.
 
 ### Review-Agent Evidence
 

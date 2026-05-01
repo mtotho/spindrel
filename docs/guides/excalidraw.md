@@ -115,7 +115,7 @@ The widget template sets `display: inline` so the diagram renders in the chat tr
 
 The pinned card pulls the image by `attachment_id` each time it loads — the attachment is persistent, so the diagram stays reachable across sessions and deploys.
 
-**Edit and re-render.** Pinned diagrams don't auto-update — if the underlying story changes, ask the bot for a new version and repin. A future enhancement (tracked on the [[Track - Widgets]]) will support workspace-backed diagrams that re-render when the source file changes.
+**Edit and re-render.** Pinned diagrams don't auto-update — if the underlying story changes, ask the bot for a new version and repin. A future enhancement (tracked on the [[widgets]]) will support workspace-backed diagrams that re-render when the source file changes.
 
 ---
 

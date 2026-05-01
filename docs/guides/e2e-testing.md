@@ -22,38 +22,10 @@ pytest tests/e2e/ -k "delegation"
 E2E_KEEP_RUNNING=1 pytest tests/e2e/ -v
 ```
 
-### Run via the agent tool
-
-Bots with access to `run_e2e_tests` can run and interpret tests:
-
-```
-run_e2e_tests(action="run")                          # run all
-run_e2e_tests(action="run", scenarios="delegation")  # filter by keyword
-run_e2e_tests(action="status")                       # check if stack is up
-run_e2e_tests(action="stop")                         # tear down stack
-```
-
-### Run an ad-hoc scenario (agent only)
-
-Bots can create and execute scenarios on the fly without modifying files:
-
-```
-run_e2e_tests(
-    action="run_scenario",
-    scenario_yaml="""
-name: my_test
-bot_id: e2e-tools
-steps:
-  - message: "What time is it? Use your tools."
-    stream: true
-    assertions:
-      - tool_called: [get_current_time]
-      - response_not_empty: true
-"""
-)
-```
-
-This requires the E2E stack to already be running (`E2E_KEEP_RUNNING=1` or `action="run"` with `keep_running=true` first).
+Project coding agents do not get a Spindrel-specific e2e runner tool. When the
+Project being edited is Spindrel, `tests/e2e/` is just a repo-local pytest
+suite: run it from shell like any other Project test and include the command,
+result, screenshots, and blockers in the Project run receipt.
 
 ## Architecture
 

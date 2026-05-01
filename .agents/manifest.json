@@ -2,7 +2,7 @@
   "schema_version": "repo-agent-skills.v1",
   "scope": "repo-dev-only",
   "runtime_import": false,
-  "notes": "These skills are for development agents working inside this Git repository. They are not Spindrel runtime skills, are not imported into app skill tables, and are not visible to channel bots unless a separate runtime bridge explicitly supplies them.",
+  "notes": "These skills are for development agents working inside this Git repository. They are not Spindrel runtime skills, are not imported into app skill tables, and are not visible to channel bots unless a separate runtime bridge explicitly supplies them. Verification commands run natively in the repo venv; agents must not wrap unit tests in Docker, Dockerfile.test, or docker compose.",
   "skills": [
     {
       "id": "spindrel-backend-operator",

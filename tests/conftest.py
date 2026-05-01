@@ -125,12 +125,12 @@ from app.db.models import Base  # noqa: E402
 def _skip_if_local_aiosqlite_is_known_broken() -> None:
     """Skip fast instead of letting DB-backed tests hang forever.
 
-    The repo's supported test runtime is Dockerfile.test (Python 3.12). On the
-    current local Python 3.14 runtime, aiosqlite 0.22.x can consume its worker
-    queue item and never wake the awaiting event loop when a sqlite object
-    crosses the worker-thread boundary. That presents as a pytest fixture hang
-    before the test body runs, so make the runtime mismatch explicit without
-    failing unrelated local test slices.
+    The supported agent test runtime for DB-backed slices is a native Python
+    3.12 venv. On the current local Python 3.14 runtime, aiosqlite 0.22.x can
+    consume its worker queue item and never wake the awaiting event loop when a
+    sqlite object crosses the worker-thread boundary. That presents as a pytest
+    fixture hang before the test body runs, so make the runtime mismatch
+    explicit without failing unrelated local test slices.
     """
     if sys.version_info >= (3, 14):
         import aiosqlite
@@ -139,7 +139,7 @@ def _skip_if_local_aiosqlite_is_known_broken() -> None:
             pytest.skip(
                 "DB-backed async SQLite tests require the supported Python 3.12 "
                 "test runtime; local Python 3.14 with aiosqlite<=0.22 hangs in "
-                "fixture startup. Run via Dockerfile.test or a Python 3.12 venv.",
+                "fixture startup. Run via a native Python 3.12 venv.",
             )
 
 
