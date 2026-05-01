@@ -722,6 +722,12 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def list_project_review_batches(self, project_id: str) -> list[dict]:
+        """GET /api/v1/projects/{id}/coding-runs/review-batches."""
+        resp = await self._client.get(f"/api/v1/projects/{project_id}/coding-runs/review-batches")
+        resp.raise_for_status()
+        return resp.json()
+
     async def create_project_coding_run(self, project_id: str, payload: dict[str, Any]) -> dict:
         """POST /api/v1/projects/{id}/coding-runs."""
         resp = await self._client.post(f"/api/v1/projects/{project_id}/coding-runs", json=payload)

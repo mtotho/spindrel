@@ -19,6 +19,7 @@ from app.services.project_coding_runs import (
     fire_project_coding_run_schedule,
     finalize_project_coding_run_review,
     get_project_coding_run_review_context,
+    list_project_coding_run_review_batches,
     list_project_coding_runs,
     list_project_coding_run_schedules,
     project_coding_run_defaults,
@@ -391,6 +392,109 @@ async def test_project_coding_run_schedule_definitions_are_not_listed_as_runs(db
     schedules = await list_project_coding_run_schedules(db_session, project)
     assert runs == []
     assert [item["id"] for item in schedules] == [str(schedule.id)]
+
+
+@pytest.mark.asyncio
+async def test_project_review_batches_group_launch_batch_runs_with_source_packs_and_review_tasks(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    launch_batch_id = f"issue-work-pack-batch:{uuid.uuid4()}"
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel-review-inbox",
+        root_path="common/projects/spindrel",
+        metadata_={},
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    first = await create_project_coding_run(
+        db_session,
+        project,
+        ProjectCodingRunCreate(channel_id=channel_id, request="Fix the review inbox."),
+    )
+    second = await create_project_coding_run(
+        db_session,
+        project,
+        ProjectCodingRunCreate(channel_id=channel_id, request="Add batch evidence."),
+    )
+    first_config = dict(first.execution_config)
+    first_run_config = dict(first_config["project_coding_run"])
+    first_run_config["launch_batch_id"] = launch_batch_id
+    first_run_config["source_work_pack_id"] = str(uuid.uuid4())
+    first_config["project_coding_run"] = first_run_config
+    first.execution_config = first_config
+    second_config = dict(second.execution_config)
+    second_run_config = dict(second_config["project_coding_run"])
+    second_run_config["launch_batch_id"] = launch_batch_id
+    second_config["project_coding_run"] = second_run_config
+    second.execution_config = second_config
+    pack = IssueWorkPack(
+        id=uuid.uuid4(),
+        title="Morning review inbox",
+        summary="Group launched packs for review.",
+        category="code_bug",
+        confidence="high",
+        status="launched",
+        project_id=project_id,
+        channel_id=channel_id,
+        launched_task_id=first.id,
+        metadata_={"launch_batch_id": launch_batch_id, "latest_review_action": {"action": "launched"}},
+    )
+    receipt = ProjectRunReceipt(
+        project_id=project_id,
+        task_id=first.id,
+        status="needs_review",
+        summary="Ready for review.",
+        changed_files=[{"path": "app.py"}],
+        tests=[{"command": "pytest", "status": "passed"}],
+        screenshots=[{"path": "docs/images/project-workspace-runs.png"}],
+    )
+    review_task = Task(
+        id=uuid.uuid4(),
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        title="Review launch batch",
+        prompt="Review",
+        status="running",
+        task_type="agent",
+        execution_config={
+            "run_preset_id": "project_coding_run_review",
+            "project_coding_run_review": {
+                "project_id": str(project_id),
+                "selected_task_ids": [str(first.id), str(second.id)],
+            },
+        },
+    )
+    db_session.add_all([pack, receipt, review_task])
+    await db_session.commit()
+
+    batches = await list_project_coding_run_review_batches(db_session, project)
+
+    assert len(batches) == 1
+    batch = batches[0]
+    assert batch["id"] == launch_batch_id
+    assert batch["status"] == "reviewing"
+    assert batch["run_count"] == 2
+    assert set(batch["task_ids"]) == {str(first.id), str(second.id)}
+    assert batch["status_counts"]["ready_for_review"] == 1
+    assert batch["evidence"]["tests_count"] == 1
+    assert batch["evidence"]["screenshots_count"] == 1
+    assert batch["source_work_packs"][0]["title"] == "Morning review inbox"
+    assert batch["active_review_task"]["task_id"] == str(review_task.id)
+    assert batch["actions"]["can_resume_review"] is True
 
 
 def test_project_coding_run_review_summary_uses_receipt_and_handoff_activity():

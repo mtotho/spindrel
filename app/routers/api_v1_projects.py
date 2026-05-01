@@ -31,6 +31,7 @@ from app.services.project_coding_runs import (
     fire_project_coding_run_schedule,
     get_project_coding_run,
     get_project_coding_run_review_context,
+    list_project_coding_run_review_batches,
     list_project_coding_run_schedules,
     list_project_coding_runs,
     mark_project_coding_run_reviewed,
@@ -386,6 +387,26 @@ class ProjectCodingRunOut(BaseModel):
     review: dict = Field(default_factory=dict)
     created_at: str | None = None
     updated_at: str | None = None
+
+
+class ProjectCodingRunReviewBatchOut(BaseModel):
+    id: str
+    project_id: uuid.UUID
+    status: str
+    run_count: int
+    status_counts: dict = Field(default_factory=dict)
+    evidence: dict = Field(default_factory=dict)
+    run_ids: list[uuid.UUID] = Field(default_factory=list)
+    task_ids: list[uuid.UUID] = Field(default_factory=list)
+    ready_run_ids: list[uuid.UUID] = Field(default_factory=list)
+    unreviewed_run_ids: list[uuid.UUID] = Field(default_factory=list)
+    source_work_packs: list[dict] = Field(default_factory=list)
+    review_sessions: list[dict] = Field(default_factory=list)
+    active_review_task: dict | None = None
+    latest_review_task: dict | None = None
+    latest_activity_at: str | None = None
+    summary: dict = Field(default_factory=dict)
+    actions: dict = Field(default_factory=dict)
 
 
 class ProjectFromBlueprintWrite(BaseModel):
@@ -1060,6 +1081,19 @@ async def get_project_coding_runs(
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
     return await list_project_coding_runs(db, project, limit=limit)
+
+
+@router.get("/{project_id}/coding-runs/review-batches", response_model=list[ProjectCodingRunReviewBatchOut])
+async def get_project_coding_run_review_batches(
+    project_id: uuid.UUID,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return await list_project_coding_run_review_batches(db, project, limit=limit)
 
 
 @router.post("/{project_id}/coding-runs", response_model=ProjectCodingRunOut, status_code=201)

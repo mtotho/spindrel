@@ -743,6 +743,120 @@ def test_web_search_and_image_view_emit_structured_summaries():
     assert image_result["summary"]["path"] == "docs/screen.png"
 
 
+def test_generic_tool_items_emit_structured_summaries():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.ITEM_STARTED,
+            params={
+                "item": {
+                    "id": "mcp1",
+                    "kind": "mcpToolCall",
+                    "server": "filesystem",
+                    "serverToolName": "read_file",
+                    "input": {"path": "README.md"},
+                },
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMPLETED,
+            params={
+                "item": {
+                    "id": "mcp1",
+                    "kind": "mcpToolCall",
+                    "server": "filesystem",
+                    "serverToolName": "read_file",
+                    "summary": "Read README.md",
+                    "output": {"text": "file contents"},
+                },
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert emitter.calls[0][1]["tool_name"] == "filesystem:read_file"
+    assert emitter.calls[0][1]["arguments"]["path"] == "README.md"
+    result = emitter.calls[1][1]
+    assert result["tool_name"] == "filesystem:read_file"
+    assert result["summary"]["kind"] == "result"
+    assert result["summary"]["subject_type"] == "tool"
+    assert result["summary"]["target_label"] == "filesystem"
+    assert result["result_summary"] == "Read README.md"
+    assert result["surface"] == "rich_result"
+    assert result["envelope"]["body"] == "file contents"
+
+
+def test_warning_notifications_emit_rich_runtime_rows():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.NOTIFICATION_CONFIG_WARNING,
+            params={
+                "summary": "Ignored invalid config",
+                "details": "unknown key at config.toml:3",
+                "path": "config.toml",
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert meta["codex_warnings"][0]["message"] == "Ignored invalid config"
+    result = emitter.calls[0][1]
+    assert result["tool_name"] == "Codex warning"
+    assert result["surface"] == "rich_result"
+    assert result["summary"]["kind"] == "warning"
+    assert result["summary"]["path"] == "config.toml"
+    assert result["envelope"]["body"] == "unknown key at config.toml:3"
+
+
+def test_fs_and_mcp_progress_notifications_emit_rich_rows():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.NOTIFICATION_FS_CHANGED,
+            params={"watchId": "watch-1", "changedPaths": ["/tmp/project/a.py"]},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.NOTIFICATION_MCP_TOOL_CALL_PROGRESS,
+            params={"itemId": "mcp1", "message": "Reading resource", "threadId": "t", "turnId": "u"},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    fs_result = emitter.calls[0][1]
+    mcp_result = emitter.calls[1][1]
+    assert fs_result["tool_name"] == "Filesystem watch"
+    assert fs_result["summary"]["kind"] == "watch"
+    assert fs_result["summary"]["path"] == "/tmp/project/a.py"
+    assert mcp_result["tool_name"] == "MCP progress"
+    assert mcp_result["summary"]["kind"] == "progress"
+    assert mcp_result["envelope"]["body"] == "Reading resource"
+
+
 def test_file_change_completed_uses_buffered_file_change_delta_diff():
     emitter, ids, parts, meta = _harness()
     ids["fc2"] = "fileChange"

@@ -37,12 +37,19 @@ METHOD_INITIALIZE = "initialize"
 NOTIFICATION_INITIALIZED = "initialized"
 METHOD_THREAD_START = "thread/start"
 METHOD_THREAD_RESUME = "thread/resume"
+METHOD_THREAD_FORK = "thread/fork"
+METHOD_THREAD_ARCHIVE = "thread/archive"
+METHOD_THREAD_UNARCHIVE = "thread/unarchive"
+METHOD_THREAD_ROLLBACK = "thread/rollback"
+METHOD_THREAD_SET_NAME = "thread/name/set"
+METHOD_THREAD_LOADED_LIST = "thread/loaded/list"
 METHOD_THREAD_COMPACT_START = "thread/compact/start"
 METHOD_THREAD_LIST = "thread/list"
 METHOD_THREAD_READ = "thread/read"
 METHOD_THREAD_TURNS_LIST = "thread/turns/list"
 METHOD_TURN_START = "turn/start"
 METHOD_TURN_INTERRUPT = "turn/interrupt"
+METHOD_REVIEW_START = "review/start"
 METHOD_ACCOUNT_READ = "account/read"
 METHOD_MODEL_LIST = "model/list"
 METHOD_COLLABORATION_MODE_LIST = "collaborationMode/list"
@@ -128,6 +135,13 @@ TOOL_ITEM_KINDS: frozenset[str] = frozenset(
 )
 
 NOTIFICATION_THREAD_STARTED = "thread/started"
+NOTIFICATION_WARNING = "warning"
+NOTIFICATION_CONFIG_WARNING = "configWarning"
+NOTIFICATION_GUARDIAN_WARNING = "guardianWarning"
+NOTIFICATION_FS_CHANGED = "fs/changed"
+NOTIFICATION_MCP_TOOL_CALL_PROGRESS = "item/mcpToolCall/progress"
+NOTIFICATION_ITEM_GUARDIAN_REVIEW_STARTED = "item/autoApprovalReview/started"
+NOTIFICATION_ITEM_GUARDIAN_REVIEW_COMPLETED = "item/autoApprovalReview/completed"
 NOTIFICATION_PLAN_UPDATED = "turn/plan/updated"
 NOTIFICATION_DIFF_UPDATED = "turn/diff/updated"
 NOTIFICATION_TOKEN_USAGE_UPDATED = "thread/tokenUsage/updated"
@@ -285,6 +299,13 @@ def verify_schema_against_binary(binary_path: str) -> None:
         (
             METHOD_APPS_LIST,
             METHOD_COMMAND_EXECUTE,
+            METHOD_THREAD_FORK,
+            METHOD_THREAD_ARCHIVE,
+            METHOD_THREAD_UNARCHIVE,
+            METHOD_THREAD_ROLLBACK,
+            METHOD_THREAD_SET_NAME,
+            METHOD_THREAD_LOADED_LIST,
+            METHOD_REVIEW_START,
             METHOD_FS_READ_TEXT_FILE,
             METHOD_FS_LIST_DIRECTORY,
             METHOD_FS_GET_FILE_INFO,

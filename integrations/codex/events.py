@@ -127,6 +127,30 @@ def translate_notification(
         elif kind == schema.ITEM_KIND_IMAGE_VIEW:
             summary = _image_view_summary(item, result_summary)
             result_summary = result_summary or summary["label"]
+        elif kind in {
+            schema.ITEM_KIND_MCP_TOOL_CALL,
+            schema.ITEM_KIND_DYNAMIC_TOOL,
+            schema.ITEM_KIND_TOOL_CALL,
+        }:
+            summary = _generic_tool_summary(tool_name, item, result_summary)
+            output_body = _generic_tool_output_body(item)
+            if output_body:
+                prior_summary = summary
+                envelope, summary = build_text_tool_result(
+                    tool_name=tool_name,
+                    tool_call_id=tool_id or None,
+                    body=output_body,
+                    label=result_summary or prior_summary["label"],
+                    summary_kind=str(prior_summary.get("kind") or "result"),
+                    subject_type=str(prior_summary.get("subject_type") or "tool"),
+                    preview_text=str(prior_summary.get("preview_text") or output_body)[:240],
+                )
+                server = prior_summary.get("target_label")
+                if server:
+                    summary["target_label"] = server
+                surface = "rich_result"
+                result_summary = result_summary or envelope["plain_body"]
+            result_summary = result_summary or summary["label"]
         emit.tool_result(
             tool_name=tool_name,
             tool_call_id=tool_id or None,
@@ -162,6 +186,29 @@ def translate_notification(
         delta = _extract_text_delta(params)
         if delta:
             result_meta.setdefault("native_plan_delta_parts", []).append(delta)
+        return
+
+    if method in {
+        schema.NOTIFICATION_WARNING,
+        schema.NOTIFICATION_CONFIG_WARNING,
+        schema.NOTIFICATION_GUARDIAN_WARNING,
+    }:
+        _emit_warning_notification(method, params, emit=emit, result_meta=result_meta)
+        return
+
+    if method == schema.NOTIFICATION_FS_CHANGED:
+        _emit_fs_changed_notification(params, emit=emit, result_meta=result_meta)
+        return
+
+    if method == schema.NOTIFICATION_MCP_TOOL_CALL_PROGRESS:
+        _emit_mcp_progress_notification(params, emit=emit, result_meta=result_meta)
+        return
+
+    if method in {
+        schema.NOTIFICATION_ITEM_GUARDIAN_REVIEW_STARTED,
+        schema.NOTIFICATION_ITEM_GUARDIAN_REVIEW_COMPLETED,
+    }:
+        _emit_guardian_review_notification(method, params, emit=emit, result_meta=result_meta)
         return
 
     if method == schema.NOTIFICATION_PLAN_UPDATED:
@@ -239,6 +286,12 @@ def _tool_name_for_item(item: dict[str, Any], kind: str) -> str:
         return "Web search"
     if kind == schema.ITEM_KIND_IMAGE_VIEW:
         return "View image"
+    if kind == schema.ITEM_KIND_MCP_TOOL_CALL:
+        return _native_tool_label(item, default="MCP tool")
+    if kind == schema.ITEM_KIND_DYNAMIC_TOOL:
+        return _native_tool_label(item, default="Codex dynamic tool")
+    if kind == schema.ITEM_KIND_TOOL_CALL:
+        return _native_tool_label(item, default="Codex tool")
     return str(item.get("name") or item.get("toolName") or item.get("command") or kind)
 
 
@@ -282,8 +335,37 @@ def _tool_arguments_for_item(item: dict[str, Any], kind: str) -> dict[str, Any]:
         })
     if kind == schema.ITEM_KIND_IMAGE_VIEW:
         return _non_empty_args({"path": item.get("path")})
+    if kind in {
+        schema.ITEM_KIND_MCP_TOOL_CALL,
+        schema.ITEM_KIND_DYNAMIC_TOOL,
+        schema.ITEM_KIND_TOOL_CALL,
+    }:
+        return _generic_tool_arguments(item)
     raw = item.get("input") or item.get("arguments") or {}
     return raw if isinstance(raw, dict) else {}
+
+
+def _native_tool_label(item: dict[str, Any], *, default: str) -> str:
+    for key in ("name", "toolName", "tool", "serverToolName"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            if key == "serverToolName":
+                server = item.get("server")
+                return f"{server}:{value}" if isinstance(server, str) and server.strip() else value
+            return value.strip()
+    return default
+
+
+def _generic_tool_arguments(item: dict[str, Any]) -> dict[str, Any]:
+    raw = item.get("input") or item.get("arguments") or item.get("args") or {}
+    args = raw if isinstance(raw, dict) else {}
+    return _non_empty_args({
+        **args,
+        "server": item.get("server"),
+        "tool": item.get("tool") or item.get("toolName") or item.get("name"),
+        "status": item.get("status"),
+        "call_id": item.get("callId") or item.get("call_id"),
+    })
 
 
 def _non_empty_args(values: dict[str, Any]) -> dict[str, Any]:
@@ -359,6 +441,201 @@ def _image_view_summary(item: dict[str, Any], fallback: str) -> dict[str, Any]:
         "label": label,
         **({"path": str(path)} if isinstance(path, str) and path else {}),
     }
+
+
+def _generic_tool_summary(tool_name: str, item: dict[str, Any], fallback: str) -> dict[str, Any]:
+    preview = _summarize_item_result(item)
+    if not preview:
+        raw_output = item.get("output") or item.get("result")
+        if isinstance(raw_output, dict):
+            preview = raw_output.get("text") or raw_output.get("summary") or ""
+    label = fallback or tool_name
+    summary = {
+        "kind": "result",
+        "subject_type": "tool",
+        "label": label,
+    }
+    if preview:
+        summary["preview_text"] = str(preview)[:240]
+    server = item.get("server")
+    if isinstance(server, str) and server.strip():
+        summary["target_label"] = server.strip()
+    return summary
+
+
+def _generic_tool_output_body(item: dict[str, Any]) -> str:
+    for key in ("output", "result", "content"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, dict):
+            for nested_key in ("text", "summary", "content", "message"):
+                nested = value.get(nested_key)
+                if isinstance(nested, str) and nested.strip():
+                    return nested.strip()
+    return ""
+
+
+def _emit_warning_notification(
+    method: str,
+    params: dict[str, Any],
+    *,
+    emit: ChannelEventEmitter,
+    result_meta: dict[str, Any],
+) -> None:
+    message = (
+        params.get("message")
+        or params.get("summary")
+        or params.get("details")
+        or "Codex warning"
+    )
+    detail = str(params.get("details") or message)
+    path = params.get("path")
+    call_id = f"codex-warning:{len(result_meta.setdefault('codex_warnings', [])) + 1}"
+    warning = {
+        "method": method,
+        "message": str(message),
+        **({"details": str(params.get("details"))} if params.get("details") else {}),
+        **({"path": str(path)} if isinstance(path, str) and path else {}),
+        **({"thread_id": str(params.get("threadId"))} if params.get("threadId") else {}),
+    }
+    warnings = result_meta.setdefault("codex_warnings", [])
+    if isinstance(warnings, list):
+        warnings.append(warning)
+    envelope, summary = build_text_tool_result(
+        tool_name="Codex warning",
+        tool_call_id=call_id,
+        body=detail,
+        label=str(message),
+        summary_kind="warning",
+        subject_type="runtime",
+        path=path if isinstance(path, str) else None,
+        preview_text=detail,
+    )
+    emit.tool_result(
+        tool_name="Codex warning",
+        tool_call_id=call_id,
+        result_summary=envelope["plain_body"],
+        is_error=False,
+        envelope=envelope,
+        surface="rich_result",
+        summary=summary,
+    )
+
+
+def _emit_fs_changed_notification(
+    params: dict[str, Any],
+    *,
+    emit: ChannelEventEmitter,
+    result_meta: dict[str, Any],
+) -> None:
+    changed = params.get("changedPaths") or params.get("changed_paths") or []
+    paths = [str(path) for path in changed if isinstance(path, str)]
+    watch_id = str(params.get("watchId") or params.get("watch_id") or "")
+    label = f"Filesystem changed: {len(paths)} path{'s' if len(paths) != 1 else ''}"
+    body = "\n".join(paths) or label
+    call_id = f"codex-fs:{watch_id or len(result_meta.setdefault('codex_fs_events', [])) + 1}"
+    events = result_meta.setdefault("codex_fs_events", [])
+    if isinstance(events, list):
+        events.append({"watch_id": watch_id, "paths": paths})
+    envelope, summary = build_text_tool_result(
+        tool_name="Filesystem watch",
+        tool_call_id=call_id,
+        body=body,
+        label=label,
+        summary_kind="watch",
+        subject_type="file",
+        path=paths[0] if len(paths) == 1 else None,
+        preview_text=body,
+    )
+    emit.tool_result(
+        tool_name="Filesystem watch",
+        tool_call_id=call_id,
+        result_summary=envelope["plain_body"],
+        is_error=False,
+        envelope=envelope,
+        surface="rich_result",
+        summary=summary,
+    )
+
+
+def _emit_mcp_progress_notification(
+    params: dict[str, Any],
+    *,
+    emit: ChannelEventEmitter,
+    result_meta: dict[str, Any],
+) -> None:
+    item_id = str(params.get("itemId") or params.get("item_id") or "")
+    message = str(params.get("message") or "MCP tool call progress")
+    call_id = item_id or f"codex-mcp-progress:{len(result_meta.setdefault('codex_mcp_progress', [])) + 1}"
+    progress = result_meta.setdefault("codex_mcp_progress", [])
+    if isinstance(progress, list):
+        progress.append({"item_id": item_id, "message": message})
+    envelope, summary = build_text_tool_result(
+        tool_name="MCP progress",
+        tool_call_id=call_id,
+        body=message,
+        label="MCP progress",
+        summary_kind="progress",
+        subject_type="tool",
+        preview_text=message,
+    )
+    emit.tool_result(
+        tool_name="MCP progress",
+        tool_call_id=call_id,
+        result_summary=envelope["plain_body"],
+        is_error=False,
+        envelope=envelope,
+        surface="rich_result",
+        summary=summary,
+    )
+
+
+def _emit_guardian_review_notification(
+    method: str,
+    params: dict[str, Any],
+    *,
+    emit: ChannelEventEmitter,
+    result_meta: dict[str, Any],
+) -> None:
+    started = method == schema.NOTIFICATION_ITEM_GUARDIAN_REVIEW_STARTED
+    review_id = str(params.get("reviewId") or params.get("review_id") or "")
+    target_id = str(params.get("targetItemId") or params.get("target_item_id") or "")
+    decision = str(params.get("decisionSource") or "")
+    label = "Approval auto-review started" if started else "Approval auto-review completed"
+    body_parts = [label]
+    if target_id:
+        body_parts.append(f"target: {target_id}")
+    if decision:
+        body_parts.append(f"decision source: {decision}")
+    body = "\n".join(body_parts)
+    call_id = f"codex-guardian-review:{review_id or len(result_meta.setdefault('codex_guardian_reviews', [])) + 1}"
+    reviews = result_meta.setdefault("codex_guardian_reviews", [])
+    if isinstance(reviews, list):
+        reviews.append({
+            "review_id": review_id,
+            "target_item_id": target_id,
+            "status": "started" if started else "completed",
+            **({"decision_source": decision} if decision else {}),
+        })
+    envelope, summary = build_text_tool_result(
+        tool_name="Approval auto-review",
+        tool_call_id=call_id,
+        body=body,
+        label=label,
+        summary_kind="approval_review",
+        subject_type="runtime",
+        preview_text=body,
+    )
+    emit.tool_result(
+        tool_name="Approval auto-review",
+        tool_call_id=call_id,
+        result_summary=envelope["plain_body"],
+        is_error=False,
+        envelope=envelope,
+        surface="rich_result",
+        summary=summary,
+    )
 
 
 def _extract_text_delta(params: dict[str, Any]) -> str:

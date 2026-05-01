@@ -20,7 +20,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, Project, ProjectInstance, ProjectRunReceipt, Task
+from app.db.models import Channel, IssueWorkPack, Project, ProjectInstance, ProjectRunReceipt, Task
 from app.services.agent_activity import list_agent_activity
 from app.services.project_dependency_stacks import project_dependency_stack_spec
 from app.services.project_run_handoff import prepare_project_run_handoff
@@ -821,3 +821,190 @@ async def list_project_coding_runs(
         latest = continuations[-1] if continuations else None
         row["latest_continuation"] = latest
     return rows
+
+
+def _review_task_config(task: Task) -> dict[str, Any]:
+    ecfg = task.execution_config if isinstance(task.execution_config, dict) else {}
+    review = ecfg.get("project_coding_run_review")
+    return dict(review) if isinstance(review, dict) else {}
+
+
+def _review_batch_status(status_counts: dict[str, int], review_sessions: list[dict[str, Any]]) -> str:
+    total = sum(status_counts.values())
+    active_review = any(session.get("active") for session in review_sessions)
+    if total > 0 and status_counts.get("reviewed", 0) == total:
+        return "reviewed"
+    if active_review:
+        return "reviewing"
+    if any(status_counts.get(status, 0) for status in ("blocked", "failed", "changes_requested")):
+        return "blocked"
+    if any(status_counts.get(status, 0) for status in ("ready_for_review", "completed", "needs_review")):
+        return "ready_for_review"
+    if any(status_counts.get(status, 0) for status in ("running", "pending")):
+        return "running"
+    return "pending"
+
+
+def _review_session_row(task: Task) -> dict[str, Any]:
+    status = task.status or "unknown"
+    return {
+        "task_id": str(task.id),
+        "status": status,
+        "title": task.title,
+        "session_id": str(task.session_id) if task.session_id else None,
+        "channel_id": str(task.channel_id) if task.channel_id else None,
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+        "active": status in {"pending", "running"},
+    }
+
+
+def _work_pack_row(pack: IssueWorkPack) -> dict[str, Any]:
+    metadata = dict(pack.metadata_ or {}) if isinstance(pack.metadata_, dict) else {}
+    latest = metadata.get("latest_review_action")
+    return {
+        "id": str(pack.id),
+        "title": pack.title,
+        "summary": pack.summary,
+        "status": pack.status,
+        "category": pack.category,
+        "confidence": pack.confidence,
+        "launched_task_id": str(pack.launched_task_id) if pack.launched_task_id else None,
+        "latest_review_action": dict(latest) if isinstance(latest, dict) else None,
+    }
+
+
+async def list_project_coding_run_review_batches(
+    db: AsyncSession,
+    project: Project,
+    *,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Return launch-batch review inbox rows derived from existing Project run state."""
+    runs = await list_project_coding_runs(db, project, limit=max(25, min(limit * 4, 100)))
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for run in runs:
+        batch_id = run.get("launch_batch_id")
+        if not batch_id:
+            continue
+        grouped.setdefault(str(batch_id), []).append(run)
+    if not grouped:
+        return []
+
+    batch_ids = set(grouped)
+    packs = list((await db.execute(
+        select(IssueWorkPack)
+        .where(IssueWorkPack.project_id == project.id)
+        .order_by(IssueWorkPack.updated_at.desc(), IssueWorkPack.created_at.desc())
+        .limit(250)
+    )).scalars().all())
+    packs_by_batch: dict[str, list[IssueWorkPack]] = {batch_id: [] for batch_id in batch_ids}
+    for pack in packs:
+        metadata = pack.metadata_ if isinstance(pack.metadata_, dict) else {}
+        batch_id = metadata.get("launch_batch_id")
+        if batch_id in packs_by_batch:
+            packs_by_batch[str(batch_id)].append(pack)
+
+    channel_ids = list((await db.execute(
+        select(Channel.id).where(Channel.project_id == project.id)
+    )).scalars().all())
+    review_tasks: list[Task] = []
+    if channel_ids:
+        candidates = list((await db.execute(
+            select(Task)
+            .where(Task.channel_id.in_(channel_ids))
+            .order_by(Task.created_at.desc())
+            .limit(250)
+        )).scalars().all())
+        review_tasks = [
+            task for task in candidates
+            if isinstance(task.execution_config, dict)
+            and task.execution_config.get("run_preset_id") == PROJECT_CODING_RUN_REVIEW_PRESET_ID
+        ]
+
+    review_sessions_by_run: dict[str, list[dict[str, Any]]] = {}
+    for task in review_tasks:
+        cfg = _review_task_config(task)
+        selected = [str(item) for item in cfg.get("selected_task_ids") or []]
+        if not selected:
+            continue
+        row = _review_session_row(task)
+        for run_task_id in selected:
+            review_sessions_by_run.setdefault(run_task_id, []).append(row)
+
+    inbox: list[dict[str, Any]] = []
+    for batch_id, batch_runs in grouped.items():
+        status_counts: dict[str, int] = {}
+        evidence = {"tests_count": 0, "screenshots_count": 0, "changed_files_count": 0, "dev_targets_count": 0}
+        review_sessions_by_id: dict[str, dict[str, Any]] = {}
+        updated_values: list[str] = []
+        ready_run_ids: list[str] = []
+        unreviewed_run_ids: list[str] = []
+
+        for run in batch_runs:
+            review = run.get("review") if isinstance(run.get("review"), dict) else {}
+            status = str(review.get("status") or run.get("status") or "unknown")
+            status_counts[status] = status_counts.get(status, 0) + 1
+            if status in {"ready_for_review", "completed", "needs_review"}:
+                ready_run_ids.append(str(run["id"]))
+            if status != "reviewed":
+                unreviewed_run_ids.append(str(run["id"]))
+            run_evidence = review.get("evidence") if isinstance(review.get("evidence"), dict) else {}
+            for key in evidence:
+                try:
+                    evidence[key] += int(run_evidence.get(key) or 0)
+                except (TypeError, ValueError):
+                    continue
+            if run.get("updated_at"):
+                updated_values.append(str(run["updated_at"]))
+            for session in review_sessions_by_run.get(str(run["task"]["id"]), []):
+                review_sessions_by_id[session["task_id"]] = session
+
+        review_sessions = sorted(
+            review_sessions_by_id.values(),
+            key=lambda item: str(item.get("created_at") or ""),
+            reverse=True,
+        )
+        source_packs = sorted(
+            [_work_pack_row(pack) for pack in packs_by_batch.get(batch_id, [])],
+            key=lambda item: item["title"].lower(),
+        )
+        status = _review_batch_status(status_counts, review_sessions)
+        active_review = next((session for session in review_sessions if session.get("active")), None)
+        latest_review = review_sessions[0] if review_sessions else None
+        latest_run = max(batch_runs, key=lambda row: str(row.get("updated_at") or row.get("created_at") or ""))
+        inbox.append({
+            "id": batch_id,
+            "project_id": str(project.id),
+            "status": status,
+            "run_count": len(batch_runs),
+            "status_counts": status_counts,
+            "evidence": evidence,
+            "run_ids": [str(run["id"]) for run in batch_runs],
+            "task_ids": [str(run["task"]["id"]) for run in batch_runs],
+            "ready_run_ids": ready_run_ids,
+            "unreviewed_run_ids": unreviewed_run_ids,
+            "source_work_packs": source_packs,
+            "review_sessions": review_sessions,
+            "active_review_task": active_review,
+            "latest_review_task": latest_review,
+            "latest_activity_at": max(updated_values) if updated_values else latest_run.get("updated_at") or latest_run.get("created_at"),
+            "summary": {
+                "title": source_packs[0]["title"] if source_packs else f"Launch batch {batch_id}",
+                "source_work_pack_count": len(source_packs),
+                "ready_count": len(ready_run_ids),
+                "unreviewed_count": len(unreviewed_run_ids),
+            },
+            "actions": {
+                "can_select": True,
+                "can_start_review": bool(batch_runs) and status != "reviewed",
+                "can_resume_review": active_review is not None,
+                "can_mark_reviewed": bool(unreviewed_run_ids),
+            },
+        })
+
+    return sorted(
+        inbox,
+        key=lambda row: str(row.get("latest_activity_at") or ""),
+        reverse=True,
+    )[: max(1, min(limit, 100))]

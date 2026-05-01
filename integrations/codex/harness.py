@@ -681,6 +681,10 @@ def _codex_native_command_is_mutating(command_id: str, args: tuple[str, ...]) ->
         return True
     if command_id == "approvals":
         return first not in {"", "list", "status", "show"}
+    if command_id in {"resume", "agents"}:
+        return first in {"fork", "archive", "unarchive", "rename", "rollback"}
+    if command_id == "review":
+        return first in {"worktree", "changes", "uncommitted", "branch", "base", "commit", "custom"}
     return False
 
 
@@ -704,6 +708,14 @@ def _codex_native_app_server_params_for_context(
     }:
         raw_path = str(params.get("path") or ".")
         return {**params, "path": _codex_native_resolve_read_path(ctx.workdir, raw_path)}
+    if method in {
+        schema.METHOD_REVIEW_START,
+        schema.METHOD_THREAD_ROLLBACK,
+    } and not params.get("threadId"):
+        thread_id = getattr(ctx, "harness_session_id", None)
+        if not thread_id:
+            raise ValueError("Codex native command requires an active native thread id")
+        return {**params, "threadId": thread_id}
     return params
 
 
@@ -812,12 +824,36 @@ def _resolve_codex_native_app_server_call(
     if command_id == "resume":
         if not cleaned or first in {"list", "history"}:
             return schema.METHOD_THREAD_LIST, {}
+        if first == "loaded":
+            return schema.METHOD_THREAD_LOADED_LIST, {}
         if first == "search" and len(cleaned) >= 2:
             return schema.METHOD_THREAD_LIST, {"query": " ".join(cleaned[1:])}
         if first in {"get", "show"} and len(cleaned) >= 2:
             return schema.METHOD_THREAD_READ, {"threadId": cleaned[1]}
         if first in {"responses", "response"} and len(cleaned) >= 2:
             return schema.METHOD_THREAD_TURNS_LIST, {"threadId": cleaned[1]}
+        if first == "fork" and len(cleaned) >= 2:
+            return schema.METHOD_THREAD_FORK, {"threadId": cleaned[1], "cwd": None}
+        if first == "archive" and len(cleaned) >= 2:
+            return schema.METHOD_THREAD_ARCHIVE, {"threadId": cleaned[1]}
+        if first == "unarchive" and len(cleaned) >= 2:
+            return schema.METHOD_THREAD_UNARCHIVE, {"threadId": cleaned[1]}
+        if first == "rename" and len(cleaned) >= 3:
+            return schema.METHOD_THREAD_SET_NAME, {
+                "threadId": cleaned[1],
+                "name": " ".join(cleaned[2:]),
+            }
+        if first == "rollback":
+            thread_id = cleaned[1] if len(cleaned) >= 2 else None
+            turns_text = cleaned[2] if len(cleaned) >= 3 else "1"
+            try:
+                turns = max(1, int(turns_text))
+            except ValueError:
+                return None, {}
+            return schema.METHOD_THREAD_ROLLBACK, {
+                "threadId": thread_id,
+                "numTurns": turns,
+            }
         return None, {}
     if command_id == "agents":
         if not cleaned or first in {"list", "history"}:
@@ -839,7 +875,35 @@ def _resolve_codex_native_app_server_call(
         if not cleaned or first in {"list", "status", "show", "requirements"}:
             return schema.METHOD_CONFIG_REQUIREMENTS_LIST, {}
         return None, {}
-    if command_id in {"undo", "branch", "review", "prompts", "editor", "init"}:
+    if command_id == "review":
+        if not cleaned:
+            return None, {}
+        if first in {"worktree", "changes", "uncommitted"}:
+            return schema.METHOD_REVIEW_START, {
+                "threadId": None,
+                "target": {"type": "uncommittedChanges"},
+                "delivery": "inline",
+            }
+        if first in {"branch", "base"} and len(cleaned) >= 2:
+            return schema.METHOD_REVIEW_START, {
+                "threadId": None,
+                "target": {"type": "baseBranch", "branch": cleaned[1]},
+                "delivery": "inline",
+            }
+        if first == "commit" and len(cleaned) >= 2:
+            return schema.METHOD_REVIEW_START, {
+                "threadId": None,
+                "target": {"type": "commit", "sha": cleaned[1]},
+                "delivery": "inline",
+            }
+        if first == "custom" and len(cleaned) >= 2:
+            return schema.METHOD_REVIEW_START, {
+                "threadId": None,
+                "target": {"type": "custom", "instructions": " ".join(cleaned[1:])},
+                "delivery": "inline",
+            }
+        return None, {}
+    if command_id in {"undo", "branch", "prompts", "editor", "init"}:
         return None, {}
     return None
 

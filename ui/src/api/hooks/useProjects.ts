@@ -6,6 +6,7 @@ import type {
   ProjectBlueprint,
   ProjectBlueprintWrite,
   ProjectCodingRun,
+  ProjectCodingRunReviewBatch,
   ProjectCodingRunSchedule,
   ProjectCodingRunTask,
   ProjectFromBlueprintWrite,
@@ -105,6 +106,14 @@ export function useProjectCodingRuns(projectId: string | undefined) {
   });
 }
 
+export function useProjectCodingRunReviewBatches(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["projects", projectId, "coding-runs", "review-batches"],
+    queryFn: () => apiFetch<ProjectCodingRunReviewBatch[]>(`/api/v1/projects/${projectId}/coding-runs/review-batches`),
+    enabled: !!projectId,
+  });
+}
+
 export function useProjectCodingRunSchedules(projectId: string | undefined) {
   return useQuery({
     queryKey: ["projects", projectId, "coding-run-schedules"],
@@ -163,6 +172,7 @@ export function useCreateProjectCodingRun(projectId: string | undefined) {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-batches"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
     },
   });
@@ -178,6 +188,7 @@ export function useContinueProjectCodingRun(projectId: string | undefined) {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-batches"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
     },
   });
@@ -192,6 +203,7 @@ function useProjectCodingRunAction(projectId: string | undefined, action: "refre
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-batches"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "instances"] });
     },
@@ -216,6 +228,7 @@ export function useMarkProjectCodingRunsReviewed(projectId: string | undefined) 
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-batches"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
     },
   });
@@ -231,6 +244,7 @@ export function useCreateProjectCodingRunReviewSession(projectId: string | undef
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-batches"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
     },
   });

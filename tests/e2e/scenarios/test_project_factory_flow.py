@@ -172,6 +172,13 @@ async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClie
     task_id = run["task"]["id"]
     assert run["source_work_pack_id"] == code_pack["id"]
 
+    review_batches = await client.list_project_review_batches(project["id"])
+    launch_batch = next(batch for batch in review_batches if batch["id"] == launched["launch_batch_id"])
+    assert launch_batch["status"] in {"pending", "running"}
+    assert launch_batch["run_count"] == 2
+    assert set(launch_batch["task_ids"]) == {item["task"]["id"] for item in launched["runs"]}
+    assert {pack["id"] for pack in launch_batch["source_work_packs"]} == {code_pack["id"], second_code_pack["id"]}
+
     receipt = await client.create_project_run_receipt(project["id"], {
         "task_id": task_id,
         "bot_id": client.default_bot_id,
@@ -191,6 +198,12 @@ async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClie
     assert receipt["task_id"] == task_id
     assert receipt["handoff_url"].endswith(f"/{suffix}")
 
+    review_batches = await client.list_project_review_batches(project["id"])
+    launch_batch = next(batch for batch in review_batches if batch["id"] == launched["launch_batch_id"])
+    assert launch_batch["status"] == "ready_for_review"
+    assert launch_batch["evidence"]["tests_count"] == 1
+    assert launch_batch["evidence"]["screenshots_count"] == 1
+
     review = await client.create_project_review_session(project["id"], {
         "channel_id": channel["id"],
         "task_ids": [task_id],
@@ -203,6 +216,11 @@ async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClie
     assert review_context["selected_task_ids"] == [task_id]
     assert review_context["selected_runs"][0]["launch_batch_id"] == launched["launch_batch_id"]
     assert review_context["selected_runs"][0]["receipt"]["id"] == receipt["id"]
+
+    review_batches = await client.list_project_review_batches(project["id"])
+    launch_batch = next(batch for batch in review_batches if batch["id"] == launched["launch_batch_id"])
+    assert launch_batch["status"] == "reviewing"
+    assert launch_batch["active_review_task"]["task_id"] == review["id"]
 
     finalized = await client.finalize_project_review(project["id"], {
         "review_task_id": review["id"],

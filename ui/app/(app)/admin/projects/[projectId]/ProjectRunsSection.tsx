@@ -6,6 +6,7 @@ import {
   useCleanupProjectCodingRun,
   useContinueProjectCodingRun,
   useCreateProjectCodingRun,
+  useProjectCodingRunReviewBatches,
   useCreateProjectCodingRunSchedule,
   useCreateProjectCodingRunReviewSession,
   useDisableProjectCodingRunSchedule,
@@ -22,7 +23,7 @@ import { PromptEditor } from "@/src/components/shared/LlmPrompt";
 import { ActionButton, EmptyState, SettingsControlRow, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { RecurrencePicker, ScheduleSummary, ScheduledAtPicker } from "@/src/components/shared/SchedulingPickers";
 import { collapseProjectRunReceiptsForReview } from "@/src/lib/projectRunReceipts";
-import type { Channel, Project, ProjectCodingRun, ProjectRunReceipt } from "@/src/types/api";
+import type { Channel, Project, ProjectCodingRun, ProjectCodingRunReviewBatch, ProjectRunReceipt } from "@/src/types/api";
 
 function RowLink({ to, href, children }: { to?: string; href?: string; children: React.ReactNode }) {
   const className = "inline-flex min-h-[34px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold text-text-muted no-underline transition-colors hover:bg-surface-overlay/50 hover:text-text";
@@ -222,6 +223,26 @@ function devTargetsLine(targets?: Array<Record<string, any> | string>) {
       return `${label}${url ? ` ${url}` : port ? ` :${port}` : ""}`;
     })
     .join(" · ");
+}
+
+function batchEvidenceLine(batch: ProjectCodingRunReviewBatch) {
+  const evidence = batch.evidence ?? {};
+  return `${evidence.tests_count ?? 0} tests · ${evidence.screenshots_count ?? 0} screenshots · ${evidence.changed_files_count ?? 0} files`;
+}
+
+function batchStatusLine(batch: ProjectCodingRunReviewBatch) {
+  const counts = batch.status_counts ?? {};
+  const ordered = ["reviewed", "ready_for_review", "reviewing", "running", "pending", "blocked", "changes_requested", "failed"];
+  const pieces = ordered
+    .filter((key) => counts[key])
+    .map((key) => `${counts[key]} ${key.replaceAll("_", " ")}`);
+  return pieces.length ? pieces.join(" · ") : `${batch.run_count} run${batch.run_count === 1 ? "" : "s"}`;
+}
+
+function batchSourceLine(batch: ProjectCodingRunReviewBatch) {
+  const packs = batch.source_work_packs ?? [];
+  if (packs.length === 0) return "No source work packs linked";
+  return packs.slice(0, 2).map((pack) => pack.title).join(" · ") + (packs.length > 2 ? ` · +${packs.length - 2}` : "");
 }
 
 function ExecutionAccessControl({
@@ -438,6 +459,7 @@ export function ProjectRunsSection({
   receipts?: ProjectRunReceipt[];
 }) {
   const { data: runs = [] } = useProjectCodingRuns(project.id);
+  const { data: reviewBatches = [] } = useProjectCodingRunReviewBatches(project.id);
   const { data: schedules = [] } = useProjectCodingRunSchedules(project.id);
   const createRun = useCreateProjectCodingRun(project.id);
   const createSchedule = useCreateProjectCodingRunSchedule(project.id);
@@ -569,6 +591,24 @@ export function ProjectRunsSection({
         channel_id: selectedChannel.id,
         task_ids: taskIds,
         prompt: `${reviewPrompt.trim()}\n\nReview launch batch ${batchId}. Keep finalization provenance linked to this batch.`,
+        merge_method: "squash",
+        machine_target_grant: reviewMachineTargetGrant,
+      },
+      {
+        onSuccess: (task) => {
+          setReviewTaskId(task.id);
+        },
+      },
+    );
+  };
+  const launchReviewForInboxBatch = (batch: ProjectCodingRunReviewBatch) => {
+    if (!selectedChannel || !batch.task_ids?.length || batchBusy) return;
+    setSelectedRunIds(batch.run_ids ?? []);
+    createReviewSession.mutate(
+      {
+        channel_id: selectedChannel.id,
+        task_ids: batch.task_ids,
+        prompt: `${reviewPrompt.trim()}\n\nReview launch batch ${batch.id}. Keep finalization provenance linked to this batch.`,
         merge_method: "squash",
         machine_target_grant: reviewMachineTargetGrant,
       },
@@ -763,6 +803,69 @@ export function ProjectRunsSection({
                 />
               );
             })
+          )}
+        </div>
+      </Section>
+
+      <Section title="Review Inbox" description="Launch batches grouped for morning review, with readiness, evidence, source packs, and review-session links.">
+        <div className="flex flex-col gap-2">
+          {reviewBatches.length === 0 ? (
+            <EmptyState message="No launched Work Pack batches are waiting for review." />
+          ) : (
+            reviewBatches.map((batch) => (
+              <SettingsControlRow
+                key={batch.id}
+                leading={<GitMerge size={14} />}
+                title={batch.summary?.title || `Launch batch ${shortBatchId(batch.id)}`}
+                description={
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span>
+                      Batch {shortBatchId(batch.id)} · {batch.run_count} run{batch.run_count === 1 ? "" : "s"} · {batchStatusLine(batch)}
+                    </span>
+                    <span className="truncate text-[11px] text-text-dim">
+                      Sources: {batchSourceLine(batch)}
+                    </span>
+                    <span className="truncate text-[11px] text-text-dim">
+                      Evidence: {batchEvidenceLine(batch)} · ready {batch.summary?.ready_count ?? 0} · unreviewed {batch.summary?.unreviewed_count ?? 0}
+                    </span>
+                    {batch.active_review_task?.task_id && (
+                      <span className="truncate text-[11px] text-text-dim">
+                        Active review: {String(batch.active_review_task.task_id).slice(0, 8)} · {batch.active_review_task.status}
+                      </span>
+                    )}
+                    {!batch.active_review_task && batch.latest_review_task?.task_id && (
+                      <span className="truncate text-[11px] text-text-dim">
+                        Latest review: {String(batch.latest_review_task.task_id).slice(0, 8)} · {batch.latest_review_task.status}
+                      </span>
+                    )}
+                  </span>
+                }
+                meta={<StatusBadge label={batch.status} variant={statusTone(batch.status)} />}
+                action={
+                  <div className="flex flex-wrap justify-end gap-1">
+                    <ActionButton
+                      label="Select runs"
+                      size="small"
+                      variant="ghost"
+                      disabled={batchBusy}
+                      onPress={() => setSelectedRunIds(batch.run_ids ?? [])}
+                    />
+                    {batch.active_review_task?.task_id ? (
+                      <RowLink to={`/admin/tasks/${batch.active_review_task.task_id}`}>Open review</RowLink>
+                    ) : (
+                      <ActionButton
+                        label={createReviewSession.isPending ? "Starting" : "Start review"}
+                        icon={<GitMerge size={13} />}
+                        size="small"
+                        variant="secondary"
+                        disabled={!selectedChannel || batchBusy || !batch.actions?.can_start_review}
+                        onPress={() => launchReviewForInboxBatch(batch)}
+                      />
+                    )}
+                  </div>
+                }
+              />
+            ))
           )}
         </div>
       </Section>

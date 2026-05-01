@@ -342,7 +342,19 @@ def test_codex_native_command_method_constants_are_current():
     assert schema.METHOD_THREAD_LIST == "thread/list"
     assert schema.METHOD_THREAD_READ == "thread/read"
     assert schema.METHOD_THREAD_TURNS_LIST == "thread/turns/list"
+    assert schema.METHOD_THREAD_FORK == "thread/fork"
+    assert schema.METHOD_THREAD_ARCHIVE == "thread/archive"
+    assert schema.METHOD_THREAD_UNARCHIVE == "thread/unarchive"
+    assert schema.METHOD_THREAD_ROLLBACK == "thread/rollback"
+    assert schema.METHOD_THREAD_SET_NAME == "thread/name/set"
+    assert schema.METHOD_THREAD_LOADED_LIST == "thread/loaded/list"
+    assert schema.METHOD_REVIEW_START == "review/start"
     assert schema.METHOD_ACCOUNT_RATE_LIMITS_READ == "account/rateLimits/read"
+    assert schema.NOTIFICATION_WARNING == "warning"
+    assert schema.NOTIFICATION_CONFIG_WARNING == "configWarning"
+    assert schema.NOTIFICATION_GUARDIAN_WARNING == "guardianWarning"
+    assert schema.NOTIFICATION_FS_CHANGED == "fs/changed"
+    assert schema.NOTIFICATION_MCP_TOOL_CALL_PROGRESS == "item/mcpToolCall/progress"
 
 
 def test_summarize_native_command_result_counts_common_list_fields():
@@ -411,6 +423,30 @@ def test_codex_native_command_maps_management_methods():
         schema.METHOD_THREAD_LIST,
         {"query": "fixture"},
     )
+    assert _resolve_codex_native_app_server_call("resume", ("loaded",)) == (
+        schema.METHOD_THREAD_LOADED_LIST,
+        {},
+    )
+    assert _resolve_codex_native_app_server_call("resume", ("archive", "thread-1")) == (
+        schema.METHOD_THREAD_ARCHIVE,
+        {"threadId": "thread-1"},
+    )
+    assert _resolve_codex_native_app_server_call("resume", ("unarchive", "thread-1")) == (
+        schema.METHOD_THREAD_UNARCHIVE,
+        {"threadId": "thread-1"},
+    )
+    assert _resolve_codex_native_app_server_call("resume", ("rename", "thread-1", "New", "Name")) == (
+        schema.METHOD_THREAD_SET_NAME,
+        {"threadId": "thread-1", "name": "New Name"},
+    )
+    assert _resolve_codex_native_app_server_call("resume", ("rollback", "thread-1", "2")) == (
+        schema.METHOD_THREAD_ROLLBACK,
+        {"threadId": "thread-1", "numTurns": 2},
+    )
+    assert _resolve_codex_native_app_server_call("resume", ("rollback",)) == (
+        schema.METHOD_THREAD_ROLLBACK,
+        {"threadId": None, "numTurns": 1},
+    )
     assert _resolve_codex_native_app_server_call("agents", ()) == (
         schema.METHOD_THREAD_LIST,
         {},
@@ -432,6 +468,14 @@ def test_codex_native_command_maps_management_methods():
         {},
     )
     assert _resolve_codex_native_app_server_call("review", ()) == (None, {})
+    assert _resolve_codex_native_app_server_call("review", ("worktree",)) == (
+        schema.METHOD_REVIEW_START,
+        {"threadId": None, "target": {"type": "uncommittedChanges"}, "delivery": "inline"},
+    )
+    assert _resolve_codex_native_app_server_call("review", ("branch", "main")) == (
+        schema.METHOD_REVIEW_START,
+        {"threadId": None, "target": {"type": "baseBranch", "branch": "main"}, "delivery": "inline"},
+    )
 
 
 def test_codex_native_skills_list_is_scoped_to_harness_workdir():
@@ -469,8 +513,38 @@ def test_codex_native_hooks_and_fs_are_scoped_to_harness_workdir():
         )
 
 
+def test_codex_native_active_thread_commands_use_current_harness_session_id():
+    ctx = build_turn_context(
+        spindrel_session_id=uuid.uuid4(),
+        bot_id="codex-bot",
+        turn_id=uuid.uuid4(),
+        channel_id=uuid.uuid4(),
+        workdir="/tmp/project",
+        harness_session_id="thread-current",
+        permission_mode="default",
+    )
+
+    review_params = _codex_native_app_server_params_for_context(
+        schema.METHOD_REVIEW_START,
+        {"threadId": None, "target": {"type": "uncommittedChanges"}, "delivery": "inline"},
+        ctx,
+    )
+    rollback_params = _codex_native_app_server_params_for_context(
+        schema.METHOD_THREAD_ROLLBACK,
+        {"threadId": None, "numTurns": 1},
+        ctx,
+    )
+
+    assert review_params["threadId"] == "thread-current"
+    assert rollback_params["threadId"] == "thread-current"
+
+
 def test_codex_native_command_classifies_mutating_args():
     assert _codex_native_command_is_mutating("plugins", ("install", "fixture")) is True
     assert _codex_native_command_is_mutating("plugins", ("read", "fixture")) is False
     assert _codex_native_command_is_mutating("skills", ("disable", "reviewer")) is True
     assert _codex_native_command_is_mutating("features", ("list",)) is False
+    assert _codex_native_command_is_mutating("resume", ("show", "thread-1")) is False
+    assert _codex_native_command_is_mutating("resume", ("rollback",)) is True
+    assert _codex_native_command_is_mutating("resume", ("archive", "thread-1")) is True
+    assert _codex_native_command_is_mutating("review", ("worktree",)) is True

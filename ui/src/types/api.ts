@@ -1614,6 +1614,50 @@ export interface ProjectCodingRun {
   updated_at?: string | null;
 }
 
+export interface ProjectCodingRunReviewBatch {
+  id: string;
+  project_id: string;
+  status: string;
+  run_count: number;
+  status_counts?: Record<string, number>;
+  evidence?: {
+    tests_count?: number;
+    screenshots_count?: number;
+    changed_files_count?: number;
+    dev_targets_count?: number;
+  };
+  run_ids?: string[];
+  task_ids?: string[];
+  ready_run_ids?: string[];
+  unreviewed_run_ids?: string[];
+  source_work_packs?: Array<{
+    id: string;
+    title: string;
+    summary?: string;
+    status?: string;
+    category?: string;
+    confidence?: string;
+    launched_task_id?: string | null;
+    latest_review_action?: Record<string, any> | null;
+  }>;
+  review_sessions?: Array<Record<string, any>>;
+  active_review_task?: Record<string, any> | null;
+  latest_review_task?: Record<string, any> | null;
+  latest_activity_at?: string | null;
+  summary?: {
+    title?: string;
+    source_work_pack_count?: number;
+    ready_count?: number;
+    unreviewed_count?: number;
+  };
+  actions?: {
+    can_select?: boolean;
+    can_start_review?: boolean;
+    can_resume_review?: boolean;
+    can_mark_reviewed?: boolean;
+  };
+}
+
 export interface ProjectCodingRunSchedule {
   id: string;
   project_id: string;

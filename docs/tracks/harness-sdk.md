@@ -400,6 +400,15 @@ Approval mapping intent (final values from schema):
   approval/resume, safe workspace write/read/delete, explicit memory read,
   terminal sequential tool output, and persisted tool replay after refetch all
   passed.
+- 2026-05-01 Codex app-server surface follow-up: generated schema inspection
+  against installed `codex-cli 0.128.0` exposed additional v2 surfaces. The
+  adapter now preserves Codex warnings, fs-watch changes, MCP progress,
+  approval auto-review notifications, and generic MCP/dynamic/native tool
+  items as renderable harness transcript rows. Native command routing also
+  covers supported thread history operations (`loaded`, `archive`, `unarchive`,
+  `rename`, `rollback`) and app-server review start forms, with mutating thread
+  and review commands staying approval-gated. Focused unit coverage passed
+  (`78 passed`) and `verify_schema_against_binary("codex")` passed locally.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

@@ -3107,6 +3107,43 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
           headers: { "Content-Type": "application/json" }
         });
       }
+      const reviewBatchMatch = url.pathname.match(/\\/api\\/v1\\/projects\\/([^/]+)\\/coding-runs\\/review-batches$/);
+      if (reviewBatchMatch) {
+        const finalizedReview = window.__PROJECT_REVIEW_FINALIZED__ === true;
+        return new Response(JSON.stringify([{
+          id: "issue-work-pack-batch:screenshot",
+          project_id: reviewBatchMatch[1],
+          status: finalizedReview ? "reviewed" : "ready_for_review",
+          run_count: 2,
+          status_counts: finalizedReview ? { reviewed: 2 } : { ready_for_review: 2 },
+          evidence: { tests_count: 4, screenshots_count: 2, changed_files_count: 4, dev_targets_count: 4 },
+          run_ids: ["screenshot-project-coding-run", "screenshot-project-coding-run-batch-peer"],
+          task_ids: ["screenshot-project-coding-run-task", "screenshot-project-coding-run-batch-peer-task"],
+          ready_run_ids: finalizedReview ? [] : ["screenshot-project-coding-run", "screenshot-project-coding-run-batch-peer"],
+          unreviewed_run_ids: finalizedReview ? [] : ["screenshot-project-coding-run", "screenshot-project-coding-run-batch-peer"],
+          source_work_packs: [
+            { id: "screenshot-work-pack-main", title: "Prepare the Project workspace screenshot receipt", status: "launched", category: "code_bug", confidence: "high" },
+            { id: "screenshot-work-pack-batch-peer", title: "Add batch launch proof for overnight packs", status: "launched", category: "code_bug", confidence: "medium" }
+          ],
+          review_sessions: finalizedReview ? [{
+            task_id: "screenshot-review-task",
+            status: "complete",
+            title: "Review Project coding runs",
+            session_id: "screenshot-review-session",
+            created_at: "2026-04-30T15:28:00Z",
+            completed_at: "2026-04-30T15:32:00Z",
+            active: false
+          }] : [],
+          active_review_task: null,
+          latest_review_task: finalizedReview ? { task_id: "screenshot-review-task", status: "complete", title: "Review Project coding runs", active: false } : null,
+          latest_activity_at: "2026-04-30T15:32:00Z",
+          summary: { title: "Prepare the Project workspace screenshot receipt", source_work_pack_count: 2, ready_count: finalizedReview ? 0 : 2, unreviewed_count: finalizedReview ? 0 : 2 },
+          actions: { can_select: true, can_start_review: !finalizedReview, can_resume_review: false, can_mark_reviewed: !finalizedReview }
+        }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
       const match = url.pathname.match(/\\/api\\/v1\\/projects\\/([^/]+)\\/coding-runs$/);
       if (match) {
         const response = await originalFetch(input, init);
@@ -3608,10 +3645,12 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         ),
         assert_js=(
             "const text = document.body.innerText.toLowerCase();"
-            "return { ok: text.includes('launch batches') "
+            "return { ok: text.includes('review inbox') "
+            "&& text.includes('launch batches') "
             "&& text.includes('review batch') "
             "&& text.includes('prepare the project workspace screenshot receipt') "
             "&& text.includes('add batch launch proof for overnight packs') "
+            "&& text.includes('sources: prepare the project workspace screenshot receipt') "
             "&& text.includes('launch batch:') "
             "&& text.includes('run receipts'), "
             "detail: 'Project Runs tab did not expose launch-batch review controls and receipt evidence' };"
