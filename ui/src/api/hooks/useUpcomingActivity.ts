@@ -38,15 +38,21 @@ export function useUpcomingActivity(limit: number = 50, typeFilter?: string) {
   });
 }
 
-export function useSpatialUpcomingActivity(limit: number = 50, typeFilter?: string) {
+export function useSpatialUpcomingActivity(
+  limit: number = 50,
+  typeFilter?: string,
+  options?: { enabled?: boolean },
+) {
   const params = new URLSearchParams({ limit: String(limit) });
   if (typeFilter) params.set("type", typeFilter);
+  const enabled = options?.enabled ?? true;
 
   return useQuery({
     queryKey: ["spatial-upcoming-activity", limit, typeFilter],
     queryFn: () =>
       apiFetch<UpcomingResponse>(`/api/v1/workspace/spatial/upcoming-activity?${params}`),
-    refetchInterval: 60_000,
+    enabled,
+    refetchInterval: enabled ? 60_000 : false,
     select: (data) => data.items,
   });
 }

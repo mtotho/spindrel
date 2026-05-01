@@ -285,6 +285,62 @@ def test_prepare_deps_starts_only_dependency_services(monkeypatch, tmp_path, cap
     assert "own unused port" in out
 
 
+def test_native_api_process_env_uses_host_dependency_urls(monkeypatch, tmp_path):
+    env_path = tmp_path / ".env.agent-e2e"
+    monkeypatch.setattr(agent_e2e_dev, "LOCAL_ENV", env_path)
+    monkeypatch.setattr(agent_e2e_dev, "SCRATCH_DIR", tmp_path / "scratch")
+    monkeypatch.setattr(agent_e2e_dev, "_generate_fernet_key", lambda: "stable-fernet-key")
+
+    env = {
+        "E2E_POSTGRES_PORT": "16432",
+        "E2E_SEARXNG_PORT": "19080",
+        "E2E_LLM_BASE_URL": "https://example.invalid/v1",
+        "E2E_LLM_API_KEY": "llm-key",
+        "E2E_DEFAULT_MODEL": "gpt-test",
+    }
+
+    native_env = agent_e2e_dev._native_api_process_env(
+        env,
+        api_url="http://localhost:19000",
+        api_key="test-key",
+    )
+
+    assert native_env["API_KEY"] == "test-key"
+    assert native_env["DATABASE_URL"] == "postgresql+asyncpg://agent:agent@localhost:16432/agentdb"
+    assert native_env["SEARXNG_URL"] == "http://localhost:19080"
+    assert native_env["DOCKER_STACKS_ENABLED"] == "false"
+    assert native_env["LITELLM_BASE_URL"] == "https://example.invalid/v1"
+    assert native_env["LITELLM_API_KEY"] == "llm-key"
+    assert native_env["DEFAULT_MODEL"] == "gpt-test"
+    assert "ENCRYPTION_KEY=stable-fernet-key" in env_path.read_text()
+
+
+def test_start_api_prepares_deps_and_starts_native_server(monkeypatch, tmp_path):
+    env_path = tmp_path / ".env.agent-e2e"
+    native_env_path = tmp_path / "native-api.env"
+    env_path.write_text("E2E_API_KEY=test-key\n")
+    monkeypatch.setattr(agent_e2e_dev, "LOCAL_ENV", env_path)
+    monkeypatch.setattr(agent_e2e_dev, "NATIVE_API_ENV", native_env_path)
+
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        agent_e2e_dev,
+        "_ensure_native_api",
+        lambda *, api_url, api_key, env, startup_timeout: calls.append((api_url, api_key)) or "http://localhost:19000",
+    )
+
+    assert agent_e2e_dev.cmd_start_api(
+        argparse.Namespace(
+            api_url="http://localhost:19000",
+            api_key="",
+            startup_timeout=1,
+            allow_production=False,
+        )
+    ) == 0
+
+    assert calls == [("http://localhost:19000", "test-key")]
+
+
 def test_prepare_project_factory_smoke_enables_runtime_installs_gh_and_seeds_secret(monkeypatch, tmp_path):
     env_path = tmp_path / ".env.agent-e2e"
     override = tmp_path / "compose.auth.override.yml"
@@ -372,10 +428,10 @@ def test_prepare_harness_parity_sets_up_local_runtimes_channels_and_env(monkeypa
             return {"id": f"channel-{channel_counter}"}
         return {}
 
-    monkeypatch.setattr(agent_e2e_dev, "_prepare_stack", lambda **kwargs: calls.append(("PREPARE", kwargs["api_url"], None)))
+    monkeypatch.setattr(agent_e2e_dev, "_ensure_native_api", lambda **kwargs: kwargs["api_url"])
     monkeypatch.setattr(
         agent_e2e_dev,
-        "_restart_spindrel_app_container",
+        "_restart_native_api",
         lambda api_url, api_key, env, timeout: calls.append(("RESTART", api_url, None)),
     )
     monkeypatch.setattr(agent_e2e_dev, "_request_json", fake_request)
@@ -389,13 +445,14 @@ def test_prepare_harness_parity_sets_up_local_runtimes_channels_and_env(monkeypa
             skip_setup=False,
             skip_live_auth_check=True,
             no_build=True,
+            docker_app=False,
             startup_timeout=1,
             runtime_timeout=1,
             allow_production=False,
         )
     ) == 0
 
-    assert override.exists()
+    assert not override.exists()
     assert ("RESTART", "http://localhost:18000", None) in calls
     assert ("PUT", "http://localhost:18000/api/v1/admin/integrations/codex/status", {"status": "enabled"}) in calls
     assert ("PUT", "http://localhost:18000/api/v1/admin/integrations/claude_code/status", {"status": "enabled"}) in calls
@@ -417,9 +474,10 @@ def test_prepare_harness_parity_sets_up_local_runtimes_channels_and_env(monkeypa
     ]
     body = harness_env.read_text()
     assert "HARNESS_PARITY_LOCAL=1" in body
+    assert "HARNESS_PARITY_NATIVE_APP=1" in body
     assert "HARNESS_PARITY_CODEX_CHANNEL_ID=channel-1" in body
     assert "HARNESS_PARITY_CLAUDE_CHANNEL_ID=channel-2" in body
-    assert "HARNESS_PARITY_AGENT_CONTAINER=spindrel-local-e2e-spindrel-1" in body
+    assert "HARNESS_PARITY_AGENT_CONTAINER=\n" in body
 
 
 def test_harness_parity_env_preserves_runtime_ids_when_preparing_subset(monkeypatch, tmp_path):
@@ -438,6 +496,7 @@ def test_harness_parity_env_preserves_runtime_ids_when_preparing_subset(monkeypa
         api_key="test-key",
         channel_ids_by_runtime={"claude-code": "new-claude-channel"},
         project_path="common/projects",
+        native_app=True,
     )
 
     body = harness_env.read_text()

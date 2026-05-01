@@ -184,6 +184,68 @@ def serialize_node(
     return out
 
 
+def serialize_node_lite(
+    node: WorkspaceSpatialNode,
+    *,
+    widget_pin: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Serialize the minimum node shape needed for spatial first paint.
+
+    This intentionally skips movement history and full widget envelopes. The
+    full `/nodes` endpoint remains the hydration path for close zoom/details.
+    """
+    out: dict[str, Any] = {
+        "id": str(node.id),
+        "channel_id": str(node.channel_id) if node.channel_id else None,
+        "project_id": str(node.project_id) if node.project_id else None,
+        "widget_pin_id": str(node.widget_pin_id) if node.widget_pin_id else None,
+        "bot_id": node.bot_id,
+        "landmark_kind": node.landmark_kind,
+        "world_x": node.world_x,
+        "world_y": node.world_y,
+        "world_w": node.world_w,
+        "world_h": node.world_h,
+        "z_index": node.z_index,
+        "seed_index": node.seed_index,
+        "pinned_at": node.pinned_at.isoformat() if node.pinned_at else None,
+        "updated_at": node.updated_at.isoformat() if node.updated_at else None,
+        "last_movement": None,
+        "position_history": [],
+    }
+    if node.bot_id:
+        out["bot"] = serialize_bot_summary(node.bot_id)
+    if node.project_id:
+        project = getattr(node, "_spatial_project", None)
+        channel_count = getattr(node, "_spatial_project_channel_count", None)
+        if project is not None:
+            out["project"] = {
+                "id": str(project.id),
+                "workspace_id": str(project.workspace_id),
+                "name": project.name,
+                "slug": project.slug,
+                "root_path": project.root_path,
+                "attached_channel_count": int(channel_count or 0),
+            }
+    if widget_pin is not None:
+        out["pin"] = widget_pin
+    return out
+
+
+def serialize_bot_summary(bot_id: str) -> dict[str, Any]:
+    try:
+        from app.agent.bots import get_bot
+        bot = get_bot(bot_id)
+        return {
+            "id": bot.id,
+            "name": bot.name,
+            "display_name": bot.display_name,
+            "avatar_url": bot.avatar_url,
+            "avatar_emoji": getattr(bot, "avatar_emoji", None),
+        }
+    except Exception:
+        return {"id": bot_id, "name": bot_id}
+
+
 async def _next_seed_index(db: AsyncSession) -> int:
     """Allocate the next monotonic seed_index.
 
@@ -618,20 +680,211 @@ async def _ensure_bot_nodes(db: AsyncSession) -> int:
         select(ChannelBotMember.bot_id)
     )).scalars().all()
     bot_ids = sorted({bot_id for bot_id in [*primary_ids, *member_ids] if bot_id})
+    if not bot_ids:
+        return 0
+
+    existing = {
+        row.bot_id: row
+        for row in (await db.execute(
+            select(WorkspaceSpatialNode).where(WorkspaceSpatialNode.bot_id.in_(bot_ids))
+        )).scalars().all()
+        if row.bot_id
+    }
+    channel_rows = (await db.execute(
+        select(Channel.id, Channel.bot_id).where(Channel.bot_id.in_(bot_ids))
+    )).all()
+    primary_channel_by_bot: dict[str, uuid.UUID] = {}
+    for channel_id, bot_id in channel_rows:
+        primary_channel_by_bot.setdefault(bot_id, channel_id)
+
+    channel_node_rows = (await db.execute(
+        select(WorkspaceSpatialNode).where(WorkspaceSpatialNode.channel_id.in_(primary_channel_by_bot.values()))
+    )).scalars().all()
+    channel_node_by_id = {row.channel_id: row for row in channel_node_rows if row.channel_id}
+    all_nodes = list((await db.execute(select(WorkspaceSpatialNode))).scalars().all())
+
     count = 0
     changed = False
+    seed = await _next_seed_index(db)
     for bot_id in bot_ids:
-        before = (await db.execute(
-            select(WorkspaceSpatialNode.id).where(WorkspaceSpatialNode.bot_id == bot_id)
-        )).scalar_one_or_none()
-        changed_out = [False]
-        await _ensure_bot_node(db, bot_id, changed_out=changed_out)
-        if before is None:
-            count += 1
-        changed = changed or changed_out[0]
+        node = existing.get(bot_id)
+        channel_node = channel_node_by_id.get(primary_channel_by_bot.get(bot_id))
+        if node is not None:
+            if node.world_w < _DEFAULT_BOT_W or node.world_h < _DEFAULT_BOT_H:
+                cx, cy = _node_center(node)
+                node.world_w = _DEFAULT_BOT_W
+                node.world_h = _DEFAULT_BOT_H
+                node.world_x = cx - _DEFAULT_BOT_W / 2
+                node.world_y = cy - _DEFAULT_BOT_H / 2
+                changed = True
+            if (
+                channel_node is not None
+                and node.last_movement is None
+                and _edge_clearance(node, channel_node) < _default_min_clearance_world_units()
+                and _distance(node, channel_node) <= 180.0
+            ):
+                node.world_x, node.world_y = _bot_spawn_position_near_channel(
+                    channel_node=channel_node,
+                    seed=node.seed_index or 0,
+                    existing_nodes=all_nodes,
+                    ignore_node_id=node.id,
+                )
+                changed = True
+            continue
+
+        world_x, world_y = phyllotaxis_position(seed)
+        if channel_node is not None:
+            world_x, world_y = _bot_spawn_position_near_channel(
+                channel_node=channel_node,
+                seed=seed,
+                existing_nodes=all_nodes,
+            )
+        node = WorkspaceSpatialNode(
+            bot_id=bot_id,
+            world_x=float(world_x),
+            world_y=float(world_y),
+            world_w=_DEFAULT_BOT_W,
+            world_h=_DEFAULT_BOT_H,
+            seed_index=seed,
+        )
+        db.add(node)
+        all_nodes.append(node)
+        seed += 1
+        count += 1
     if count or changed:
         await db.commit()
     return count
+
+
+async def build_canvas_bootstrap(db: AsyncSession) -> dict[str, Any]:
+    """Fast first-paint payload for the spatial canvas.
+
+    This keeps the canvas bootstrap to one lightweight roundtrip and leaves
+    widget envelope sync, movement trails, usage, attention, and schedule
+    projections to progressive hydration.
+    """
+    await _ensure_channel_nodes(db)
+    await _ensure_project_nodes(db)
+    await _ensure_bot_nodes(db)
+    await _ensure_landmark_nodes(db)
+
+    nodes = list((await db.execute(
+        select(WorkspaceSpatialNode).order_by(WorkspaceSpatialNode.pinned_at.asc())
+    )).scalars().all())
+
+    project_ids = [n.project_id for n in nodes if n.project_id is not None]
+    if project_ids:
+        project_rows = (await db.execute(
+            select(Project).where(Project.id.in_(project_ids))
+        )).scalars().all()
+        count_rows = (await db.execute(
+            select(Channel.project_id, func.count(Channel.id))
+            .where(Channel.project_id.in_(project_ids))
+            .group_by(Channel.project_id)
+        )).all()
+        project_map = {project.id: project for project in project_rows}
+        channel_counts = {row[0]: int(row[1]) for row in count_rows}
+        for node in nodes:
+            if node.project_id is None:
+                continue
+            setattr(node, "_spatial_project", project_map.get(node.project_id))
+            setattr(node, "_spatial_project_channel_count", channel_counts.get(node.project_id, 0))
+
+    channel_ids = [n.channel_id for n in nodes if n.channel_id is not None]
+    channels = []
+    if channel_ids:
+        channel_rows = (await db.execute(
+            select(Channel).where(Channel.id.in_(channel_ids))
+        )).scalars().all()
+        member_rows = (await db.execute(
+            select(ChannelBotMember.channel_id, ChannelBotMember.bot_id, ChannelBotMember.config)
+            .where(ChannelBotMember.channel_id.in_(channel_ids))
+        )).all()
+        members_by_channel: dict[uuid.UUID, list[dict[str, Any]]] = {}
+        for channel_id, bot_id, config in member_rows:
+            members_by_channel.setdefault(channel_id, []).append({
+                "channel_id": str(channel_id),
+                "bot_id": bot_id,
+                "config": config or {},
+            })
+        for channel in channel_rows:
+            channels.append({
+                "id": str(channel.id),
+                "name": channel.name,
+                "display_name": channel.name,
+                "bot_id": channel.bot_id,
+                "client_id": channel.client_id,
+                "integration": channel.integration,
+                "active_session_id": str(channel.active_session_id) if channel.active_session_id else None,
+                "require_mention": channel.require_mention,
+                "passive_memory": channel.passive_memory,
+                "private": channel.private,
+                "user_id": str(channel.user_id) if channel.user_id else None,
+                "member_bots": members_by_channel.get(channel.id, []),
+                "workspace_id": str(channel.compaction_workspace_id) if channel.compaction_workspace_id else None,
+                "resolved_workspace_id": str(channel.compaction_workspace_id) if channel.compaction_workspace_id else None,
+                "project_id": str(channel.project_id) if channel.project_id else None,
+                "config": channel.config or {},
+                "category": None,
+                "tags": [],
+                "last_message_at": None,
+                "recent_message_count_24h": 0,
+                "last_message_preview": None,
+                "created_at": channel.created_at.isoformat() if channel.created_at else None,
+                "updated_at": channel.updated_at.isoformat() if channel.updated_at else None,
+            })
+
+    pin_ids = [n.widget_pin_id for n in nodes if n.widget_pin_id is not None]
+    widget_pins: dict[uuid.UUID, dict[str, Any]] = {}
+    if pin_ids:
+        for row in (await db.execute(
+            select(
+                WidgetDashboardPin.id,
+                WidgetDashboardPin.tool_name,
+                WidgetDashboardPin.display_label,
+                WidgetDashboardPin.source_bot_id,
+                WidgetDashboardPin.source_channel_id,
+                WidgetDashboardPin.widget_instance_id,
+            ).where(WidgetDashboardPin.id.in_(pin_ids))
+        )).all():
+            widget_pins[row.id] = {
+                "id": str(row.id),
+                "tool_name": row.tool_name,
+                "display_label": row.display_label,
+                "source_bot_id": row.source_bot_id,
+                "source_channel_id": str(row.source_channel_id) if row.source_channel_id else None,
+                "widget_instance_id": str(row.widget_instance_id) if row.widget_instance_id else None,
+                "envelope": {},
+                "widget_origin": None,
+                "widget_config": {},
+                "panel_title": row.display_label,
+            }
+
+    bot_ids = sorted({
+        n.bot_id
+        for n in nodes
+        if n.bot_id
+    } | {
+        c["bot_id"]
+        for c in channels
+        if c.get("bot_id")
+    } | {
+        member["bot_id"]
+        for c in channels
+        for member in c.get("member_bots", [])
+        if member.get("bot_id")
+    })
+    return {
+        "nodes": [
+            serialize_node_lite(
+                node,
+                widget_pin=widget_pins.get(node.widget_pin_id) if node.widget_pin_id else None,
+            )
+            for node in nodes
+        ],
+        "channels": channels,
+        "bots": [serialize_bot_summary(bot_id) for bot_id in bot_ids],
+    }
 
 
 async def list_nodes(

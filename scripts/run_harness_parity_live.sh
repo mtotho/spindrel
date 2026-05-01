@@ -58,7 +58,7 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
     fi
 fi
 
-if [[ -z "${E2E_API_KEY:-}" ]] && command -v docker >/dev/null 2>&1; then
+if [[ "${HARNESS_PARITY_NATIVE_APP:-0}" != "1" && -z "${E2E_API_KEY:-}" ]] && command -v docker >/dev/null 2>&1; then
     E2E_API_KEY="$(docker exec agent-server-agent-server-1 printenv API_KEY 2>/dev/null || true)"
 fi
 
@@ -79,7 +79,9 @@ export HARNESS_PARITY_TIER="$TIER"
 export HARNESS_PARITY_TIMEOUT="${HARNESS_PARITY_TIMEOUT:-300}"
 export HARNESS_PARITY_CODEX_CHANNEL_ID="${HARNESS_PARITY_CODEX_CHANNEL_ID:-41fc9132-0e6a-4f95-bcf3-8b1edaf2dabc}"
 export HARNESS_PARITY_CLAUDE_CHANNEL_ID="${HARNESS_PARITY_CLAUDE_CHANNEL_ID:-71eb14fd-a482-5bdd-a9a2-e60d9e951169}"
-export HARNESS_PARITY_AGENT_CONTAINER="${HARNESS_PARITY_AGENT_CONTAINER:-agent-server-agent-server-1}"
+if [[ "${HARNESS_PARITY_NATIVE_APP:-0}" != "1" ]]; then
+    export HARNESS_PARITY_AGENT_CONTAINER="${HARNESS_PARITY_AGENT_CONTAINER:-agent-server-agent-server-1}"
+fi
 export HARNESS_PARITY_PLAYWRIGHT_HOST="${HARNESS_PARITY_PLAYWRIGHT_HOST:-playwright-local}"
 export HARNESS_PARITY_PLAYWRIGHT_CONTAINER="${HARNESS_PARITY_PLAYWRIGHT_CONTAINER:-spindrel-local-browser-automation-playwright-1}"
 export HARNESS_PARITY_PROJECT_PATH="${HARNESS_PARITY_PROJECT_PATH:-common/projects}"
@@ -103,7 +105,10 @@ print_local_deploy_diagnostics() {
     if ! is_local_e2e_host || ! command -v docker >/dev/null 2>&1; then
         return 0
     fi
-    local container="$HARNESS_PARITY_AGENT_CONTAINER"
+    local container="${HARNESS_PARITY_AGENT_CONTAINER:-}"
+    if [[ -z "$container" ]]; then
+        return 0
+    fi
     if ! docker inspect "$container" >/dev/null 2>&1; then
         return 0
     fi
@@ -272,7 +277,7 @@ if [[ -z "${PLAYWRIGHT_WS_URL:-}" ]] && is_local_e2e_host && command -v docker >
     fi
 fi
 
-if [[ -z "${SPINDREL_BROWSER_URL:-}" ]] && is_local_e2e_host && command -v docker >/dev/null 2>&1; then
+if [[ "${HARNESS_PARITY_NATIVE_APP:-0}" != "1" && -z "${SPINDREL_BROWSER_URL:-}" ]] && is_local_e2e_host && command -v docker >/dev/null 2>&1; then
     app_ip="$(docker inspect "$HARNESS_PARITY_AGENT_CONTAINER" \
         --format '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null || true)"
     if [[ -n "$app_ip" ]]; then

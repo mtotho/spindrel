@@ -15,6 +15,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOCAL_ENV="$PROJECT_ROOT/.env.agent-e2e"
+NATIVE_ENV="$PROJECT_ROOT/scratch/agent-e2e/native-api.env"
 HARNESS_ENV="$PROJECT_ROOT/scratch/agent-e2e/harness-parity.env"
 SCREENSHOTS="auto"
 ARGS=()
@@ -43,6 +44,13 @@ if [[ -f "$LOCAL_ENV" ]]; then
     set +a
 fi
 
+if [[ -f "$NATIVE_ENV" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$NATIVE_ENV"
+    set +a
+fi
+
 if [[ ! -f "$HARNESS_ENV" ]]; then
     echo "Missing $HARNESS_ENV" >&2
     echo "Run: python scripts/agent_e2e_dev.py prepare-harness-parity" >&2
@@ -60,7 +68,9 @@ export E2E_PORT="${E2E_PORT:-18000}"
 export E2E_API_KEY="${E2E_API_KEY:-e2e-test-key-12345}"
 export E2E_KEEP_RUNNING="${E2E_KEEP_RUNNING:-1}"
 export HARNESS_PARITY_LOCAL="${HARNESS_PARITY_LOCAL:-1}"
-export HARNESS_PARITY_AGENT_CONTAINER="${HARNESS_PARITY_AGENT_CONTAINER:-spindrel-local-e2e-spindrel-1}"
+if [[ "${HARNESS_PARITY_NATIVE_APP:-0}" != "1" ]]; then
+    export HARNESS_PARITY_AGENT_CONTAINER="${HARNESS_PARITY_AGENT_CONTAINER:-spindrel-local-e2e-spindrel-1}"
+fi
 export SPINDREL_BROWSER_URL="${SPINDREL_BROWSER_URL:-http://localhost:${E2E_PORT}}"
 export SPINDREL_BROWSER_API_URL="${SPINDREL_BROWSER_API_URL:-$SPINDREL_BROWSER_URL}"
 

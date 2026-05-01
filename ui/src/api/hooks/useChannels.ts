@@ -12,7 +12,7 @@ interface ChannelListResponse {
   page_size: number;
 }
 
-export function useChannels(opts?: { workspaceId?: string | null }) {
+export function useChannels(opts?: { workspaceId?: string | null; enabled?: boolean }) {
   const workspaceId = opts?.workspaceId;
   return useQuery({
     queryKey: ["channels", { workspaceId: workspaceId ?? null }],
@@ -24,6 +24,7 @@ export function useChannels(opts?: { workspaceId?: string | null }) {
       const res = await apiFetch<ChannelListResponse>(`/api/v1/admin/channels-enriched?${params}`);
       return res.channels;
     },
+    enabled: opts?.enabled ?? true,
   });
 }
 

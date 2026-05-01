@@ -65,8 +65,8 @@ Do not remove those while keeping the durable Postgres volume; encrypted
 provider/OAuth rows cannot boot under a different key.
 
 Use `python scripts/agent_e2e_dev.py prepare` only when you intentionally need
-the full Docker app-container e2e stack, such as harness parity or a fixture
-that explicitly expects the app container.
+the full Docker app-container e2e stack for a fixture that explicitly expects
+the app container.
 
 Only wipe local e2e state when that is the explicit goal:
 
@@ -99,7 +99,7 @@ silently talk to a stale container on `:18000`. If the subscription provider is
 already connected, the command skips the browser/device-code flow and only
 repairs the e2e bot provider bindings.
 
-For native Codex/Claude harness auth in a local e2e container:
+For native Codex/Claude harness auth in the legacy local e2e app container:
 
 ```bash
 python scripts/agent_e2e_dev.py write-auth-override
@@ -107,7 +107,9 @@ export E2E_COMPOSE_OVERRIDES="$PWD/scratch/agent-e2e/compose.auth.override.yml"
 ```
 
 The override bind-mounts existing host `~/.codex` and/or `~/.claude` into the
-local e2e app container. It is local-only and gitignored.
+local e2e app container. It is local-only and gitignored. The default native
+local harness path does not need this override because it runs from the host
+checkout and reuses host auth directly.
 
 ## Local Harness Parity
 
@@ -121,23 +123,30 @@ python scripts/agent_e2e_dev.py prepare-harness-parity
 ```
 
 `prepare-harness-parity` preserves the durable local e2e database, ensures the
-runtime auth override is mounted, enables the Codex/Claude integrations,
-installs their declared dependencies, verifies `/admin/harnesses`, and creates
-stable local harness bots/channels attached to `common/projects`. It writes the
-channel ids and runner settings to `scratch/agent-e2e/harness-parity.env`.
-The helper restarts the app container after dependency installation so newly
-installed harness packages are imported before runtime readiness is checked.
+Docker-backed dependencies are running, starts or reuses a native `uvicorn` API
+process from this checkout on an unused port, enables the Codex/Claude
+integrations, installs their declared dependencies, verifies
+`/admin/harnesses`, and creates stable local harness bots/channels attached to
+`common/projects`. It writes native API settings to
+`scratch/agent-e2e/native-api.env` and channel ids/runner settings to
+`scratch/agent-e2e/harness-parity.env`. The helper restarts the native API
+after dependency installation so newly installed harness packages are imported
+before runtime readiness is checked.
 The parity bots are seeded with the baseline Spindrel bridge tools required by
 the live scenarios, including `get_tool_info`, channel history, memory, and
 skill lookup tools.
 
 Claude Code readiness includes a tiny live auth smoke. Native
 `claude auth status` can still report logged-in when the first SDK turn returns
-`401 authentication_failed`, so a failed smoke prints the exact refresh command:
+`401 authentication_failed`, so a failed smoke prints the exact host refresh
+command:
 
 ```bash
-docker exec -it -u spindrel spindrel-local-e2e-spindrel-1 claude auth login
+claude auth login
 ```
+
+Use `python scripts/agent_e2e_dev.py prepare-harness-parity --docker-app` only
+when a legacy app-container run is explicitly required.
 
 Focused local runs reuse the deployed parity scenarios:
 

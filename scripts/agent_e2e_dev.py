@@ -297,6 +297,205 @@ def _compose_env(env: dict[str, str], *, api_url: str, api_key: str) -> dict[str
     return compose_env
 
 
+def _is_port_available(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.2)
+        return sock.connect_ex((host, port)) != 0
+
+
+def _pick_available_port(preferred: int, *, host: str = "127.0.0.1") -> int:
+    if preferred not in PRODUCTION_PORTS and _is_port_available(host, preferred):
+        return preferred
+    for port in range(max(1024, preferred + 1), preferred + 200):
+        if port in PRODUCTION_PORTS:
+            continue
+        if _is_port_available(host, port):
+            return port
+    raise SystemExit(f"could not find an available local API port near {preferred}")
+
+
+def _native_python() -> str:
+    candidate = REPO_ROOT / ".venv" / "bin" / "python"
+    if candidate.exists():
+        return str(candidate)
+    return sys.executable
+
+
+def _native_database_url(env: dict[str, str]) -> str:
+    port = env.get("E2E_POSTGRES_PORT", "15432")
+    return f"postgresql+asyncpg://agent:agent@localhost:{port}/agentdb"
+
+
+def _native_searxng_url(env: dict[str, str]) -> str:
+    return f"http://localhost:{env.get('E2E_SEARXNG_PORT', '18080')}"
+
+
+def _native_api_process_env(env: dict[str, str], *, api_url: str, api_key: str) -> dict[str, str]:
+    parsed = urllib.parse.urlparse(api_url)
+    _ensure_local_env_value(env, "ENCRYPTION_KEY", _generate_fernet_key)
+    _ensure_local_env_value(env, "JWT_SECRET", lambda: os.urandom(32).hex())
+    native_env = dict(os.environ)
+    native_env.update(env)
+    path_parts = [
+        str(Path.home() / ".local" / "bin"),
+        str(Path.home() / "bin"),
+        native_env.get("PATH", ""),
+    ]
+    native_env["PATH"] = os.pathsep.join(part for part in path_parts if part)
+    native_env["API_KEY"] = api_key
+    native_env["E2E_API_KEY"] = api_key
+    native_env["E2E_HOST"] = parsed.hostname or "localhost"
+    native_env["E2E_PORT"] = str(parsed.port or DEFAULT_PORT)
+    native_env["SPINDREL_E2E_URL"] = api_url.rstrip("/")
+    native_env["DATABASE_URL"] = env.get("DATABASE_URL") or _native_database_url(env)
+    native_env["SEARXNG_URL"] = env.get("SEARXNG_URL") or _native_searxng_url(env)
+    if env.get("E2E_LLM_BASE_URL"):
+        native_env["LITELLM_BASE_URL"] = env["E2E_LLM_BASE_URL"]
+        native_env["LLM_BASE_URL"] = env["E2E_LLM_BASE_URL"]
+    if env.get("E2E_LLM_API_KEY"):
+        native_env["LITELLM_API_KEY"] = env["E2E_LLM_API_KEY"]
+        native_env["LLM_API_KEY"] = env["E2E_LLM_API_KEY"]
+    if env.get("E2E_DEFAULT_MODEL"):
+        native_env["DEFAULT_MODEL"] = env["E2E_DEFAULT_MODEL"]
+    native_env.setdefault("E2E_BOT_CONFIG", str(REPO_ROOT / "tests" / "e2e" / "bot.e2e.yaml"))
+    native_env.setdefault("DOCKER_SANDBOX_ENABLED", "false")
+    native_env.setdefault("DOCKER_STACKS_ENABLED", "false")
+    native_env.setdefault("HOST_EXEC_ENABLED", "false")
+    native_env.setdefault("HEARTBEAT_ACTIVE_INTERVAL_MINUTES", "9999")
+    native_env.setdefault("STT_PROVIDER", "")
+    native_env.setdefault("INTEGRATION_DIRS", str(REPO_ROOT / "tests" / "e2e" / "integrations"))
+    native_env.setdefault("WEB_SEARCH_MODE", "searxng")
+    native_env.setdefault("CONTEXT_BUDGET_ENABLED", "false")
+    native_env.setdefault("RAG_RERANK_ENABLED", "false")
+    native_env.setdefault("TOOL_POLICY_ENABLED", "false")
+    native_env.setdefault("FASTEMBED_CACHE_DIR", str(SCRATCH_DIR / "fastembed-cache"))
+    native_env.setdefault("LOG_LEVEL", "WARNING")
+    return native_env
+
+
+def _write_native_api_env(api_url: str, api_key: str, env: dict[str, str]) -> None:
+    parsed = urllib.parse.urlparse(api_url)
+    lines = [
+        "# Native local Spindrel API env. Gitignored.",
+        f"E2E_MODE=external",
+        f"E2E_HOST={parsed.hostname or 'localhost'}",
+        f"E2E_PORT={parsed.port or DEFAULT_PORT}",
+        f"E2E_API_KEY={api_key}",
+        f"SPINDREL_E2E_URL={api_url.rstrip('/')}",
+        f"SPINDREL_BROWSER_URL={api_url.rstrip('/')}",
+        f"SPINDREL_BROWSER_API_URL={api_url.rstrip('/')}",
+        f"DATABASE_URL={env.get('DATABASE_URL') or _native_database_url(env)}",
+        f"SEARXNG_URL={env.get('SEARXNG_URL') or _native_searxng_url(env)}",
+        f"NATIVE_API_PID_FILE={NATIVE_API_PID}",
+        f"NATIVE_API_LOG_FILE={NATIVE_API_LOG}",
+        "",
+    ]
+    _write_text(NATIVE_API_ENV, "\n".join(lines), force=True)
+
+
+def _native_pid() -> int | None:
+    if not NATIVE_API_PID.exists():
+        return None
+    try:
+        return int(NATIVE_API_PID.read_text().strip())
+    except ValueError:
+        return None
+
+
+def _is_process_running(pid: int | None) -> bool:
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _wait_for_native_api(api_url: str, api_key: str, *, startup_timeout: int) -> None:
+    deadline = time.time() + startup_timeout
+    last_detail = ""
+    while time.time() < deadline:
+        ok, detail = _check_url(api_url, api_key)
+        if ok:
+            print(f"native Spindrel e2e health ok: {detail}")
+            return
+        last_detail = detail
+        time.sleep(1)
+    log_hint = f" (see {NATIVE_API_LOG})" if NATIVE_API_LOG.exists() else ""
+    raise SystemExit(f"native Spindrel API did not become healthy at {api_url}: {last_detail}{log_hint}")
+
+
+def _start_native_api(api_url: str, api_key: str, env: dict[str, str], *, startup_timeout: int) -> str:
+    parsed = urllib.parse.urlparse(api_url)
+    host = parsed.hostname or "localhost"
+    preferred_port = int(parsed.port or DEFAULT_PORT)
+    ok, detail = _check_url(api_url, api_key)
+    if ok:
+        print(f"reusing healthy native Spindrel API at {api_url}: {detail}")
+        _write_native_api_env(api_url, api_key, env)
+        return api_url
+
+    port = preferred_port
+    if not _is_port_available("127.0.0.1" if host in {"localhost", "0.0.0.0"} else host, preferred_port):
+        port = _pick_available_port(preferred_port)
+        api_url = f"http://localhost:{port}"
+        print(f"preferred API port {preferred_port} is occupied; using {api_url}")
+
+    SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
+    NATIVE_API_LOG.parent.mkdir(parents=True, exist_ok=True)
+    native_env = _native_api_process_env(env, api_url=api_url, api_key=api_key)
+    _write_native_api_env(api_url, api_key, native_env)
+    log_handle = NATIVE_API_LOG.open("ab")
+    print(f"starting native Spindrel API at {api_url} (log: {NATIVE_API_LOG})")
+    proc = subprocess.Popen(
+        [
+            _native_python(),
+            "-m",
+            "uvicorn",
+            "app.main:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
+        cwd=REPO_ROOT,
+        env=native_env,
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    log_handle.close()
+    NATIVE_API_PID.write_text(f"{proc.pid}\n")
+    _wait_for_native_api(api_url, api_key, startup_timeout=startup_timeout)
+    return api_url
+
+
+def _stop_native_api() -> None:
+    pid = _native_pid()
+    if not _is_process_running(pid):
+        return
+    assert pid is not None
+    os.killpg(pid, signal.SIGTERM)
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if not _is_process_running(pid):
+            return
+        time.sleep(0.2)
+    os.killpg(pid, signal.SIGKILL)
+
+
+def _ensure_native_api(api_url: str, api_key: str, env: dict[str, str], *, startup_timeout: int) -> str:
+    _prepare_dependencies_only(api_url=api_url, api_key=api_key, env=env)
+    return _start_native_api(api_url, api_key, env, startup_timeout=startup_timeout)
+
+
+def _restart_native_api(api_url: str, api_key: str, env: dict[str, str], *, timeout: int) -> str:
+    print("restarting native Spindrel API so newly installed harness deps load")
+    _stop_native_api()
+    return _start_native_api(api_url, api_key, env, startup_timeout=timeout)
+
+
 def _run(cmd: list[str], *, env: dict[str, str] | None = None, timeout: int = 600) -> None:
     result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout)
     if result.returncode == 0:
@@ -471,6 +670,29 @@ def cmd_prepare_deps(args: argparse.Namespace) -> int:
         api_key=args.api_key or _api_key(env),
         env=env,
     )
+    return 0
+
+
+def cmd_start_api(args: argparse.Namespace) -> int:
+    env = _merged_env()
+    api_url = (args.api_url or _base_url(env)).rstrip("/")
+    _require_non_production(api_url, allow_production=args.allow_production)
+    api_key = args.api_key or _api_key(env)
+    api_url = _ensure_native_api(
+        api_url=api_url,
+        api_key=api_key,
+        env=env,
+        startup_timeout=args.startup_timeout,
+    )
+    print(f"native Spindrel API ready: {api_url}")
+    print(f"  env: {NATIVE_API_ENV}")
+    print(f"  log: {NATIVE_API_LOG}")
+    return 0
+
+
+def cmd_stop_api(args: argparse.Namespace) -> int:
+    _stop_native_api()
+    print("native Spindrel API stopped")
     return 0
 
 
@@ -655,6 +877,37 @@ def _validate_claude_live_auth(container_name: str) -> None:
     )
 
 
+def _validate_claude_live_auth_native() -> None:
+    """Run a tiny host Claude turn so stale OAuth fails before parity scenarios."""
+    claude = shutil.which("claude")
+    if not claude:
+        return
+    proc = subprocess.run(
+        [
+            claude,
+            "--print",
+            "Reply with exactly: auth-ok",
+            "--max-turns",
+            "1",
+            "--output-format",
+            "json",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    output = (proc.stdout or proc.stderr or "").strip()
+    if proc.returncode == 0 and "authentication_failed" not in output and "Invalid authentication credentials" not in output:
+        print("claude host live auth smoke: ok")
+        return
+    detail = output[-1000:] if output else f"claude exited {proc.returncode}"
+    raise SystemExit(
+        "claude host live auth smoke failed. Refresh host Claude Code auth, then rerun prepare-harness-parity:\n"
+        "  claude auth login\n"
+        f"Failure detail: {detail}"
+    )
+
+
 def _get_json_or_404(method: str, url: str, *, api_key: str) -> dict | None:
     try:
         return _request_json(method, url, api_key=api_key)
@@ -736,6 +989,7 @@ def _write_harness_parity_env(
     api_key: str,
     channel_ids_by_runtime: dict[str, str],
     project_path: str,
+    native_app: bool,
 ) -> None:
     existing = _read_env_file(HARNESS_PARITY_ENV)
     parsed = urllib.parse.urlparse(api_url)
@@ -750,8 +1004,13 @@ def _write_harness_parity_env(
         "E2E_BOT_ID=e2e",
         "E2E_KEEP_RUNNING=1",
         "HARNESS_PARITY_LOCAL=1",
+        f"HARNESS_PARITY_NATIVE_APP={1 if native_app else 0}",
         f"HARNESS_PARITY_PROJECT_PATH={project_path}",
-        f"HARNESS_PARITY_AGENT_CONTAINER={COMPOSE_PROJECT}-spindrel-1",
+        (
+            "HARNESS_PARITY_AGENT_CONTAINER="
+            if native_app
+            else f"HARNESS_PARITY_AGENT_CONTAINER={COMPOSE_PROJECT}-spindrel-1"
+        ),
         "HARNESS_PARITY_CAPTURE_SCREENSHOTS=auto",
         "HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR=/tmp/spindrel-harness-local-screenshots",
         f"SPINDREL_BROWSER_URL={api_url}",
@@ -779,16 +1038,26 @@ def cmd_prepare_harness_parity(args: argparse.Namespace) -> int:
     if unknown:
         raise SystemExit(f"unsupported harness parity runtime(s): {', '.join(unknown)}")
 
-    _ensure_auth_override()
-    env = _merged_env()
+    native_app = not args.docker_app
+    if args.docker_app:
+        _ensure_auth_override()
+        env = _merged_env()
     if not args.skip_setup:
-        _prepare_stack(
-            api_url=api_url,
-            api_key=api_key,
-            env=env,
-            build=not args.no_build,
-            startup_timeout=args.startup_timeout,
-        )
+        if native_app:
+            api_url = _ensure_native_api(
+                api_url=api_url,
+                api_key=api_key,
+                env=env,
+                startup_timeout=args.startup_timeout,
+            )
+        else:
+            _prepare_stack(
+                api_url=api_url,
+                api_key=api_key,
+                env=env,
+                build=not args.no_build,
+                startup_timeout=args.startup_timeout,
+            )
 
     for runtime in runtimes:
         config = HARNESS_PARITY_RUNTIME_CONFIG[runtime]
@@ -801,12 +1070,15 @@ def cmd_prepare_harness_parity(args: argparse.Namespace) -> int:
             tuple(config.get("install_endpoints") or ()),
         )
 
-    _restart_spindrel_app_container(
-        api_url,
-        api_key,
-        env,
-        timeout=args.startup_timeout,
-    )
+    if native_app:
+        api_url = _restart_native_api(api_url, api_key, env, timeout=args.startup_timeout)
+    else:
+        _restart_spindrel_app_container(
+            api_url,
+            api_key,
+            env,
+            timeout=args.startup_timeout,
+        )
 
     channel_ids: dict[str, str] = {}
     for runtime in runtimes:
@@ -818,7 +1090,10 @@ def cmd_prepare_harness_parity(args: argparse.Namespace) -> int:
             timeout=args.runtime_timeout,
         )
         if runtime == "claude-code" and not args.skip_live_auth_check:
-            _validate_claude_live_auth(f"{COMPOSE_PROJECT}-spindrel-1")
+            if native_app:
+                _validate_claude_live_auth_native()
+            else:
+                _validate_claude_live_auth(f"{COMPOSE_PROJECT}-spindrel-1")
         _ensure_harness_parity_bot(
             api_url,
             api_key,
@@ -841,6 +1116,7 @@ def cmd_prepare_harness_parity(args: argparse.Namespace) -> int:
         api_key=api_key,
         channel_ids_by_runtime=channel_ids,
         project_path=args.project_path,
+        native_app=native_app,
     )
     print("Local harness parity readiness: ok")
     print(f"  target: {api_url}")
@@ -1186,6 +1462,16 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_deps.add_argument("--allow-production", action="store_true")
     prepare_deps.set_defaults(func=cmd_prepare_deps)
 
+    start_api = sub.add_parser("start-api")
+    start_api.add_argument("--api-url", default="")
+    start_api.add_argument("--api-key", default="")
+    start_api.add_argument("--startup-timeout", type=int, default=180)
+    start_api.add_argument("--allow-production", action="store_true")
+    start_api.set_defaults(func=cmd_start_api)
+
+    stop_api = sub.add_parser("stop-api")
+    stop_api.set_defaults(func=cmd_stop_api)
+
     wipe_db = sub.add_parser("wipe-db")
     wipe_db.add_argument("--api-url", default="")
     wipe_db.add_argument("--api-key", default="")
@@ -1272,6 +1558,11 @@ def build_parser() -> argparse.ArgumentParser:
     harness.add_argument("--project-path", default=HARNESS_PARITY_PROJECT_PATH)
     harness.add_argument("--skip-setup", action="store_true")
     harness.add_argument("--no-build", action="store_true")
+    harness.add_argument(
+        "--docker-app",
+        action="store_true",
+        help="Use the legacy local Docker app container instead of starting the API natively.",
+    )
     harness.add_argument("--skip-live-auth-check", action="store_true")
     harness.add_argument("--startup-timeout", type=int, default=180)
     harness.add_argument("--runtime-timeout", type=int, default=180)

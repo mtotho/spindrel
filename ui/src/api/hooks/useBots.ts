@@ -13,10 +13,11 @@ export interface SandboxStatus {
   last_used_at?: string | null;
 }
 
-export function useBots() {
+export function useBots(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ["bots"],
     queryFn: () => apiFetch<BotConfig[]>("/bots"),
+    enabled: options?.enabled ?? true,
   });
 }
 

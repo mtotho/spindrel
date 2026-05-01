@@ -272,6 +272,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
     channelForBot,
     botAvatarById,
     iconByChannelId,
+    enrichmentEnabled,
   } = useSpatialCanvasData();
   const attentionHubOpen = useUIStore((s) => s.attentionHubOpen);
   const closeAttentionHub = useUIStore((s) => s.closeAttentionHub);
@@ -439,12 +440,12 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
     group_by: "channel",
     after: activityAfter,
     before: activityBefore,
-  });
+  }, { enabled: enrichmentEnabled && densityIntensity !== "off" });
   const baselineChannelActivity = useUsageBreakdown({
     group_by: "channel",
     after: baselineAfter,
     before: baselineBefore,
-  }, { enabled: densityCompare });
+  }, { enabled: enrichmentEnabled && densityIntensity !== "off" && densityCompare });
   const activityByChannelId = useMemo(() => {
     const m = new Map<string, { tokens: number; calls: number }>();
     for (const group of channelActivity.data?.groups ?? []) {

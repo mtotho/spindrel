@@ -23,6 +23,7 @@ from app.dependencies import get_db, require_scopes
 from app.domain.errors import NotFoundError, ValidationError
 from app.services.dashboard_pins import serialize_pin
 from app.services.workspace_spatial import (
+    build_canvas_bootstrap,
     delete_node,
     get_channel_bot_spatial_policy,
     list_nodes,
@@ -112,6 +113,15 @@ async def get_nodes(
     client renders without a second roundtrip. Idempotent."""
     pairs = await list_nodes(db)
     return {"nodes": [serialize_node(n, pin) for n, pin in pairs]}
+
+
+@router.get("/bootstrap")
+async def get_bootstrap(
+    auth=Depends(require_scopes("channels:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the lightweight first-paint payload for the spatial canvas."""
+    return await build_canvas_bootstrap(db)
 
 
 @router.get("/upcoming-activity")

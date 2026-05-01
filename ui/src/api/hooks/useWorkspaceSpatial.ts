@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
+import type { Channel } from "../../types/api";
 
 /** Inline pin payload embedded by the server when a node has a
  *  `widget_pin_id`. Contains everything the client needs to render the
@@ -104,17 +105,41 @@ interface NodesResponse {
 }
 
 export const NODES_KEY = ["workspace-spatial-nodes"] as const;
+export const BOOTSTRAP_KEY = ["workspace-spatial-bootstrap"] as const;
+
+export interface SpatialCanvasBootstrap {
+  nodes: SpatialNode[];
+  channels: Channel[];
+  bots: Array<{
+    id: string;
+    name?: string;
+    display_name?: string | null;
+    avatar_url?: string | null;
+    avatar_emoji?: string | null;
+  }>;
+}
+
+export function useSpatialCanvasBootstrap() {
+  return useQuery({
+    queryKey: BOOTSTRAP_KEY,
+    queryFn: () => apiFetch<SpatialCanvasBootstrap>("/api/v1/workspace/spatial/bootstrap"),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
+}
 
 /** List spatial canvas nodes. The server upserts a node row for every
  *  channel that doesn't yet have one, so this is the only call needed to
  *  hydrate the canvas. */
-export function useSpatialNodes() {
+export function useSpatialNodes(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: NODES_KEY,
     queryFn: async () => {
       const res = await apiFetch<NodesResponse>("/api/v1/workspace/spatial/nodes");
       return res.nodes;
     },
+    enabled: options?.enabled ?? true,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -141,18 +166,27 @@ export function useUpdateSpatialNode() {
     onMutate: async ({ nodeId, body }) => {
       await qc.cancelQueries({ queryKey: NODES_KEY });
       const prev = qc.getQueryData<SpatialNode[]>(NODES_KEY);
+      const prevBootstrap = qc.getQueryData<SpatialCanvasBootstrap>(BOOTSTRAP_KEY);
       qc.setQueryData<SpatialNode[]>(NODES_KEY, (old) =>
         (old ?? []).map((n) =>
           n.id === nodeId ? { ...n, ...body } : n,
         ),
       );
-      return { prev };
+      qc.setQueryData<SpatialCanvasBootstrap>(BOOTSTRAP_KEY, (old) =>
+        old ? {
+          ...old,
+          nodes: old.nodes.map((n) => (n.id === nodeId ? { ...n, ...body } : n)),
+        } : old,
+      );
+      return { prev, prevBootstrap };
     },
     onError: (_err, _vars, ctx) => {
       if (ctx?.prev) qc.setQueryData(NODES_KEY, ctx.prev);
+      if (ctx?.prevBootstrap) qc.setQueryData(BOOTSTRAP_KEY, ctx.prevBootstrap);
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: NODES_KEY });
+      qc.invalidateQueries({ queryKey: BOOTSTRAP_KEY });
     },
   });
 }
@@ -173,19 +207,26 @@ export function useDeleteSpatialNode() {
     onMutate: async (nodeId) => {
       await qc.cancelQueries({ queryKey: NODES_KEY });
       const prev = qc.getQueryData<SpatialNode[]>(NODES_KEY);
+      const prevBootstrap = qc.getQueryData<SpatialCanvasBootstrap>(BOOTSTRAP_KEY);
       qc.setQueryData<SpatialNode[]>(NODES_KEY, (old) =>
         (old ?? []).filter((n) => n.id !== nodeId),
       );
-      return { prev };
+      qc.setQueryData<SpatialCanvasBootstrap>(BOOTSTRAP_KEY, (old) =>
+        old ? { ...old, nodes: old.nodes.filter((n) => n.id !== nodeId) } : old,
+      );
+      return { prev, prevBootstrap };
     },
     onError: (_err, _nodeId, ctx) => {
       if (ctx?.prev) qc.setQueryData(NODES_KEY, ctx.prev);
+      if (ctx?.prevBootstrap) qc.setQueryData(BOOTSTRAP_KEY, ctx.prevBootstrap);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: NODES_KEY });
+      qc.invalidateQueries({ queryKey: BOOTSTRAP_KEY });
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: NODES_KEY });
+      qc.invalidateQueries({ queryKey: BOOTSTRAP_KEY });
     },
   });
 }
@@ -274,6 +315,7 @@ export function usePinWidgetToCanvas() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: NODES_KEY });
+      qc.invalidateQueries({ queryKey: BOOTSTRAP_KEY });
       // Pin lists for the workspace:spatial slug are intentionally hidden
       // from user dashboard listings. If a future surface lists them
       // explicitly, invalidate that key here.
@@ -306,6 +348,7 @@ export function usePinPresetToCanvas() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: NODES_KEY });
+      qc.invalidateQueries({ queryKey: BOOTSTRAP_KEY });
     },
   });
 }

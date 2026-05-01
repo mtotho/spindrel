@@ -81,7 +81,11 @@ export interface MissionCreateInput {
 
 export const WORKSPACE_MISSIONS_KEY = ["workspace-missions"] as const;
 
-export function useWorkspaceMissions(includeCompleted = false) {
+export function useWorkspaceMissions(
+  includeCompleted = false,
+  options?: { enabled?: boolean },
+) {
+  const enabled = options?.enabled ?? true;
   return useQuery({
     queryKey: [...WORKSPACE_MISSIONS_KEY, includeCompleted],
     queryFn: async () => {
@@ -89,7 +93,8 @@ export function useWorkspaceMissions(includeCompleted = false) {
       const res = await apiFetch<{ missions: WorkspaceMission[] }>(`/api/v1/workspace/missions?${params}`);
       return res.missions;
     },
-    refetchInterval: 20_000,
+    enabled,
+    refetchInterval: enabled ? 20_000 : false,
     staleTime: 8_000,
     refetchOnWindowFocus: false,
   });

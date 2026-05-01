@@ -442,6 +442,14 @@ orbit/tether chrome uses the existing connection-line preference, Starboard
 Objects/edge beacons/context menus/palette entries include Projects, and Map
 Brief actions route to Project detail and Runs.
 
+2026-04-30 fast-load pass: the canvas now has a bootstrap-first loading path.
+`/api/v1/workspace/spatial/bootstrap` returns only first-paint spatial nodes and
+minimal channel/bot/project/widget summaries; the React canvas paints from that
+payload, then idles into full node hydration, enriched channels/bots, map-state,
+attention, missions, upcoming schedules, task definitions, and usage density.
+The bot-node ensure path was bulked so spatial reads no longer query each bot
+one at a time. Existing full endpoints remain the detail/hydration path.
+
 ## Acceptance criteria (Phase 1 gate)
 
 A Phase 1 ship requires all five to pass — by manual verification at minimum, with regression tests where feasible.

@@ -166,7 +166,7 @@ cd "$PROJECT_ROOT"
 
 if [[ "$DRY_RUN" == true ]]; then
     if [[ "$PREPARE" == true ]]; then
-        echo "python scripts/agent_e2e_dev.py prepare-harness-parity --skip-setup --no-build"
+        echo "python scripts/agent_e2e_dev.py prepare-harness-parity"
     fi
     for slice in "${SLICES[@]}"; do
         tier="${slice%%|*}"
@@ -185,7 +185,7 @@ echo "  screenshots: $SCREENSHOTS"
 echo "  logs: $RUN_DIR"
 
 if [[ "$PREPARE" == true ]]; then
-    python scripts/agent_e2e_dev.py prepare-harness-parity --skip-setup --no-build
+    python scripts/agent_e2e_dev.py prepare-harness-parity
 fi
 
 declare -a PIDS=()

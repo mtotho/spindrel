@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../../api/client";
-import { landmarkPositionFromNodes, useSpatialNodes } from "../../api/hooks/useWorkspaceSpatial";
+import { landmarkPositionFromNodes, useSpatialCanvasBootstrap, useSpatialNodes } from "../../api/hooks/useWorkspaceSpatial";
 import { useChannels } from "../../api/hooks/useChannels";
 import { useBots } from "../../api/hooks/useBots";
 import { useDashboards, channelIdFromSlug } from "../../stores/dashboards";
@@ -29,7 +29,22 @@ import {
 import { shouldSurfaceAttentionOnMap } from "./SpatialAttentionLayer";
 
 export function useSpatialCanvasData() {
-  const { data: nodes } = useSpatialNodes();
+  const { data: bootstrap } = useSpatialCanvasBootstrap();
+  const [enrichmentEnabled, setEnrichmentEnabled] = useState(false);
+  useEffect(() => {
+    if (!bootstrap || enrichmentEnabled) return;
+    const start = () => setEnrichmentEnabled(true);
+    const requestIdle = window.requestIdleCallback;
+    if (requestIdle) {
+      const id = requestIdle(start, { timeout: 750 });
+      return () => window.cancelIdleCallback?.(id);
+    }
+    const id = window.setTimeout(start, 150);
+    return () => window.clearTimeout(id);
+  }, [bootstrap, enrichmentEnabled]);
+
+  const { data: hydratedNodes } = useSpatialNodes({ enabled: enrichmentEnabled });
+  const nodes = hydratedNodes ?? bootstrap?.nodes;
   const nodesRef = useRef<typeof nodes>(nodes);
   useEffect(() => {
     nodesRef.current = nodes;
@@ -39,17 +54,20 @@ export function useSpatialCanvasData() {
   const memoryObsPos = landmarkPositionFromNodes(nodes, "memory_observatory", MEMORY_OBSERVATORY_X, MEMORY_OBSERVATORY_Y);
   const attentionHubPos = landmarkPositionFromNodes(nodes, "attention_hub", ATTENTION_HUB_X, ATTENTION_HUB_Y);
   const dailyHealthPos = landmarkPositionFromNodes(nodes, "daily_health", HEALTH_SUMMARY_X, HEALTH_SUMMARY_Y);
-  const { data: attentionItems } = useWorkspaceAttention(null, { includeResolved: true });
-  const { data: missions } = useWorkspaceMissions();
-  const { data: mapState } = useWorkspaceMapState();
+  const { data: attentionItems } = useWorkspaceAttention(null, { includeResolved: true, enabled: enrichmentEnabled });
+  const { data: missions } = useWorkspaceMissions(false, { enabled: enrichmentEnabled });
+  const { data: mapState } = useWorkspaceMapState({ enabled: enrichmentEnabled });
   const markAttentionResponded = useMarkAttentionResponded();
-  const { data: channels } = useChannels();
-  const { data: bots } = useBots();
-  const { data: upcomingItems } = useSpatialUpcomingActivity(50);
+  const { data: hydratedChannels } = useChannels({ enabled: enrichmentEnabled });
+  const channels = hydratedChannels ?? bootstrap?.channels;
+  const { data: hydratedBots } = useBots({ enabled: enrichmentEnabled });
+  const bots = hydratedBots ?? bootstrap?.bots;
+  const { data: upcomingItems } = useSpatialUpcomingActivity(50, undefined, { enabled: enrichmentEnabled });
   const { data: definitionsData } = useQuery({
     queryKey: ["spatial-task-definitions"],
     queryFn: () => apiFetch<TasksResponse>("/api/v1/admin/tasks?limit=200&definitions_only=true"),
     staleTime: 30_000,
+    enabled: enrichmentEnabled,
   });
   const taskDefinitions = useMemo(
     () => (definitionsData?.tasks ?? []).filter((t) => t.source !== "system"),
@@ -93,19 +111,27 @@ export function useSpatialCanvasData() {
   const attentionByNodeId = useMemo(() => {
     const byNode = new Map<string, WorkspaceAttentionItem[]>();
     const list = attentionItems ?? [];
+    const byTargetNode = new Map<string, string>();
+    const byChannel = new Map<string, string>();
+    const byBot = new Map<string, string>();
+    const byWidget = new Map<string, string>();
+    for (const candidate of nodes ?? []) {
+      byTargetNode.set(candidate.id, candidate.id);
+      if (candidate.channel_id) byChannel.set(candidate.channel_id, candidate.id);
+      if (candidate.bot_id) byBot.set(candidate.bot_id, candidate.id);
+      if (candidate.widget_pin_id) byWidget.set(candidate.widget_pin_id, candidate.id);
+    }
     for (const item of list) {
       if (!isActiveAttentionItem(item)) continue;
-      const node = (nodes ?? []).find((candidate) => {
-        if (item.target_node_id) return candidate.id === item.target_node_id;
-        if (item.target_kind === "channel") return candidate.channel_id === item.target_id;
-        if (item.target_kind === "bot") return candidate.bot_id === item.target_id;
-        if (item.target_kind === "widget") return candidate.widget_pin_id === item.target_id;
-        return false;
-      });
-      if (!node) continue;
-      const bucket = byNode.get(node.id) ?? [];
+      const nodeId =
+        (item.target_node_id ? byTargetNode.get(item.target_node_id) : undefined)
+        ?? (item.target_kind === "channel" ? byChannel.get(item.target_id) : undefined)
+        ?? (item.target_kind === "bot" ? byBot.get(item.target_id) : undefined)
+        ?? (item.target_kind === "widget" ? byWidget.get(item.target_id) : undefined);
+      if (!nodeId) continue;
+      const bucket = byNode.get(nodeId) ?? [];
       bucket.push(item);
-      byNode.set(node.id, bucket);
+      byNode.set(nodeId, bucket);
     }
     return byNode;
   }, [attentionItems, nodes]);
@@ -163,6 +189,7 @@ export function useSpatialCanvasData() {
 
   return {
     nodes,
+    enrichmentEnabled,
     nodesRef,
     wellPos,
     memoryObsPos,

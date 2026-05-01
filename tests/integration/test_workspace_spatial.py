@@ -160,6 +160,39 @@ class TestSpatialNodesAutoSeed:
         assert all(s is not None for s in seeds)
         assert len(set(seeds)) == len(seeds)
 
+    async def test_bootstrap_returns_first_paint_payload(self, client):
+        ch = await _create_channel(client, name="Fast Map")
+
+        r = await client.get("/api/v1/workspace/spatial/bootstrap", headers=AUTH_HEADERS)
+        assert r.status_code == 200, r.text
+        body = r.json()
+
+        channel_ids = {n["channel_id"] for n in body["nodes"] if n["channel_id"]}
+        assert ch["id"] in channel_ids
+        assert any(c["id"] == ch["id"] and c["name"] == "Fast Map" for c in body["channels"])
+        assert any(bot["id"] == "test-bot" for bot in body["bots"])
+
+    async def test_bootstrap_widget_nodes_use_minimal_pin_payload(self, client, db_session):
+        ch = await _create_channel(client)
+        await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)
+        pin, _node = await pin_widget_to_canvas(
+            db_session,
+            source_kind="channel",
+            tool_name="test-tool",
+            envelope={"body": "large snapshot", "plain_body": "large snapshot"},
+            source_channel_id=uuid.UUID(ch["id"]),
+            display_label="Fast Widget",
+        )
+        await db_session.commit()
+
+        r = await client.get("/api/v1/workspace/spatial/bootstrap", headers=AUTH_HEADERS)
+        assert r.status_code == 200, r.text
+        widget_node = next(n for n in r.json()["nodes"] if n["widget_pin_id"] == str(pin.id))
+
+        assert widget_node["pin"]["display_label"] == "Fast Widget"
+        assert widget_node["pin"]["tool_name"] == "test-tool"
+        assert widget_node["pin"]["envelope"] == {}
+
     async def test_get_nodes_creates_project_rows_for_attached_channels(self, client, db_session):
         ch = await _create_channel(client, name="Project Channel")
         project = await _create_project_for_channel(db_session, ch["id"], name="Orbit Project")

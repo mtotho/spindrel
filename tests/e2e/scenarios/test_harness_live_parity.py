@@ -627,7 +627,9 @@ async def _assert_browser_runtime_live_diagnostics(
 
     if not shutil.which("docker"):
         pytest.skip("docker CLI is not available for container DNS diagnostics")
-    container = os.environ.get("HARNESS_PARITY_AGENT_CONTAINER", "agent-server-agent-server-1")
+    container = os.environ.get("HARNESS_PARITY_AGENT_CONTAINER", "")
+    if not container:
+        pytest.skip("native local harness parity has no app container for DNS diagnostics")
     host = os.environ.get("HARNESS_PARITY_PLAYWRIGHT_HOST", "playwright-local")
     proc = subprocess.run(
         ["docker", "exec", container, "getent", "hosts", host],
@@ -646,7 +648,9 @@ def _start_container_http_server(directory: str) -> tuple[subprocess.Popen, int]
     if not shutil.which("docker"):
         pytest.skip("docker CLI is not available for project screenshot diagnostics")
 
-    container = os.environ.get("HARNESS_PARITY_AGENT_CONTAINER", "agent-server-agent-server-1")
+    container = os.environ.get("HARNESS_PARITY_AGENT_CONTAINER", "")
+    if not container:
+        pytest.skip("native local harness parity has no app container for project screenshot diagnostics")
     base_port = int(os.environ.get("HARNESS_PARITY_APP_PORT_BASE", "18500"))
     offset = int(uuid.uuid4().hex[:4], 16) % 200
     last_error = ""

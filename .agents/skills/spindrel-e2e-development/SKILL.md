@@ -59,10 +59,11 @@ checkout on your own unused ports while iterating. The explicit DB reset
 command is `python scripts/agent_e2e_dev.py wipe-db --yes`.
 
 Use `python scripts/agent_e2e_dev.py prepare` only when you intentionally need
-the older full local Docker e2e stack with an app container, such as harness
-parity setup.
+the older full local Docker e2e stack with an app container. Normal harness
+parity setup now uses Docker for dependencies only and runs the API natively
+from this checkout.
 
-Mount native harness auth into the local e2e container:
+The legacy app-container path can still mount native harness auth:
 
 ```bash
 python scripts/agent_e2e_dev.py write-auth-override
@@ -80,16 +81,22 @@ python scripts/agent_e2e_dev.py prepare-harness-parity
 ```
 
 Use `--runtime codex` or `--runtime claude-code` on `prepare-harness-parity`
-for one-runtime setup. The command preserves the local e2e database, reuses
-mounted host `~/.codex` / `~/.claude` runtime auth, creates stable local
-harness bots/channels, and writes `scratch/agent-e2e/harness-parity.env`.
+for one-runtime setup. The command preserves the local e2e database, starts
+Postgres/SearXNG in Docker, starts or reuses a native `uvicorn` API process
+from this checkout on an unused port, reuses host `~/.codex` / `~/.claude`
+runtime auth, creates stable local harness bots/channels, and writes
+`scratch/agent-e2e/native-api.env` plus
+`scratch/agent-e2e/harness-parity.env`.
 For Claude Code, it also runs a tiny live auth smoke because `claude auth
 status` can report logged-in even when the first SDK turn will 401. If it
 fails, refresh the mounted auth with:
 
 ```bash
-docker exec -it -u spindrel spindrel-local-e2e-spindrel-1 claude auth login
+claude auth login
 ```
+
+Use `prepare-harness-parity --docker-app` only for the legacy containerized app
+flow.
 
 Use `run_harness_parity_local_batch.sh` for fast iteration: `smoke` is the
 cheap confidence pass, `fast` covers core/plan/skills/replay, and `deep` is for
@@ -170,7 +177,7 @@ and review notes.
   visual review and `--screenshots docs` only when intentionally refreshing
   checked-in `docs/images/harness-*` fixtures.
 - `prepare-harness-parity` installs Codex/Claude integration deps, restarts the
-  local app container so the harness modules reload, then creates stable
+  native local API so the harness modules reload, then creates stable
   parity bots/channels with baseline bridge tools and writes
   `scratch/agent-e2e/harness-parity.env`.
 - Local parity can be parallelized with focused selectors, not full tier
