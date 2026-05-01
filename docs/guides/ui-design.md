@@ -25,6 +25,7 @@
 | Add a color, background, border, or text shade | §1 Tokens & theming |
 | Style the chat composer, tool output, metadata row, or mini chat dock | §2.1 Command surfaces |
 | Style settings, admin, onboarding, dashboards, or prose | §2.2 App shell + content surfaces and §2.3 Control surfaces |
+| Fix a page that feels flat or washed out | §2.5 Emphasis ladder |
 | Pick a corner radius, spacing, or type size | §3 Scales |
 | Style a button, badge, input, banner, toast, card, or active nav row | §4 Components |
 | Build a dropdown, entity picker, or prompt editor | [`ui-components.md`](ui-components.md) |
@@ -44,6 +45,7 @@
 - **`useThemeTokens()` is debt.** Do not use it in new code. Existing callers are tolerated; do not expand them.
 - **Dark mode flips via the `.dark` class on the root.** Components do not branch on mode — the tokens swap for free.
 - **Light-mode depth comes from the neutral surface ladder, not extra accent color.** Keep blue reserved for focus, active state, and primary interactive affordances. If light mode feels flat, retune `surface`, `surface-raised`, `surface-overlay`, `surface-border`, and shared component opacity recipes before adding another color.
+- **Washed-out pages need hierarchy before decoration.** First decide the page's primary focal point and apply the emphasis ladder (§2.5). Then tune neutral contrast. Only use `emphasis` as a tiny non-semantic marker; never flood the page with warm accents.
 
 ### Canonical token names
 
@@ -114,6 +116,7 @@ Every UI region in Spindrel is one of three archetypes. The rules differ. The to
 - **Corners**: `rounded-md` (6px) by default. `rounded-lg` (10px) only for large hero cards and widget tiles. `rounded-full` only for avatars, status pills, and the active-row pill indicator (§4).
 - **Chrome**: one border only. Never stack `border + drop-shadow + raised-bg`. Default: `bg-surface-raised` on `bg-surface`, no border.
 - **Spacing, not dividers**: separate regions with `gap-*` and `bg-surface-raised` steps. Never a `border-b` or `border-l` between stacked bars.
+- **Shell alignment:** broad operational pages align to the app shell content rhythm: `px-4 sm:px-6 lg:px-8` with a width cap only to prevent unreadably long rows. Do not center dashboards, review decks, or settings pages into wide-screen dead zones. Centered max-width layouts are for prose, narrow forms, and deliberately focused detail readers.
 - **Typography**: headings and body in `text-text`; labels and metadata in `text-text-muted` / `text-text-dim`. Section labels uppercase `text-[10px] tracking-[0.08em] text-text-dim/70`.
 - **Status**: pill shape (`rounded-full`), `bg-surface-overlay`, no outline. Color only when it carries state.
 
@@ -184,6 +187,7 @@ Rules:
 - Do not put cards inside anchor sections. The anchor is the container; children are rows, pills, meters, or inline bands.
 - Do not use header borders to create emphasis. If the header needs weight, use a header rail and spacing.
 - Accent remains interaction/current-state color. Section emphasis comes from the neutral surface ladder first.
+- If dark and light mode both feel washed out, do not respond by making every row brighter. Add one primary focal point, use `emphasis` as a small scan marker, and keep secondary sections quieter.
 
 Proof reference: the Home dashboard uses a primary workspace pulse and recent-session anchor; Mission Control Review uses a broad review surface with local lane/detail fields instead of bar dividers.
 
@@ -357,8 +361,14 @@ Almost never. Signal elevation with `bg-surface-raised` + optional `border-surfa
 | `style={{ color: "#8b5cf6" }}` inline hex | `className="text-purple"` | Inline hex skips dark mode entirely |
 | 2–4px `border-l-blue-500` stripe on dropdown rows | `bg-surface-overlay/60` hover tint alone | Colored hover stripes on list rows read as AI slop |
 | `border-l-2 border-warning` / `border-l-2 border-danger` alert banner | Tonal note only: `bg-warning/10 text-warning-muted` or `bg-danger/10 text-danger` | Semantic left stripes still read as template/admin chrome |
+| Centered wide dashboards with a large empty gutter after the sidebar | Left-align to the app shell rhythm with a width cap | Operational pages should feel connected to the shell, not like a floating web page |
+| Every section rendered with the same quiet label and same neutral block | One primary anchor, optional secondary anchors, then quiet sections | Low chrome still needs a reading order |
 | `border-b border-surface-border` between every stacked bar | Spacing + `bg-surface-raised` step | Bar-between-bar borders produce admin-chrome noise |
+| Hero-metric template: big number, small label, supporting stats, gradient/accent | Compact pulse rows inside one anchor section | SaaS cliché and poor scan order in product UI |
+| Identical card grids with icon + heading + copy repeated | Dense row catalogs or anchor section with quiet rows | Repetition looks generic and wastes vertical space |
+| Modal as the first solution for review or edit flows | Inline expansion, detail panel, route, or drawer only when it preserves context | Modals often hide the workflow instead of clarifying it |
 | `animate-pulse` on a running task row | Inline `.thinking-pulse` dot + muted label | Pulsing whole rows pull the eye; a single dot carries it |
+| Gradient text or decorative glass panels | Solid token color, typography, tonal steps, and restrained emphasis markers | Decoration is not hierarchy |
 | `shadow-lg` on a card | `bg-surface-raised border border-surface-border` | Shadows read as old admin UI; tonal lift is calmer |
 | Bootstrap-like filled accent row button (`bg-accent text-white` for `Add`) | Inline primary control action: `bg-transparent text-accent hover:bg-accent/[0.08]` | Routine settings actions should match rail/header affordances, not web-framework CTAs |
 | `bg-gradient-to-br from-accent to-purple` on a settings CTA | Inline primary control action or, for rare final confirmation, one flat filled accent button | Gradients are decorative here and were the source of guide drift |

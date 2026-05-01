@@ -203,6 +203,14 @@ launchable status remains `proposed`. Every review mutation appends
 `metadata.review_actions` and updates `latest_review_action`; launched packs are
 immutable except for launch provenance.
 
+Operators can launch several proposed Work Packs together from the same Issue
+Intake workspace. Batch launch is intentionally all-or-nothing: every selected
+pack must still be `proposed`, have a launch prompt, and target a channel that
+belongs to the selected Project before any Project coding-run task is created.
+Successful batches store the same `launch_batch_id` on each Work Pack and its
+launch review action, so later review sessions can group the overnight runs
+back to the human-approved launch set.
+
 ![Project review session launched from selected coding runs](../images/project-workspace-review-launched.png)
 
 Launching a review session creates a normal task from the
@@ -249,7 +257,7 @@ artifacts, not ad hoc local captures:
 | [Review execution access](../images/project-workspace-review-execution-access.png) | Launching a review session can carry the same task-scoped e2e/machine grant for tests, screenshots, and merge verification. |
 | [Review finalized and merged](../images/project-workspace-review-finalized.png) | Accepted review provenance after merge: reviewed status, merged PR, check status, merge method, merge commit, review task, and handoff. |
 | [Project memory-tool transcript](../images/project-workspace-memory-tool.png) | Project-bound channels still render the memory tool result envelope with the expected `path` and completion message. |
-| [Issue intake work-pack review](../images/spatial-check-issue-intake-work-packs.png) | Mission Control Issue Intake renders raw issue notes, Work Pack review controls, source provenance, and Project/channel launch targets before coding-run launch. |
+| [Issue intake work-pack review](../images/spatial-check-issue-intake-work-packs.png) | Mission Control Issue Intake renders raw issue notes, Work Pack review controls, selected batch launch, source provenance, and Project/channel launch targets before coding-run launch. |
 | [Project terminal](../images/project-workspace-terminal.png) | Project-rooted terminal cwd resolves through the Project work surface. |
 | [Project channel settings](../images/project-workspace-channel-settings.png) | Non-harness channel settings bind to the Project primitive instead of a path-only workspace override. |
 | [Project instances](../images/project-workspace-instances.png) | Fresh Project instance readiness and file handoff are visible from the Project work surface. |

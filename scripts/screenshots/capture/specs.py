@@ -1290,24 +1290,71 @@ _ATTENTION_REVIEW_DECK_ENDPOINT_INIT = """
     }
   }, "info", "Evening check-in");
   const items = [reviewOne, reviewTwo, issueOne, issueTwo, inboxOne, inboxTwo, runningOne, clearedOne, clearedTwo];
-  const workPacks = [{
-    id: "00000000-0000-0000-0000-000000000801",
-    title: "Improve Project review evidence framing",
-    summary: "Conversational intake and agent blocker reports both point to the Project review cockpit needing clearer launch and merge evidence.",
-    category: "code_bug",
-    confidence: "high",
-    status: "proposed",
-    source_item_ids: [issueOne.id, issueTwo.id],
-    launch_prompt: "Fix the Project review cockpit evidence framing and verify with screenshots.",
-    triage_task_id: "00000000-0000-0000-0000-000000000501",
-    project_id: null,
-    project_name: null,
-    channel_id: null,
-    channel_name: null,
-    launched_task_id: null,
-    launched_task_status: null,
-    source_items: [
-      {
+  const workPacks = [
+    {
+      id: "00000000-0000-0000-0000-000000000801",
+      title: "Improve Project review evidence framing",
+      summary: "Conversational intake and agent blocker reports both point to the Project review cockpit needing clearer launch and merge evidence.",
+      category: "code_bug",
+      confidence: "high",
+      status: "proposed",
+      source_item_ids: [issueOne.id, issueTwo.id],
+      launch_prompt: "Fix the Project review cockpit evidence framing and verify with screenshots.",
+      triage_task_id: "00000000-0000-0000-0000-000000000501",
+      project_id: null,
+      project_name: null,
+      channel_id: null,
+      channel_name: null,
+      launched_task_id: null,
+      launched_task_status: null,
+      source_items: [
+        {
+          id: issueOne.id,
+          title: issueOne.title,
+          message: issueOne.message,
+          severity: issueOne.severity,
+          status: issueOne.status,
+          channel_id: issueOne.channel_id,
+          channel_name: issueOne.channel_name,
+          evidence: issueOne.evidence
+        },
+        {
+          id: issueTwo.id,
+          title: issueTwo.title,
+          message: issueTwo.message,
+          severity: issueTwo.severity,
+          status: issueTwo.status,
+          channel_id: issueTwo.channel_id,
+          channel_name: issueTwo.channel_name,
+          evidence: issueTwo.evidence
+        }
+      ],
+      metadata: {
+        target_project_hint: "Spindrel",
+        target_channel_hint: "Spindrel Development",
+        review_actions: [{ action: "edited", actor: "user:operator", at: now, prior_status: "proposed", status: "proposed" }]
+      },
+      latest_review_action: { action: "edited", actor: "user:operator", at: now, prior_status: "proposed", status: "proposed" },
+      created_at: now,
+      updated_at: now
+    },
+    {
+      id: "00000000-0000-0000-0000-000000000802",
+      title: "Add batch launch proof for overnight packs",
+      summary: "A second reviewed code pack is ready so the operator can launch multiple Project runs together.",
+      category: "code_bug",
+      confidence: "medium",
+      status: "proposed",
+      source_item_ids: [issueOne.id],
+      launch_prompt: "Add batch launch proof for overnight work packs and verify with screenshots.",
+      triage_task_id: "00000000-0000-0000-0000-000000000501",
+      project_id: null,
+      project_name: null,
+      channel_id: null,
+      channel_name: null,
+      launched_task_id: null,
+      launched_task_status: null,
+      source_items: [{
         id: issueOne.id,
         title: issueOne.title,
         message: issueOne.message,
@@ -1316,27 +1363,17 @@ _ATTENTION_REVIEW_DECK_ENDPOINT_INIT = """
         channel_id: issueOne.channel_id,
         channel_name: issueOne.channel_name,
         evidence: issueOne.evidence
+      }],
+      metadata: {
+        target_project_hint: "Spindrel",
+        target_channel_hint: "Spindrel Development",
+        review_actions: [{ action: "edited", actor: "user:operator", at: now, prior_status: "proposed", status: "proposed" }]
       },
-      {
-        id: issueTwo.id,
-        title: issueTwo.title,
-        message: issueTwo.message,
-        severity: issueTwo.severity,
-        status: issueTwo.status,
-        channel_id: issueTwo.channel_id,
-        channel_name: issueTwo.channel_name,
-        evidence: issueTwo.evidence
-      }
-    ],
-    metadata: {
-      target_project_hint: "Spindrel",
-      target_channel_hint: "Spindrel Development",
-      review_actions: [{ action: "edited", actor: "user:operator", at: now, prior_status: "proposed", status: "proposed" }]
-    },
-    latest_review_action: { action: "edited", actor: "user:operator", at: now, prior_status: "proposed", status: "proposed" },
-    created_at: now,
-    updated_at: now
-  }];
+      latest_review_action: { action: "edited", actor: "user:operator", at: now, prior_status: "proposed", status: "proposed" },
+      created_at: now,
+      updated_at: now
+    }
+  ];
   const runs = [{
     task_id: "00000000-0000-0000-0000-000000000501",
     session_id: null,
@@ -1688,13 +1725,16 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
         full_page=True,
         extra_init_scripts=[_ATTENTION_REVIEW_DECK_ENDPOINT_INIT],
         pre_capture_js=(
+            "const selectLaunchable = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Select launchable'));"
+            "if (!selectLaunchable) throw new Error('Select launchable button missing before issue work-pack capture');"
+            "selectLaunchable.click();"
+            "await new Promise((resolve) => setTimeout(resolve, 200));"
             "const review = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Review'));"
             "if (!review) throw new Error('Review button missing before issue work-pack capture');"
             "review.click();"
             "await new Promise((resolve) => setTimeout(resolve, 200));"
             "const dismiss = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Dismiss'));"
             "if (!dismiss) throw new Error('Dismiss button missing after opening issue work-pack review');"
-            "dismiss.scrollIntoView({ block: 'center', inline: 'nearest' });"
             "await new Promise((resolve) => setTimeout(resolve, 400));"
         ),
         assert_js=(
@@ -1703,6 +1743,7 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
             "if (!lower.includes('issue intake') || !text.includes('Start issue triage')) throw new Error('issue intake lane missing');"
             "if (!text.includes('Project Runs hides merge evidence') || !text.includes('Codex task could not run e2e screenshots')) throw new Error('raw issue intake missing');"
             "if (!text.includes('Improve Project review evidence framing')) throw new Error('work pack missing');"
+            "if (!text.includes('Add batch launch proof for overnight packs') || !text.includes('Launch selected (2)')) throw new Error('batch work-pack launch controls missing');"
             "if (!text.includes('Spindrel Development') || !text.includes('Launch')) throw new Error('Project launch target controls missing');"
             "if (!text.includes('Review work pack') || !text.includes('Needs info') || !text.includes('Dismiss')) throw new Error('work-pack review controls missing');"
             "if (!lower.includes('last review: edited')) throw new Error('work-pack review provenance missing');"

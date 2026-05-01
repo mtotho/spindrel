@@ -5,14 +5,33 @@ description: "Use when editing Spindrel frontend source: React routes, shared co
 
 # Spindrel UI Operator
 
-This is a repo-dev skill for agents editing Spindrel source. It is not a Spindrel runtime skill and must not be imported into app skill tables.
+This is a repo-dev skill for agents editing Spindrel source. It is not a
+Spindrel runtime skill and must not be imported into app skill tables.
 
 ## Start Here
 
 1. Read `CLAUDE.md`.
-2. Read `docs/guides/ui-design.md` and `docs/guides/ui-components.md`.
+2. Read `PRODUCT.md`, `DESIGN.md`, `docs/guides/ui-design.md`, and
+   `docs/guides/ui-components.md`.
 3. For visual work, also use `.agents/skills/spindrel-visual-feedback-loop`.
 4. Check `git status --short` before editing UI or docs image artifacts.
+
+## UI Preflight
+
+Before changing a visual surface, name these in your working notes:
+
+- **Surface register:** product UI. Do not use marketing-page structure for app
+  workflows.
+- **Surface archetype:** command, app/content, or control surface. Use the
+  matching rules in `docs/guides/ui-design.md`.
+- **Primary focal point:** the one place the user should look first.
+- **Emphasis level:** quiet section, header rail, anchor section, or status
+  band. Most sections stay quiet; broad pages get at most one primary anchor
+  and two secondary anchors above the fold.
+- **Chrome budget:** pick one separator per region: spacing, tonal step, or one
+  neutral border.
+- **Proof path:** typecheck plus focused tests; add screenshots for visual
+  layout, hierarchy, or responsive work.
 
 ## Do
 
@@ -21,12 +40,23 @@ This is a repo-dev skill for agents editing Spindrel source. It is not a Spindre
 - Keep operational surfaces scannable; avoid marketing-page structure for app
   workflows.
 - Make state obvious through actual data, not explanatory in-app copy.
+- Align broad operational pages with the app shell rhythm. Do not center them
+  into wide-screen dead zones unless the surface is prose or intentionally
+  narrow.
+- Use the `emphasis` token only as a sparse non-semantic scan marker for
+  primary anchors.
 - Run `cd ui && npx tsc --noEmit --pretty false` after UI changes.
 
 ## Avoid
 
 - Do not start a new Vite server or claim a new port unless explicitly asked.
 - Do not add UI cards inside UI cards.
+- Do not create repeated equal metric-card grids when one anchor section plus
+  compact rows would scan faster.
+- Do not use side-stripe borders, gradient text, decorative glass, or filled
+  blue buttons for routine row actions.
+- Do not add component-local colors. Add tokens in `ui/global.css` and
+  `ui/tailwind.config.cjs`, then consume them through Tailwind classes.
 - Do not reintroduce imperative chat scroll anchoring.
 - Do not create a runtime skill importer or app skill mutation from repo
   `.agents` content.

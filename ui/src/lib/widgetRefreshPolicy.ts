@@ -31,6 +31,11 @@ export interface PinnedWidgetIframeSkeletonInput {
   preloadWatchdogMs: number;
 }
 
+export interface PinnedInteractiveIframeMountInput {
+  isHtmlInteractive: boolean;
+  hasEverBeenVisible: boolean;
+}
+
 export function isWidgetRefreshCapable(
   envelope: Pick<ToolResultEnvelope, "refreshable"> | null | undefined,
   contract?: Pick<WidgetContract, "refresh_model"> | null,
@@ -63,6 +68,11 @@ export function shouldShowPinnedWidgetIframeSkeleton(input: PinnedWidgetIframeSk
   if (!input.isHtmlInteractive) return false;
   if (input.iframeReady) return false;
   return input.preloadElapsedMs < input.preloadWatchdogMs;
+}
+
+export function shouldMountPinnedInteractiveIframe(input: PinnedInteractiveIframeMountInput): boolean {
+  if (!input.isHtmlInteractive) return true;
+  return input.hasEverBeenVisible;
 }
 
 export function widgetRefreshJitterMs(key: string, maxMs = 1_500): number {

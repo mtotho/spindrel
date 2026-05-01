@@ -1927,16 +1927,40 @@ async def launch_issue_work_pack_project_run(
     actor: str | None = None,
 ) -> dict[str, Any]:
     pack = await get_issue_work_pack(db, pack_id)
-    if pack.status == "dismissed":
-        raise ValidationError("Dismissed work packs cannot be launched.")
-    if pack.status == "needs_info":
-        raise ValidationError("Work packs that need more information cannot be launched.")
-    project = await db.get(Project, project_id)
-    if project is None:
-        raise NotFoundError("Project not found.")
+    project, channel = await _validate_issue_work_pack_launch_target(
+        db,
+        pack,
+        project_id=project_id,
+        channel_id=channel_id,
+    )
     from app.services.project_coding_runs import ProjectCodingRunCreate, create_project_coding_run, get_project_coding_run
 
-    request = (
+    task = await create_project_coding_run(
+        db,
+        project,
+        ProjectCodingRunCreate(
+            channel_id=channel.id,
+            request=_issue_work_pack_launch_request(pack),
+            source_work_pack_id=pack.id,
+        ),
+    )
+    _mark_issue_work_pack_launched(
+        pack,
+        project_id=project.id,
+        channel_id=channel.id,
+        task_id=task.id,
+        actor=actor,
+    )
+    await db.commit()
+    await db.refresh(pack)
+    return {
+        "work_pack": await serialize_issue_work_pack(db, pack),
+        "run": await get_project_coding_run(db, project, task.id),
+    }
+
+
+def _issue_work_pack_launch_request(pack: IssueWorkPack) -> str:
+    return (
         f"{pack.launch_prompt.strip()}\n\n"
         f"[Issue work pack]\n"
         f"- Work pack id: {pack.id}\n"
@@ -1944,31 +1968,142 @@ async def launch_issue_work_pack_project_run(
         f"- Confidence: {pack.confidence}\n"
         f"- Source Attention items: {', '.join(str(item_id) for item_id in (pack.source_item_ids or []))}\n"
     )
-    task = await create_project_coding_run(
-        db,
-        project,
-        ProjectCodingRunCreate(
-            channel_id=channel_id,
-            request=request,
-            source_work_pack_id=pack.id,
-        ),
-    )
+
+
+async def _validate_issue_work_pack_launch_target(
+    db: AsyncSession,
+    pack: IssueWorkPack,
+    *,
+    project_id: uuid.UUID,
+    channel_id: uuid.UUID,
+) -> tuple[Project, Channel]:
+    if pack.status == "dismissed":
+        raise ValidationError("Dismissed work packs cannot be launched.")
+    if pack.status == "needs_info":
+        raise ValidationError("Work packs that need more information cannot be launched.")
+    if pack.status == "launched":
+        raise ValidationError("Launched work packs cannot be launched again.")
+    if pack.status != "proposed":
+        raise ValidationError(f"Work pack is not launchable: {pack.status}.")
+    if not str(pack.launch_prompt or "").strip():
+        raise ValidationError(f"Work pack {pack.id} needs a launch prompt before launch.")
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise NotFoundError("Project not found.")
+    channel = await db.get(Channel, channel_id)
+    if channel is None:
+        raise NotFoundError("Channel not found.")
+    if channel.project_id != project.id:
+        raise ValidationError("Channel does not belong to this Project.")
+    return project, channel
+
+
+def _mark_issue_work_pack_launched(
+    pack: IssueWorkPack,
+    *,
+    project_id: uuid.UUID,
+    channel_id: uuid.UUID,
+    task_id: uuid.UUID,
+    actor: str | None,
+    launch_batch_id: str | None = None,
+    note: str | None = None,
+    now: datetime | None = None,
+) -> None:
+    launched_at = now or _now()
     pack.status = "launched"
-    pack.project_id = project.id
+    pack.project_id = project_id
     pack.channel_id = channel_id
-    pack.launched_task_id = task.id
-    pack.updated_at = _now()
+    pack.launched_task_id = task_id
+    pack.updated_at = launched_at
     metadata = dict(pack.metadata_ or {})
     metadata["launched_by"] = actor
-    metadata["launched_at"] = pack.updated_at.isoformat()
+    metadata["launched_at"] = launched_at.isoformat()
+    if launch_batch_id:
+        metadata["launch_batch_id"] = launch_batch_id
     pack.metadata_ = metadata
     flag_modified(pack, "metadata_")
-    _append_issue_work_pack_review_action(pack, action="launched", actor=actor, prior_status="proposed", now=pack.updated_at)
+    _append_issue_work_pack_review_action(
+        pack,
+        action="launched",
+        actor=actor,
+        note=note,
+        prior_status="proposed",
+        now=launched_at,
+    )
+
+
+async def launch_issue_work_packs_project_runs(
+    db: AsyncSession,
+    *,
+    pack_ids: list[uuid.UUID],
+    project_id: uuid.UUID,
+    channel_id: uuid.UUID,
+    actor: str | None = None,
+    note: str | None = None,
+) -> dict[str, Any]:
+    if not pack_ids:
+        raise ValidationError("At least one work pack is required.")
+    unique_pack_ids: list[uuid.UUID] = []
+    for pack_id in pack_ids:
+        if pack_id not in unique_pack_ids:
+            unique_pack_ids.append(pack_id)
+
+    packs = [await get_issue_work_pack(db, pack_id) for pack_id in unique_pack_ids]
+    project: Project | None = None
+    channel: Channel | None = None
+    for pack in packs:
+        project, channel = await _validate_issue_work_pack_launch_target(
+            db,
+            pack,
+            project_id=project_id,
+            channel_id=channel_id,
+        )
+    if project is None or channel is None:
+        raise ValidationError("No launchable work packs were selected.")
+
+    from app.services.project_coding_runs import ProjectCodingRunCreate, create_project_coding_run, get_project_coding_run
+
+    launch_batch_id = f"issue-work-pack-batch:{uuid.uuid4()}"
+    launched_at = _now()
+    launched: list[tuple[IssueWorkPack, Task]] = []
+    clean_note = str(note or "").strip()
+    for pack in packs:
+        task = await create_project_coding_run(
+            db,
+            project,
+            ProjectCodingRunCreate(
+                channel_id=channel.id,
+                request=_issue_work_pack_launch_request(pack),
+                source_work_pack_id=pack.id,
+            ),
+            commit=False,
+        )
+        _mark_issue_work_pack_launched(
+            pack,
+            project_id=project.id,
+            channel_id=channel.id,
+            task_id=task.id,
+            actor=actor,
+            launch_batch_id=launch_batch_id,
+            note=clean_note or None,
+            now=launched_at,
+        )
+        launched.append((pack, task))
+
     await db.commit()
-    await db.refresh(pack)
+    work_packs: list[dict[str, Any]] = []
+    runs: list[dict[str, Any]] = []
+    for pack, task in launched:
+        await db.refresh(pack)
+        await db.refresh(task)
+        work_packs.append(await serialize_issue_work_pack(db, pack))
+        runs.append(await get_project_coding_run(db, project, task.id))
+
     return {
-        "work_pack": await serialize_issue_work_pack(db, pack),
-        "run": await get_project_coding_run(db, project, task.id),
+        "launch_batch_id": launch_batch_id,
+        "count": len(launched),
+        "work_packs": work_packs,
+        "runs": runs,
     }
 
 

@@ -33,6 +33,7 @@ import {
   shouldRenderPinnedWidgetLoadShell,
   shouldRunWidgetAutoRefresh,
   widgetRefreshJitterMs,
+  shouldMountPinnedInteractiveIframe,
 } from "@/src/lib/widgetRefreshPolicy";
 import {
   useDocumentVisible,
@@ -579,8 +580,12 @@ export function PinnedToolWidget({
   const [iframeReady, setIframeReady] = useState(() => hasPinnedWidgetIframeEntry(keepAliveKey));
   const [iframePreloadStartedAt, setIframePreloadStartedAt] = useState(() => Date.now());
   const [iframePreloadTick, setIframePreloadTick] = useState(0);
+  const [interactiveIframeEverVisible, setInteractiveIframeEverVisible] = useState(
+    () => hasPinnedWidgetIframeEntry(keepAliveKey),
+  );
   useEffect(() => {
     setIframeReady(hasPinnedWidgetIframeEntry(keepAliveKey));
+    setInteractiveIframeEverVisible(hasPinnedWidgetIframeEntry(keepAliveKey));
     setIframePreloadStartedAt(Date.now());
     setIframePreloadTick(0);
   }, [keepAliveKey, currentEnvelope?.body]);
@@ -596,6 +601,27 @@ export function PinnedToolWidget({
     }, IFRAME_PRELOAD_WATCHDOG_MS);
     return () => window.clearTimeout(handle);
   }, [isHtmlInteractive, iframeReady, iframePreloadStartedAt]);
+  useEffect(() => {
+    if (!isHtmlInteractive || interactiveIframeEverVisible) return;
+    const node = measureNodeRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") {
+      setInteractiveIframeEverVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting) return;
+        setInteractiveIframeEverVisible(true);
+        observer.disconnect();
+      },
+      // Keep this tighter than auto-refresh visibility. It is specifically
+      // gating creation of large srcdoc iframes, not just a cheap poll.
+      { root: null, rootMargin: "32px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [isHtmlInteractive, interactiveIframeEverVisible, keepAliveKey]);
   // Skeleton overlay only kicks in for interactive-HTML pins — component
   // widgets render synchronously so there's no flash window to cover. A
   // watchdog drops the overlay if the iframe has rendered but its ready
@@ -607,6 +633,10 @@ export function PinnedToolWidget({
       Date.now() - iframePreloadStartedAt
       + iframePreloadTick * IFRAME_PRELOAD_WATCHDOG_MS,
     preloadWatchdogMs: IFRAME_PRELOAD_WATCHDOG_MS,
+  });
+  const shouldMountInteractiveBody = shouldMountPinnedInteractiveIframe({
+    isHtmlInteractive,
+    hasEverBeenVisible: interactiveIframeEverVisible,
   });
 
   // Drag wiring: prefer the enclosing DndContext's binding (`externalDrag`)
@@ -1270,21 +1300,25 @@ export function PinnedToolWidget({
             : "overflow-y-auto")
         }
       >
-        <RichToolResult
-          envelope={currentEnvelope}
-          sessionId={viewedSessionId ?? undefined}
-          channelId={channelId ?? undefined}
-          dispatcher={dispatcher}
-          fillHeight={hostPolicy.fillHeight}
-          dashboardPinId={widget.id}
-          gridDimensions={measuredSize ?? undefined}
-          onIframeReady={handleIframeReady}
-          hoverScrollbars={hostPolicy.hoverScrollbars}
-          layout={hostPolicy.zone}
-          hostSurface={hostPolicy.wrapperSurface}
-          presentationFamily={hostPolicy.presentationFamily}
-          t={t}
-        />
+        {shouldMountInteractiveBody ? (
+          <RichToolResult
+            envelope={currentEnvelope}
+            sessionId={viewedSessionId ?? undefined}
+            channelId={channelId ?? undefined}
+            dispatcher={dispatcher}
+            fillHeight={hostPolicy.fillHeight}
+            dashboardPinId={widget.id}
+            gridDimensions={measuredSize ?? undefined}
+            onIframeReady={handleIframeReady}
+            hoverScrollbars={hostPolicy.hoverScrollbars}
+            layout={hostPolicy.zone}
+            hostSurface={hostPolicy.wrapperSurface}
+            presentationFamily={hostPolicy.presentationFamily}
+            t={t}
+          />
+        ) : (
+          <div className="absolute inset-0 pointer-events-none" aria-hidden />
+        )}
         {showIframeSkeleton && (
           <div
             className={

@@ -29,6 +29,7 @@ import {
   useResolveAttentionItem,
   useIssueWorkPacks,
   useIssueWorkPackAction,
+  useBatchLaunchIssueWorkPacksProjectRuns,
   useLaunchIssueWorkPackProjectRun,
   useStartAttentionTriageRun,
   useStartIssueTriageRun,
@@ -735,14 +736,17 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
   const [reviewPackId, setReviewPackId] = useState<string | null>(null);
   const { data: projectChannels = [] } = useProjectChannels(selectedProjectId || undefined);
   const launchPack = useLaunchIssueWorkPackProjectRun();
+  const batchLaunchPacks = useBatchLaunchIssueWorkPacksProjectRuns();
   const updatePack = useUpdateIssueWorkPack();
   const dismissPack = useIssueWorkPackAction("dismiss");
   const needsInfoPack = useIssueWorkPackAction("needs-info");
   const reopenPack = useIssueWorkPackAction("reopen");
   const activePacks = workPacks.filter((pack) => pack.status === "proposed" || pack.status === "needs_info");
+  const batchLaunchablePacks = activePacks.filter((pack) => pack.status === "proposed");
   const launchedPacks = workPacks.filter((pack) => pack.status === "launched");
   const dismissedPacks = workPacks.filter((pack) => pack.status === "dismissed");
   const reviewPack = workPacks.find((pack) => pack.id === reviewPackId) ?? null;
+  const [selectedPackIds, setSelectedPackIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!projects.length) return;
@@ -777,6 +781,25 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
   const launch = (pack: IssueWorkPack) => {
     if (!selectedProjectId || !selectedChannelId || launchPack.isPending) return;
     launchPack.mutate({ work_pack_id: pack.id, project_id: selectedProjectId, channel_id: selectedChannelId });
+  };
+  const selectedLaunchablePackIds = selectedPackIds.filter((id) => batchLaunchablePacks.some((pack) => pack.id === id));
+  const batchLaunchDisabled = !selectedProjectId || !selectedChannelId || selectedLaunchablePackIds.length < 2 || batchLaunchPacks.isPending;
+  const togglePackSelection = (packId: string) => {
+    setSelectedPackIds((current) => current.includes(packId) ? current.filter((id) => id !== packId) : [...current, packId]);
+  };
+  const toggleAllLaunchable = () => {
+    const ids = batchLaunchablePacks.map((pack) => pack.id);
+    setSelectedPackIds((current) => {
+      const selected = current.filter((id) => ids.includes(id));
+      return selected.length === ids.length ? current.filter((id) => !ids.includes(id)) : Array.from(new Set([...current, ...ids]));
+    });
+  };
+  const batchLaunch = () => {
+    if (batchLaunchDisabled) return;
+    batchLaunchPacks.mutate(
+      { work_pack_ids: selectedLaunchablePackIds, project_id: selectedProjectId, channel_id: selectedChannelId },
+      { onSuccess: () => setSelectedPackIds([]) },
+    );
   };
 
   return (
@@ -825,6 +848,24 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
         <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
           <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Work packs</div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={!batchLaunchablePacks.length}
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-surface-overlay/50 px-3 text-xs font-medium text-text hover:bg-surface-overlay disabled:opacity-50"
+              onClick={toggleAllLaunchable}
+            >
+              <Check size={14} />
+              {selectedLaunchablePackIds.length === batchLaunchablePacks.length && batchLaunchablePacks.length ? "Clear" : "Select"} launchable
+            </button>
+            <button
+              type="button"
+              disabled={batchLaunchDisabled}
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-accent/[0.08] px-3 text-xs font-medium text-accent hover:bg-accent/[0.12] disabled:opacity-50"
+              onClick={batchLaunch}
+            >
+              {batchLaunchPacks.isPending ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
+              Launch selected{selectedLaunchablePackIds.length ? ` (${selectedLaunchablePackIds.length})` : ""}
+            </button>
             <select className="min-h-8 rounded-md border border-input-border bg-input px-2 text-xs text-text" value={selectedProjectId} onChange={(event) => updateProject(event.target.value)}>
               <option value="">Project...</option>
               {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
@@ -858,6 +899,9 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
               key={pack.id}
               pack={pack}
               selected={pack.id === reviewPackId}
+              checked={selectedPackIds.includes(pack.id)}
+              selectable={pack.status === "proposed"}
+              onSelect={() => togglePackSelection(pack.id)}
               launchDisabled={pack.status !== "proposed" || !selectedProjectId || !selectedChannelId || launchPack.isPending}
               launchPending={launchPack.isPending}
               onReview={() => setReviewPackId(pack.id === reviewPackId ? null : pack.id)}
@@ -887,6 +931,11 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
             {launchPack.error instanceof Error ? launchPack.error.message : "Work pack could not launch."}
           </div>
         )}
+        {batchLaunchPacks.error && (
+          <div className="mt-3 rounded-md bg-danger/10 px-3 py-2 text-xs text-danger-muted">
+            {batchLaunchPacks.error instanceof Error ? batchLaunchPacks.error.message : "Selected work packs could not launch."}
+          </div>
+        )}
       </section>
     </div>
   );
@@ -895,16 +944,22 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
 function WorkPackRow({
   pack,
   selected,
+  checked,
+  selectable,
   launchDisabled,
   launchPending,
   onReview,
+  onSelect,
   onLaunch,
 }: {
   pack: IssueWorkPack;
   selected: boolean;
+  checked?: boolean;
+  selectable?: boolean;
   launchDisabled: boolean;
   launchPending: boolean;
   onReview: () => void;
+  onSelect?: () => void;
   onLaunch: () => void;
 }) {
   const statusTone = pack.status === "proposed" ? "text-success" : pack.status === "needs_info" ? "text-warning" : pack.status === "dismissed" ? "text-text-dim" : "text-accent";
@@ -914,7 +969,17 @@ function WorkPackRow({
     <div className={`rounded-md px-3 py-3 ${selected ? "bg-accent/[0.08]" : "bg-surface-overlay/25"}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-text">{pack.title}</div>
+          <div className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={Boolean(checked)}
+              disabled={!selectable}
+              onChange={onSelect}
+              aria-label={`Select ${pack.title} for batch launch`}
+            />
+            <div className="min-w-0 text-sm font-medium text-text">{pack.title}</div>
+          </div>
           <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] uppercase tracking-[0.08em] text-text-dim">
             <span className={statusTone}>{pack.status.replaceAll("_", " ")}</span>
             <span>{pack.category.replaceAll("_", " ")}</span>

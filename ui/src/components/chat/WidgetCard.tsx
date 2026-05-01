@@ -21,6 +21,7 @@ import { useDashboardPinsStore } from "../../stores/dashboardPins";
 import { requestWidgetRefresh } from "../../lib/widgetRefreshBatcher";
 import {
   isWidgetRefreshCapable,
+  shouldMountPinnedInteractiveIframe,
   shouldRunWidgetAutoRefresh,
 } from "../../lib/widgetRefreshPolicy";
 import {
@@ -96,6 +97,8 @@ export function WidgetCard({
   const autoCollapsed = (isPinned && !isLatestBotMessage) || (defaultCollapsed ?? false);
   const isCollapsed = manualExpand !== null ? !manualExpand : autoCollapsed;
   const cardRef = useRef<HTMLDivElement | null>(null);
+  const isHtmlWidget =
+    currentEnvelope.content_type === "application/vnd.spindrel.html+interactive";
   const refreshCapable = isWidgetRefreshCapable(currentEnvelope);
   const documentVisible = useDocumentVisible();
   const elementVisible = useElementVisible(cardRef, refreshCapable && !isCollapsed);
@@ -227,8 +230,33 @@ export function WidgetCard({
     [channelId, interceptingDispatch],
   );
 
-  const isHtmlWidget =
-    currentEnvelope.content_type === "application/vnd.spindrel.html+interactive";
+  const [interactiveIframeEverVisible, setInteractiveIframeEverVisible] = useState(false);
+  useEffect(() => {
+    setInteractiveIframeEverVisible(false);
+  }, [widgetId, currentEnvelope.content_type, currentEnvelope.body]);
+  useEffect(() => {
+    if (!isHtmlWidget || isCollapsed || interactiveIframeEverVisible) return;
+    const node = cardRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") {
+      setInteractiveIframeEverVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting) return;
+        setInteractiveIframeEverVisible(true);
+        observer.disconnect();
+      },
+      { root: null, rootMargin: "32px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [isHtmlWidget, isCollapsed, interactiveIframeEverVisible, widgetId]);
+  const shouldMountInteractiveBody = shouldMountPinnedInteractiveIframe({
+    isHtmlInteractive: isHtmlWidget,
+    hasEverBeenVisible: interactiveIframeEverVisible,
+  });
 
   // Normalize body to string. HTML widgets in path mode ship with an empty
   // body (renderer fetches the source file) — keep rendering in that case.
@@ -243,12 +271,14 @@ export function WidgetCard({
   const isTerminalMode = chatMode === "terminal";
 
   const content = isHtmlWidget ? (
+    shouldMountInteractiveBody ? (
     <InteractiveHtmlRenderer
       envelope={currentEnvelope}
       channelId={channelId}
       hostSurface={isTerminalMode ? "plain" : "surface"}
       t={t}
     />
+    ) : null
   ) : (
     <ComponentRenderer
       body={body ?? ""}

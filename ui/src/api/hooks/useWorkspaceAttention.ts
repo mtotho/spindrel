@@ -259,6 +259,13 @@ export interface IssueWorkPackUpdateInput {
   channel_id?: string | null;
 }
 
+export interface IssueWorkPackBatchLaunchInput {
+  work_pack_ids: string[];
+  project_id: string;
+  channel_id: string;
+  note?: string | null;
+}
+
 export interface AttentionTriageFeedbackInput {
   itemId: string;
   verdict: "confirmed" | "wrong" | "rerouted";
@@ -608,6 +615,22 @@ export function useLaunchIssueWorkPackProjectRun() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ project_id: body.project_id, channel_id: body.channel_id }),
+      }),
+    onSettled: () => {
+      invalidateIssueWorkPackQueries(qc);
+      qc.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
+}
+
+export function useBatchLaunchIssueWorkPacksProjectRuns() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: IssueWorkPackBatchLaunchInput) =>
+      apiFetch<{ launch_batch_id: string; count: number; work_packs: IssueWorkPack[]; runs: unknown[] }>("/api/v1/workspace/attention/issue-work-packs/batch-launch-project-runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       }),
     onSettled: () => {
       invalidateIssueWorkPackQueries(qc);

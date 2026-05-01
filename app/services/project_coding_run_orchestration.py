@@ -129,6 +129,8 @@ async def create_project_coding_run(
     db: AsyncSession,
     project: Project,
     body: ProjectCodingRunCreate,
+    *,
+    commit: bool = True,
 ) -> Task:
     channel = await db.get(Channel, body.channel_id)
     if channel is None:
@@ -177,8 +179,9 @@ async def create_project_coding_run(
         grant=body.machine_target_grant,
         granted_by_user_id=body.granted_by_user_id,
     )
-    await db.commit()
-    await db.refresh(task)
+    if commit:
+        await db.commit()
+        await db.refresh(task)
     return task
 
 

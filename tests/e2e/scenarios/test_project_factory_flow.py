@@ -98,6 +98,17 @@ async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClie
         "channel_id": channel["id"],
         "metadata": {"scenario": "project_factory_flow", "kind": "code"},
     })
+    second_code_pack = await client.create_issue_work_pack({
+        "title": f"Factory E2E batch launch pack {suffix}",
+        "summary": "A second code pack should launch in the same operator batch.",
+        "category": "code_bug",
+        "confidence": "medium",
+        "source_item_ids": [broken_widget["id"]],
+        "launch_prompt": "Implement a small Project Factory batch-launch verification change and include evidence.",
+        "project_id": project["id"],
+        "channel_id": channel["id"],
+        "metadata": {"scenario": "project_factory_flow", "kind": "batch-code"},
+    })
     needs_info_pack = await client.create_issue_work_pack({
         "title": f"Factory E2E planning note pack {suffix}",
         "summary": "Future planning note should not launch implementation without a plan.",
@@ -141,18 +152,23 @@ async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClie
 
     packs = await client.list_issue_work_packs()
     assert any(pack["id"] == code_pack["id"] and pack["status"] == "proposed" for pack in packs)
+    assert any(pack["id"] == second_code_pack["id"] and pack["status"] == "proposed" for pack in packs)
     assert any(pack["id"] == needs_info_pack["id"] and pack["status"] == "needs_info" for pack in packs)
     assert any(pack["id"] == conversational_pack["id"] and pack["metadata"]["source"] == "conversation" for pack in packs)
 
-    launched = await client.launch_issue_work_pack_project_run(
-        code_pack["id"],
+    launched = await client.batch_launch_issue_work_packs_project_runs(
+        work_pack_ids=[code_pack["id"], second_code_pack["id"]],
         project_id=project["id"],
         channel_id=channel["id"],
+        note="Factory e2e launches the reviewed code packs together.",
     )
-    run = launched["run"]
+    assert launched["count"] == 2
+    assert launched["launch_batch_id"].startswith("issue-work-pack-batch:")
+    assert {pack["id"] for pack in launched["work_packs"]} == {code_pack["id"], second_code_pack["id"]}
+    assert {pack["metadata"]["launch_batch_id"] for pack in launched["work_packs"]} == {launched["launch_batch_id"]}
+    assert all(pack["status"] == "launched" for pack in launched["work_packs"])
+    run = next(run for run in launched["runs"] if run["source_work_pack_id"] == code_pack["id"])
     task_id = run["task"]["id"]
-    assert launched["work_pack"]["status"] == "launched"
-    assert launched["work_pack"]["launched_task_id"] == task_id
     assert run["source_work_pack_id"] == code_pack["id"]
 
     receipt = await client.create_project_run_receipt(project["id"], {

@@ -695,6 +695,27 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def batch_launch_issue_work_packs_project_runs(
+        self,
+        *,
+        work_pack_ids: list[str],
+        project_id: str,
+        channel_id: str,
+        note: str | None = None,
+    ) -> dict:
+        """POST /api/v1/workspace/attention/issue-work-packs/batch-launch-project-runs."""
+        resp = await self._client.post(
+            "/api/v1/workspace/attention/issue-work-packs/batch-launch-project-runs",
+            json={
+                "work_pack_ids": work_pack_ids,
+                "project_id": project_id,
+                "channel_id": channel_id,
+                "note": note,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     async def list_project_coding_runs(self, project_id: str) -> list[dict]:
         """GET /api/v1/projects/{id}/coding-runs."""
         resp = await self._client.get(f"/api/v1/projects/{project_id}/coding-runs")

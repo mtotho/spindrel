@@ -24,6 +24,7 @@ from app.services.workspace_attention import (
     get_attention_item,
     get_issue_work_pack,
     launch_issue_work_pack_project_run,
+    launch_issue_work_packs_project_runs,
     list_issue_work_packs,
     list_attention_triage_runs,
     list_attention_items,
@@ -124,6 +125,13 @@ class IssueWorkPackCreateRequest(BaseModel):
 class IssueWorkPackLaunchRequest(BaseModel):
     project_id: uuid.UUID
     channel_id: uuid.UUID
+
+
+class IssueWorkPackBatchLaunchRequest(BaseModel):
+    work_pack_ids: list[uuid.UUID]
+    project_id: uuid.UUID
+    channel_id: uuid.UUID
+    note: str | None = None
 
 
 class IssueWorkPackUpdateRequest(BaseModel):
@@ -414,6 +422,25 @@ async def launch_issue_work_pack_route(
         raise HTTPException(404, str(e)) from e
     except ValidationError as e:
         raise HTTPException(400, str(e)) from e
+
+
+@router.post("/issue-work-packs/batch-launch-project-runs")
+async def batch_launch_issue_work_packs_route(
+    body: IssueWorkPackBatchLaunchRequest,
+    auth=Depends(require_scopes("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await launch_issue_work_packs_project_runs(
+            db,
+            pack_ids=body.work_pack_ids,
+            project_id=body.project_id,
+            channel_id=body.channel_id,
+            actor=actor_label(auth),
+            note=body.note,
+        )
+    except NotFoundError as e:
+        raise HTTPException(404, str(e)) from e
     except ValidationError as e:
         raise HTTPException(400, str(e)) from e
 

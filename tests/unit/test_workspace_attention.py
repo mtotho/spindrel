@@ -26,6 +26,7 @@ from app.services.workspace_attention import (
     get_attention_triage_run,
     list_attention_triage_runs,
     list_attention_items,
+    launch_issue_work_packs_project_runs,
     mark_attention_responded,
     place_attention_item,
     publish_issue_intake,
@@ -501,6 +502,135 @@ async def test_create_issue_work_packs_tool_uses_normal_agent_channel_context(
     assert payload["count"] == 1
     assert payload["work_packs"][0]["metadata"]["source"] == "conversation"
     assert payload["work_packs"][0]["project_id"] == str(project_id)
+
+
+@pytest.mark.asyncio
+async def test_batch_launch_issue_work_packs_creates_runs_with_shared_batch_id(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects/spindrel",
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="codex",
+        client_id="project-agent-batch-launch",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    packs = await create_conversational_issue_work_packs(
+        db_session,
+        bot_id="codex",
+        channel_id=channel_id,
+        packs=[
+            {
+                "title": "Fix first bug",
+                "summary": "First batch item.",
+                "category": "code_bug",
+                "confidence": "high",
+                "launch_prompt": "Fix first bug, run tests, capture screenshots, and publish a receipt.",
+            },
+            {
+                "title": "Fix second bug",
+                "summary": "Second batch item.",
+                "category": "code_bug",
+                "confidence": "medium",
+                "launch_prompt": "Fix second bug, run tests, capture screenshots, and publish a receipt.",
+            },
+        ],
+    )
+
+    result = await launch_issue_work_packs_project_runs(
+        db_session,
+        pack_ids=[pack.id for pack in packs],
+        project_id=project_id,
+        channel_id=channel_id,
+        actor="admin",
+        note="Launch overnight batch.",
+    )
+
+    assert result["count"] == 2
+    assert result["launch_batch_id"].startswith("issue-work-pack-batch:")
+    assert len(result["runs"]) == 2
+    refreshed = [await db_session.get(IssueWorkPack, pack.id) for pack in packs]
+    assert {pack.status for pack in refreshed if pack is not None} == {"launched"}
+    assert {pack.metadata_["launch_batch_id"] for pack in refreshed if pack is not None} == {result["launch_batch_id"]}
+    assert all(pack.launched_task_id for pack in refreshed if pack is not None)
+    for pack in refreshed:
+        assert pack is not None
+        latest = pack.metadata_["latest_review_action"]
+        assert latest["action"] == "launched"
+        assert latest["note"] == "Launch overnight batch."
+        task = await db_session.get(Task, pack.launched_task_id)
+        assert task is not None
+        assert task.execution_config["project_coding_run"]["source_work_pack_id"] == str(pack.id)
+
+
+@pytest.mark.asyncio
+async def test_batch_launch_issue_work_packs_blocks_whole_batch_when_any_pack_is_not_launchable(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel-batch-block",
+        root_path="common/projects/spindrel",
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="codex",
+        client_id="project-agent-batch-block",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    packs = await create_conversational_issue_work_packs(
+        db_session,
+        bot_id="codex",
+        channel_id=channel_id,
+        packs=[
+            {
+                "title": "Ready pack",
+                "summary": "This pack is launchable.",
+                "category": "code_bug",
+                "confidence": "high",
+                "launch_prompt": "Fix the ready pack.",
+            },
+            {
+                "title": "Needs answer",
+                "summary": "This pack needs another answer.",
+                "category": "needs_info",
+                "confidence": "low",
+            },
+        ],
+    )
+
+    with pytest.raises(ValidationError, match="need more information"):
+        await launch_issue_work_packs_project_runs(
+            db_session,
+            pack_ids=[pack.id for pack in packs],
+            project_id=project_id,
+            channel_id=channel_id,
+            actor="admin",
+        )
+
+    refreshed = [await db_session.get(IssueWorkPack, pack.id) for pack in packs]
+    assert [pack.status for pack in refreshed if pack is not None] == ["proposed", "needs_info"]
+    assert all(pack.launched_task_id is None for pack in refreshed if pack is not None)
 
 
 @pytest.mark.asyncio

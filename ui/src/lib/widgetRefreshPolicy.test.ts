@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   isWidgetRefreshCapable,
   shouldSchedulePinnedInitialRefresh,
+  shouldMountPinnedInteractiveIframe,
   shouldShowPinnedWidgetIframeSkeleton,
   shouldShowPinnedWidgetRefreshOverlay,
   shouldRenderPinnedWidgetLoadShell,
@@ -98,6 +99,30 @@ test("interactive iframe preload skeleton has a watchdog cutoff", () => {
       preloadWatchdogMs: 2500,
     }),
     false,
+  );
+});
+
+test("interactive HTML iframes wait until the tile has been visible", () => {
+  assert.equal(
+    shouldMountPinnedInteractiveIframe({
+      isHtmlInteractive: false,
+      hasEverBeenVisible: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldMountPinnedInteractiveIframe({
+      isHtmlInteractive: true,
+      hasEverBeenVisible: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldMountPinnedInteractiveIframe({
+      isHtmlInteractive: true,
+      hasEverBeenVisible: true,
+    }),
+    true,
   );
 });
 
