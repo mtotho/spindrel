@@ -230,6 +230,15 @@ async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClie
     launch_batch = next(batch for batch in review_batches if batch["id"] == launched["launch_batch_id"])
     assert launch_batch["status"] == "reviewing"
     assert launch_batch["active_review_task"]["task_id"] == review["id"]
+    review_sessions = await client.list_project_review_sessions(project["id"])
+    review_session = next(session for session in review_sessions if session["task_id"] == review["id"])
+    assert review_session["status"] == "active"
+    assert review_session["selected_task_ids"] == [task_id]
+    assert review_session["selected_run_ids"] == [task_id]
+    assert review_session["launch_batch_ids"] == [launched["launch_batch_id"]]
+    assert review_session["source_work_packs"][0]["id"] == code_pack["id"]
+    assert review_session["evidence"]["tests_count"] == 1
+    assert review_session["evidence"]["screenshots_count"] == 1
 
     finalized = await client.finalize_project_review(project["id"], {
         "review_task_id": review["id"],
@@ -245,6 +254,11 @@ async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClie
     assert finalized["run"]["review"]["status"] == "reviewed"
     assert finalized["run"]["review"]["review_task_id"] == review["id"]
     assert finalized["run"]["review"]["reviewed_by"] == "agent"
+    review_sessions = await client.list_project_review_sessions(project["id"])
+    review_session = next(session for session in review_sessions if session["task_id"] == review["id"])
+    assert review_session["status"] == "finalized"
+    assert review_session["outcome_counts"] == {"accepted": 1}
+    assert review_session["latest_summary"] == "Factory e2e review accepted the deterministic Project run."
     reviewed_packs = await client.list_issue_work_packs(status="launched")
     reviewed_code_pack = next(pack for pack in reviewed_packs if pack["id"] == code_pack["id"])
     assert reviewed_code_pack["latest_review_action"]["action"] == "reviewed"

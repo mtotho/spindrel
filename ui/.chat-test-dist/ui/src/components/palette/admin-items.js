@@ -78,10 +78,11 @@ export const SETTINGS_ITEMS = [
     { id: "nav-settings-backup", label: "Settings: Backup", hint: "Settings", href: "/settings/system#Operations", icon: Settings, category: "Settings" },
 ];
 export const CATEGORY_ORDER = [
-    "Canvas",
-    "On the map",
     "Recent",
     "This Channel",
+    "Canvas",
+    "On the map",
+    "Projects",
     "Channels",
     "Widgets",
     "Bots",

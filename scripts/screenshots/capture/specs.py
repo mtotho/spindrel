@@ -3201,6 +3201,47 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
           headers: { "Content-Type": "application/json" }
         });
       }
+      const reviewSessionMatch = url.pathname.match(/\\/api\\/v1\\/projects\\/([^/]+)\\/coding-runs\\/review-sessions$/);
+      if (reviewSessionMatch) {
+        const finalizedReview = window.__PROJECT_REVIEW_FINALIZED__ === true;
+        return new Response(JSON.stringify([{
+          id: "screenshot-review-task",
+          task_id: "screenshot-review-task",
+          project_id: reviewSessionMatch[1],
+          status: finalizedReview ? "finalized" : "active",
+          task_status: finalizedReview ? "complete" : "running",
+          title: "Review Project coding runs",
+          session_id: "screenshot-review-session",
+          channel_id: "channel-1",
+          created_at: "2026-04-30T15:28:00Z",
+          completed_at: finalizedReview ? "2026-04-30T15:32:00Z" : null,
+          latest_activity_at: finalizedReview ? "2026-04-30T15:32:00Z" : "2026-04-30T15:28:00Z",
+          selected_task_ids: ["screenshot-project-coding-run-task", "screenshot-project-coding-run-batch-peer-task"],
+          selected_run_ids: ["screenshot-project-coding-run", "screenshot-project-coding-run-batch-peer"],
+          run_count: 2,
+          launch_batch_ids: ["issue-work-pack-batch:screenshot"],
+          outcome_counts: finalizedReview ? { accepted: 2 } : {},
+          evidence: { tests_count: 4, screenshots_count: 2, changed_files_count: 4, dev_targets_count: 4 },
+          source_work_packs: [
+            { id: "screenshot-work-pack-main", title: "Prepare the Project workspace screenshot receipt", status: "launched", category: "code_bug", confidence: "high" },
+            { id: "screenshot-work-pack-batch-peer", title: "Add batch launch proof for overnight packs", status: "launched", category: "code_bug", confidence: "medium" }
+          ],
+          selected_runs: [
+            { id: "screenshot-project-coding-run", task_id: "screenshot-project-coding-run-task", review_status: finalizedReview ? "reviewed" : "ready_for_review", branch: "screenshot/project-coding-run", handoff_url: "https://example.invalid/spindrel/project-run" },
+            { id: "screenshot-project-coding-run-batch-peer", task_id: "screenshot-project-coding-run-batch-peer-task", review_status: finalizedReview ? "reviewed" : "ready_for_review", branch: "screenshot/project-coding-run-batch-proof", handoff_url: "https://example.invalid/spindrel/project-run-peer" }
+          ],
+          summaries: finalizedReview ? [
+            { id: "screenshot-review-receipt-1", task_id: "screenshot-project-coding-run-task", status: "succeeded", outcome: "accepted", summary: "Accepted after review context preflight and merged to development.", merge: true, merge_method: "squash", created_at: "2026-04-30T15:32:00Z" },
+            { id: "screenshot-review-receipt-2", task_id: "screenshot-project-coding-run-batch-peer-task", status: "succeeded", outcome: "accepted", summary: "Accepted batch peer with screenshot evidence.", merge: true, merge_method: "squash", created_at: "2026-04-30T15:31:00Z" }
+          ] : [],
+          latest_summary: finalizedReview ? "Accepted after review context preflight and merged to development." : null,
+          merge: { method: "squash", requested_count: finalizedReview ? 2 : 0, completed_count: finalizedReview ? 2 : 0 },
+          actions: { can_open_task: true, can_select_runs: true, active: !finalizedReview, finalized: finalizedReview }
+        }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
       const match = url.pathname.match(/\\/api\\/v1\\/projects\\/([^/]+)\\/coding-runs$/);
       if (match) {
         const response = await originalFetch(input, init);
@@ -3742,6 +3783,37 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "&& text.includes('Select runs') "
             "&& text.includes('Start review'), "
             "detail: 'Project Runs tab did not show the launch-batch Review Inbox' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-review-ledger",
+        route="/admin/projects/{project_workspace_project}#Runs",
+        viewport={"width": 1440, "height": 1000},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-review-ledger\"]') "
+            "&& document.body.innerText.includes('Review Sessions') "
+            "&& document.body.innerText.includes('Review Project coding runs')"
+        ),
+        output="project-workspace-review-ledger.png",
+        color_scheme="dark",
+        full_page=False,
+        extra_init_scripts=["window.__PROJECT_REVIEW_FINALIZED__ = true;", _PROJECT_CODING_RUN_ENDPOINT_INIT],
+        pre_capture_js=(
+            "const root = document.querySelector('[data-testid=\"project-workspace-runs\"]');"
+            "const ledger = [...root.querySelectorAll('*')].find((el) => /^Review Sessions$/.test((el.textContent || '').trim()));"
+            "if (ledger) ledger.scrollIntoView({ block: 'start' });"
+            "await new Promise((resolve) => setTimeout(resolve, 180));"
+        ),
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('Review Sessions') "
+            "&& text.includes('Review Project coding runs') "
+            "&& text.includes('2 accepted') "
+            "&& text.includes('squash merge 2/2') "
+            "&& text.includes('Sources: Prepare the Project workspace screenshot receipt') "
+            "&& text.includes('View summary'), "
+            "detail: 'Project Runs tab did not show the review-session ledger' };"
         ),
     ),
     ScreenshotSpec(

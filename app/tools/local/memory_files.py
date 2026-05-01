@@ -1,6 +1,7 @@
 """Local tools for file-based memory scheme."""
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 import os
@@ -284,6 +285,7 @@ def _memory_result(
     plain_body: str,
     body: str | dict[str, Any] | None = None,
     content_type: str = "application/json",
+    display: str = "badge",
 ) -> str:
     rendered_body = body if body is not None else payload
     result = dict(payload)
@@ -292,9 +294,32 @@ def _memory_result(
         "content_type": content_type,
         "body": rendered_body,
         "plain_body": plain_body,
-        "display": "badge",
+        "display": display,
     }
     return json.dumps(result, ensure_ascii=False, default=_json_default)
+
+
+def _memory_diff(before: str, after: str, rel_path: str) -> str:
+    return "".join(difflib.unified_diff(
+        before.splitlines(keepends=True),
+        after.splitlines(keepends=True),
+        fromfile=f"a/memory/{rel_path}",
+        tofile=f"b/memory/{rel_path}",
+        lineterm="",
+    ))
+
+
+def _memory_diff_stats(diff_text: str) -> tuple[int, int]:
+    additions = 0
+    deletions = 0
+    for line in diff_text.splitlines():
+        if line.startswith(("+++ ", "--- ", "@@")):
+            continue
+        if line.startswith("+"):
+            additions += 1
+        elif line.startswith("-"):
+            deletions += 1
+    return additions, deletions
 
 
 @register({
@@ -422,6 +447,8 @@ async def memory(
                 body=content_text,
                 content_type=_mimetype_for_memory_path(rel),
             )
+
+        before_text = Path(resolved).read_text() if os.path.isfile(resolved) else ""
         if operation == "create":
             if os.path.exists(resolved):
                 return _memory_error(f"File already exists: {rel}")
@@ -481,6 +508,21 @@ async def memory(
 
         from app.services.bot_hooks import schedule_after_write
         schedule_after_write(bot_id, f"memory/{rel}")
+        if operation in {"create", "overwrite", "append", "edit", "replace_section", "delete"}:
+            after_text = Path(resolved).read_text() if os.path.isfile(resolved) else ""
+            diff_text = _memory_diff(before_text, after_text, rel)
+            if diff_text.strip():
+                additions, deletions = _memory_diff_stats(diff_text)
+                return _memory_result(
+                    {"path": f"memory/{rel}", "message": f"{operation} complete"},
+                    plain_body=(
+                        f"{operation.replace('_', ' ').title()} memory/{rel}: "
+                        f"+{additions} -{deletions} lines"
+                    ),
+                    body=diff_text,
+                    content_type="application/vnd.spindrel.diff+text",
+                    display="inline",
+                )
         return _memory_result(
             {"path": f"memory/{rel}", "message": f"{operation} complete"},
             plain_body=f"{operation.replace('_', ' ').title()} memory/{rel}",

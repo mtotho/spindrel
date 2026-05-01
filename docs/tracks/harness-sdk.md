@@ -434,6 +434,25 @@ Approval mapping intent (final values from schema):
   native command (`claude hooks list`, `claude status`, `claude doctor`) rather
   than fake success. Focused local parity passed on port `18102`, the guide refs
   validated, and all three images were visually inspected.
+- 2026-05-01 Codex management proof follow-up: added durable docs screenshots
+  for `/cloud`, `/approvals`, and `/apps`. `/cloud` renders the app-server
+  account/rate-limit payload, `/approvals` renders config requirements, and
+  `/apps` renders the app-server app inventory summary. Focused local parity
+  passed on the agent-owned native API at port `18102`; the captured images were
+  visually inspected and guide refs validated:
+  `docs/images/harness-codex-native-cloud-result-dark.png`,
+  `docs/images/harness-codex-native-approvals-result-dark.png`, and
+  `docs/images/harness-codex-native-apps-result-dark.png`. Local harness setup
+  gotcha: `start-api` only guarantees the native API is running; after an API
+  restart or DB churn, run `prepare-harness-parity --runtime codex` before a
+  focused slice so the deterministic Codex channel/session fixtures exist.
+- 2026-05-01 Codex native result presentation follow-up: the first `/cloud`
+  proof exposed a first-class UX gap, not a runtime gap. The app-server returned
+  real quota data, but Spindrel summarized unknown dict payloads as “returned N
+  top-level field(s)” and hid the useful JSON behind a collapsed details block.
+  Codex summaries now format `/cloud` quota fields and `/approvals`
+  requirements, while the chat card renders compact visible payload chips for
+  quota/list-style native results before the raw JSON details.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

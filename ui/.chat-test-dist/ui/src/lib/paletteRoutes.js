@@ -1,4 +1,4 @@
-import { Activity, BookOpen, Bot, Boxes, Cable, ClipboardList, Code2, FileCode, FileText, HardDrive, Hash, Home, Key, LayoutDashboard, Lock, MessageCircle, Network, Paperclip, Plug, ScrollText, Server, Settings, Shield, ShieldCheck, Users, Webhook, Wrench, Zap, Brain, BarChart3, } from "lucide-react";
+import { Activity, BookOpen, Bot, Boxes, Cable, ClipboardList, Code2, FileCode, FileText, FolderKanban, HardDrive, Hash, Home, Key, LayoutDashboard, Layers, Lock, MessageCircle, Network, Paperclip, Plug, ScrollText, Server, Settings, Shield, ShieldCheck, Users, Webhook, Wrench, Zap, Brain, BarChart3, } from "lucide-react";
 const STATIC_ROUTES = new Map([
     ["/", { pageType: "Home", category: "Channels", icon: Home, label: "Home", hint: "Workspace overview" }],
     ["/spatial", { pageType: "Spatial Canvas", category: "Channels", icon: Network, label: "Spatial canvas", hint: "Workspace map" }],
@@ -28,6 +28,8 @@ const STATIC_ROUTES = new Map([
     ["/admin/mcp-servers", { pageType: "MCP Servers", category: "Configure", icon: Cable, label: "MCP Servers", hint: "Configure" }],
     ["/admin/memories", { pageType: "Memories", category: "Monitor", icon: Brain, label: "Memories", hint: "Monitor" }],
     ["/admin/prompt-templates", { pageType: "Templates", category: "Configure", icon: FileText, label: "Templates", hint: "Configure" }],
+    ["/admin/projects", { pageType: "Projects", category: "Projects", icon: FolderKanban, label: "Projects", hint: "Projects" }],
+    ["/admin/projects/blueprints", { pageType: "Blueprints", category: "Projects", icon: Layers, label: "Project Blueprints", hint: "Projects" }],
     ["/admin/providers", { pageType: "Providers", category: "Configure", icon: Server, label: "Providers", hint: "Configure" }],
     ["/admin/sandboxes", { pageType: "Sandboxes", category: "Monitor", icon: Boxes, label: "Sandboxes", hint: "Monitor" }],
     ["/admin/secret-values", { pageType: "Secrets", category: "Security", icon: Lock, label: "Secrets", hint: "Security" }],
@@ -51,6 +53,8 @@ const ADMIN_DETAIL_ROUTES = [
     { prefix: "/admin/logs/", routeKind: "admin-trace", pageType: "Trace", category: "Monitor", icon: ScrollText },
     { prefix: "/admin/mcp-servers/", routeKind: "admin-mcp-server", pageType: "MCP Server", category: "Configure", icon: Cable },
     { prefix: "/admin/prompt-templates/", routeKind: "admin-prompt-template", pageType: "Template", category: "Configure", icon: FileText },
+    { prefix: "/admin/projects/blueprints/", routeKind: "admin-project-blueprint", pageType: "Blueprint", category: "Projects", icon: Layers },
+    { prefix: "/admin/projects/", routeKind: "admin-project", pageType: "Project", category: "Projects", icon: FolderKanban },
     { prefix: "/admin/providers/", routeKind: "admin-provider", pageType: "Provider", category: "Configure", icon: Server },
     { prefix: "/admin/skills/", routeKind: "admin-skill", pageType: "Skill", category: "Configure", icon: BookOpen },
     { prefix: "/admin/automations/", routeKind: "admin-task", pageType: "Automation", category: "Automate", icon: ClipboardList },

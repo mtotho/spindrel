@@ -4,6 +4,7 @@ import {
   Check,
   Columns2,
   CornerDownLeft,
+  MoreHorizontal,
   MessageSquare,
   Plus,
   Search,
@@ -102,6 +103,7 @@ export function SessionPickerOverlay({
   const [editingTitle, setEditingTitle] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [pickerMode, setPickerMode] = useState<"switch" | "split">(mode);
+  const [actionMenuId, setActionMenuId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -123,6 +125,7 @@ export function SessionPickerOverlay({
     setQuery("");
     setActiveIndex(0);
     setEditingId(null);
+    setActionMenuId(null);
     setPickerMode(mode);
     let innerFrame = 0;
     const a = requestAnimationFrame(() => {
@@ -190,7 +193,10 @@ export function SessionPickerOverlay({
   if (!open || typeof document === "undefined") return null;
 
   const choose = (entry: ChannelSessionPickerEntry) => {
-    if (entry.selected) return;
+    if (entry.selected) {
+      onClose();
+      return;
+    }
     onClose();
     onActivateSurface(
       entry.surface,
@@ -320,9 +326,9 @@ export function SessionPickerOverlay({
         role="dialog"
         aria-modal="true"
         aria-label="Switch sessions"
-        className="fixed left-1/2 top-[12vh] z-[10041] flex max-h-[76vh] w-[640px] max-w-[94vw] -translate-x-1/2 flex-col overflow-hidden rounded-md border border-surface-border bg-surface-raised shadow-[0_16px_48px_rgba(0,0,0,0.38)]"
+        className="fixed inset-x-0 bottom-0 z-[10041] flex max-h-[88dvh] flex-col overflow-hidden rounded-t-md bg-surface-raised shadow-[0_-16px_48px_rgba(0,0,0,0.34)] sm:bottom-auto sm:left-1/2 sm:top-[12vh] sm:max-h-[76vh] sm:w-[680px] sm:max-w-[94vw] sm:-translate-x-1/2 sm:rounded-md"
       >
-        <div className="flex items-center gap-3 border-b border-surface-border px-4 py-3">
+        <div className="flex items-center gap-3 bg-surface-raised px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
           <Search size={16} className="text-text-dim" />
           <input
             ref={inputRef}
@@ -347,16 +353,18 @@ export function SessionPickerOverlay({
               } else if (event.key === "Enter") {
                 event.preventDefault();
                 const entry = entries[activeIndex];
-                if (entry && !entry.selected) {
+                if (entry) {
                   onClose();
-                  onActivateSurface(
-                    entry.surface,
-                    event.metaKey || event.ctrlKey
-                      ? "split"
-                      : pickerMode === "split"
+                  if (!entry.selected) {
+                    onActivateSurface(
+                      entry.surface,
+                      event.metaKey || event.ctrlKey
                         ? "split"
-                        : "switch",
-                  );
+                        : pickerMode === "split"
+                          ? "split"
+                          : "switch",
+                    );
+                  }
                 }
               }
             }}
@@ -376,7 +384,7 @@ export function SessionPickerOverlay({
             <X size={16} />
           </button>
         </div>
-        <div className="flex items-center justify-between gap-2 border-b border-surface-border px-4 py-2">
+        <div className="flex items-center justify-between gap-2 px-4 pb-2">
           <div className="min-w-0 text-[12px] text-text-dim">
             {pickerMode === "split"
               ? `Add split${channelLabel ? ` in #${channelLabel}` : ""}`
@@ -393,7 +401,7 @@ export function SessionPickerOverlay({
                     current === "split" ? "switch" : "split",
                   )
                 }
-                className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
               >
                 <Columns2 size={13} />
                 {pickerMode === "split" ? "Switch mode" : "Add split"}
@@ -403,7 +411,7 @@ export function SessionPickerOverlay({
               type="button"
               onClick={startNewSession}
               disabled={!botId || resetScratch.isPending}
-              className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-accent transition-colors hover:bg-surface-overlay disabled:opacity-50"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-accent transition-colors hover:bg-surface-overlay disabled:opacity-50"
             >
               <Plus size={13} />
               New session
@@ -471,9 +479,9 @@ export function SessionPickerOverlay({
                       tabIndex={-1}
                       onMouseMove={() => setActiveIndex(index)}
                       onClick={() => !editing && choose(entry)}
-                      className={`mx-1 flex items-start gap-3 rounded-md px-3 py-2 transition-colors ${entry.selected ? "cursor-default opacity-75" : "cursor-pointer"} ${active ? "bg-accent/[0.08]" : ""}`}
+                      className={`group mx-2 flex items-start gap-3 rounded-md px-3 py-2.5 transition-colors sm:mx-1 sm:py-2 cursor-pointer ${entry.selected ? "opacity-90" : ""} ${active ? "bg-surface-overlay/60" : ""}`}
                     >
-                      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-overlay text-text-dim">
+                      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-overlay/70 text-text-dim">
                         {entry.kind === "primary" ? (
                           <MessageSquare size={14} />
                         ) : (
@@ -567,6 +575,19 @@ export function SessionPickerOverlay({
                                   Split
                                 </button>
                               )}
+                              {(primaryEligible || deleteEligible) && (
+                                <button
+                                  type="button"
+                                  aria-label={`Session actions for ${entry.label}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setActionMenuId((current) => current === entry.id ? null : entry.id);
+                                  }}
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-text-dim opacity-100 transition-colors hover:bg-surface-overlay hover:text-text sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                                >
+                                  <MoreHorizontal size={14} />
+                                </button>
+                              )}
                               {active && (
                                 <CornerDownLeft
                                   size={12}
@@ -576,8 +597,11 @@ export function SessionPickerOverlay({
                             </div>
                           </div>
                         )}
-                        {primaryEligible && !editing && (
-                          <div className="mt-1 flex items-center gap-3 text-[11px]">
+                        {primaryEligible && !editing && actionMenuId === entry.id && (
+                          <div
+                            className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-surface-overlay/45 px-2 py-1.5 text-[11px]"
+                            onClick={(event) => event.stopPropagation()}
+                          >
                             {scratch && (
                               <button
                                 type="button"
@@ -590,7 +614,7 @@ export function SessionPickerOverlay({
                                       : scratch.label,
                                   );
                                 }}
-                                className="text-text-dim hover:text-text"
+                                className="rounded px-1.5 py-1 text-text-muted hover:bg-surface-overlay hover:text-text"
                               >
                                 Rename
                               </button>
@@ -605,7 +629,7 @@ export function SessionPickerOverlay({
                                 event.stopPropagation();
                                 void setAsChannelPrimary(entry);
                               }}
-                              className="text-text-dim hover:text-text disabled:opacity-50"
+                              className="rounded px-1.5 py-1 text-text-muted hover:bg-surface-overlay hover:text-text disabled:opacity-50"
                             >
                               Set as channel primary
                             </button>
@@ -617,7 +641,7 @@ export function SessionPickerOverlay({
                                   event.stopPropagation();
                                   void deleteSessionEntry(entry);
                                 }}
-                                className="text-danger hover:text-danger/80 disabled:opacity-50"
+                                className="rounded px-1.5 py-1 text-danger hover:bg-danger/10 disabled:opacity-50"
                               >
                                 Delete
                               </button>
@@ -631,7 +655,7 @@ export function SessionPickerOverlay({
               </div>
             ))}
           {entries[activeIndex] && (
-            <div className="border-t border-surface-border px-4 py-2 text-[11px] text-text-dim">
+            <div className="px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[11px] text-text-dim">
               {pickerMode === "split"
                 ? "Enter adds split · Esc closes"
                 : "Enter switches · Ctrl/Cmd+Enter splits · /split opens split mode"}

@@ -12,6 +12,7 @@ import { useToolPolicies } from "../../api/hooks/useToolPolicies";
 import { useDockerStacks } from "../../api/hooks/useDockerStacks";
 import { useWorkflows } from "../../api/hooks/useWorkflows";
 import { useWorkspaces } from "../../api/hooks/useWorkspaces";
+import { useProjectBlueprints, useProjects } from "../../api/hooks/useProjects";
 import { useTraces } from "../../api/hooks/useLogs";
 import { useIsAdmin } from "../../hooks/useScope";
 import { useDashboards } from "../../stores/dashboards";
@@ -38,6 +39,8 @@ export function usePaletteItems(): PaletteItem[] {
   const { data: dockerStacks } = useDockerStacks(undefined, isAdmin);
   const { data: workflows } = useWorkflows(isAdmin);
   const { data: workspaces } = useWorkspaces(isAdmin);
+  const { data: projects } = useProjects(isAdmin);
+  const { data: projectBlueprints } = useProjectBlueprints(isAdmin);
   const { data: tracesData } = useTraces({ count: 20 }, isAdmin);
   const { list: dashboards, channelDashboards } = useDashboards();
 
@@ -57,6 +60,8 @@ export function usePaletteItems(): PaletteItem[] {
         dockerStacks,
         workflows,
         workspaces,
+        projects: isAdmin ? projects : undefined,
+        projectBlueprints: isAdmin ? projectBlueprints : undefined,
         dashboards: [...dashboards, ...channelDashboards],
         integrations: integrationsData?.integrations,
         sidebarSections: sidebarData?.sections,
@@ -73,6 +78,8 @@ export function usePaletteItems(): PaletteItem[] {
       isAdmin,
       mcpServers,
       promptTemplates,
+      projectBlueprints,
+      projects,
       providersData?.providers,
       sidebarData?.sections,
       toolPolicies,

@@ -55,10 +55,44 @@ async def test_memory_replace_section_emits_tool_result_envelope(tmp_path):
         {"path": "memory/MEMORY.md", "message": "replace_section complete"},
         ensure_ascii=False,
     )
-    assert data["_envelope"]["content_type"] == "application/json"
-    assert data["_envelope"]["plain_body"] == "Replace Section memory/MEMORY.md"
+    assert data["_envelope"]["content_type"] == "application/vnd.spindrel.diff+text"
+    assert data["_envelope"]["display"] == "inline"
+    assert data["_envelope"]["plain_body"] == "Replace Section memory/MEMORY.md: +1 -0 lines"
+    assert "+++ b/memory/MEMORY.md" in data["_envelope"]["body"]
     assert "## Project\nShared Project workspace facts." in (memory_root / "MEMORY.md").read_text()
     schedule_after_write.assert_called_once_with("bot-1", "memory/MEMORY.md")
+
+
+@pytest.mark.asyncio
+async def test_memory_append_emits_diff_envelope(tmp_path):
+    bot = SimpleNamespace(id="bot-1", memory_scheme="workspace-files")
+    memory_root = tmp_path / "memory"
+    memory_root.mkdir()
+    (memory_root / "logs").mkdir()
+    (memory_root / "logs" / "2026-04-30.md").write_text("# Log\n")
+    token = memory_files.current_bot_id.set("bot-1")
+    try:
+        with (
+            patch("app.agent.bots.get_bot", return_value=bot),
+            patch("app.services.workspace.workspace_service.get_workspace_root", return_value=str(tmp_path)),
+            patch("app.services.memory_scheme.get_memory_root", return_value=str(memory_root)),
+            patch("app.services.bot_hooks.schedule_after_write", MagicMock()) as schedule_after_write,
+        ):
+            result = await memory_files.memory(
+                operation="append",
+                path="logs/2026-04-30.md",
+                content="- Walk Clarence at 4.\n",
+            )
+    finally:
+        memory_files.current_bot_id.reset(token)
+
+    data = json.loads(result)
+    assert data["path"] == "memory/logs/2026-04-30.md"
+    assert data["_envelope"]["content_type"] == "application/vnd.spindrel.diff+text"
+    assert data["_envelope"]["display"] == "inline"
+    assert data["_envelope"]["plain_body"] == "Append memory/logs/2026-04-30.md: +1 -0 lines"
+    assert "+- Walk Clarence at 4." in data["_envelope"]["body"]
+    schedule_after_write.assert_called_once_with("bot-1", "memory/logs/2026-04-30.md")
 
 
 @pytest.mark.asyncio

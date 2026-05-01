@@ -29,6 +29,32 @@ test("resolvePaletteRoute formats admin detail fallbacks as typed labels instead
         routeKind: "admin-provider",
     });
 });
+test("resolvePaletteRoute supports project and blueprint destinations", () => {
+    const project = resolvePaletteRoute("/admin/projects/project-123456");
+    const blueprint = resolvePaletteRoute("/admin/projects/blueprints/blueprint-123456");
+    assert.deepEqual(project && {
+        label: project.label,
+        hint: project.hint,
+        category: project.category,
+        routeKind: project.routeKind,
+    }, {
+        label: "Project · project…",
+        hint: "Projects",
+        category: "Projects",
+        routeKind: "admin-project",
+    });
+    assert.deepEqual(blueprint && {
+        label: blueprint.label,
+        hint: blueprint.hint,
+        category: blueprint.category,
+        routeKind: blueprint.routeKind,
+    }, {
+        label: "Blueprint · blueprint…",
+        hint: "Projects",
+        category: "Projects",
+        routeKind: "admin-project-blueprint",
+    });
+});
 test("normalizePalettePathInput accepts both raw app paths and copied app urls", () => {
     assert.equal(normalizePalettePathInput("/widgets/dev?id=widget-1#templates"), "/widgets/dev?id=widget-1#templates");
     assert.equal(normalizePalettePathInput("https://app.example.test/admin/logs/trace-1"), "/admin/logs/trace-1");

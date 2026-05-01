@@ -1274,13 +1274,60 @@ def _parse_model_options(result: dict[str, Any] | None) -> tuple[HarnessModelOpt
 def _summarize_native_command_result(command_id: str, result: Any) -> str:
     if not isinstance(result, dict):
         return "Runtime command completed."
+    if command_id == "cloud":
+        summary = _summarize_cloud_result(result)
+        if summary:
+            return summary
+    if command_id == "approvals":
+        for key in ("requirements", "configRequirements", "items"):
+            value = result.get(key)
+            if isinstance(value, list):
+                return f"approvals: {len(value)} requirement(s)."
     for key in ("servers", "plugins", "skills", "features", "data", "items"):
         value = result.get(key)
         if isinstance(value, list):
             return f"{command_id}: {len(value)} item(s)."
     if result:
-        return f"{command_id}: returned {len(result)} top-level field(s)."
+        visible_keys = [key for key in result if not str(key).startswith("_")]
+        if visible_keys:
+            return f"{command_id}: returned {', '.join(str(key) for key in visible_keys[:4])}."
+        return f"{command_id}: data returned."
     return f"{command_id}: no data returned."
+
+
+def _summarize_cloud_result(result: dict[str, Any]) -> str | None:
+    rate_limits = result.get("rateLimits")
+    if not isinstance(rate_limits, dict):
+        return None
+
+    parts: list[str] = []
+    plan_type = rate_limits.get("planType")
+    if plan_type:
+        parts.append(f"plan {plan_type}")
+
+    primary = rate_limits.get("primary")
+    if isinstance(primary, dict) and primary.get("usedPercent") is not None:
+        parts.append(f"primary {primary['usedPercent']}% used")
+
+    secondary = rate_limits.get("secondary")
+    if isinstance(secondary, dict) and secondary.get("usedPercent") is not None:
+        parts.append(f"weekly {secondary['usedPercent']}% used")
+
+    credits = rate_limits.get("credits")
+    if isinstance(credits, dict):
+        balance = credits.get("balance")
+        if credits.get("unlimited"):
+            parts.append("credits unlimited")
+        elif balance is not None:
+            parts.append(f"credits {balance}")
+
+    by_limit = result.get("rateLimitsByLimitId")
+    if isinstance(by_limit, dict) and by_limit:
+        parts.append(f"{len(by_limit)} limit(s)")
+
+    if not parts:
+        return None
+    return f"cloud: {', '.join(parts)}."
 
 
 def _extract_thread_id(result: dict[str, Any] | None) -> str | None:

@@ -391,6 +391,9 @@ def _derive_memory_presentation(
         args.get("destination"),
     )
     plain_body = _normalize_label(cast(str | None, envelope.get("plain_body")) if envelope else None)
+    content_type = _first_nonempty(envelope.get("content_type") if envelope else None)
+    diff_text = _extract_diff_body(None, envelope)
+    diff_stats = _diff_stats_from_text(diff_text)
 
     if operation == "list":
         total = 0
@@ -445,6 +448,15 @@ def _derive_memory_presentation(
     }
     if operation in write_ops:
         label = plain_body or (f"{write_ops[operation]} {path}" if path else f"{write_ops[operation]} memory file")
+        if content_type == "application/vnd.spindrel.diff+text" or diff_stats is not None:
+            summary = {"kind": "diff", "subject_type": "file", "label": label}
+            if path:
+                summary["path"] = path
+            if destination:
+                summary["target_label"] = destination
+            if diff_stats:
+                summary["diff_stats"] = diff_stats
+            return "rich_result", summary
         summary = {"kind": "write", "subject_type": "file", "label": label}
         if path:
             summary["path"] = path

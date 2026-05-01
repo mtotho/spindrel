@@ -7,6 +7,7 @@ import {
   useContinueProjectCodingRun,
   useCreateProjectCodingRun,
   useProjectCodingRunReviewBatches,
+  useProjectCodingRunReviewSessions,
   useCreateProjectCodingRunSchedule,
   useCreateProjectCodingRunReviewSession,
   useDisableProjectCodingRunSchedule,
@@ -24,6 +25,7 @@ import { ActionButton, EmptyState, SettingsControlRow, StatusBadge } from "@/src
 import { RecurrencePicker, ScheduleSummary, ScheduledAtPicker } from "@/src/components/shared/SchedulingPickers";
 import { collapseProjectRunReceiptsForReview } from "@/src/lib/projectRunReceipts";
 import type { Channel, Project, ProjectCodingRun, ProjectCodingRunReviewBatch, ProjectRunReceipt } from "@/src/types/api";
+import { ReviewSessionsSection } from "./ReviewSessionsSection";
 
 function RowLink({ to, href, children }: { to?: string; href?: string; children: React.ReactNode }) {
   const className = "inline-flex min-h-[34px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold text-text-muted no-underline transition-colors hover:bg-surface-overlay/50 hover:text-text";
@@ -460,6 +462,7 @@ export function ProjectRunsSection({
 }) {
   const { data: runs = [] } = useProjectCodingRuns(project.id);
   const { data: reviewBatches = [] } = useProjectCodingRunReviewBatches(project.id);
+  const { data: reviewSessions = [] } = useProjectCodingRunReviewSessions(project.id);
   const { data: schedules = [] } = useProjectCodingRunSchedules(project.id);
   const createRun = useCreateProjectCodingRun(project.id);
   const createSchedule = useCreateProjectCodingRunSchedule(project.id);
@@ -869,6 +872,12 @@ export function ProjectRunsSection({
           )}
         </div>
       </Section>
+
+      <ReviewSessionsSection
+        sessions={reviewSessions}
+        disabled={batchBusy}
+        onSelectRuns={(runIds) => setSelectedRunIds(runIds)}
+      />
 
       <Section title="Coding Runs" description="Review state, branch/PR handoff, evidence, and workspace cleanup for API-launched Project work.">
         {runs.length > 0 && (

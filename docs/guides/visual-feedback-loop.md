@@ -143,6 +143,8 @@ project-workspace-setup-ready.png
 project-workspace-setup-run-history.png
 project-workspace-instances.png
 project-workspace-runs.png
+project-workspace-review-inbox.png
+project-workspace-review-ledger.png
 project-workspace-scheduled-reviews.png
 project-workspace-execution-access.png
 project-workspace-review-launched.png
@@ -168,7 +170,7 @@ bundle intentionally checks Project admin surfaces, Blueprint management,
 Project setup commands and run history, Project Basics readiness,
 Project runtime-env readiness, fresh
 Project instances, Project coding-run cockpit/receipts/review launcher,
-scheduled Project reviews,
+launch-batch Review Inbox, review-session ledger, scheduled Project reviews,
 task-scoped execution access for coding and review launches, launched
 review-session confirmation, finalized review/merge provenance, Project
 settings, and the channel transcript.
@@ -177,7 +179,7 @@ The two `project-factory-live-pr-smoke*` images are live evidence rather than
 deterministic staging fixtures. Capture them after the opt-in live PR smoke in
 [Agent E2E Development](agent-e2e-development.md), using the scratch JSON
 artifact from that test to open the real local Project Runs page against
-`localhost:18000`.
+the leased `SPINDREL_E2E_URL` / `E2E_PORT`. Do not assume a fixed local port.
 
 ## Channel Quick Automations Run
 

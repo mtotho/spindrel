@@ -115,6 +115,12 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 
 ![Codex native `/agents` result rendered in chat](../images/harness-codex-native-agents-result-dark.png)
 
+![Codex native `/cloud` result rendered in chat](../images/harness-codex-native-cloud-result-dark.png)
+
+![Codex native `/approvals` result rendered in chat](../images/harness-codex-native-approvals-result-dark.png)
+
+![Codex native `/apps` result rendered in chat](../images/harness-codex-native-apps-result-dark.png)
+
 ![Claude Code native `/skills` result rendered in chat](../images/harness-claude-native-skills-result-dark.png)
 
 ![Claude Code native `/agents` result rendered in chat](../images/harness-claude-native-agents-result-dark.png)

@@ -20,7 +20,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, IssueWorkPack, Project, ProjectInstance, ProjectRunReceipt, Task
+from app.db.models import Channel, ExecutionReceipt, IssueWorkPack, Project, ProjectInstance, ProjectRunReceipt, Task
 from app.services.agent_activity import list_agent_activity
 from app.services.project_dependency_stacks import project_dependency_stack_spec
 from app.services.project_run_handoff import prepare_project_run_handoff
@@ -872,6 +872,258 @@ def _work_pack_row(pack: IssueWorkPack) -> dict[str, Any]:
         "launched_task_id": str(pack.launched_task_id) if pack.launched_task_id else None,
         "latest_review_action": dict(latest) if isinstance(latest, dict) else None,
     }
+
+
+def _review_receipt_row(receipt: ExecutionReceipt) -> dict[str, Any]:
+    result = dict(receipt.result or {}) if isinstance(receipt.result, dict) else {}
+    outcome = str(result.get("outcome") or "").strip() or (
+        "accepted" if receipt.action_type == "review.marked" and receipt.status == "succeeded" else receipt.status
+    )
+    merge_result = result.get("merge_result") if isinstance(result.get("merge_result"), dict) else {}
+    return {
+        "id": str(receipt.id),
+        "task_id": str(receipt.task_id) if receipt.task_id else None,
+        "action_type": receipt.action_type,
+        "status": receipt.status,
+        "outcome": outcome,
+        "summary": receipt.summary,
+        "details": dict(result.get("details") or {}) if isinstance(result.get("details"), dict) else {},
+        "merge": bool(result.get("merge")),
+        "merge_method": result.get("merge_method"),
+        "merge_result": merge_result,
+        "created_at": receipt.created_at.isoformat() if receipt.created_at else None,
+    }
+
+
+def _review_session_ledger_status(
+    task: Task,
+    *,
+    run_count: int,
+    outcome_counts: dict[str, int],
+) -> str:
+    if outcome_counts.get("blocked", 0) > 0:
+        return "blocked"
+    reviewed_count = sum(outcome_counts.values())
+    if run_count > 0 and reviewed_count >= run_count:
+        return "finalized"
+    if task.status in {"pending", "running"}:
+        return "active"
+    if reviewed_count > 0:
+        return "partially_reviewed"
+    return task.status or "unknown"
+
+
+def _compact_review_run_row(run: dict[str, Any]) -> dict[str, Any]:
+    review = run.get("review") if isinstance(run.get("review"), dict) else {}
+    receipt = run.get("receipt") if isinstance(run.get("receipt"), dict) else None
+    evidence = review.get("evidence") if isinstance(review.get("evidence"), dict) else {}
+    task = run.get("task") if isinstance(run.get("task"), dict) else {}
+    pr = review.get("pr") if isinstance(review.get("pr"), dict) else {}
+    return {
+        "id": run.get("id"),
+        "task_id": task.get("id") or run.get("id"),
+        "title": task.get("title"),
+        "status": run.get("status"),
+        "review_status": review.get("status"),
+        "branch": run.get("branch"),
+        "launch_batch_id": run.get("launch_batch_id"),
+        "source_work_pack_id": run.get("source_work_pack_id"),
+        "handoff_url": review.get("handoff_url") or (receipt or {}).get("handoff_url") or pr.get("url"),
+        "receipt_summary": (receipt or {}).get("summary"),
+        "evidence": {
+            "tests_count": evidence.get("tests_count", 0),
+            "screenshots_count": evidence.get("screenshots_count", 0),
+            "changed_files_count": evidence.get("changed_files_count", 0),
+            "dev_targets_count": evidence.get("dev_targets_count", 0),
+        },
+        "updated_at": run.get("updated_at"),
+    }
+
+
+async def list_project_coding_run_review_sessions(
+    db: AsyncSession,
+    project: Project,
+    *,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Return review-session ledger rows derived from review tasks and receipts."""
+    channel_ids = list((await db.execute(
+        select(Channel.id).where(Channel.project_id == project.id)
+    )).scalars().all())
+    if not channel_ids:
+        return []
+
+    candidates = list((await db.execute(
+        select(Task)
+        .where(Task.channel_id.in_(channel_ids))
+        .order_by(Task.created_at.desc())
+        .limit(max(1, min(limit * 4, 250)))
+    )).scalars().all())
+    review_tasks = [
+        task for task in candidates
+        if isinstance(task.execution_config, dict)
+        and task.execution_config.get("run_preset_id") == PROJECT_CODING_RUN_REVIEW_PRESET_ID
+    ][: max(1, min(limit, 100))]
+    if not review_tasks:
+        return []
+
+    selected_ids: set[uuid.UUID] = set()
+    selected_by_review: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for task in review_tasks:
+        cfg = _review_task_config(task)
+        ids: list[uuid.UUID] = []
+        for item in cfg.get("selected_task_ids") or []:
+            parsed = _uuid_from_config(item)
+            if parsed is not None:
+                ids.append(parsed)
+                selected_ids.add(parsed)
+        selected_by_review[task.id] = ids
+
+    selected_tasks_by_id: dict[uuid.UUID, Task] = {}
+    if selected_ids:
+        selected_tasks = list((await db.execute(
+            select(Task).where(Task.id.in_(selected_ids))
+        )).scalars().all())
+        selected_tasks_by_id = {
+            task.id: task
+            for task in selected_tasks
+            if isinstance(task.execution_config, dict)
+            and task.execution_config.get("run_preset_id") == PROJECT_CODING_RUN_PRESET_ID
+        }
+
+    receipts_by_task = await _latest_run_receipts_by_task(db, project.id, list(selected_tasks_by_id))
+    run_rows_by_task: dict[uuid.UUID, dict[str, Any]] = {}
+    for task_id, task in selected_tasks_by_id.items():
+        run_rows_by_task[task_id] = await _coding_run_row(db, project, task, receipts_by_task.get(task_id))
+
+    review_receipts_by_review: dict[uuid.UUID, list[ExecutionReceipt]] = {task.id: [] for task in review_tasks}
+    if selected_tasks_by_id:
+        review_receipts = list((await db.execute(
+            select(ExecutionReceipt)
+            .where(
+                ExecutionReceipt.scope == "project_coding_run",
+                ExecutionReceipt.action_type.in_(["review.marked", "review.result"]),
+                ExecutionReceipt.task_id.in_(list(selected_tasks_by_id)),
+            )
+            .order_by(ExecutionReceipt.created_at.desc())
+            .limit(500)
+        )).scalars().all())
+        review_task_ids = set(review_receipts_by_review)
+        for receipt in review_receipts:
+            result = dict(receipt.result or {}) if isinstance(receipt.result, dict) else {}
+            review_task_id = _uuid_from_config(result.get("review_task_id"))
+            if review_task_id in review_task_ids:
+                review_receipts_by_review.setdefault(review_task_id, []).append(receipt)
+
+    pack_ids: set[uuid.UUID] = set()
+    for run in run_rows_by_task.values():
+        source_id = _uuid_from_config(run.get("source_work_pack_id"))
+        if source_id is not None:
+            pack_ids.add(source_id)
+    packs_by_id: dict[uuid.UUID, IssueWorkPack] = {}
+    if pack_ids:
+        packs_by_id = {
+            pack.id: pack for pack in list((await db.execute(
+                select(IssueWorkPack).where(IssueWorkPack.id.in_(pack_ids), IssueWorkPack.project_id == project.id)
+            )).scalars().all())
+        }
+
+    rows: list[dict[str, Any]] = []
+    for task in review_tasks:
+        cfg = _review_task_config(task)
+        selected_task_ids = selected_by_review.get(task.id, [])
+        selected_runs = [
+            run_rows_by_task[run_task_id]
+            for run_task_id in selected_task_ids
+            if run_task_id in run_rows_by_task
+        ]
+        compact_runs = [_compact_review_run_row(run) for run in selected_runs]
+        evidence = {"tests_count": 0, "screenshots_count": 0, "changed_files_count": 0, "dev_targets_count": 0}
+        launch_batch_ids: set[str] = set()
+        source_pack_ids: set[uuid.UUID] = set()
+        updated_values: list[str] = []
+        for run in compact_runs:
+            if run.get("launch_batch_id"):
+                launch_batch_ids.add(str(run["launch_batch_id"]))
+            source_id = _uuid_from_config(run.get("source_work_pack_id"))
+            if source_id is not None:
+                source_pack_ids.add(source_id)
+            run_evidence = run.get("evidence") if isinstance(run.get("evidence"), dict) else {}
+            for key in evidence:
+                try:
+                    evidence[key] += int(run_evidence.get(key) or 0)
+                except (TypeError, ValueError):
+                    continue
+            if run.get("updated_at"):
+                updated_values.append(str(run["updated_at"]))
+
+        receipt_rows = [_review_receipt_row(receipt) for receipt in review_receipts_by_review.get(task.id, [])]
+        outcome_counts: dict[str, int] = {}
+        for receipt in receipt_rows:
+            outcome = str(receipt.get("outcome") or "unknown")
+            outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
+        status = _review_session_ledger_status(task, run_count=len(compact_runs), outcome_counts=outcome_counts)
+        source_packs = sorted(
+            [_work_pack_row(packs_by_id[pack_id]) for pack_id in source_pack_ids if pack_id in packs_by_id],
+            key=lambda item: item["title"].lower(),
+        )
+        latest_summary = receipt_rows[0]["summary"] if receipt_rows else task.result
+        latest_activity = max(
+            [value for value in [
+                task.completed_at.isoformat() if task.completed_at else None,
+                task.created_at.isoformat() if task.created_at else None,
+                *(row.get("created_at") for row in receipt_rows),
+                *updated_values,
+            ] if value],
+            default=None,
+        )
+        merge_requested = [row for row in receipt_rows if row.get("merge")]
+        merge_completed = [
+            row for row in merge_requested
+            if isinstance(row.get("merge_result"), dict)
+            and row["merge_result"].get("ok") is not False
+            and row["merge_result"]
+        ]
+        rows.append({
+            "id": str(task.id),
+            "task_id": str(task.id),
+            "project_id": str(project.id),
+            "status": status,
+            "task_status": task.status or "unknown",
+            "title": task.title,
+            "session_id": str(task.session_id) if task.session_id else None,
+            "channel_id": str(task.channel_id) if task.channel_id else None,
+            "created_at": task.created_at.isoformat() if task.created_at else None,
+            "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+            "latest_activity_at": latest_activity,
+            "selected_task_ids": [str(item) for item in selected_task_ids],
+            "selected_run_ids": [str(run["id"]) for run in compact_runs if run.get("id")],
+            "run_count": len(compact_runs),
+            "launch_batch_ids": sorted(launch_batch_ids),
+            "outcome_counts": outcome_counts,
+            "evidence": evidence,
+            "source_work_packs": source_packs,
+            "selected_runs": compact_runs,
+            "summaries": receipt_rows[:10],
+            "latest_summary": latest_summary,
+            "merge": {
+                "method": cfg.get("merge_method"),
+                "requested_count": len(merge_requested),
+                "completed_count": len(merge_completed),
+            },
+            "actions": {
+                "can_open_task": True,
+                "can_select_runs": bool(compact_runs),
+                "active": task.status in {"pending", "running"},
+                "finalized": status == "finalized",
+            },
+        })
+
+    return sorted(
+        rows,
+        key=lambda row: str(row.get("latest_activity_at") or row.get("created_at") or ""),
+        reverse=True,
+    )[: max(1, min(limit, 100))]
 
 
 async def list_project_coding_run_review_batches(

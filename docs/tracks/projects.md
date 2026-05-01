@@ -3,7 +3,7 @@ title: Track - Projects
 summary: First-class Project roots inside the singleton Workspace plus the Project Factory Vision — Blueprints, fresh instances, dev targets, dependency stacks, coding runs, review sessions, and the canonical execution context Module.
 tags: [spindrel, track, projects]
 status: active
-updated: 2026-05-01 (review inbox)
+updated: 2026-05-01 (review ledger)
 ---
 
 # Track - Projects
@@ -90,11 +90,11 @@ Locked next-phase ladder:
 - [x] **Phase 4AG - Launch-batch review loop** — Project coding runs now expose `launch_batch_id` from Issue Work Pack batch launches. The Runs cockpit groups runs launched together, lets an operator select or start a review session for the whole batch, and carries batch provenance into the review context manifest. Accepted review finalization records a `reviewed` action back onto the source Work Pack metadata with review task/session ids, summary, outcome, merge settings, and launch batch id, so morning review can trace from rough note to batch launch to reviewed PR.
 - [x] **Phase 4AH - Project Factory review inbox** — Project Runs now has a derived Review Inbox for launched Work Pack batches. The backend groups coding runs by `launch_batch_id`, joins source Work Packs and review-session tasks, and returns readiness/status/evidence/action summaries without a new table. The Runs UI surfaces those batches above individual rows so morning review can select runs, start a batch review, or reopen an active review task from one place.
 - [x] **Phase 4AI - Reviewable triage receipts** — Conversational and scheduled Issue Work Pack creation now accepts a top-level triage receipt. Spindrel stores a shared `triage_receipt_id` / `triage_receipt` on created Work Packs, mirrors the receipt summary to source item `evidence.issue_triage`, updates the issue-intake runtime skill to require grouping rationale/launch readiness/follow-up notes, and surfaces recent receipts in the Mission Control Issue Intake work-pack lane.
+- [x] **Phase 4AJ - Project review ledger** — Project Runs now exposes review-session ledger rows derived from existing `project_coding_run_review` tasks, selected run context, source Work Packs, Project run receipts, and review/finalization `ExecutionReceipt` rows. The ledger gives overnight review tasks their own audit surface with active/finalized/blocked status, selected runs, launch batch ids, outcome counts, merge settings, final summaries, source pack links, evidence counts, and Open review / View summary actions. The Project Factory contract e2e now asserts the ledger before and after review finalization.
 
 ## Queued Follow-Ups
 
 - Fresh instances: add expiration policy/worker cleanup for old task-owned instances after manual cleanup has settled.
 - Blueprint setup observability: split clone/command run phases into clearer progress events and add rerun controls after deployed E2E validates setup-command history.
 - Agent coding runs: add rerun controls for failed review steps, background expiration cleanup for task-owned instances, and optional GitHub status webhooks/polling beyond explicit refresh.
-- Project factory: add a review-session summary list/filter so overnight review tasks can be audited separately from individual run rows.
 - Project factory: add schedule edit/resume controls and schedule-run history filters once recurring review usage settles.

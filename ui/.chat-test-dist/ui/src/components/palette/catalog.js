@@ -1,4 +1,4 @@
-import { Bot, Cable, FileText, HardDrive, Hash, Home, Key, LayoutDashboard, Plus, Plug, ScrollText, Server, Settings, Shield, Webhook, Wrench, Boxes, Zap, } from "lucide-react";
+import { Bot, Cable, FileText, HardDrive, Hash, Home, Key, LayoutDashboard, Layers, Plus, Plug, FolderKanban, ScrollText, Server, Settings, Shield, Webhook, Wrench, Boxes, Zap, } from "lucide-react";
 import { ADMIN_ITEMS, SETTINGS_ITEMS } from "./admin-items.js";
 const CHANNEL_SLUG_PREFIX = "channel:";
 function isChannelSlug(slug) {
@@ -239,6 +239,44 @@ export function buildPaletteItems(input) {
             href: `/admin/workspaces/${workspace.id}/files`,
             icon: HardDrive,
             category: "Configure",
+        });
+    }
+    pushUnique(items, {
+        id: "nav-projects",
+        label: "Projects",
+        hint: "Configure",
+        href: "/admin/projects",
+        icon: FolderKanban,
+        category: "Projects",
+    });
+    pushUnique(items, {
+        id: "nav-project-blueprints",
+        label: "Project Blueprints",
+        hint: "Projects",
+        href: "/admin/projects/blueprints",
+        icon: Layers,
+        category: "Projects",
+    });
+    for (const project of input.projects ?? []) {
+        pushUnique(items, {
+            id: `project-${project.id}`,
+            label: `Project · ${project.name}`,
+            hint: project.root_path ? `/${project.root_path.replace(/^\/+/, "")}` : "Projects",
+            href: `/admin/projects/${project.id}`,
+            icon: FolderKanban,
+            category: "Projects",
+            searchText: [project.name, project.slug, project.root_path].filter(Boolean).join(" "),
+        });
+    }
+    for (const blueprint of input.projectBlueprints ?? []) {
+        pushUnique(items, {
+            id: `project-blueprint-${blueprint.id}`,
+            label: `Blueprint · ${blueprint.name}`,
+            hint: "Projects",
+            href: `/admin/projects/blueprints/${blueprint.id}`,
+            icon: Layers,
+            category: "Projects",
+            searchText: [blueprint.name, blueprint.slug].filter(Boolean).join(" "),
         });
     }
     for (const dashboard of input.dashboards ?? []) {

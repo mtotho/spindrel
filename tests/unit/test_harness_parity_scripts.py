@@ -115,7 +115,9 @@ def test_harness_parity_local_batch_slash_preset_targets_native_slash_screenshot
     assert (
         "HARNESS_PARITY_SCREENSHOT_ONLY="
         "harness-native-slash-picker-dark\\,harness-codex-native-plugins-result-dark\\,"
-        "harness-codex-native-resume-result-dark\\,harness-codex-native-agents-result-dark"
+        "harness-codex-native-resume-result-dark\\,harness-codex-native-agents-result-dark\\,"
+        "harness-codex-native-cloud-result-dark\\,harness-codex-native-approvals-result-dark\\,"
+        "harness-codex-native-apps-result-dark"
     ) in proc.stdout
     assert (
         "HARNESS_PARITY_SCREENSHOT_ONLY="

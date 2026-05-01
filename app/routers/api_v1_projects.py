@@ -32,6 +32,7 @@ from app.services.project_coding_runs import (
     get_project_coding_run,
     get_project_coding_run_review_context,
     list_project_coding_run_review_batches,
+    list_project_coding_run_review_sessions,
     list_project_coding_run_schedules,
     list_project_coding_runs,
     mark_project_coding_run_reviewed,
@@ -406,6 +407,32 @@ class ProjectCodingRunReviewBatchOut(BaseModel):
     latest_review_task: dict | None = None
     latest_activity_at: str | None = None
     summary: dict = Field(default_factory=dict)
+    actions: dict = Field(default_factory=dict)
+
+
+class ProjectCodingRunReviewSessionLedgerOut(BaseModel):
+    id: uuid.UUID
+    task_id: uuid.UUID
+    project_id: uuid.UUID
+    status: str
+    task_status: str
+    title: str | None = None
+    session_id: uuid.UUID | None = None
+    channel_id: uuid.UUID | None = None
+    created_at: str | None = None
+    completed_at: str | None = None
+    latest_activity_at: str | None = None
+    selected_task_ids: list[uuid.UUID] = Field(default_factory=list)
+    selected_run_ids: list[uuid.UUID] = Field(default_factory=list)
+    run_count: int
+    launch_batch_ids: list[str] = Field(default_factory=list)
+    outcome_counts: dict = Field(default_factory=dict)
+    evidence: dict = Field(default_factory=dict)
+    source_work_packs: list[dict] = Field(default_factory=list)
+    selected_runs: list[dict] = Field(default_factory=list)
+    summaries: list[dict] = Field(default_factory=list)
+    latest_summary: str | None = None
+    merge: dict = Field(default_factory=dict)
     actions: dict = Field(default_factory=dict)
 
 
@@ -1094,6 +1121,19 @@ async def get_project_coding_run_review_batches(
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
     return await list_project_coding_run_review_batches(db, project, limit=limit)
+
+
+@router.get("/{project_id}/coding-runs/review-sessions", response_model=list[ProjectCodingRunReviewSessionLedgerOut])
+async def get_project_coding_run_review_sessions(
+    project_id: uuid.UUID,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return await list_project_coding_run_review_sessions(db, project, limit=limit)
 
 
 @router.post("/{project_id}/coding-runs", response_model=ProjectCodingRunOut, status_code=201)

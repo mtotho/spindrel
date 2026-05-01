@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { categoryRank } from "./admin-items.js";
 import { buildPaletteItems } from "./catalog.js";
 import {
   getCollapsiblePaletteBrowseSection,
@@ -54,6 +55,12 @@ test("buildPaletteItems includes the major durable destinations and detail pages
     workspaces: [
       { id: "workspace-1", name: "Agent docs" },
     ],
+    projects: [
+      { id: "project-1", name: "Spindrel", root_path: "common/projects/spindrel", slug: "spindrel" },
+    ],
+    projectBlueprints: [
+      { id: "blueprint-1", name: "Web app", slug: "web-app" },
+    ],
     dashboards: [
       { slug: "ops", name: "Ops board" },
       { slug: "channel:channel-1", name: "quality-assurance" },
@@ -93,6 +100,10 @@ test("buildPaletteItems includes the major durable destinations and detail pages
   assert.ok(hrefs.has("/admin/workflows/workflow-1"));
   assert.ok(hrefs.has("/admin/workspaces/workspace-1"));
   assert.ok(hrefs.has("/admin/workspaces/workspace-1/files"));
+  assert.ok(hrefs.has("/admin/projects"));
+  assert.ok(hrefs.has("/admin/projects/project-1"));
+  assert.ok(hrefs.has("/admin/projects/blueprints"));
+  assert.ok(hrefs.has("/admin/projects/blueprints/blueprint-1"));
   assert.ok(hrefs.has("/admin/logs/trace-1"));
   assert.ok(hrefs.has("/integration/integration-1/settings"));
 });
@@ -188,4 +199,11 @@ test("recent channel sessions outrank the generic channel hit when searching a c
   );
 
   assert.equal(results[0]?.item.href, recentSession.href);
+});
+
+test("palette browse ranks recents before contextual and global groups", () => {
+  assert.ok(categoryRank("Recent") < categoryRank("This Channel"));
+  assert.ok(categoryRank("Recent") < categoryRank("Canvas"));
+  assert.ok(categoryRank("Recent") < categoryRank("Projects"));
+  assert.ok(categoryRank("Projects") < categoryRank("Channels"));
 });

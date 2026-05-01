@@ -197,6 +197,9 @@ export function ChannelHeader({
     scratchFullpageMode && bot?.id ? channelId : null,
     scratchFullpageMode && bot?.id ? bot.id : null,
   );
+  const renameInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [renameDialogOpen, setRenameDialogOpen] = React.useState(false);
+  const [renameDraft, setRenameDraft] = React.useState("");
 
   // Admin-only: resolve owner display name for the header chip. Non-admins
   // don't see the chip at all (no cross-user visibility signal).
@@ -298,19 +301,43 @@ export function ChannelHeader({
     headerSessionChrome.inlineTitle ??
     ""
   ).trim();
+  React.useEffect(() => {
+    if (!renameDialogOpen) return;
+    const frame = requestAnimationFrame(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [renameDialogOpen]);
+  const openRenameCurrentSession = React.useCallback(() => {
+    if (!effectiveSessionId) return;
+    setRenameDraft(renameSeedTitle);
+    setRenameDialogOpen(true);
+  }, [effectiveSessionId, renameSeedTitle]);
+  const closeRenameCurrentSession = React.useCallback(() => {
+    if (renameSession.isPending) return;
+    setRenameDialogOpen(false);
+    setRenameDraft("");
+  }, [renameSession.isPending]);
   const handleRenameCurrentSession = React.useCallback(() => {
     if (!effectiveSessionId) return;
-    const nextTitle = window.prompt("Rename session", renameSeedTitle);
-    if (nextTitle == null) return;
-    const trimmed = nextTitle.trim();
+    const trimmed = renameDraft.trim();
     if (!trimmed) return;
-    renameSession.mutate({
-      session_id: effectiveSessionId,
-      title: trimmed,
-      parent_channel_id: channelId,
-      bot_id: bot?.id ?? undefined,
-    });
-  }, [bot?.id, channelId, effectiveSessionId, renameSeedTitle, renameSession]);
+    renameSession.mutate(
+      {
+        session_id: effectiveSessionId,
+        title: trimmed,
+        parent_channel_id: channelId,
+        bot_id: bot?.id ?? undefined,
+      },
+      {
+        onSuccess: () => {
+          setRenameDialogOpen(false);
+          setRenameDraft("");
+        },
+      },
+    );
+  }, [bot?.id, channelId, effectiveSessionId, renameDraft, renameSession]);
   const handleDeleteCurrentSession = React.useCallback(async () => {
     if (!effectiveSessionId) return;
     const targetLabel = renameSeedTitle || "this session";
@@ -475,7 +502,7 @@ export function ChannelHeader({
           key: "rename-session",
           label: "Rename session",
           icon: Settings,
-          onClick: handleRenameCurrentSession,
+          onClick: openRenameCurrentSession,
           active: false,
           danger: false,
           disabled: renameSession.isPending,
@@ -913,20 +940,6 @@ export function ChannelHeader({
         </button>
       )}
 
-      {/* Session route close. A single non-primary session is a page-level
-          view; closing it returns to the channel primary route. */}
-      {scratchFullpageMode && onOpenMainChat && (
-        <button
-          type="button"
-          className="header-icon-btn"
-          style={{ width: iconSize, height: iconSize }}
-          onClick={onOpenMainChat}
-          title="Close session view"
-          aria-label="Close session view"
-        >
-          <CloseIcon size={16} color={t.textDim} />
-        </button>
-      )}
       {!isMobile && channelId && onOpenSessions && (
         <div className="relative shrink-0">
           <button
@@ -1080,6 +1093,82 @@ export function ChannelHeader({
           </div>,
           document.body,
         )}
+      {renameDialogOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[50002] bg-black/45 backdrop-blur-[2px]"
+              aria-hidden="true"
+              onClick={closeRenameCurrentSession}
+            />
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Rename session"
+              className="fixed inset-x-0 bottom-0 z-[50003] rounded-t-md bg-surface-raised p-4 text-text shadow-[0_-16px_48px_rgba(0,0,0,0.34)] sm:bottom-auto sm:left-1/2 sm:top-[18vh] sm:w-[420px] sm:max-w-[calc(100vw-2rem)] sm:-translate-x-1/2 sm:rounded-md sm:shadow-[0_18px_52px_rgba(0,0,0,0.32)]"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-text">
+                    Rename session
+                  </div>
+                  <div className="mt-1 text-xs text-text-dim">
+                    Give this work thread a clear, scannable name.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeRenameCurrentSession}
+                  disabled={renameSession.isPending}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-dim hover:bg-surface-overlay hover:text-text disabled:opacity-50"
+                  aria-label="Close rename dialog"
+                >
+                  <CloseIcon size={16} />
+                </button>
+              </div>
+              <form
+                className="mt-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  handleRenameCurrentSession();
+                }}
+              >
+                <input
+                  ref={renameInputRef}
+                  value={renameDraft}
+                  onChange={(event) => setRenameDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      closeRenameCurrentSession();
+                    }
+                  }}
+                  placeholder="Session title"
+                  className="h-10 w-full rounded-md border border-surface-border bg-surface px-3 text-sm text-text outline-none placeholder:text-text-dim focus:border-accent"
+                />
+                <div className="mt-4 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={closeRenameCurrentSession}
+                    disabled={renameSession.isPending}
+                    className="h-9 rounded-md px-3 text-sm font-medium text-text-muted hover:bg-surface-overlay hover:text-text disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!renameDraft.trim() || renameSession.isPending}
+                    className="h-9 rounded-md bg-accent px-3 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                </div>
+              </form>
+            </div>
+          </>,
+          document.body,
+        )}
       <ConfirmDialogSlot />
     </header>
   );
@@ -1104,44 +1193,33 @@ function HarnessHeaderChrome({
 }) {
   const { data: caps } = useRuntimeCapabilities(runtime);
   const displayName = caps?.display_name ?? runtime;
-  if (compact) {
-    return sessionId ? (
-      <HarnessStatusPill sessionId={sessionId} t={t} compact />
-    ) : null;
-  }
-  return (
-    <>
+  if (!sessionId) {
+    return (
       <span
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider shrink-0"
-        style={{
-          backgroundColor: t.surfaceOverlay,
-          color: t.textMuted,
-        }}
+        className="inline-flex shrink-0 items-center gap-1 rounded bg-surface-overlay px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-text-muted"
         title={`Harness runtime: ${displayName}`}
       >
-        🤖 {displayName}
+        harness
       </span>
-      {sessionId && caps && (
-        <>
-          <HarnessModelPill sessionId={sessionId} caps={caps} t={t} />
-          <HarnessStatusPill sessionId={sessionId} t={t} />
-        </>
-      )}
-    </>
-  );
+    );
+  }
+  return <HarnessStatusPill sessionId={sessionId} runtimeLabel={displayName} t={t} compact={compact} />;
 }
 
 function HarnessStatusPill({
   sessionId,
+  runtimeLabel,
   t,
   compact = false,
 }: {
   sessionId: string;
+  runtimeLabel: string;
   t: ReturnType<typeof useThemeTokens>;
   compact?: boolean;
 }) {
   const { data } = useSessionHarnessStatus(sessionId);
   const [open, setOpen] = React.useState(false);
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
   const buttonRef = React.useRef<HTMLButtonElement | null>(null);
   const [panelStyle, setPanelStyle] = React.useState<React.CSSProperties>({});
   const updatePanelPosition = React.useCallback(() => {
@@ -1201,8 +1279,8 @@ function HarnessStatusPill({
     };
   }, [compact, open, updatePanelPosition]);
   const panelClassName = compact
-    ? "fixed left-2 right-2 top-14 z-[50002] max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"
-    : "fixed left-2 right-2 top-14 z-[50002] max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border";
+    ? "fixed left-2 right-2 top-14 z-[50002] max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-lg ring-1 ring-surface-border"
+    : "fixed left-2 right-2 top-14 z-[50002] max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-lg ring-1 ring-surface-border";
   const mergedPanelStyle = compact
     ? {
         position: "fixed" as const,
@@ -1221,7 +1299,7 @@ function HarnessStatusPill({
         ...panelStyle,
       };
   if (!data) {
-    const loadingLabel = compact ? "ctx" : "ctx loading";
+    const loadingLabel = compact ? "harness" : "harness";
     return (
       <span className="relative inline-flex shrink-0">
         <button
@@ -1250,7 +1328,7 @@ function HarnessStatusPill({
             style={mergedPanelStyle}
           >
             <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="font-medium text-text">Harness context</div>
+              <div className="font-medium text-text">Harness status</div>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
@@ -1385,12 +1463,17 @@ function HarnessStatusPill({
   const projectPathLabel =
     typeof projectDir.path === "string" ? projectDir.path : null;
   const compactLabel =
-    data.pending_hint_count > 0
-      ? `${data.pending_hint_count}`
-      : typeof data.context_remaining_pct === "number" &&
-          data.context_remaining_pct < 60
-        ? `${Math.round(data.context_remaining_pct)}%`
-        : "ctx";
+    typeof data.context_remaining_pct === "number"
+      ? `ctx ${Math.round(data.context_remaining_pct)}%`
+      : data.pending_hint_count > 0
+        ? `hint ${data.pending_hint_count}`
+        : "harness";
+  const activeModel =
+    typeof data.model === "string" && data.model.trim()
+      ? data.model.trim()
+      : null;
+  const approvalMode =
+    typeof data.permission_mode === "string" ? data.permission_mode : null;
   return (
     <span className="relative inline-flex shrink-0">
       <button
@@ -1402,7 +1485,7 @@ function HarnessStatusPill({
         onClick={() => setOpen((v) => !v)}
         className={
           compact
-            ? "inline-flex h-5 min-w-5 items-center justify-center rounded bg-surface-overlay px-1 text-[10px] text-text-muted hover:text-text"
+            ? "inline-flex h-5 min-w-5 items-center justify-center rounded bg-surface-overlay px-1.5 text-[10px] text-text-muted hover:text-text"
             : "inline-flex max-w-[14rem] items-center gap-1 truncate rounded bg-surface-overlay px-1.5 py-0.5 text-[10px] text-text-muted hover:text-text"
         }
         style={{
@@ -1417,15 +1500,14 @@ function HarnessStatusPill({
                   : t.textMuted,
           fontFamily: "'Menlo', monospace",
         }}
-        title={`${data.context_note} Resume: ${data.harness_session_id || "none"}. Last turn: ${data.last_turn_at || "none"}. Usage: ${usageLabel || "unknown"}. Remaining: ${remainingLabel || "unknown"}${remainingSource ? ` (${remainingSource})` : ""}${confidence ? `, confidence ${confidence}` : ""}.`}
+        title={`${runtimeLabel} harness. ${data.context_note} Resume: ${data.harness_session_id || "none"}. Last turn: ${data.last_turn_at || "none"}. Usage: ${usageLabel || "unknown"}. Remaining: ${remainingLabel || "unknown"}${remainingSource ? ` (${remainingSource})` : ""}${confidence ? `, confidence ${confidence}` : ""}.`}
       >
         {compact ? (
           compactLabel
         ) : (
           <>
-            ctx {remainingLabel ?? usageLabel ?? resume}
+            {compactLabel}
             {remainingLabel && remainingSource ? ` · ${remainingSource}` : ""}
-            {confidence && confidence !== "high" ? ` · ${confidence}` : ""}
             {hints}
           </>
         )}
@@ -1439,7 +1521,10 @@ function HarnessStatusPill({
           style={mergedPanelStyle}
         >
           <div className="mb-2 flex items-center justify-between gap-2">
-            <div className="font-medium text-text">Harness context</div>
+            <div>
+              <div className="font-medium text-text">Harness status</div>
+              <div className="text-[11px] text-text-dim">{runtimeLabel}</div>
+            </div>
             <button
               type="button"
               onClick={() => setOpen(false)}
@@ -1449,7 +1534,56 @@ function HarnessStatusPill({
               <CloseIcon size={12} />
             </button>
           </div>
-          <div className="grid gap-1">
+          <div className="grid gap-2">
+            <div className="grid grid-cols-2 gap-1.5">
+              <div className="rounded-md bg-surface-overlay/45 px-2 py-1.5">
+                <div className="text-[10px] uppercase tracking-[0.08em] text-text-dim">Context</div>
+                <div className="mt-0.5 text-[12px] font-medium text-text">
+                  {remainingLabel || usageLabel || "unknown"}
+                </div>
+              </div>
+              <div className="rounded-md bg-surface-overlay/45 px-2 py-1.5">
+                <div className="text-[10px] uppercase tracking-[0.08em] text-text-dim">Model</div>
+                <div className="mt-0.5 truncate text-[12px] font-medium text-text" title={activeModel || undefined}>
+                  {activeModel || "runtime default"}
+                </div>
+              </div>
+            </div>
+            <div className="grid gap-1 text-[11px] leading-snug">
+              <div className="min-w-0 break-words">
+                <span className="text-text-dim">Resume</span>{" "}
+                <span className="font-mono text-[10px]">{resume}</span>
+                {approvalMode ? ` · ${approvalMode}` : ""}
+              </div>
+              <div className="min-w-0 break-words">
+                <span className="text-text-dim">Workdir</span>{" "}
+                <span className="font-mono text-[10px] break-all">
+                  {projectPathLabel ? `/${projectPathLabel}` : data.effective_cwd || "unknown"}
+                </span>
+              </div>
+              <div>
+                <span className="text-text-dim">Bridge</span>{" "}
+                {String(bridge.status || "unknown")} · {exportedTools.length} tool
+                {exportedTools.length === 1 ? "" : "s"}
+                {data.pending_hint_count > 0 ? ` · ${data.pending_hint_count} hint${data.pending_hint_count === 1 ? "" : "s"}` : ""}
+              </div>
+              {bridgeErrors.length > 0 && (
+                <div className="min-w-0 break-words text-warning-muted">
+                  {bridgeErrors.join("; ")}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setDetailsOpen((value) => !value)}
+              className="mt-1 w-fit rounded px-1.5 py-1 text-[11px] font-medium text-text-dim hover:bg-surface-overlay hover:text-text"
+            >
+              {detailsOpen ? "Hide diagnostics" : "Show diagnostics"}
+            </button>
+          </div>
+          {detailsOpen && (
+            <>
+          <div className="mt-3 grid gap-1 border-t border-surface-border pt-2">
             <div className="min-w-0 break-words">
               <span className="text-text-dim">Resume</span>{" "}
               {data.harness_session_id || "new"}
@@ -1689,6 +1823,8 @@ function HarnessStatusPill({
                 {exportedTools.join(", ")}
               </div>
             </div>
+          )}
+            </>
           )}
         </div>
       )}

@@ -502,6 +502,35 @@ export function useChannelTopTabsController({
     });
   }, [channelId, patchChannelPanelPrefs, topTabs]);
   const handleOverlayActivateSessionSurface = useCallback((surface: ChannelSessionSurface, intent: ChannelSessionActivationIntent) => {
+    if (!channelId) return;
+    const key = surfaceKey(surface);
+    const paneId = paneIdForSurface(surface);
+    const activeSurfaceKey = surfaceKey(activeSessionTabSurface);
+    if (intent === "switch" && key === activeSurfaceKey && !activeFile) {
+      return;
+    }
+    const openPane = panelPrefs.chatPaneLayout.panes.find((pane) => pane.id === paneId) ?? null;
+    if (openPane && (canvasActive || intent === "split")) {
+      const splitKey = sessionTabKeyForChatPaneLayout(panelPrefs.chatPaneLayout) ?? key;
+      setPendingSessionTabKey(splitKey);
+      patchChannelPanelPrefs(channelId, (current) => ({
+        chatPaneLayout: {
+          ...current.chatPaneLayout,
+          focusedPaneId: paneId,
+        },
+        sessionTabOrderKeys: moveTabKeyToFront(current.sessionTabOrderKeys, splitKey),
+        hiddenSessionTabKeys: current.hiddenSessionTabKeys.filter(
+          (hiddenKey) => hiddenKey !== splitKey && hiddenKey !== key,
+        ),
+      }));
+      if (activeFile) {
+        setActiveFile(null);
+        setSplitMode(false);
+        fileDirtyRef.current = false;
+      }
+      navigate(`/channels/${channelId}`);
+      return;
+    }
     if (channelId) {
       const key = intent === "split" ? predictedSplitTabKey(surface) : surfaceKey(surface);
       patchChannelPanelPrefs(channelId, (current) => ({
@@ -510,7 +539,20 @@ export function useChannelTopTabsController({
     }
     unhideSessionTabSurface(surface);
     activateChannelSessionSurface(surface, intent);
-  }, [activateChannelSessionSurface, channelId, patchChannelPanelPrefs, predictedSplitTabKey, unhideSessionTabSurface]);
+  }, [
+    activateChannelSessionSurface,
+    activeFile,
+    activeSessionTabSurface,
+    canvasActive,
+    channelId,
+    navigate,
+    panelPrefs.chatPaneLayout,
+    patchChannelPanelPrefs,
+    predictedSplitTabKey,
+    setActiveFile,
+    setSplitMode,
+    unhideSessionTabSurface,
+  ]);
 
   const executeDirtyAction = useCallback((action: DirtyAction) => {
     switch (action.type) {

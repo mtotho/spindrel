@@ -40,6 +40,55 @@ function formatPinnedSkipReason(reason: string) {
   }
 }
 
+function runtimePreviewValue(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return null;
+}
+
+function runtimeListCount(value: unknown): string | null {
+  return Array.isArray(value) ? `${value.length} item${value.length === 1 ? "" : "s"}` : null;
+}
+
+function buildRuntimeDataPreview(command: string, data: Record<string, any> | null) {
+  if (!data) return [];
+  const items: Array<{ label: string; value: string }> = [];
+
+  if (command === "cloud") {
+    const rateLimits = data.rateLimits && typeof data.rateLimits === "object" ? data.rateLimits : {};
+    const primary = rateLimits.primary && typeof rateLimits.primary === "object" ? rateLimits.primary : {};
+    const secondary = rateLimits.secondary && typeof rateLimits.secondary === "object" ? rateLimits.secondary : {};
+    const credits = rateLimits.credits && typeof rateLimits.credits === "object" ? rateLimits.credits : {};
+    const limits = data.rateLimitsByLimitId && typeof data.rateLimitsByLimitId === "object"
+      ? Object.keys(data.rateLimitsByLimitId).length
+      : 0;
+    const plan = runtimePreviewValue(rateLimits.planType);
+    if (plan) items.push({ label: "Plan", value: plan });
+    if (primary.usedPercent != null) items.push({ label: "Primary", value: `${primary.usedPercent}% used` });
+    if (secondary.usedPercent != null) items.push({ label: "Weekly", value: `${secondary.usedPercent}% used` });
+    if (credits.unlimited) items.push({ label: "Credits", value: "unlimited" });
+    else if (credits.balance != null) items.push({ label: "Credits", value: String(credits.balance) });
+    if (limits > 0) items.push({ label: "Limits", value: String(limits) });
+    return items;
+  }
+
+  if (command === "approvals") {
+    const requirements = runtimeListCount(data.requirements)
+      || runtimeListCount(data.configRequirements)
+      || runtimeListCount(data.items);
+    if (requirements) items.push({ label: "Requirements", value: requirements });
+    return items;
+  }
+
+  for (const key of ["apps", "servers", "plugins", "skills", "features", "items", "data"]) {
+    const count = runtimeListCount(data[key]);
+    if (count) items.push({ label: key, value: count });
+  }
+  return items.slice(0, 4);
+}
+
 export function SlashCommandResultCard({ message, chatMode = "default" }: Props) {
   const resultType = (message.metadata?.result_type ?? "context_summary") as string;
   const rawPayload = message.metadata?.payload ?? {};
@@ -90,12 +139,14 @@ function HarnessRuntimeCommandCard({
   chatMode: "default" | "terminal";
 }) {
   const status = String(payload.status || "ok");
+  const command = String(payload.command || "runtime");
   const data = payload.data && typeof payload.data === "object" ? payload.data as Record<string, any> : null;
   const suggestedCommand = data?.suggested_command ? String(data.suggested_command) : "";
+  const previewItems = buildRuntimeDataPreview(command, data);
   return (
     <SlashResultPanel
       chatMode={chatMode}
-      commandLabel={`/${String(payload.command || "runtime")}`}
+      commandLabel={`/${command}`}
       meta={String(payload.runtime || "harness")}
     >
       <div className="grid gap-2 p-3 text-[12px] text-text-muted">
@@ -106,6 +157,16 @@ function HarnessRuntimeCommandCard({
           </div>
         </div>
         {payload.detail && <div className="whitespace-pre-wrap">{String(payload.detail)}</div>}
+        {previewItems.length > 0 && (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {previewItems.map((item) => (
+              <div key={item.label} className="min-w-0 rounded bg-surface-overlay/50 px-2 py-1.5">
+                <div className="text-[10px] uppercase text-text-dim">{item.label}</div>
+                <div className="truncate font-mono text-[11px] text-text">{item.value}</div>
+              </div>
+            ))}
+          </div>
+        )}
         {status === "terminal_handoff" && suggestedCommand && (
           <div className="grid gap-1 rounded bg-surface-overlay/70 px-2 py-1.5">
             <div className="text-[10px] uppercase text-text-dim">Terminal command</div>

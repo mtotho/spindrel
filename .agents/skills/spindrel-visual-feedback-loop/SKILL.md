@@ -182,6 +182,8 @@ docs/images/project-workspace-setup-ready.png
 docs/images/project-workspace-setup-run-history.png
 docs/images/project-workspace-instances.png
 docs/images/project-workspace-runs.png
+docs/images/project-workspace-review-inbox.png
+docs/images/project-workspace-review-ledger.png
 docs/images/project-workspace-scheduled-reviews.png
 docs/images/project-workspace-execution-access.png
 docs/images/project-workspace-review-launched.png
@@ -198,7 +200,7 @@ docs/images/project-factory-live-pr-smoke-receipts.png
 Inspect all deterministic Project Workspace images before closing out. The bundle checks Project admin
 surfaces, Blueprint management, setup-command readiness/run history, Project
 Basics readiness, applied Blueprint settings, runtime-env readiness, fresh Project instances, coding-run
-branch/PR progress plus receipts, scheduled Project reviews, task-scoped execution access, selected-run review controls, review-session
+branch/PR progress plus receipts, launch-batch review inbox, review-session ledger, scheduled Project reviews, task-scoped execution access, selected-run review controls, review-session
 execution access, launched review sessions, finalized review/merge provenance, channel settings,
 Project-rooted file/terminal behavior, and the memory-tool transcript envelope.
 Staging may repair existing screenshot secret fixtures when the local e2e
@@ -212,8 +214,8 @@ sequence in `docs/guides/agent-e2e-development.md`. Then use
 `scratch/agent-e2e/project-factory-live-pr-smoke.json` to navigate the local UI
 to `/admin/projects/<project_id>#Runs` and capture focused Project Runs and Run
 Receipts screenshots against the `SPINDREL_E2E_URL` / `E2E_PORT` leased by
-`write-env --port auto`. These images are intentionally live evidence rather
-than deterministic staging fixtures.
+`write-env --port auto`; do not assume a fixed local port. These images are
+intentionally live evidence rather than deterministic staging fixtures.
 
 ## Widget Authoring Runtime Loop
 

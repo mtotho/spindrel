@@ -112,10 +112,11 @@ export const SETTINGS_ITEMS: PaletteItem[] = [
 ];
 
 export const CATEGORY_ORDER = [
-  "Canvas",
-  "On the map",
   "Recent",
   "This Channel",
+  "Canvas",
+  "On the map",
+  "Projects",
   "Channels",
   "Widgets",
   "Bots",

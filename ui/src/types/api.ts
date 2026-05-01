@@ -1658,6 +1658,64 @@ export interface ProjectCodingRunReviewBatch {
   };
 }
 
+export interface ProjectCodingRunReviewSessionLedger {
+  id: string;
+  task_id: string;
+  project_id: string;
+  status: string;
+  task_status: string;
+  title?: string | null;
+  session_id?: string | null;
+  channel_id?: string | null;
+  created_at?: string | null;
+  completed_at?: string | null;
+  latest_activity_at?: string | null;
+  selected_task_ids?: string[];
+  selected_run_ids?: string[];
+  run_count: number;
+  launch_batch_ids?: string[];
+  outcome_counts?: Record<string, number>;
+  evidence?: {
+    tests_count?: number;
+    screenshots_count?: number;
+    changed_files_count?: number;
+    dev_targets_count?: number;
+  };
+  source_work_packs?: Array<{
+    id: string;
+    title: string;
+    summary?: string;
+    status?: string;
+    category?: string;
+    confidence?: string;
+    latest_review_action?: Record<string, any> | null;
+  }>;
+  selected_runs?: Array<Record<string, any>>;
+  summaries?: Array<{
+    id?: string;
+    task_id?: string | null;
+    status?: string;
+    outcome?: string;
+    summary?: string;
+    merge?: boolean;
+    merge_method?: string | null;
+    merge_result?: Record<string, any>;
+    created_at?: string | null;
+  }>;
+  latest_summary?: string | null;
+  merge?: {
+    method?: string | null;
+    requested_count?: number;
+    completed_count?: number;
+  };
+  actions?: {
+    can_open_task?: boolean;
+    can_select_runs?: boolean;
+    active?: boolean;
+    finalized?: boolean;
+  };
+}
+
 export interface ProjectCodingRunSchedule {
   id: string;
   project_id: string;

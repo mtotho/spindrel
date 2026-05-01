@@ -469,6 +469,36 @@ def test_memory_replace_section_presentation_is_memory_file_write():
     }
 
 
+def test_memory_append_diff_presentation_is_rich_file_diff():
+    diff = "--- a/memory/logs/2026-04-30.md\n+++ b/memory/logs/2026-04-30.md\n@@ -1 +1,2 @@\n # Log\n+- Walk Clarence at 4.\n"
+    surface, summary = derive_tool_presentation(
+        tool_name="memory",
+        arguments={"operation": "append", "path": "logs/2026-04-30.md"},
+        result=json.dumps(
+            {
+                "path": "memory/logs/2026-04-30.md",
+                "message": "append complete",
+            },
+            ensure_ascii=False,
+        ),
+        envelope={
+            "content_type": "application/vnd.spindrel.diff+text",
+            "body": diff,
+            "plain_body": "Append memory/logs/2026-04-30.md: +1 -0 lines",
+            "display": "inline",
+        },
+    )
+
+    assert surface == "rich_result"
+    assert summary == {
+        "kind": "diff",
+        "subject_type": "file",
+        "label": "Append memory/logs/2026-04-30.md: +1 -0 lines",
+        "path": "memory/logs/2026-04-30.md",
+        "diff_stats": {"additions": 1, "deletions": 0},
+    }
+
+
 def test_memory_list_presentation_shows_memory_file_count():
     surface, summary = derive_tool_presentation(
         tool_name="memory",

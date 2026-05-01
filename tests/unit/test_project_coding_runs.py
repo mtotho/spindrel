@@ -20,6 +20,7 @@ from app.services.project_coding_runs import (
     finalize_project_coding_run_review,
     get_project_coding_run_review_context,
     list_project_coding_run_review_batches,
+    list_project_coding_run_review_sessions,
     list_project_coding_runs,
     list_project_coding_run_schedules,
     project_coding_run_defaults,
@@ -495,6 +496,119 @@ async def test_project_review_batches_group_launch_batch_runs_with_source_packs_
     assert batch["source_work_packs"][0]["title"] == "Morning review inbox"
     assert batch["active_review_task"]["task_id"] == str(review_task.id)
     assert batch["actions"]["can_resume_review"] is True
+
+
+@pytest.mark.asyncio
+async def test_project_review_session_ledger_derives_outcomes_sources_and_evidence(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    launch_batch_id = f"issue-work-pack-batch:{uuid.uuid4()}"
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel-review-ledger",
+        root_path="common/projects/spindrel",
+        metadata_={},
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    run_task = await create_project_coding_run(
+        db_session,
+        project,
+        ProjectCodingRunCreate(channel_id=channel_id, request="Fix ledger."),
+    )
+    run_config = dict(run_task.execution_config)
+    project_run_config = dict(run_config["project_coding_run"])
+    work_pack_id = uuid.uuid4()
+    project_run_config["launch_batch_id"] = launch_batch_id
+    project_run_config["source_work_pack_id"] = str(work_pack_id)
+    run_config["project_coding_run"] = project_run_config
+    run_task.execution_config = run_config
+
+    pack = IssueWorkPack(
+        id=work_pack_id,
+        title="Ledger source pack",
+        summary="Track review sessions.",
+        category="code_bug",
+        confidence="high",
+        status="launched",
+        project_id=project_id,
+        channel_id=channel_id,
+        launched_task_id=run_task.id,
+        metadata_={"launch_batch_id": launch_batch_id},
+    )
+    run_receipt = ProjectRunReceipt(
+        project_id=project_id,
+        task_id=run_task.id,
+        status="needs_review",
+        summary="Ready for review.",
+        changed_files=[{"path": "app/services/project_coding_run_lib.py"}],
+        tests=[{"command": "pytest tests/unit/test_project_coding_runs.py", "status": "passed"}],
+        screenshots=[{"path": "docs/images/project-workspace-review-ledger.png"}],
+    )
+    review_task = Task(
+        id=uuid.uuid4(),
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        title="Review ledger run",
+        prompt="Review",
+        status="complete",
+        task_type="agent",
+        execution_config={
+            "run_preset_id": "project_coding_run_review",
+            "project_coding_run_review": {
+                "project_id": str(project_id),
+                "selected_task_ids": [str(run_task.id)],
+                "merge_method": "squash",
+            },
+        },
+    )
+    review_receipt = ExecutionReceipt(
+        scope="project_coding_run",
+        action_type="review.marked",
+        status="succeeded",
+        summary="Accepted ledger run.",
+        task_id=run_task.id,
+        channel_id=channel_id,
+        bot_id="agent",
+        result={
+            "outcome": "accepted",
+            "review_task_id": str(review_task.id),
+            "review_session_id": str(review_task.session_id) if review_task.session_id else None,
+            "merge": False,
+            "merge_method": "squash",
+        },
+    )
+    db_session.add_all([pack, run_receipt, review_task, review_receipt])
+    await db_session.commit()
+
+    sessions = await list_project_coding_run_review_sessions(db_session, project)
+
+    assert len(sessions) == 1
+    session = sessions[0]
+    assert session["task_id"] == str(review_task.id)
+    assert session["status"] == "finalized"
+    assert session["selected_task_ids"] == [str(run_task.id)]
+    assert session["selected_run_ids"] == [str(run_task.id)]
+    assert session["launch_batch_ids"] == [launch_batch_id]
+    assert session["source_work_packs"][0]["title"] == "Ledger source pack"
+    assert session["outcome_counts"] == {"accepted": 1}
+    assert session["evidence"]["tests_count"] == 1
+    assert session["evidence"]["screenshots_count"] == 1
+    assert session["latest_summary"] == "Accepted ledger run."
+    assert session["merge"]["method"] == "squash"
 
 
 def test_project_coding_run_review_summary_uses_receipt_and_handoff_activity():

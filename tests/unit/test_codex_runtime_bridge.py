@@ -359,8 +359,30 @@ def test_codex_native_command_method_constants_are_current():
 
 def test_summarize_native_command_result_counts_common_list_fields():
     assert _summarize_native_command_result("mcp-status", {"servers": [{}, {}]}) == "mcp-status: 2 item(s)."
-    assert _summarize_native_command_result("config", {"cwd": "/tmp"}) == "config: returned 1 top-level field(s)."
+    assert _summarize_native_command_result("config", {"cwd": "/tmp"}) == "config: returned cwd."
     assert _summarize_native_command_result("features", ["a"]) == "Runtime command completed."
+
+
+def test_summarize_native_command_result_formats_codex_cloud_quota():
+    assert _summarize_native_command_result(
+        "cloud",
+        {
+            "rateLimits": {
+                "planType": "pro",
+                "primary": {"usedPercent": 41},
+                "secondary": {"usedPercent": 23},
+                "credits": {"balance": "0", "unlimited": False},
+            },
+            "rateLimitsByLimitId": {"codex": {}, "codex_spark": {}},
+        },
+    ) == "cloud: plan pro, primary 41% used, weekly 23% used, credits 0, 2 limit(s)."
+
+
+def test_summarize_native_command_result_formats_codex_approvals_requirements():
+    assert _summarize_native_command_result(
+        "approvals",
+        {"requirements": [{"id": "approval-policy"}]},
+    ) == "approvals: 1 requirement(s)."
 
 
 def test_codex_native_command_maps_management_methods():

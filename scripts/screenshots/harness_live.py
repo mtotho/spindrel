@@ -462,6 +462,31 @@ def _native_slash_specs(
         "document.body.innerText.toLowerCase().includes('codex agents') "
         "|| document.body.innerText.toLowerCase().includes('codex native command failed')"
     )
+
+    def codex_management_wait(command: str) -> str:
+        return (
+            f"document.body.innerText.toLowerCase().includes('codex {command}') "
+            "|| document.body.innerText.toLowerCase().includes('open terminal for codex command') "
+            "|| document.body.innerText.toLowerCase().includes('codex native command failed')"
+        )
+
+    def codex_management_spec(command: str) -> CaptureSpec:
+        return CaptureSpec(
+            name=f"harness-codex-native-{command}-result-dark",
+            route=codex_route,
+            wait_js=codex_management_wait(command),
+            contains=("Codex", command),
+            theme="dark",
+            channel_id=codex_channel_id,
+            chat_mode="default",
+            slash_query=f"/{command}",
+            submit_slash=True,
+            submit_ready_js=(
+                f"document.body.innerText.toLowerCase().includes('/{command}') "
+                f"|| document.body.innerText.toLowerCase().includes('{command}')"
+            ),
+        )
+
     claude_result_wait = "document.body.innerText.toLowerCase().includes('claude code skills')"
     claude_agents_wait = (
         "document.body.innerText.toLowerCase().includes('claude code agents') "
@@ -557,6 +582,9 @@ def _native_slash_specs(
                 "|| document.body.innerText.toLowerCase().includes('agents')"
             ),
         ),
+        codex_management_spec("cloud"),
+        codex_management_spec("approvals"),
+        codex_management_spec("apps"),
         CaptureSpec(
             name="harness-claude-native-skills-result-dark",
             route=claude_route,
@@ -981,6 +1009,9 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             "harness-codex-native-plugin-install-handoff-dark",
             "harness-codex-native-resume-result-dark",
             "harness-codex-native-agents-result-dark",
+            "harness-codex-native-cloud-result-dark",
+            "harness-codex-native-approvals-result-dark",
+            "harness-codex-native-apps-result-dark",
             "harness-claude-native-skills-result-dark",
             "harness-claude-native-agents-result-dark",
             "harness-claude-native-hooks-result-dark",
@@ -994,6 +1025,9 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                 "harness-codex-native-plugin-install-handoff-dark",
                 "harness-codex-native-resume-result-dark",
                 "harness-codex-native-agents-result-dark",
+                "harness-codex-native-cloud-result-dark",
+                "harness-codex-native-approvals-result-dark",
+                "harness-codex-native-apps-result-dark",
             )
             claude_native_names = (
                 "harness-claude-native-skills-result-dark",
