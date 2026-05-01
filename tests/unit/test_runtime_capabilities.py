@@ -215,6 +215,43 @@ def test_claude_native_management_command_defaults_to_safe_list_forms():
     assert _portable("doctor", ("--json",)) == ["claude", "doctor", "--json"]
 
 
+@pytest.mark.asyncio
+async def test_claude_native_skills_lists_runtime_dirs_without_cli_spawn(monkeypatch, tmp_path):
+    pytest.importorskip("claude_agent_sdk")
+
+    from integrations.claude_code import harness as claude_harness
+    from integrations.claude_code.harness import ClaudeCodeRuntime
+
+    config_dir = tmp_path / ".claude"
+    user_skill = config_dir / "skills" / "user-skill"
+    project_skill = tmp_path / "project" / ".claude" / "skills" / "project-skill"
+    user_skill.mkdir(parents=True)
+    project_skill.mkdir(parents=True)
+    (user_skill / "SKILL.md").write_text("# User skill\n")
+    (project_skill / "SKILL.md").write_text("# Project skill\n")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+
+    def _unexpected_run(*args, **kwargs):
+        raise AssertionError("Bare Claude /skills should read native skill dirs directly")
+
+    monkeypatch.setattr(claude_harness.subprocess, "run", _unexpected_run)
+
+    ctx = SimpleNamespace(workdir=str(tmp_path / "project"))
+    result = await ClaudeCodeRuntime().execute_native_command(
+        command_id="skills",
+        args=(),
+        ctx=ctx,
+    )
+
+    assert result.status == "ok"
+    assert "user-skill (user)" in result.detail
+    assert "project-skill (project)" in result.detail
+    assert result.payload["skills"] == [
+        {"name": "user-skill", "source": "user", "path": str(user_skill / "SKILL.md")},
+        {"name": "project-skill", "source": "project", "path": str(project_skill / "SKILL.md")},
+    ]
+
+
 def test_claude_cli_path_prefers_container_visible_installed_binary(monkeypatch, tmp_path):
     pytest.importorskip("claude_agent_sdk")
     from integrations.claude_code import harness as claude_harness
@@ -253,7 +290,32 @@ def test_claude_auth_status_uses_native_auth_probe(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_claude_native_management_timeout_returns_terminal_handoff(monkeypatch):
+async def test_claude_native_tty_management_commands_return_immediate_terminal_handoff(monkeypatch):
+    pytest.importorskip("claude_agent_sdk")
+
+    from integrations.claude_code import harness as claude_harness
+    from integrations.claude_code.harness import ClaudeCodeRuntime
+
+    def _unexpected_run(*args, **kwargs):
+        raise AssertionError("TTY-only Claude native commands should not spawn in chat")
+
+    monkeypatch.setattr(claude_harness.subprocess, "run", _unexpected_run)
+
+    for command_id in ("hooks", "status", "doctor"):
+        result = await ClaudeCodeRuntime().execute_native_command(
+            command_id=command_id,
+            args=(),
+            ctx=None,
+        )
+
+        assert result.status == "terminal_handoff"
+        suggested = str(result.payload["suggested_command"])
+        assert suggested.endswith(f"claude {command_id}") or suggested.endswith(f"claude {command_id} list")
+        assert "without waiting for a chat-side subprocess timeout" in result.detail
+
+
+@pytest.mark.asyncio
+async def test_claude_native_management_timeout_still_returns_terminal_handoff(monkeypatch):
     pytest.importorskip("claude_agent_sdk")
     import subprocess
 
@@ -261,19 +323,19 @@ async def test_claude_native_management_timeout_returns_terminal_handoff(monkeyp
     from integrations.claude_code.harness import ClaudeCodeRuntime
 
     def _timeout_run(*args, **kwargs):
-        raise subprocess.TimeoutExpired(cmd=["claude", "doctor"], timeout=20)
+        raise subprocess.TimeoutExpired(cmd=["claude", "agents", "list"], timeout=20)
 
     monkeypatch.setattr(claude_harness.subprocess, "run", _timeout_run)
 
     result = await ClaudeCodeRuntime().execute_native_command(
-        command_id="doctor",
+        command_id="agents",
         args=(),
         ctx=None,
     )
 
     assert result.status == "terminal_handoff"
     suggested = str(result.payload["suggested_command"])
-    assert suggested.endswith("claude doctor")
+    assert suggested.endswith("claude agents list")
     assert "within the chat timeout" in result.detail
 
 

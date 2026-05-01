@@ -1279,10 +1279,15 @@ def _summarize_native_command_result(command_id: str, result: Any) -> str:
         if summary:
             return summary
     if command_id == "approvals":
-        for key in ("requirements", "configRequirements", "items"):
-            value = result.get(key)
-            if isinstance(value, list):
-                return f"approvals: {len(value)} requirement(s)."
+        return _summarize_approvals_result(result)
+    if command_id == "apps":
+        summary = _summarize_apps_result(result)
+        if summary:
+            return summary
+    if command_id in {"plugins", "skills", "mcp-status", "features", "resume", "agents"}:
+        summary = _summarize_codex_management_result(command_id, result)
+        if summary:
+            return summary
     for key in ("servers", "plugins", "skills", "features", "data", "items"):
         value = result.get(key)
         if isinstance(value, list):
@@ -1328,6 +1333,130 @@ def _summarize_cloud_result(result: dict[str, Any]) -> str | None:
     if not parts:
         return None
     return f"cloud: {', '.join(parts)}."
+
+
+def _summarize_approvals_result(result: dict[str, Any]) -> str:
+    for key in ("requirements", "configRequirements", "items"):
+        if key not in result:
+            continue
+        value = result.get(key)
+        if isinstance(value, list):
+            return f"approvals: {len(value)} requirement(s)."
+        if value is None:
+            return "approvals: no config requirements."
+    return "approvals: no config requirements."
+
+
+def _summarize_apps_result(result: dict[str, Any]) -> str | None:
+    apps = result.get("apps")
+    if not isinstance(apps, list):
+        apps = result.get("data")
+    if not isinstance(apps, list):
+        return None
+
+    enabled = sum(1 for app in apps if isinstance(app, dict) and app.get("isEnabled") is True)
+    accessible = sum(1 for app in apps if isinstance(app, dict) and app.get("isAccessible") is True)
+    parts = [f"{len(apps)} app(s)"]
+    if enabled:
+        parts.append(f"{enabled} enabled")
+    if accessible:
+        parts.append(f"{accessible} accessible")
+    return f"apps: {', '.join(parts)}."
+
+
+def _summarize_codex_management_result(command_id: str, result: dict[str, Any]) -> str | None:
+    if command_id == "plugins":
+        marketplaces = result.get("marketplaces")
+        if not isinstance(marketplaces, list):
+            return None
+        plugin_count = 0
+        installed = 0
+        enabled = 0
+        for marketplace in marketplaces:
+            if not isinstance(marketplace, dict):
+                continue
+            plugins = marketplace.get("plugins")
+            if not isinstance(plugins, list):
+                continue
+            plugin_count += len(plugins)
+            installed += sum(1 for plugin in plugins if isinstance(plugin, dict) and plugin.get("installed") is True)
+            enabled += sum(1 for plugin in plugins if isinstance(plugin, dict) and plugin.get("enabled") is True)
+        errors = result.get("marketplaceLoadErrors")
+        error_count = len(errors) if isinstance(errors, list) else 0
+        parts = [f"{len(marketplaces)} marketplace(s)", f"{plugin_count} plugin(s)"]
+        if installed:
+            parts.append(f"{installed} installed")
+        if enabled:
+            parts.append(f"{enabled} enabled")
+        if error_count:
+            parts.append(f"{error_count} load error(s)")
+        return f"plugins: {', '.join(parts)}."
+
+    if command_id == "skills":
+        rows = result.get("data")
+        if not isinstance(rows, list):
+            return None
+        skill_count = 0
+        cwd_count = 0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            skills = row.get("skills")
+            if isinstance(skills, list):
+                cwd_count += 1
+                skill_count += len(skills)
+        return f"skills: {skill_count} skill(s) across {cwd_count} cwd(s)."
+
+    if command_id == "mcp-status":
+        servers = result.get("data")
+        if not isinstance(servers, list):
+            return None
+        tools = 0
+        resources = 0
+        for server in servers:
+            if not isinstance(server, dict):
+                continue
+            server_tools = server.get("tools")
+            if isinstance(server_tools, dict):
+                tools += len(server_tools)
+            server_resources = server.get("resources")
+            if isinstance(server_resources, list):
+                resources += len(server_resources)
+        return f"mcp-status: {len(servers)} server(s), {tools} tool(s), {resources} resource(s)."
+
+    if command_id == "features":
+        features = result.get("data")
+        if not isinstance(features, list):
+            return None
+        enabled = sum(1 for feature in features if isinstance(feature, dict) and feature.get("enabled") is True)
+        default_enabled = sum(1 for feature in features if isinstance(feature, dict) and feature.get("defaultEnabled") is True)
+        return f"features: {len(features)} feature(s), {enabled} enabled, {default_enabled} default enabled."
+
+    if command_id in {"resume", "agents"}:
+        threads = result.get("data")
+        if not isinstance(threads, list):
+            return None
+        loaded = 0
+        ephemeral = 0
+        for thread in threads:
+            if not isinstance(thread, dict):
+                continue
+            if thread.get("ephemeral") is True:
+                ephemeral += 1
+            status = thread.get("status")
+            if isinstance(status, dict) and status.get("type") == "loaded":
+                loaded += 1
+        noun = "thread" if command_id == "resume" else "agent thread"
+        parts = [f"{len(threads)} {noun}(s)"]
+        if loaded:
+            parts.append(f"{loaded} loaded")
+        if ephemeral:
+            parts.append(f"{ephemeral} ephemeral")
+        if result.get("nextCursor"):
+            parts.append("more available")
+        return f"{command_id}: {', '.join(parts)}."
+
+    return None
 
 
 def _extract_thread_id(result: dict[str, Any] | None) -> str | None:

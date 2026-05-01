@@ -38,6 +38,7 @@ import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
+import { getChatShortcutLabel } from "@/src/components/chat/chatKeyboard";
 import { attentionDeckHref } from "@/src/lib/hubRoutes";
 import {
   resolveHeaderMetrics,
@@ -236,6 +237,7 @@ export function ChannelHeader({
   const showScratchState = resolvedChromeMode === "session";
   const showCanvasState = resolvedChromeMode === "canvas";
   const sessionButtonLabel = "Sessions";
+  const sessionButtonTitle = `${sessionButtonLabel} (${getChatShortcutLabel("switchSessions")})`;
   const showFindingsInline = !isMobile && showFindingsButton;
   const showSettingsInline = false;
   const showDashboardInline = false;
@@ -965,8 +967,8 @@ export function ChannelHeader({
                   }
             }
             onClick={onOpenSessions}
-            title={sessionButtonLabel}
-            aria-label={sessionButtonLabel}
+            title={sessionButtonTitle}
+            aria-label={sessionButtonTitle}
             aria-haspopup="dialog"
             aria-pressed={!!scratchOpen}
           >

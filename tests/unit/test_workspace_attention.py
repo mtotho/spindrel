@@ -24,7 +24,9 @@ from app.services.workspace_attention import (
     create_user_attention_item,
     detect_structured_attention_once,
     get_attention_triage_run,
+    get_issue_intake_triage_run,
     list_attention_triage_runs,
+    list_issue_intake_triage_runs,
     list_attention_items,
     launch_issue_work_packs_project_runs,
     mark_attention_responded,
@@ -711,6 +713,69 @@ async def test_report_issue_work_packs_groups_intake_and_marks_items(db_session)
     assert refreshed_first.evidence["issue_triage"]["state"] == "packed"
     assert refreshed_first.evidence["issue_triage"]["work_pack_ids"] == [str(packs[0].id)]
     assert refreshed_first.evidence["issue_triage"]["triage_receipt_id"] == refreshed.metadata_["triage_receipt_id"]
+
+
+@pytest.mark.asyncio
+async def test_issue_intake_triage_runs_are_listed_with_work_packs(db_session):
+    channel_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Spindrel Dev", bot_id="codex", client_id="issue-triage-runs"))
+    await db_session.commit()
+    first = await publish_issue_intake(
+        db_session,
+        bot_id="codex",
+        channel_id=channel_id,
+        title="Issue triage run needs a visible receipt",
+        summary="The Issue Intake lane starts a task but does not show the run status.",
+    )
+    task = Task(
+        id=uuid.uuid4(),
+        bot_id="orchestrator",
+        channel_id=channel_id,
+        status="complete",
+        task_type="issue_intake_triage",
+        prompt="triage",
+        callback_config={"issue_intake_triage": True, "attention_item_ids": [str(first.id)]},
+        execution_config={"model_override": "gpt-5.4"},
+        completed_at=datetime.now(timezone.utc),
+    )
+    db_session.add(task)
+    pack = IssueWorkPack(
+        id=uuid.uuid4(),
+        title="Expose Issue Intake triage runs",
+        summary="Show recent issue triage runs in Mission Control Review.",
+        category="code_bug",
+        confidence="high",
+        status="proposed",
+        source_item_ids=[str(first.id)],
+        launch_prompt="Expose the issue triage run status.",
+        triage_task_id=task.id,
+        metadata_={"triage_receipt_id": "issue-triage-receipt:test"},
+    )
+    db_session.add(pack)
+    first.evidence = {
+        **(first.evidence or {}),
+        "issue_triage": {
+            "state": "packed",
+            "task_id": str(task.id),
+            "work_pack_ids": [str(pack.id)],
+        },
+    }
+    await db_session.commit()
+
+    auth = ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin", "channels:read"], name="admin")
+    runs = await list_issue_intake_triage_runs(db_session, auth=auth)
+
+    run = next(entry for entry in runs if entry["task_id"] == str(task.id))
+    assert run["run_kind"] == "issue_intake_triage"
+    assert run["status"] == "complete"
+    assert run["counts"]["processed"] == 1
+    assert run["work_pack_count"] == 1
+    assert run["work_packs"][0]["title"] == "Expose Issue Intake triage runs"
+    assert run["effective_model"] == "gpt-5.4"
+
+    detail = await get_issue_intake_triage_run(db_session, auth=auth, task_id=task.id)
+    assert detail["task_id"] == str(task.id)
+    assert detail["work_packs"][0]["triage_task_id"] == str(task.id)
 
 
 @pytest.mark.asyncio

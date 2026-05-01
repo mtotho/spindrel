@@ -507,6 +507,12 @@ class Settings(BaseSettings):
 
     # Encryption (secrets at rest)
     ENCRYPTION_KEY: str = ""  # Fernet key for encrypting provider API keys + integration secrets
+    # Strict mode: when True, encrypt() raises if no key is configured instead
+    # of silently writing plaintext. The startup bootstrap auto-generates a
+    # key on first boot, so the only way to hit this is a misconfigured key
+    # or a code path that bypasses bootstrap. Default-on for production
+    # deployments. Tests override via tests/conftest.py.
+    ENCRYPTION_STRICT: bool = True
 
     # Web Push / VAPID
     # Generate a keypair once via: `python -m app.tools.generate_vapid_keys`,
@@ -573,6 +579,13 @@ class Settings(BaseSettings):
     # so a slow/blocking origin (e.g. a site that fingerprints the firecrawl
     # proxy) doesn't eat a full minute of turn wall-clock per attempt.
     MCP_CALL_TIMEOUT: float = 30.0
+    # SSRF guard: by default, block MCP server URLs that resolve to private,
+    # loopback, link-local, or CGNAT ranges so a misconfigured/attacker-supplied
+    # URL cannot reach internal admin surfaces or cloud metadata. Operators who
+    # genuinely run MCP on the LAN can set this true. Loopback stays blocked
+    # unless MCP_ALLOW_LOOPBACK is also true.
+    MCP_ALLOW_PRIVATE_NETWORKS: bool = False
+    MCP_ALLOW_LOOPBACK: bool = False
     # Rate limit retry (LLM call level — preserves accumulated tool-call context)
     LLM_RATE_LIMIT_RETRIES: int = 3          # additional attempts after first failure
     LLM_RATE_LIMIT_INITIAL_WAIT: int = 90    # seconds before first retry (slightly > 60s TPM window)

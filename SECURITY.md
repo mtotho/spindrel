@@ -75,13 +75,16 @@ When reviewing new features, check at least these classes:
 
 The admin security audit is read-only and currently checks baseline config/tool-policy state plus agentic boundary signals:
 
-- Encryption/admin key separation/tool policy/rate-limit/redaction settings
-- Dangerous tool tiers, exec/control-plane tool exposure, stale approvals, and MCP server count
-- Bots with `cross_workspace_access`
-- Bots with high-risk API scopes such as `admin`, wildcard, `tools:execute`, secret/provider/settings/API-key writes, and broad file writes
+- Encryption posture: key configured + strict mode (raises rather than silently writing plaintext), admin key separation, tool policy enabled, default action, rate-limit, redaction settings
+- Dangerous tool tiers, exec/control-plane tool exposure, stale approvals
+- MCP server count + outbound URL guard posture (default-deny private/loopback; warns when operator opts into LAN/loopback reach)
+- Approval-rule origin scope: lists `allow` rules limited to interactive chat vs those that opt into autonomous (heartbeat / scheduled task / sub-agent / hygiene) origins
+- Bots with `cross_workspace_access` (legacy metadata) and bots with high-risk API scopes (`admin`, wildcard, `tools:execute`, secret/provider/settings/API-key writes, broad file writes)
 - Widget action API dispatch allowlist breadth and widget DB SQLite file-boundary protections
 - WorkSurface isolation static findings and inbound integration callback auth/replay contracts
 - Local machine-control tool gate contracts, lease state, and browser-live pairing exposure
+
+Deeper review of recurring findings, principles, and remediation queue lives in [`docs/audits/security-deep-review-2026-05.md`](docs/audits/security-deep-review-2026-05.md) and the durable bar in [`docs/guides/security.md`](docs/guides/security.md).
 
 ## Deployment Guidance
 

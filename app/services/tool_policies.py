@@ -113,23 +113,36 @@ def _match_conditions(
             "mode": {"in": ["delete", "force"]}  # value in list
         },
         "origin_kind": {"in": ["heartbeat", "task", "subagent", "hygiene"]},
+        "apply_to_autonomous": false,  # shortcut: opt-in to autonomous origins
     }
 
-    Empty/null conditions always match.
+    **Origin-kind default (since 2026-05):** a rule that does not declare
+    ``origin_kind`` (or ``apply_to_autonomous``) is treated as interactive-
+    only. Autonomous origins (heartbeat, task, subagent, hygiene) must
+    either match a rule with explicit autonomous opt-in or fall through to
+    autonomous defaults / tier defaults. This prevents an interactive
+    "allow exec_command" rule from silently auto-approving the same tool
+    in unattended runs. Override via ``apply_to_autonomous: true`` (matches
+    every origin) or an explicit ``origin_kind`` matcher.
     """
-    if not conditions:
-        return True
+    effective_origin = origin_kind or "chat"
 
-    # Origin-kind gate — lets rules target autonomous runs specifically
-    # (e.g. "heartbeats must get approval for file(overwrite)") without
-    # affecting interactive chat where the user is present.
+    if not conditions:
+        # No conditions at all → interactive-only by default (safer post-fix).
+        return effective_origin == "chat"
+
     origin_match = conditions.get("origin_kind")
+    apply_to_autonomous = bool(conditions.get("apply_to_autonomous"))
+
     if origin_match:
-        effective = origin_kind or "chat"
-        if "in" in origin_match and effective not in origin_match["in"]:
+        if "in" in origin_match and effective_origin not in origin_match["in"]:
             return False
-        if "eq" in origin_match and effective != origin_match["eq"]:
+        if "eq" in origin_match and effective_origin != origin_match["eq"]:
             return False
+    elif not apply_to_autonomous and effective_origin != "chat":
+        # Rule has no origin_kind matcher and isn't opted into autonomous
+        # → only matches interactive chat origin.
+        return False
 
     arg_conditions = conditions.get("arguments")
     if not arg_conditions:

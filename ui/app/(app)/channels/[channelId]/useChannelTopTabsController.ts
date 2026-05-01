@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { NavigateFunction } from "react-router-dom";
 import { useRenameSession } from "@/src/api/hooks/useChannelSessions";
+import { isCloseActiveChatTabShortcut } from "@/src/components/chat/chatKeyboard";
 import type { ChannelPanelPrefs, ChannelPanelPrefsPatch, RecentPage } from "@/src/stores/ui";
 import {
   CHANNEL_FILE_LINK_OPEN_EVENT,
@@ -474,6 +475,22 @@ export function useChannelTopTabsController({
       handleSelectSessionTab(nextTab);
     }
   }, [activeFile, channelId, closeFileTabNow, handleSelectSessionTab, patchChannelPanelPrefs, sessionTabs]);
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (isMobile || !isCloseActiveChatTabShortcut(event)) return;
+      const activeTab = topTabs.find((tab) => tab.active) ?? null;
+      if (!activeTab) return;
+      const isOnlyPrimary =
+        topTabs.length <= 1
+        && activeTab.kind === "surface"
+        && activeTab.surface.kind === "primary";
+      if (isOnlyPrimary) return;
+      event.preventDefault();
+      handleCloseSessionTab(activeTab);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleCloseSessionTab, isMobile, topTabs]);
   const handleReorderSessionTabs = useCallback((dragKey: string, targetKey: string) => {
     if (!channelId || dragKey === targetKey) return;
     patchChannelPanelPrefs(channelId, (current) => {

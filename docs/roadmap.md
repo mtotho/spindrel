@@ -1,7 +1,7 @@
 ---
 tags: [spindrel, roadmap, master]
 status: active
-updated: 2026-04-30
+updated: 2026-05-01
 ---
 # Agent Server — Roadmap
 
@@ -41,7 +41,7 @@ Full detail in [[completed-tracks]].
 
 | Area | Latest | One-line | Track |
 |---|---|---|---|
-| Security Architecture | agentic audit started 2026-04-30 | Dedicated security track is active again after Projects/harness/widgets/integrations expanded the attack surface; security audit now reports cross-workspace bots, high-risk bot API scopes, and widget-action API allowlist breadth. | [[security]] |
+| Security Architecture | deep review shipped 2026-05-01 | 2026-05 deep review shipped MCP SSRF guard, encryption fail-fast (`ENCRYPTION_STRICT`), tool-result redaction at the dispatch boundary, `/auth/google` + `/auth/refresh` rate-limit parity, and approval-rule origin_kind awareness. Audit doc + principles guide added; live queue covers run_script tightening, widget symlink rejection, backup encryption, supply-chain signing. | [[security]] |
 | System Health Visibility | shipped 2026-04-26 | Rotating JSONL log handler + `read_container_logs` / `get_recent_server_errors` tools + deterministic daily summary + `DailyHealthLandmark` canvas marker | (in [[architecture-decisions]]) |
 | Agent-first capability surface | work snapshot 2026-04-30 | Machine-readable `/api/v1/agent-capabilities` plus `list_agent_capabilities` / `run_agent_doctor`; UI readiness covers API/tools/skills/Project/harness/widgets/integrations, repo-local `.agents/skills` guide outside/dev agents, `llms.txt`/`/llms.txt` gives external agents a stable discovery entrypoint, and runtime agents now get compact context-budget plus assigned-work snapshots. | [[mission-control-vision]] / `docs/guides/discovery-and-enrollment.md` |
 | Mission Control Vision | 2026-04-30 | Operator Map north star plus active review deck: rough conversational issue notes and autonomous bot blockers now converge into Attention-backed Issue Work Packs before Project coding runs launch. | [[mission-control-vision]] |

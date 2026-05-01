@@ -557,6 +557,34 @@ def _sanitize_extra_csp(raw: Any) -> dict[str, list[str]] | None:
 # ---------------------------------------------------------------------------
 
 
+def _set_tool_result(
+    result_obj: "ToolCallResult",
+    persisted: str,
+    *,
+    llm: str | None = None,
+) -> None:
+    """Single boundary helper for writing tool results onto ``result_obj``.
+
+    Every persisted ``ToolCall.result`` and every LLM-visible result string
+    flows through here so secret redaction is impossible to forget. ``llm``
+    defaults to the persisted payload when callers want both copies to match
+    (error / denial paths); the success path passes a separately-prepared
+    LLM string after envelope extraction.
+
+    The redaction call is a no-op when secret redaction is disabled in
+    settings, but it always runs through the same boundary, which is the
+    invariant ``tests/unit/test_tool_result_redaction_boundary.py`` pins.
+    """
+    from app.services.secret_registry import redact as _redact_secrets
+
+    persisted_redacted = _redact_secrets(persisted) if persisted is not None else persisted
+    result_obj.result = persisted_redacted
+    if llm is None:
+        result_obj.result_for_llm = persisted_redacted
+    else:
+        result_obj.result_for_llm = _redact_secrets(llm) if llm is not None else llm
+
+
 def _apply_error_payload(
     result_obj: "ToolCallResult",
     *,
@@ -611,8 +639,7 @@ def _apply_error_payload(
             ),
             ensure_ascii=False,
         )
-    result_obj.result = payload
-    result_obj.result_for_llm = payload
+    _set_tool_result(result_obj, payload)
     result_obj.tool_event = {
         "type": "tool_result",
         "tool": tool_name,
@@ -807,8 +834,7 @@ async def _execution_policy_guard(
             )
     except Exception:
         logger.debug("Failed to build machine-control denial payload for %s", name, exc_info=True)
-    result_obj.result = deny_result
-    result_obj.result_for_llm = deny_result
+    _set_tool_result(result_obj, deny_result)
     result_obj.envelope = _build_envelope_from_optin(
         {
             "content_type": "application/vnd.spindrel.components+json",
@@ -940,9 +966,10 @@ async def _policy_and_approval_guard(
             result_obj.approval_timeout = decision.timeout
             result_obj.approval_reason = approval_reason
             result_obj.record_id = pending_id
-            result_obj.result_for_llm = json.dumps({
+            from app.services.secret_registry import redact as _redact_pending
+            result_obj.result_for_llm = _redact_pending(json.dumps({
                 "status": "pending_approval", "reason": approval_reason,
-            })
+            }))
             result_obj.tool_event = {
                 "type": "tool_result", "tool": name, "tool_call_id": tool_call_id,
                 "pending_approval": True,
@@ -1485,9 +1512,12 @@ async def dispatch_tool_call(
     except Exception:
         pass
 
-    # Redact known secrets from the raw result before storage
+    # Redact known secrets from the raw result before storage. The boundary
+    # helper applies redaction so any future writer of ``result_obj.result``
+    # routes through the same call site (pinned by
+    # ``test_tool_result_redaction_boundary.py``).
+    _set_tool_result(result_obj, result)
     from app.services.secret_registry import redact as _redact_secrets
-    result_obj.result = _redact_secrets(result)
 
     # Extract embedded ``_envelope`` / ``client_action`` / ``injected_images``
     # from the raw (pre-redacted) JSON parse. The LLM-visible ``result_for_llm``
@@ -1613,7 +1643,12 @@ async def dispatch_tool_call(
                 },
             ))
 
-    result_obj.result_for_llm = result_for_llm
+    # ``result_for_llm`` has already been redacted upstream and may have been
+    # wrapped in <untrusted-data> tags or summarized; passing it through
+    # ``_redact_secrets`` again is idempotent and keeps the boundary
+    # invariant simple. ``result_obj.result`` was set earlier with the raw
+    # (pre-summarization) payload so the DB row preserves the full output.
+    result_obj.result_for_llm = _redact_secrets(result_for_llm)
     result_obj.was_summarized = _was_summarized
     result_obj.record_id = _tc_record_id
 

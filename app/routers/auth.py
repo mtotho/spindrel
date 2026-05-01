@@ -245,7 +245,8 @@ async def auth_login(req: LoginRequest, request: Request, db: AsyncSession = Dep
 
 
 @router.post("/google", response_model=TokenResponse)
-async def auth_google(req: GoogleAuthRequest, db: AsyncSession = Depends(get_db)):
+async def auth_google(req: GoogleAuthRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    _check_rate_limit(request)
     if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
         raise HTTPException(status_code=400, detail="Google OAuth not configured")
     try:
@@ -266,7 +267,8 @@ async def auth_google(req: GoogleAuthRequest, db: AsyncSession = Depends(get_db)
 
 
 @router.post("/refresh", response_model=AccessTokenResponse)
-async def auth_refresh(req: RefreshRequest, db: AsyncSession = Depends(get_db)):
+async def auth_refresh(req: RefreshRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    _check_rate_limit(request)
     token_row = await validate_refresh_token(req.refresh_token, db)
     if not token_row:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")

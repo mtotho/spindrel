@@ -187,6 +187,7 @@ export interface BulkAcknowledgeAttentionInput {
 
 export interface AttentionTriageRunResponse {
   task_id: string;
+  run_kind?: "attention_triage" | "issue_intake_triage" | string;
   session_id: string | null;
   parent_channel_id: string | null;
   bot_id: string;
@@ -202,6 +203,8 @@ export interface AttentionTriageRunResponse {
     unreported: number;
   };
   items?: WorkspaceAttentionItem[];
+  work_pack_count?: number;
+  work_packs?: IssueWorkPack[];
   model_override?: string | null;
   model_provider_id_override?: string | null;
   effective_model?: string | null;
@@ -296,6 +299,7 @@ interface BulkAcknowledgeAttentionResponse {
 export const WORKSPACE_ATTENTION_KEY = ["workspace-attention"] as const;
 export const WORKSPACE_ATTENTION_BRIEF_KEY = ["workspace-attention-brief"] as const;
 export const ATTENTION_TRIAGE_RUNS_KEY = ["workspace-attention-triage-runs"] as const;
+export const ISSUE_TRIAGE_RUNS_KEY = ["workspace-issue-triage-runs"] as const;
 export const ISSUE_WORK_PACKS_KEY = ["workspace-issue-work-packs"] as const;
 
 export function isActiveAttentionItem(item: WorkspaceAttentionItem): boolean {
@@ -573,6 +577,7 @@ export function useStartIssueTriageRun() {
       qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
       qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
       qc.invalidateQueries({ queryKey: ATTENTION_TRIAGE_RUNS_KEY });
+      qc.invalidateQueries({ queryKey: ISSUE_TRIAGE_RUNS_KEY });
       qc.invalidateQueries({ queryKey: ISSUE_WORK_PACKS_KEY });
     },
   });
@@ -591,6 +596,7 @@ export function useIssueWorkPacks() {
 
 function invalidateIssueWorkPackQueries(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ISSUE_WORK_PACKS_KEY });
+  qc.invalidateQueries({ queryKey: ISSUE_TRIAGE_RUNS_KEY });
   qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
   qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
 }
@@ -662,6 +668,24 @@ export function useAttentionTriageRuns(options: { enabled?: boolean; limit?: num
       const params = new URLSearchParams();
       params.set("limit", String(limit));
       const res = await apiFetch<{ runs: AttentionTriageRunResponse[] }>(`/api/v1/workspace/attention/triage-runs?${params.toString()}`);
+      return res.runs;
+    },
+    enabled,
+    refetchInterval: enabled ? options.refetchInterval ?? 10_000 : false,
+    staleTime: 5_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useIssueTriageRuns(options: { enabled?: boolean; limit?: number; refetchInterval?: number | false } = {}) {
+  const enabled = options.enabled ?? true;
+  const limit = options.limit ?? 20;
+  return useQuery({
+    queryKey: [...ISSUE_TRIAGE_RUNS_KEY, { limit }],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("limit", String(limit));
+      const res = await apiFetch<{ runs: AttentionTriageRunResponse[] }>(`/api/v1/workspace/attention/issue-triage-runs?${params.toString()}`);
       return res.runs;
     },
     enabled,

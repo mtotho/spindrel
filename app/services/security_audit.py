@@ -82,16 +82,40 @@ class SecurityAuditResponse(BaseModel):
 
 def _check_encryption_key() -> SecurityCheck:
     enabled = is_encryption_enabled()
+    strict = bool(getattr(settings, "ENCRYPTION_STRICT", True))
+    if enabled and strict:
+        return SecurityCheck(
+            id="encryption_key_configured",
+            category="encryption",
+            severity=Severity.critical,
+            status=Status.passed,
+            message="Encryption key is configured (strict mode on)",
+            details={"strict": True},
+        )
+    if enabled and not strict:
+        return SecurityCheck(
+            id="encryption_key_configured",
+            category="encryption",
+            severity=Severity.critical,
+            status=Status.warning,
+            message="Encryption key is configured but strict mode is off",
+            recommendation=(
+                "Remove ENCRYPTION_STRICT=false (default true) so encrypt() "
+                "fails fast if the key is ever lost or misconfigured."
+            ),
+            details={"strict": False},
+        )
     return SecurityCheck(
         id="encryption_key_configured",
         category="encryption",
         severity=Severity.critical,
-        status=Status.passed if enabled else Status.fail,
-        message="Encryption key is configured" if enabled else "No encryption key configured — secrets stored in plaintext",
-        recommendation=None if enabled else (
+        status=Status.fail,
+        message="No encryption key configured — secrets stored in plaintext",
+        recommendation=(
             "Set ENCRYPTION_KEY in .env. Generate one with: "
             "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
         ),
+        details={"strict": strict},
     )
 
 
@@ -877,6 +901,141 @@ async def _check_policy_rule_count(db: AsyncSession) -> SecurityCheck:
     )
 
 
+async def _check_allow_rules_autonomous_scope(db: AsyncSession) -> SecurityCheck:
+    """Surface ``allow`` rules whose scope is interactive-only by default.
+
+    Since 2026-05, a rule with no ``origin_kind`` matcher and no
+    ``apply_to_autonomous`` opt-in only matches the interactive ``chat``
+    origin. That's a fail-closed default — autonomous heartbeats / tasks /
+    sub-agents / hygiene runs will hit the require_approval defaults
+    instead of the rule. This check lists the ``allow`` rules whose
+    scope is interactive-only so operators can verify the posture (e.g.
+    deliberately broaden a rule by setting ``apply_to_autonomous: true``
+    in its conditions if they really want it to cover autonomous runs).
+    """
+    rows = (
+        await db.execute(
+            select(ToolPolicyRule)
+            .where(ToolPolicyRule.enabled.is_(True))
+            .where(ToolPolicyRule.action == "allow")
+        )
+    ).scalars().all()
+
+    interactive_only: list[dict[str, Any]] = []
+    autonomous_opt_in: list[dict[str, Any]] = []
+    for row in rows:
+        cond = row.conditions or {}
+        has_origin = bool(cond.get("origin_kind"))
+        opt_in = bool(cond.get("apply_to_autonomous"))
+        info = {
+            "id": str(row.id),
+            "tool_name": row.tool_name,
+            "bot_id": str(row.bot_id) if row.bot_id else None,
+            "origin_kind": cond.get("origin_kind"),
+            "apply_to_autonomous": opt_in,
+        }
+        if has_origin or opt_in:
+            autonomous_opt_in.append(info)
+        else:
+            interactive_only.append(info)
+
+    if not rows:
+        return SecurityCheck(
+            id="allow_rules_origin_scope",
+            category="tool_policies",
+            severity=Severity.info,
+            status=Status.passed,
+            message="No active 'allow' rules — autonomous defaults apply.",
+            details={"interactive_only": [], "autonomous_opt_in": []},
+        )
+
+    return SecurityCheck(
+        id="allow_rules_origin_scope",
+        category="tool_policies",
+        severity=Severity.info,
+        status=Status.passed,
+        message=(
+            f"{len(interactive_only)} 'allow' rule(s) limited to interactive chat; "
+            f"{len(autonomous_opt_in)} also cover autonomous runs"
+        ),
+        recommendation=(
+            "Review the rules under 'autonomous_opt_in' — those grant the same "
+            "tool to heartbeats, tasks, sub-agents, and hygiene runs. Tighten "
+            "by removing ``apply_to_autonomous`` or constraining ``origin_kind`` "
+            "if any were not intended for unattended use."
+        ),
+        details={
+            "interactive_only": interactive_only[:25],
+            "autonomous_opt_in": autonomous_opt_in[:25],
+        },
+    )
+
+
+async def _check_mcp_outbound_url_guard(db: AsyncSession) -> SecurityCheck:
+    """Report whether the MCP outbound URL guard is in default-deny mode.
+
+    The guard ships default-deny for private/loopback ranges so a typo or
+    attacker-supplied MCP server URL cannot reach internal admin surfaces or
+    cloud metadata. Operators who genuinely run MCP on the LAN can opt in via
+    ``MCP_ALLOW_PRIVATE_NETWORKS``. This check makes the chosen posture
+    visible — passing when default-deny, warning when opted in, with the list
+    of configured server hosts so the operator can see what they accepted.
+    """
+    from app.tools.mcp import _servers as mcp_yaml_servers
+    from urllib.parse import urlparse
+
+    allow_private = bool(settings.MCP_ALLOW_PRIVATE_NETWORKS)
+    allow_loopback = bool(settings.MCP_ALLOW_LOOPBACK)
+    yaml_hosts = sorted({
+        urlparse(srv.url).hostname or srv.url
+        for srv in mcp_yaml_servers.values()
+    })
+    db_hosts: list[str] = []
+    try:
+        rows = (await db.execute(
+            select(MCPServer.url).where(MCPServer.is_enabled.is_(True))
+        )).scalars().all()
+        db_hosts = sorted({urlparse(u or "").hostname or (u or "") for u in rows if u})
+    except Exception:
+        logger.debug("Could not collect DB MCP server URLs for audit", exc_info=True)
+
+    details = {
+        "allow_private_networks": allow_private,
+        "allow_loopback": allow_loopback,
+        "yaml_hosts": yaml_hosts,
+        "db_hosts": db_hosts,
+    }
+    if not allow_private and not allow_loopback:
+        return SecurityCheck(
+            id="mcp_outbound_url_guard",
+            category="mcp",
+            severity=Severity.warning,
+            status=Status.passed,
+            message="MCP outbound URL guard in default-deny mode (private/loopback blocked)",
+            details=details,
+        )
+    relaxed = []
+    if allow_private:
+        relaxed.append("private networks")
+    if allow_loopback:
+        relaxed.append("loopback")
+    return SecurityCheck(
+        id="mcp_outbound_url_guard",
+        category="mcp",
+        severity=Severity.warning,
+        status=Status.warning,
+        message=(
+            "MCP outbound URL guard relaxed for: " + ", ".join(relaxed)
+            + ". Verify every configured MCP server is intentional."
+        ),
+        recommendation=(
+            "Unset MCP_ALLOW_PRIVATE_NETWORKS / MCP_ALLOW_LOOPBACK once you've "
+            "confirmed every configured server should remain reachable."
+        ),
+        details=details,
+    )
+
+
 async def _check_mcp_servers_count(db: AsyncSession) -> SecurityCheck:
     yaml_count = get_configured_server_count()
     stmt = select(func.count()).select_from(MCPServer).where(MCPServer.is_enabled.is_(True))
@@ -1056,7 +1215,9 @@ async def run_security_audit(db: AsyncSession) -> SecurityAuditResponse:
     checks.append(await _check_approval_timeout(db))
     checks.append(await _check_stale_approvals(db))
     checks.append(await _check_policy_rule_count(db))
+    checks.append(await _check_allow_rules_autonomous_scope(db))
     checks.append(await _check_mcp_servers_count(db))
+    checks.append(await _check_mcp_outbound_url_guard(db))
     checks.append(await _check_machine_control_lease_state(db))
 
     summary = _compute_summary(checks)

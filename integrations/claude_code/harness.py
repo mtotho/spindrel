@@ -71,6 +71,7 @@ _CLAUDE_PLUGIN_MUTATING_SUBCOMMANDS = {
     "update",
 }
 _CLAUDE_MCP_MUTATING_SUBCOMMANDS = {"add", "login", "logout", "remove"}
+_CLAUDE_TTY_ONLY_MANAGEMENT_COMMANDS = {"hooks", "status", "doctor"}
 
 
 # Per-mode SDK ``allowed_tools`` resolver.
@@ -714,6 +715,8 @@ class ClaudeCodeRuntime:
         terminal_handoff = _claude_management_terminal_handoff(command_id, args)
         if terminal_handoff is not None:
             return terminal_handoff
+        if command_id == "skills" and not args:
+            return _list_claude_skills_from_runtime_dirs(ctx)
         if cli_command is not None:
             try:
                 proc = subprocess.run(
@@ -742,8 +745,6 @@ class ClaudeCodeRuntime:
                     payload={"suggested_command": " ".join(cli_command)},
                 )
             detail = (proc.stdout or proc.stderr or "").strip()
-            if proc.returncode != 0 and command_id == "skills" and not args:
-                return _list_claude_skills_from_runtime_dirs(ctx)
             return HarnessRuntimeCommandResult(
                 command_id=command_id,
                 title=f"Claude Code {command_id}",
@@ -859,6 +860,19 @@ def _claude_management_terminal_handoff(
 ) -> HarnessRuntimeCommandResult | None:
     cleaned_args = tuple(arg.strip() for arg in args if arg and arg.strip())
     first = cleaned_args[0].lower() if cleaned_args else ""
+    if command_id in _CLAUDE_TTY_ONLY_MANAGEMENT_COMMANDS:
+        command = _claude_management_command(command_id, cleaned_args)
+        suggested = " ".join(command) if command else " ".join(("claude", command_id, *cleaned_args))
+        return _native_terminal_handoff(
+            command_id=command_id,
+            args=cleaned_args,
+            suggested_command=suggested,
+            detail=(
+                "This Claude Code native management command needs an interactive "
+                "terminal in the installed CLI. Open a terminal to run it without "
+                "waiting for a chat-side subprocess timeout."
+            ),
+        )
     if command_id in {"plugins", "plugin"} and first in _CLAUDE_PLUGIN_MUTATING_SUBCOMMANDS:
         return _native_terminal_handoff(
             command_id=command_id,

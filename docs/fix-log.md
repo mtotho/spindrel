@@ -4,6 +4,16 @@ status: archive
 ---
 # Fix Log
 
+- **2026-05-01** MCP runtime path now SSRF-checks every outbound request. `app/services/url_safety.py::assert_public_url` extended with `allow_loopback` / `allow_private` opt-ins; `app/tools/mcp.py::fetch_mcp_tools` and `call_mcp_tool` consult it before any HTTP. Operator opt-ins `MCP_ALLOW_PRIVATE_NETWORKS` / `MCP_ALLOW_LOOPBACK`. New audit signal `mcp_outbound_url_guard`. Coverage: `tests/unit/test_url_guard.py` + `tests/unit/test_mcp_outbound_guard.py`. See [`docs/audits/security-deep-review-2026-05.md`](audits/security-deep-review-2026-05.md).
+
+- **2026-05-01** Encryption now fails fast in production. New `ENCRYPTION_STRICT` setting (default true) makes `encrypt()` raise `EncryptionNotConfiguredError` instead of silently storing plaintext when no key is configured; `decrypt()` raises on encrypted-prefixed value with no key; `ensure_encryption_key()` re-raises `OSError` on dotenv write failure under strict mode. Tests opt out via `tests/conftest.py`. Audit signal upgraded to surface strict posture.
+
+- **2026-05-01** Tool-result redaction enforced at the dispatch boundary. New `_set_tool_result` helper in `app/agent/tool_dispatch.py` always applies `secret_registry.redact()` to both `result_obj.result` and `result_obj.result_for_llm`. Error path (`_apply_error_payload`) and machine-access-denied path now redact (previously raw). Lint test `tests/unit/test_tool_result_redaction_boundary.py` AST-greps the file so future drift fails CI.
+
+- **2026-05-01** `/auth/google` and `/auth/refresh` are now rate-limited (5 attempts/60s/IP), matching the existing throttle on `/auth/login` and `/auth/setup`. Coverage: `tests/unit/test_auth_routes_rate_limit.py`.
+
+- **2026-05-01** Approval rules without explicit `origin_kind` now apply only to interactive chat, not to autonomous heartbeats / scheduled tasks / sub-agents / hygiene runs. `_match_conditions` defaults to `chat` unless the rule sets `origin_kind` or `apply_to_autonomous: true`. Existing rules fail-closed on read. New audit signal `allow_rules_origin_scope` lists which rules are interactive-only vs autonomous-opt-in. Coverage: 7 new origin-kind cases in `tests/unit/test_tool_policies.py`.
+
 - **2026-05-01** Channel dashboard HTML widgets no longer race into one direct SSE stream per iframe while the host broker is still acknowledging. The widget preamble now waits briefly for broker readiness before direct fallback, direct fallback clears reconnect timers on unsubscribe, the host broker resets stale same-iframe subscriptions on probe and replaces duplicate sub ids, and large active streaming transcript renders are throttled to reduce Chrome main-thread stalls. Regression coverage lives in `ui/src/api/hooks/useWidgetStreamBroker.test.ts`, `ui/src/components/chat/renderers/InteractiveHtmlRenderer.test.ts`, and `ui/src/components/chat/StreamingIndicator.perf.test.ts`.
 
 - **2026-04-30** Inbound integration callbacks now have explicit auth/replay contracts in their manifests and the admin security audit. BlueBubbles accepts `Authorization: Bearer` before deprecated query-token auth and records durable `data.guid` replay keys before dispatch; Frigate records durable `after.id` replay keys before fan-out; GitHub remains the reference HMAC + delivery-id dedupe path.

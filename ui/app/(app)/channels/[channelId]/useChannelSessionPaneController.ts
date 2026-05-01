@@ -116,6 +116,7 @@ export interface ChannelSessionOverlayController {
   setPendingSplitSurface: Dispatch<SetStateAction<ChannelSessionSurface | null>>;
   openSessionsOverlay: () => void;
   openSplitOverlay: () => void;
+  toggleSessionsOverlay: () => void;
 }
 
 export function useChannelSessionOverlayController(): ChannelSessionOverlayController {
@@ -130,6 +131,10 @@ export function useChannelSessionOverlayController(): ChannelSessionOverlayContr
     setSessionsOverlayMode("split");
     setSessionsOverlayOpen(true);
   }, []);
+  const toggleSessionsOverlay = useCallback(() => {
+    setSessionsOverlayMode("switch");
+    setSessionsOverlayOpen((open) => !open);
+  }, []);
 
   return {
     sessionsOverlayOpen,
@@ -139,6 +144,7 @@ export function useChannelSessionOverlayController(): ChannelSessionOverlayContr
     setPendingSplitSurface,
     openSessionsOverlay,
     openSplitOverlay,
+    toggleSessionsOverlay,
   };
 }
 

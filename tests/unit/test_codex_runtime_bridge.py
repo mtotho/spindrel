@@ -383,6 +383,72 @@ def test_summarize_native_command_result_formats_codex_approvals_requirements():
         "approvals",
         {"requirements": [{"id": "approval-policy"}]},
     ) == "approvals: 1 requirement(s)."
+    assert _summarize_native_command_result(
+        "approvals",
+        {"requirements": None},
+    ) == "approvals: no config requirements."
+
+
+def test_summarize_native_command_result_formats_codex_apps_directory():
+    assert _summarize_native_command_result(
+        "apps",
+        {
+            "data": [
+                {"isEnabled": True, "isAccessible": False},
+                {"isEnabled": True, "isAccessible": True},
+                {"isEnabled": False, "isAccessible": False},
+            ],
+        },
+    ) == "apps: 3 app(s), 2 enabled, 1 accessible."
+
+
+def test_summarize_native_command_result_formats_codex_plugin_inventory():
+    assert _summarize_native_command_result(
+        "plugins",
+        {
+            "marketplaces": [
+                {
+                    "plugins": [
+                        {"installed": True, "enabled": True},
+                        {"installed": False, "enabled": False},
+                    ],
+                }
+            ],
+            "marketplaceLoadErrors": [],
+        },
+    ) == "plugins: 1 marketplace(s), 2 plugin(s), 1 installed, 1 enabled."
+
+
+def test_summarize_native_command_result_formats_codex_runtime_lists():
+    assert _summarize_native_command_result(
+        "skills",
+        {"data": [{"skills": [{"name": "imagegen"}, {"name": "review"}]}]},
+    ) == "skills: 2 skill(s) across 1 cwd(s)."
+    assert _summarize_native_command_result(
+        "mcp-status",
+        {"data": [{"tools": {"read": {}}, "resources": [{}, {}]}]},
+    ) == "mcp-status: 1 server(s), 1 tool(s), 2 resource(s)."
+    assert _summarize_native_command_result(
+        "features",
+        {"data": [{"enabled": True, "defaultEnabled": False}, {"enabled": False, "defaultEnabled": True}]},
+    ) == "features: 2 feature(s), 1 enabled, 1 default enabled."
+
+
+def test_summarize_native_command_result_formats_codex_thread_lists():
+    assert _summarize_native_command_result(
+        "resume",
+        {
+            "data": [
+                {"status": {"type": "loaded"}, "ephemeral": False},
+                {"status": {"type": "notLoaded"}, "ephemeral": True},
+            ],
+            "nextCursor": "cursor",
+        },
+    ) == "resume: 2 thread(s), 1 loaded, 1 ephemeral, more available."
+    assert _summarize_native_command_result(
+        "agents",
+        {"data": [{"status": {"type": "notLoaded"}, "ephemeral": False}]},
+    ) == "agents: 1 agent thread(s)."
 
 
 def test_codex_native_command_maps_management_methods():

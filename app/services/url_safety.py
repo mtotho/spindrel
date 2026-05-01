@@ -40,6 +40,45 @@ def _ip_is_public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     )
 
 
+def _classify_blocked(
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
+    *,
+    allow_loopback: bool,
+    allow_private: bool,
+) -> str | None:
+    """Return a short reason label if ``ip`` should be blocked, else None.
+
+    Order matters — the most specific / most informative label wins so error
+    messages like "link-local" surface the actual risk (cloud metadata)
+    rather than the generic "private" bucket. The opt-ins let trusted
+    callers (MCP servers a self-hoster deliberately runs on the LAN,
+    integrations targeting localhost) lift specific bands of the
+    default-deny without disabling the rest of the guard.
+    """
+    if ip.is_loopback:
+        return None if allow_loopback else "loopback"
+    if ip.is_link_local:
+        return "link-local"
+    if ip.is_multicast:
+        return "multicast"
+    if ip.is_reserved:
+        return "reserved"
+    if ip.is_unspecified:
+        return "unspecified"
+    if ip.is_private:
+        return None if allow_private else "private"
+    if isinstance(ip, ipaddress.IPv4Address):
+        if ipaddress.IPv4Address("100.64.0.0") <= ip <= ipaddress.IPv4Address("100.127.255.255"):
+            return None if allow_private else "cgnat"
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        return _classify_blocked(
+            ip.ipv4_mapped,
+            allow_loopback=allow_loopback,
+            allow_private=allow_private,
+        )
+    return None
+
+
 async def _resolve(host: str) -> list[str]:
     loop = asyncio.get_running_loop()
     infos = await loop.getaddrinfo(host, None, type=socket.SOCK_STREAM)
@@ -50,14 +89,28 @@ async def _resolve(host: str) -> list[str]:
     return addrs
 
 
-async def assert_public_url(url: str) -> None:
+async def assert_public_url(
+    url: str,
+    *,
+    allow_loopback: bool = False,
+    allow_private: bool = False,
+) -> None:
     """Raise :class:`UnsafePublicURLError` if the URL cannot be fetched safely.
 
     Checks:
       * Scheme is ``http`` or ``https``.
       * URL has a host component.
       * Every address the host resolves to is globally-routable unicast
-        (rejects loopback, link-local, private, multicast, reserved).
+        (rejects loopback, link-local, private, multicast, reserved, CGNAT,
+        and IPv4-mapped IPv6 of any of the above).
+
+    Operator opt-ins:
+      * ``allow_loopback`` — permit ``127.0.0.0/8`` and ``::1`` (use only
+        when localhost reach is intentional, e.g. an MCP server bundled with
+        the same host).
+      * ``allow_private`` — permit RFC1918, IPv6 ULA, and CGNAT (use only
+        when LAN reach is intentional, e.g. a household self-hoster's
+        internal services).
     """
     try:
         parsed = urlparse(url)
@@ -79,11 +132,17 @@ async def assert_public_url(url: str) -> None:
     except ValueError:
         literal = None
 
-    if literal is not None:
-        if not _ip_is_public(literal):
+    def _check(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> None:
+        reason = _classify_blocked(
+            ip, allow_loopback=allow_loopback, allow_private=allow_private,
+        )
+        if reason is not None:
             raise UnsafePublicURLError(
-                f"Host resolves to non-public address: {literal}"
+                f"Host {host!r} resolves to non-public address {ip} ({reason})"
             )
+
+    if literal is not None:
+        _check(literal)
         return
 
     try:
@@ -102,16 +161,20 @@ async def assert_public_url(url: str) -> None:
             raise UnsafePublicURLError(
                 f"Resolved address {raw!r} is not a valid IP"
             ) from exc
-        if not _ip_is_public(rip):
-            raise UnsafePublicURLError(
-                f"Host {host!r} resolves to non-public address: {rip}"
-            )
+        _check(rip)
 
 
-async def is_public_url(url: str) -> bool:
+async def is_public_url(
+    url: str,
+    *,
+    allow_loopback: bool = False,
+    allow_private: bool = False,
+) -> bool:
     """Non-throwing variant of :func:`assert_public_url`."""
     try:
-        await assert_public_url(url)
+        await assert_public_url(
+            url, allow_loopback=allow_loopback, allow_private=allow_private,
+        )
     except UnsafePublicURLError:
         return False
     return True

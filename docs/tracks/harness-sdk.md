@@ -453,6 +453,34 @@ Approval mapping intent (final values from schema):
   Codex summaries now format `/cloud` quota fields and `/approvals`
   requirements, while the chat card renders compact visible payload chips for
   quota/list-style native results before the raw JSON details.
+- 2026-05-01 Codex management screenshot cleanup: extended the same presentation
+  rule to `/apps` and no-requirement `/approvals`. `/apps` now summarizes app
+  directory count plus enabled/accessibility counts; `/approvals` says “no
+  config requirements” when the app-server returns `requirements: null`. The
+  checked-in screenshots for `/apps` and `/approvals` were recaptured and
+  visually inspected with those visible chips.
+- 2026-05-01 Codex native inventory cleanup: audited `/plugins`, `/skills`,
+  `/mcp`, `/features`, `/resume`, and `/agents` for the same fake-proof risk.
+  Runtime summaries now expose marketplace/plugin counts, skill counts by cwd,
+  MCP server/tool/resource counts, feature enabled/default counts, and native
+  thread counts/cursor presence. The chat card renders those as visible chips
+  before raw payload details. Added durable Codex `/skills`, `/mcp`, and
+  `/features` guide screenshots and recaptured the existing `/plugins`,
+  `/resume`, and `/agents` screenshots; all were visually inspected.
+- 2026-05-01 Codex list-preview cleanup: count chips are not sufficient native
+  list parity. List-like Codex native commands now render representative item
+  names/previews inline under `Showing` before the collapsed raw payload:
+  plugin names, skill names, MCP server names, feature names, app names, and
+  resume/agent thread previews. The Codex native management screenshots were
+  recaptured and visually inspected with the item rows visible.
+- 2026-05-01 Claude native management latency cleanup: bare Claude `/skills`
+  now lists runtime-owned user/project skill directories directly instead of
+  spawning a CLI command that can hang in non-interactive chat. Claude
+  `/hooks`, `/status`, and `/doctor` are treated as known TTY-only management
+  surfaces and return terminal handoff immediately instead of waiting for the
+  chat-side subprocess timeout. Recaptured the Claude native management
+  screenshots; `/skills` now shows skill count/source chips plus inline item
+  previews.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

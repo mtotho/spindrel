@@ -46,6 +46,7 @@ import { ChatMessageArea, DateSeparator } from "@/src/components/chat/ChatMessag
 import { ChannelPendingApprovals } from "./ChannelPendingApprovals";
 import { ChannelHeader } from "./ChannelHeader";
 import { ChannelChatPaneGroup } from "./ChannelChatPaneGroup";
+import { ChannelKeyboardShortcutsOverlay } from "./ChannelKeyboardShortcutsOverlay";
 import { ChannelSessionInlinePicker, ChannelSessionTabStrip } from "./ChannelSessionTabs";
 import {
   clampChannelPanelWidth,
@@ -213,6 +214,7 @@ export default function ChatScreen() {
 
   const [findingsPanelOpen, setFindingsPanelOpen] = useState(false);
   const [botInfoBotId, setBotInfoBotId] = useState<string | null>(null);
+  const [keyboardShortcutsOpen, setKeyboardShortcutsOpen] = useState(false);
   const isSystemChannel = channel?.client_id === "orchestrator:home";
 
   // Phase 5: launchpad + Findings visibility follows subscription state,
@@ -246,7 +248,7 @@ export default function ChatScreen() {
     scratchUrlSessionId,
   } = channelRouteSession;
   const channelSessionOverlay = useChannelSessionOverlayController();
-  const { openSessionsOverlay, openSplitOverlay } = channelSessionOverlay;
+  const { openSessionsOverlay, openSplitOverlay, toggleSessionsOverlay } = channelSessionOverlay;
   const layoutMode = (channel?.config?.layout_mode ?? "full") as
     | "full" | "rail-header-chat" | "rail-chat" | "dashboard-only";
   const chatMode = ((channel?.config?.chat_mode ?? "default") as "default" | "terminal");
@@ -310,6 +312,8 @@ export default function ChatScreen() {
     findingsCount,
     openSessionsOverlay,
     openSplitOverlay,
+    toggleSessionsOverlay,
+    openKeyboardShortcuts: () => setKeyboardShortcutsOpen(true),
     setBotInfoBotId,
     setFindingsPanelOpen,
   });
@@ -1648,6 +1652,10 @@ export default function ChatScreen() {
           openSurfaces={pickerHiddenSurfaces}
         />
       )}
+      <ChannelKeyboardShortcutsOverlay
+        open={keyboardShortcutsOpen}
+        onClose={() => setKeyboardShortcutsOpen(false)}
+      />
       {threadSource && (
         <ChatSession
           source={threadSource}

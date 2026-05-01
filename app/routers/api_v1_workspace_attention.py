@@ -22,9 +22,11 @@ from app.services.workspace_attention import (
     get_attention_brief,
     get_attention_triage_run,
     get_attention_item,
+    get_issue_intake_triage_run,
     get_issue_work_pack,
     launch_issue_work_pack_project_run,
     launch_issue_work_packs_project_runs,
+    list_issue_intake_triage_runs,
     list_issue_work_packs,
     list_attention_triage_runs,
     list_attention_items,
@@ -286,6 +288,27 @@ async def create_issue_triage_run_route(
         )
     except ValidationError as e:
         raise HTTPException(400, str(e)) from e
+
+
+@router.get("/issue-triage-runs", response_model=AttentionTriageRunsResponse)
+async def list_issue_triage_runs_route(
+    limit: int = 20,
+    auth=Depends(require_scopes("channels:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    return {"runs": await list_issue_intake_triage_runs(db, auth=auth, limit=limit)}
+
+
+@router.get("/issue-triage-runs/{task_id}")
+async def get_issue_triage_run_route(
+    task_id: uuid.UUID,
+    auth=Depends(require_scopes("channels:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await get_issue_intake_triage_run(db, auth=auth, task_id=task_id)
+    except NotFoundError as e:
+        raise HTTPException(404, str(e)) from e
 
 
 @router.get("/issue-work-packs", response_model=IssueWorkPacksResponse)

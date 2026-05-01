@@ -13,7 +13,12 @@ import {
   Terminal as TerminalIcon,
 } from "lucide-react";
 
-import { isEditableKeyboardTarget } from "@/src/components/chat/chatKeyboard";
+import {
+  getChatShortcutLabel,
+  isEditableKeyboardTarget,
+  isKeyboardHelpShortcut,
+  isSwitchSessionsShortcut,
+} from "@/src/components/chat/chatKeyboard";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import { usePaletteActions, type PaletteAction } from "@/src/stores/paletteActions";
@@ -59,6 +64,8 @@ type UseChannelWorkbenchControllerArgs = {
   findingsCount: number;
   openSessionsOverlay: () => void;
   openSplitOverlay: () => void;
+  toggleSessionsOverlay: () => void;
+  openKeyboardShortcuts: () => void;
   setBotInfoBotId: Dispatch<SetStateAction<string | null>>;
   setFindingsPanelOpen: Dispatch<SetStateAction<boolean>>;
 };
@@ -77,6 +84,8 @@ export function useChannelWorkbenchController({
   findingsCount,
   openSessionsOverlay,
   openSplitOverlay,
+  toggleSessionsOverlay,
+  openKeyboardShortcuts,
   setBotInfoBotId,
   setFindingsPanelOpen,
 }: UseChannelWorkbenchControllerArgs) {
@@ -147,6 +156,10 @@ export function useChannelWorkbenchController({
   const { rail: railPins, header: headerChipPins, dock: dockPins } = useChannelChatZones(channelId ?? "");
   const hasHeaderChips = headerChipPins.length > 0;
   const workbenchWidgetCount = railPins.length + headerChipPins.length + dockPins.length;
+  const switchSessionsShortcut = getChatShortcutLabel("switchSessions");
+  const focusLayoutShortcut = getChatShortcutLabel("focusLayout");
+  const browseFilesShortcut = getChatShortcutLabel("browseFiles");
+  const toggleWorkbenchShortcut = getChatShortcutLabel("toggleWorkbench");
 
   const openLeftPanelTab = useCallback((tab: OmniPanelTab) => {
     if (!channelId) return;
@@ -214,6 +227,16 @@ export function useChannelWorkbenchController({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (!isSystemChannel && isSwitchSessionsShortcut(e)) {
+        e.preventDefault();
+        toggleSessionsOverlay();
+        return;
+      }
+      if (!isEditableKeyboardTarget(e.target) && isKeyboardHelpShortcut(e)) {
+        e.preventDefault();
+        openKeyboardShortcuts();
+        return;
+      }
       if (isEditableKeyboardTarget(e.target)) return;
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.altKey && (e.key === "b" || e.key === "B")) {
@@ -231,18 +254,22 @@ export function useChannelWorkbenchController({
         toggleExplorer();
         return;
       }
-      if (mod && e.key === "\\") {
-        e.preventDefault();
-        toggleSplit();
-        return;
-      }
       if (e.key === "Escape" && activeFile) {
         setActiveFile(null);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [toggleExplorer, toggleSplit, activeFile, channelId, requestChannelFilesFocus, focusOrRestorePanels]);
+  }, [
+    activeFile,
+    channelId,
+    focusOrRestorePanels,
+    isSystemChannel,
+    openKeyboardShortcuts,
+    requestChannelFilesFocus,
+    toggleExplorer,
+    toggleSessionsOverlay,
+  ]);
 
   const showFileViewer = activeFile !== null;
   const showRailZone = layoutMode !== "dashboard-only";
@@ -365,7 +392,7 @@ export function useChannelWorkbenchController({
       actions.push({
         id: `channel:${channelId}:switch-sessions`,
         label: "Switch sessions",
-        hint: channelLabel,
+        hint: switchSessionsShortcut,
         icon: MessageCircle,
         category: "This Channel",
         onSelect: () => openSessionsOverlay(),
@@ -381,7 +408,7 @@ export function useChannelWorkbenchController({
       actions.push({
         id: `channel:${channelId}:add-session-split`,
         label: "Add session split",
-        hint: channelLabel,
+        hint: "Picker: Cmd/Ctrl+Enter",
         icon: Layers,
         category: "This Channel",
         onSelect: () => openSplitOverlay(),
@@ -398,7 +425,7 @@ export function useChannelWorkbenchController({
         actions.push({
           id: `channel:${channelId}:open-files`,
           label: "Open workbench: Files",
-          hint: channelLabel,
+          hint: browseFilesShortcut,
           icon: FolderOpen,
           category: "This Channel",
           onSelect: () => openLeftPanelTab("files"),
@@ -415,7 +442,7 @@ export function useChannelWorkbenchController({
       actions.push({
         id: `channel:${channelId}:toggle-left-panel`,
         label: panelPrefs.leftOpen ? "Hide workbench" : "Show workbench",
-        hint: channelLabel,
+        hint: toggleWorkbenchShortcut,
         icon: PanelLeftIcon,
         category: "This Channel",
         onSelect: () => patchChannelPanelPrefs(channelId, { leftOpen: !panelPrefs.leftOpen }),
@@ -431,7 +458,7 @@ export function useChannelWorkbenchController({
       actions.push({
         id: `channel:${channelId}:focus-mode`,
         label: panelPrefs.leftOpen ? "Focus chat panes" : "Restore workbench",
-        hint: channelLabel,
+        hint: focusLayoutShortcut,
         icon: LayoutDashboardIcon,
         category: "This Channel",
         onSelect: () => focusOrRestorePanels(),
@@ -453,6 +480,15 @@ export function useChannelWorkbenchController({
         onSelect: () => navigate(channelDashboardHref),
       });
     }
+
+    actions.push({
+      id: `channel:${channelId}:keyboard-shortcuts`,
+      label: "Keyboard shortcuts",
+      hint: getChatShortcutLabel("showKeyboardHelp"),
+      icon: Search,
+      category: "This Channel",
+      onSelect: () => openKeyboardShortcuts(),
+    });
 
     actions.push({
       id: `channel:${channelId}:settings`,
@@ -484,8 +520,11 @@ export function useChannelWorkbenchController({
     channel?.bot_id,
     channelDashboardHref,
     focusOrRestorePanels,
+    focusLayoutShortcut,
+    browseFilesShortcut,
     fileRootPath,
     navigate,
+    openKeyboardShortcuts,
     openBrowseFiles,
     openLeftPanelTab,
     openSessionsOverlay,
@@ -501,6 +540,8 @@ export function useChannelWorkbenchController({
     setBotInfoBotId,
     setFindingsPanelOpen,
     toggleRightDockPanel,
+    switchSessionsShortcut,
+    toggleWorkbenchShortcut,
   ]);
 
   const [enteringFromDock] = useState(() => searchParams.get("from") === "dock");

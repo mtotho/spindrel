@@ -11,6 +11,8 @@ from typing import Any
 import httpx
 import yaml
 
+from app.services.url_safety import UnsafePublicURLError, assert_public_url
+
 logger = logging.getLogger(__name__)
 
 MCP_CONFIG_PATH = Path("mcp.yaml")
@@ -79,6 +81,24 @@ def _get_server(name: str) -> MCPServerConfig | None:
     return _servers.get(name)
 
 
+async def _check_server_url(server: MCPServerConfig) -> None:
+    """Raise ``UnsafePublicURLError`` if the server URL points at a forbidden range.
+
+    Default-deny private/loopback/link-local via the shared ``assert_public_url``
+    helper (the same SSRF guard ``generate_image`` and webhook delivery use).
+    Operators opt into private networks via ``MCP_ALLOW_PRIVATE_NETWORKS``;
+    loopback requires the additional ``MCP_ALLOW_LOOPBACK`` flag so a stray
+    ``localhost`` entry can't quietly reach internal services.
+    """
+    from app.config import settings
+
+    await assert_public_url(
+        server.url,
+        allow_loopback=settings.MCP_ALLOW_LOOPBACK,
+        allow_private=settings.MCP_ALLOW_PRIVATE_NETWORKS,
+    )
+
+
 async def fetch_mcp_tools(allowed_servers: list[str] | None = None) -> list[dict]:
     if not allowed_servers:
         return []
@@ -115,6 +135,15 @@ async def _fetch_server_tools(server: MCPServerConfig) -> list[dict]:
             headers["Authorization"] = f"Bearer {server.api_key}"
 
         try:
+            try:
+                await _check_server_url(server)
+            except UnsafePublicURLError as guard_err:
+                logger.warning(
+                    "MCP server '%s' rejected by outbound URL guard: %s",
+                    server.name,
+                    guard_err,
+                )
+                return cached["tools"] if cached else []
             logger.info("Fetching MCP tools from %s", server.url)
             async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
                 resp = await client.post(
@@ -187,6 +216,19 @@ async def call_mcp_tool(tool_name: str, arguments: str) -> str:
         args = json.loads(arguments) if arguments else {}
         from app.security.audit import log_outbound_request
         from app.config import settings
+        try:
+            await _check_server_url(server)
+        except UnsafePublicURLError as guard_err:
+            logger.warning(
+                "MCP server '%s' rejected by outbound URL guard for tool %s: %s",
+                server.name,
+                tool_name,
+                guard_err,
+            )
+            return json.dumps(
+                {"error": f"MCP server URL blocked: {guard_err}"},
+                ensure_ascii=False,
+            )
         log_outbound_request(url=server.url, method="POST", tool_name=f"mcp:{tool_name}")
         async with httpx.AsyncClient(
             timeout=settings.MCP_CALL_TIMEOUT, follow_redirects=True

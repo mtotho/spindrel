@@ -1427,6 +1427,7 @@ _ATTENTION_REVIEW_DECK_ENDPOINT_INIT = """
   ];
   const runs = [{
     task_id: "00000000-0000-0000-0000-000000000501",
+    run_kind: "attention_triage",
     session_id: null,
     parent_channel_id: null,
     bot_id: "operator",
@@ -1435,6 +1436,26 @@ _ATTENTION_REVIEW_DECK_ENDPOINT_INIT = """
     item_count: items.length,
     counts: { total: items.length, running: 1, processed: 2, ready_for_review: 2, failed: 0, unreported: 2 },
     items,
+    model_override: null,
+    model_provider_id_override: null,
+    effective_model: "gpt-5.4",
+    created_at: now,
+    completed_at: now,
+    error: null
+  }];
+  const issueTriageRuns = [{
+    task_id: "00000000-0000-0000-0000-000000000601",
+    run_kind: "issue_intake_triage",
+    session_id: "00000000-0000-0000-0000-000000000602",
+    parent_channel_id: "channel-ops",
+    bot_id: "operator",
+    status: "complete",
+    task_status: "complete",
+    item_count: 2,
+    counts: { total: 2, running: 0, processed: 2, ready_for_review: 0, failed: 0, unreported: 0 },
+    items: [issueOne, issueTwo],
+    work_pack_count: 2,
+    work_packs: workPacks,
     model_override: null,
     model_provider_id_override: null,
     effective_model: "gpt-5.4",
@@ -1488,6 +1509,9 @@ _ATTENTION_REVIEW_DECK_ENDPOINT_INIT = """
       const url = new URL(raw, window.location.origin);
       if (url.pathname === "/api/v1/workspace/attention/triage-runs") {
         return new Response(JSON.stringify({ runs }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.pathname === "/api/v1/workspace/attention/issue-triage-runs") {
+        return new Response(JSON.stringify({ runs: issueTriageRuns }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if (url.pathname === "/api/v1/workspace/attention/brief") {
         return new Response(JSON.stringify(brief), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -1772,6 +1796,7 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
             "const text = document.body.innerText;"
             "const lower = text.toLowerCase();"
             "return !!document.querySelector('[data-testid=\"issue-intake-workspace\"]')"
+            " && !!document.querySelector('[data-testid=\"issue-triage-runs-panel\"]')"
             " && text.includes('Improve Project review evidence framing')"
             " && lower.includes('triage receipt')"
             " && text.includes('Grouped review evidence issues')"

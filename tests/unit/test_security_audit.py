@@ -186,11 +186,21 @@ def _fake_machine_db(leases, sessions):
 # ---------------------------------------------------------------------------
 
 class TestEncryptionKey:
-    def test_pass(self):
+    def test_pass(self, monkeypatch):
+        monkeypatch.setattr("app.services.security_audit.settings.ENCRYPTION_STRICT", True)
         with patch("app.services.security_audit.is_encryption_enabled", return_value=True):
             c = _check_encryption_key()
         assert c.status == Status.passed
         assert c.recommendation is None
+        assert c.details == {"strict": True}
+
+    def test_warns_when_strict_disabled(self, monkeypatch):
+        monkeypatch.setattr("app.services.security_audit.settings.ENCRYPTION_STRICT", False)
+        with patch("app.services.security_audit.is_encryption_enabled", return_value=True):
+            c = _check_encryption_key()
+        assert c.status == Status.warning
+        assert c.recommendation is not None
+        assert c.details == {"strict": False}
 
     def test_fail(self):
         with patch("app.services.security_audit.is_encryption_enabled", return_value=False):
@@ -679,6 +689,84 @@ class TestMCPServersCount:
         assert c.details["total"] == 2
 
 
+class TestMCPOutboundUrlGuard:
+    @pytest.mark.asyncio
+    async def test_default_deny_passes(self, db, monkeypatch):
+        from app.services.security_audit import _check_mcp_outbound_url_guard
+        monkeypatch.setattr(
+            "app.services.security_audit.settings.MCP_ALLOW_PRIVATE_NETWORKS", False,
+        )
+        monkeypatch.setattr(
+            "app.services.security_audit.settings.MCP_ALLOW_LOOPBACK", False,
+        )
+        c = await _check_mcp_outbound_url_guard(db)
+        assert c.status == Status.passed
+        assert c.details["allow_private_networks"] is False
+        assert c.details["allow_loopback"] is False
+
+    @pytest.mark.asyncio
+    async def test_private_opt_in_warns(self, db, monkeypatch):
+        from app.services.security_audit import _check_mcp_outbound_url_guard
+        monkeypatch.setattr(
+            "app.services.security_audit.settings.MCP_ALLOW_PRIVATE_NETWORKS", True,
+        )
+        monkeypatch.setattr(
+            "app.services.security_audit.settings.MCP_ALLOW_LOOPBACK", False,
+        )
+        c = await _check_mcp_outbound_url_guard(db)
+        assert c.status == Status.warning
+        assert "private networks" in c.message
+        assert c.details["allow_private_networks"] is True
+
+
+class TestAllowRulesAutonomousScope:
+    @pytest.mark.asyncio
+    async def test_no_rules_passes(self, db):
+        from app.services.security_audit import _check_allow_rules_autonomous_scope
+        c = await _check_allow_rules_autonomous_scope(db)
+        assert c.status == Status.passed
+        assert c.details["interactive_only"] == []
+        assert c.details["autonomous_opt_in"] == []
+
+    @pytest.mark.asyncio
+    async def test_interactive_only_rule_listed(self, db):
+        from app.services.security_audit import _check_allow_rules_autonomous_scope
+        rule = ToolPolicyRule(
+            id=uuid.uuid4(),
+            tool_name="exec_command",
+            action="allow",
+            enabled=True,
+            priority=0,
+            conditions=None,
+            approval_timeout=300,
+        )
+        db.add(rule)
+        await db.commit()
+        c = await _check_allow_rules_autonomous_scope(db)
+        assert len(c.details["interactive_only"]) == 1
+        assert c.details["interactive_only"][0]["tool_name"] == "exec_command"
+        assert c.details["autonomous_opt_in"] == []
+
+    @pytest.mark.asyncio
+    async def test_autonomous_opt_in_rule_separated(self, db):
+        from app.services.security_audit import _check_allow_rules_autonomous_scope
+        rule = ToolPolicyRule(
+            id=uuid.uuid4(),
+            tool_name="file",
+            action="allow",
+            enabled=True,
+            priority=0,
+            conditions={"apply_to_autonomous": True},
+            approval_timeout=300,
+        )
+        db.add(rule)
+        await db.commit()
+        c = await _check_allow_rules_autonomous_scope(db)
+        assert c.details["interactive_only"] == []
+        assert len(c.details["autonomous_opt_in"]) == 1
+        assert c.details["autonomous_opt_in"][0]["apply_to_autonomous"] is True
+
+
 class TestMachineControlLeaseState:
     @pytest.mark.asyncio
     async def test_no_leases_passes(self):
@@ -827,7 +915,7 @@ class TestSummary:
 
 class TestRunSecurityAudit:
     @pytest.mark.asyncio
-    async def test_returns_27_checks(self, db, monkeypatch):
+    async def test_returns_29_checks(self, db, monkeypatch):
         # Patch config settings
         monkeypatch.setattr("app.services.security_audit.settings.TOOL_POLICY_ENABLED", True)
         monkeypatch.setattr("app.services.security_audit.settings.TOOL_POLICY_DEFAULT_ACTION", "deny")
@@ -846,7 +934,7 @@ class TestRunSecurityAudit:
              patch("app.services.security_audit.get_configured_server_count", return_value=0):
             result = await run_security_audit(db)
 
-        assert len(result.checks) == 27
+        assert len(result.checks) == 29
         assert result.score >= 0
         assert result.score <= 100
         assert "pass" in result.summary

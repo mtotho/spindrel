@@ -12,6 +12,9 @@ import uuid as _uuid_mod
 os.environ.setdefault("API_KEY", "test-key")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("TOOL_POLICY_ENABLED", "false")
+# Tests deliberately exercise the no-key plaintext-passthrough path; production
+# defaults to strict mode (encrypt() raises without a key).
+os.environ.setdefault("ENCRYPTION_STRICT", "false")
 
 import pytest
 import pytest_asyncio

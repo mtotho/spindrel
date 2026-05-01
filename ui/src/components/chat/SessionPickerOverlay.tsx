@@ -21,6 +21,7 @@ import {
   type ChannelSessionPickerEntry,
   type ChannelSessionSurface,
 } from "@/src/lib/channelSessionSurfaces";
+import { getChatShortcutLabel } from "@/src/components/chat/chatKeyboard";
 import { apiFetch } from "@/src/api/client";
 import {
   channelSessionCatalogKey,
@@ -104,6 +105,7 @@ export function SessionPickerOverlay({
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [pickerMode, setPickerMode] = useState<"switch" | "split">(mode);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+  const switchSessionsShortcut = getChatShortcutLabel("switchSessions");
 
   useEffect(() => {
     if (!open) {
@@ -350,6 +352,12 @@ export function SessionPickerOverlay({
               } else if (event.key === "ArrowUp") {
                 event.preventDefault();
                 setActiveIndex((idx) => Math.max(idx - 1, 0));
+              } else if (event.key === "Home") {
+                event.preventDefault();
+                setActiveIndex(0);
+              } else if (event.key === "End") {
+                event.preventDefault();
+                setActiveIndex(Math.max(entries.length - 1, 0));
               } else if (event.key === "Enter") {
                 event.preventDefault();
                 const entry = entries[activeIndex];
@@ -657,8 +665,8 @@ export function SessionPickerOverlay({
           {entries[activeIndex] && (
             <div className="px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[11px] text-text-dim">
               {pickerMode === "split"
-                ? "Enter adds split · Esc closes"
-                : "Enter switches · Ctrl/Cmd+Enter splits · /split opens split mode"}
+                ? `Enter adds split · Esc closes · ${switchSessionsShortcut} toggles`
+                : `Enter switches · Cmd/Ctrl+Enter splits · ${switchSessionsShortcut} toggles`}
             </div>
           )}
           {deepSearchLoading && query.trim().length >= 2 && (

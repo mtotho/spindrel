@@ -7,8 +7,11 @@ from legacy plaintext values and migrate incrementally.
 Key management: set ENCRYPTION_KEY in .env to a Fernet-compatible base64 key.
 Generate one with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 
-If ENCRYPTION_KEY is not set, encrypt() returns plaintext and decrypt() passes
-through — the system degrades gracefully to unencrypted storage.
+Strict mode: when ``settings.ENCRYPTION_STRICT`` is True (default in
+production), :func:`encrypt` raises :class:`EncryptionNotConfiguredError` if
+no key is configured instead of silently writing plaintext. The startup
+bootstrap auto-generates a key on first boot, so reaching strict failure
+means either a misconfigured key or a code path that bypasses bootstrap.
 """
 from __future__ import annotations
 
@@ -19,6 +22,11 @@ from cryptography.fernet import Fernet, InvalidToken
 logger = logging.getLogger(__name__)
 
 ENCRYPTED_PREFIX = "enc:"
+
+
+class EncryptionNotConfiguredError(RuntimeError):
+    """Raised when encrypt()/decrypt() is called in strict mode without a key."""
+
 
 _fernet: Fernet | None = None
 _initialized = False
@@ -48,13 +56,34 @@ def is_encryption_enabled() -> bool:
     return _fernet is not None
 
 
+def _strict_mode() -> bool:
+    """Return True if strict encryption mode is enabled."""
+    try:
+        from app.config import settings
+        return bool(getattr(settings, "ENCRYPTION_STRICT", True))
+    except Exception:
+        return True
+
+
 def encrypt(plaintext: str) -> str:
     """Encrypt a plaintext string. Returns 'enc:<ciphertext>' if encryption is
-    enabled, otherwise returns the plaintext unchanged."""
+    enabled.
+
+    In strict mode (the default), raises :class:`EncryptionNotConfiguredError`
+    when no valid key is configured. Outside strict mode, returns the
+    plaintext unchanged for backward compatibility with legacy storage.
+    """
     if not plaintext:
         return plaintext
     _ensure_init()
     if _fernet is None:
+        if _strict_mode():
+            raise EncryptionNotConfiguredError(
+                "ENCRYPTION_KEY is not set or invalid; cannot store secret. "
+                "Set ENCRYPTION_KEY in .env (the startup bootstrap will "
+                "auto-generate one on first boot), or set "
+                "ENCRYPTION_STRICT=false for ephemeral test/dev usage."
+            )
         return plaintext
     token = _fernet.encrypt(plaintext.encode("utf-8"))
     return ENCRYPTED_PREFIX + token.decode("utf-8")
@@ -62,8 +91,13 @@ def encrypt(plaintext: str) -> str:
 
 def decrypt(value: str) -> str:
     """Decrypt a value. If it has the 'enc:' prefix, strip and decrypt.
-    If no prefix (legacy plaintext), return as-is. Handles missing key
-    gracefully by returning the raw value with a warning."""
+    If no prefix (legacy plaintext), return as-is.
+
+    If a value carries the encrypted prefix but no key is available, this
+    raises in strict mode (so a forgotten key is a loud, recoverable error
+    rather than silent corruption) and returns the raw ciphertext with a
+    warning otherwise.
+    """
     if not value:
         return value
     if not value.startswith(ENCRYPTED_PREFIX):
@@ -72,6 +106,12 @@ def decrypt(value: str) -> str:
     _ensure_init()
     ciphertext = value[len(ENCRYPTED_PREFIX) :]
     if _fernet is None:
+        if _strict_mode():
+            raise EncryptionNotConfiguredError(
+                "Encountered an encrypted value but ENCRYPTION_KEY is not "
+                "configured. Set the original key in .env, or temporarily "
+                "set ENCRYPTION_STRICT=false to read raw ciphertext."
+            )
         logger.warning(
             "Encountered encrypted value but ENCRYPTION_KEY is not set — "
             "returning raw ciphertext (will not work as a valid secret)"

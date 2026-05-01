@@ -580,6 +580,9 @@ test("channel route delegates workbench chrome orchestration to its local contro
   assert.match(workbenchController, /const toggleRightDockPanel = useCallback/);
   assert.match(workbenchController, /const focusOrRestorePanels = useCallback/);
   assert.match(workbenchController, /spindrel:channel-focus-layout/);
+  assert.match(workbenchController, /isSwitchSessionsShortcut/);
+  assert.match(workbenchController, /isKeyboardHelpShortcut/);
+  assert.doesNotMatch(workbenchController, /mod && e\.key === "\\\\\\\\"/);
 });
 
 test("channel route renders desktop session tabs through dedicated components and pure model", () => {
@@ -623,8 +626,13 @@ test("channel route renders desktop session tabs through dedicated components an
   assert.match(topTabsController, /sessionTabLayouts/);
   assert.match(topTabsController, /readChannelFileIntent/);
   assert.match(topTabsController, /CHANNEL_FILE_LINK_OPEN_EVENT/);
+  assert.match(topTabsController, /isCloseActiveChatTabShortcut/);
   assert.match(topTabsController, /if \(currentSerialized === nextSerialized\) return;/);
   assert.match(sessionTabs, /data-testid="channel-session-tab-strip"/);
+  assert.match(sessionTabs, /role="tablist"/);
+  assert.match(sessionTabs, /role="tab"/);
+  assert.match(sessionTabs, /event\.key === "Delete"/);
+  assert.match(sessionTabs, /event\.key === "F10"/);
   assert.match(sessionTabs, /data-testid="channel-session-tab-overflow-button"/);
   assert.match(sessionTabs, /data-testid="channel-session-tab-overflow-menu"/);
   assert.doesNotMatch(sessionTabs, /overflow-x-auto/);

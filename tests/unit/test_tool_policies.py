@@ -76,3 +76,58 @@ class TestMatchConditions:
         conditions = {"arguments": {"count": {"pattern": "^5$"}}}
         assert _match_conditions(conditions, {"count": 5}) is True
         assert _match_conditions(conditions, {"count": 10}) is False
+
+
+class TestOriginKindDefault:
+    """Rules without explicit origin_kind / apply_to_autonomous opt-in are
+    treated as interactive-only (chat) so a user-approved rule does not
+    silently auto-approve the same tool in heartbeats, scheduled tasks,
+    sub-agents, or hygiene runs.
+    """
+
+    def test_no_conditions_matches_chat(self):
+        assert _match_conditions(None, {}, origin_kind=None) is True
+        assert _match_conditions(None, {}, origin_kind="chat") is True
+        assert _match_conditions({}, {}, origin_kind="chat") is True
+
+    def test_no_conditions_does_not_match_autonomous(self):
+        # The whole point: interactive-default rules must NOT auto-grant
+        # autonomous runs.
+        assert _match_conditions(None, {}, origin_kind="heartbeat") is False
+        assert _match_conditions(None, {}, origin_kind="task") is False
+        assert _match_conditions(None, {}, origin_kind="subagent") is False
+        assert _match_conditions(None, {}, origin_kind="hygiene") is False
+        assert _match_conditions({}, {}, origin_kind="heartbeat") is False
+
+    def test_arg_only_rule_does_not_match_autonomous(self):
+        # Same default applies when conditions specify args but no origin_kind.
+        conditions = {"arguments": {"command": {"pattern": "^ls"}}}
+        assert _match_conditions(conditions, {"command": "ls"}, origin_kind="chat") is True
+        assert _match_conditions(conditions, {"command": "ls"}, origin_kind="heartbeat") is False
+
+    def test_apply_to_autonomous_opts_in(self):
+        conditions = {"apply_to_autonomous": True}
+        assert _match_conditions(conditions, {}, origin_kind="chat") is True
+        assert _match_conditions(conditions, {}, origin_kind="heartbeat") is True
+        assert _match_conditions(conditions, {}, origin_kind="task") is True
+
+    def test_explicit_origin_kind_in_matches(self):
+        conditions = {"origin_kind": {"in": ["heartbeat", "task"]}}
+        assert _match_conditions(conditions, {}, origin_kind="heartbeat") is True
+        assert _match_conditions(conditions, {}, origin_kind="task") is True
+        # Explicit list excludes chat
+        assert _match_conditions(conditions, {}, origin_kind="chat") is False
+
+    def test_explicit_origin_kind_eq(self):
+        conditions = {"origin_kind": {"eq": "heartbeat"}}
+        assert _match_conditions(conditions, {}, origin_kind="heartbeat") is True
+        assert _match_conditions(conditions, {}, origin_kind="chat") is False
+        assert _match_conditions(conditions, {}, origin_kind="task") is False
+
+    def test_apply_to_autonomous_with_args(self):
+        conditions = {
+            "apply_to_autonomous": True,
+            "arguments": {"command": {"pattern": "^echo"}},
+        }
+        assert _match_conditions(conditions, {"command": "echo hi"}, origin_kind="heartbeat") is True
+        assert _match_conditions(conditions, {"command": "rm"}, origin_kind="heartbeat") is False

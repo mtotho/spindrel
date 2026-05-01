@@ -2,7 +2,8 @@
 tags: [spindrel, track, security, agentic-ai]
 status: active
 created: 2026-04-30
-updated: 2026-04-30
+updated: 2026-05-01
+summary: Evergreen security track. 2026-05 deep review shipped MCP SSRF guard, encryption fail-fast, tool-result redaction boundary, OAuth/refresh rate-limit parity, and approval origin_kind awareness; remaining queue covers run_script sandboxing, widget symlink rejection, backup encryption, and supply-chain signing.
 ---
 # Track - Security Architecture
 
@@ -50,12 +51,37 @@ External frame checked 2026-04-30:
 - Hardened widget DB action dispatch. Widget SQLite connections now install an authorizer that denies file-boundary operations (`ATTACH`, `DETACH`, extension loading, and VACUUM output), browser-dispatched `db_query` uses the same guard, and the admin security audit reports drift through `widget_db_sql_authorizer`.
 - Completed WorkSurface remediation phase 3 for `widget://workspace`. The widget path resolver now exposes explicit scope policy, treats workspace widgets as a shared widget library requiring `shared_root`, and the WorkSurface static audit reports that seam as pass while retaining detailed findings.
 
+## 2026-05 deep review shipped (this pass)
+
+- **MCP outbound URL hardening (Critical).** `app/services/url_safety.py::assert_public_url` extended with `allow_loopback` / `allow_private` opt-ins; `app/tools/mcp.py::fetch_mcp_tools` and `call_mcp_tool` now consult it before any HTTP. New env opt-ins `MCP_ALLOW_PRIVATE_NETWORKS` / `MCP_ALLOW_LOOPBACK`. Audit signal `mcp_outbound_url_guard` reports posture. Coverage: extended `tests/unit/test_url_guard.py` + new `tests/unit/test_mcp_outbound_guard.py`.
+- **Encryption fail-fast (Critical).** New `ENCRYPTION_STRICT` setting (default true). `encrypt()` raises rather than silently storing plaintext; `decrypt()` raises on encrypted-prefixed value with no key; `ensure_encryption_key()` re-raises OSError on dotenv write failure. Tests opt out via `tests/conftest.py`. Audit signal upgraded to surface strict posture.
+- **Tool-result redaction at boundary (High).** New `_set_tool_result` boundary helper in `app/agent/tool_dispatch.py`; error and machine-access-denied paths now redact (previously raw). Lint test pins the boundary so future drift fails CI.
+- **Auth route rate-limit parity (High).** `_check_rate_limit` now wraps `/auth/google` and `/auth/refresh` in addition to `/auth/login` + `/auth/setup`.
+- **Approval rule origin_kind awareness (High).** `_match_conditions` defaults to interactive-only when a rule has no explicit `origin_kind` matcher and no `apply_to_autonomous: true` opt-in. Existing rules fail-closed on read. New audit signal `allow_rules_origin_scope` lists interactive-only vs autonomous-opt-in rules for operator review.
+- New principles guide [`docs/guides/security.md`](../guides/security.md) and consolidated audit doc [`docs/audits/security-deep-review-2026-05.md`](../audits/security-deep-review-2026-05.md).
+
 ## Live queue
 
-1. **Stale operator config cleanup.** Clear any persisted `cross_workspace_access` flags after confirming no deployment still depends on the old broad model; the flag is now metadata only and reported as cleanup debt.
-2. **Security audit deepening.** Continue read-only checks for bot-authored skill/widget writable roots and deployment-tier exposure; inbound callback auth/replay contracts, local-machine/browser-control, and widget DB file-boundary protection now have initial audit signals.
-3. **Deployment-tier gates.** Convert the `SECURITY.md` threat matrix into concrete admin readiness findings before recommending internet-exposed deployment.
-4. **Skill/plugin supply-chain pass.** Review repo `.agents/skills`, runtime bot-authored skills, widget bundles, integration manifests, and future plugin import paths against provenance, permission, and review requirements.
+Ranked by severity. Each item is the next thing the track will pick up.
+
+### High
+1. **`run_script` arbitrary-Python tightening.** Approval gates the `run_script` call but not the nested tool calls the script makes. Options: declared tool-list in script frontmatter pre-checked by the policy engine; per-script-call rate cap; nested origin_kind enforcement.
+2. **Widget path symlink rejection.** `widget_paths.py` resolves through `realpath()` but does not detect or reject symlinks. Add `os.lstat().S_ISLNK` rejection at every component (or a small symlink-count cap) so a bot-authored widget can't link out via a path inside its bundle root.
+3. **Backup encryption.** `backups/` currently stores unencrypted DB dumps. Wrap with Fernet (or GPG) using the same `ENCRYPTION_KEY`; document retention.
+4. **Supply-chain signing for skills + widgets.** Manifest signing (HMAC over `widget.json` / skill body), audit trail of who created/modified, default-deny on unsigned with opt-in trust.
+
+### Medium
+5. **Approval rule UI: autonomous opt-in toggle.** Backend now defaults to interactive-only; UI side needs a "Apply to autonomous runs (heartbeat/task/harness/widget cron)" checkbox so operators can broaden a rule deliberately.
+6. **Migration downgrade guard.** Refuse `migrations/130_*` downgrade if any encrypted-prefixed value exists, unless `--force`.
+7. **Stale `cross_workspace_access` cleanup.** Clear any persisted flags now that the field is metadata only.
+8. **`<untrusted-data>` wrapping for direct file reads.** Apply to file ingestion paths, not just MCP / tool-output.
+9. **Container `sudoers` apt-get rule** — drop unless an active workflow requires it.
+10. **Widget JWT revocation list** keyed by `(api_key_id, jti)` so a captured 15-min widget token can be killed early.
+
+### Low / hygiene
+11. CI `pip-audit` / `npm audit` gate.
+12. GitHub Actions pinned by SHA, not just major version.
+13. Document deployment-tier gating from `SECURITY.md` as concrete admin readiness findings before recommending internet-exposed deployment.
 
 ## Watch list
 

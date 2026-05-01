@@ -17,11 +17,12 @@ def _reset_encryption():
     encryption.reset()
 
 
-def _make_settings(key: str = ""):
+def _make_settings(key: str = "", strict: bool = False):
     """Return a mock settings object with the given ENCRYPTION_KEY."""
 
     class FakeSettings:
         ENCRYPTION_KEY = key
+        ENCRYPTION_STRICT = strict
 
     return FakeSettings()
 
@@ -191,3 +192,56 @@ def test_invalid_key_disables_encryption():
         assert encryption.is_encryption_enabled() is False
         # Should fall through to plaintext
         assert encryption.encrypt("hello") == "hello"
+
+
+# ---------------------------------------------------------------------------
+# Strict mode — fail-fast when encrypt() is called without a key
+# ---------------------------------------------------------------------------
+
+
+def test_strict_mode_raises_on_missing_key():
+    with patch("app.config.settings", _make_settings(key="", strict=True)):
+        encryption.reset()
+        with pytest.raises(encryption.EncryptionNotConfiguredError):
+            encryption.encrypt("would-be-secret")
+
+
+def test_strict_mode_raises_on_invalid_key():
+    with patch("app.config.settings", _make_settings(key="not-a-fernet-key", strict=True)):
+        encryption.reset()
+        with pytest.raises(encryption.EncryptionNotConfiguredError):
+            encryption.encrypt("would-be-secret")
+
+
+def test_strict_mode_decrypt_raises_when_value_is_encrypted_but_no_key():
+    """In strict mode, an enc:-prefixed value with no key is a loud error."""
+    with patch("app.config.settings", _make_settings(key="", strict=True)):
+        encryption.reset()
+        with pytest.raises(encryption.EncryptionNotConfiguredError):
+            encryption.decrypt("enc:gAAAAABh-bogus")
+
+
+def test_strict_mode_passthrough_for_legacy_plaintext():
+    """Strict mode does NOT disrupt reads of legacy plaintext values."""
+    with patch("app.config.settings", _make_settings(key="", strict=True)):
+        encryption.reset()
+        # No 'enc:' prefix → still a valid legacy value, return as-is
+        assert encryption.decrypt("legacy-plaintext") == "legacy-plaintext"
+
+
+def test_strict_mode_with_key_round_trips_normally():
+    key = Fernet.generate_key().decode()
+    with patch("app.config.settings", _make_settings(key=key, strict=True)):
+        encryption.reset()
+        encrypted = encryption.encrypt("secret")
+        assert encrypted.startswith("enc:")
+        assert encryption.decrypt(encrypted) == "secret"
+
+
+def test_non_strict_mode_legacy_passthrough_preserved():
+    """Existing tests/dev workflows that rely on plaintext fallback still work."""
+    with patch("app.config.settings", _make_settings(key="", strict=False)):
+        encryption.reset()
+        assert encryption.encrypt("hello") == "hello"
+        assert encryption.decrypt("hello") == "hello"
+        assert encryption.decrypt("enc:bogus") == "bogus"

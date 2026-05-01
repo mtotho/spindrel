@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -108,6 +109,8 @@ export function ChannelSessionTabStrip({
   const [containerWidth, setContainerWidth] = useState(0);
   const [tabWidths, setTabWidths] = useState<Record<string, number>>({});
   const [overflowOpen, setOverflowOpen] = useState(false);
+  const [focusedTabKey, setFocusedTabKey] = useState<string | null>(null);
+  const tabRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [overflowMenuPosition, setOverflowMenuPosition] = useState<{
     left: number;
     top: number;
@@ -174,6 +177,46 @@ export function ChannelSessionTabStrip({
   const tabKeys = useMemo(
     () => visibleTabs.map((tab) => tab.key),
     [visibleTabs],
+  );
+  const activeVisibleTabKey =
+    visibleTabs.find((tab) => tab.active)?.key ?? visibleTabs[0]?.key ?? null;
+  const rovingFocusedTabKey =
+    focusedTabKey && visibleTabs.some((tab) => tab.key === focusedTabKey)
+      ? focusedTabKey
+      : activeVisibleTabKey;
+  useEffect(() => {
+    if (visibleTabs.length === 0) {
+      setFocusedTabKey(null);
+      return;
+    }
+    if (focusedTabKey && visibleTabs.some((tab) => tab.key === focusedTabKey)) {
+      return;
+    }
+    setFocusedTabKey(visibleTabs.find((tab) => tab.active)?.key ?? visibleTabs[0]?.key ?? null);
+  }, [focusedTabKey, visibleTabs]);
+  const focusVisibleTab = useCallback(
+    (key: string) => {
+      setFocusedTabKey(key);
+      requestAnimationFrame(() => tabRefs.current[key]?.focus());
+    },
+    [],
+  );
+  const focusVisibleTabByOffset = useCallback(
+    (key: string, offset: number) => {
+      if (visibleTabs.length === 0) return;
+      const index = Math.max(0, visibleTabs.findIndex((tab) => tab.key === key));
+      const nextIndex = (index + offset + visibleTabs.length) % visibleTabs.length;
+      const next = visibleTabs[nextIndex];
+      if (next) focusVisibleTab(next.key);
+    },
+    [focusVisibleTab, visibleTabs],
+  );
+  const focusBoundaryTab = useCallback(
+    (boundary: "first" | "last") => {
+      const next = boundary === "first" ? visibleTabs[0] : visibleTabs[visibleTabs.length - 1];
+      if (next) focusVisibleTab(next.key);
+    },
+    [focusVisibleTab, visibleTabs],
   );
   const [activeDragKey, setActiveDragKey] = useState<string | null>(null);
   const activeDragTab = useMemo(
@@ -243,6 +286,8 @@ export function ChannelSessionTabStrip({
       <div
         ref={containerRef}
         data-testid="channel-session-tab-strip"
+        role="tablist"
+        aria-label="Open chat tabs"
         className="relative flex h-9 shrink-0 items-center gap-1 overflow-hidden px-3 pb-1 text-[12px]"
       >
         <div
@@ -279,6 +324,13 @@ export function ChannelSessionTabStrip({
               openSurfaceKeys={openSurfaceKeys}
               splitActive={splitActive}
               pending={pendingKey === tab.key}
+              tabIndex={rovingFocusedTabKey === tab.key ? 0 : -1}
+              registerTabRef={(node) => {
+                tabRefs.current[tab.key] = node;
+              }}
+              onTabFocus={() => setFocusedTabKey(tab.key)}
+              onMoveFocus={(offset) => focusVisibleTabByOffset(tab.key, offset)}
+              onFocusBoundary={focusBoundaryTab}
             />
           ))}
         </SortableContext>
@@ -491,6 +543,11 @@ interface SortableSessionTabProps {
   openSurfaceKeys: string[];
   splitActive: boolean;
   pending: boolean;
+  tabIndex: number;
+  registerTabRef: (node: HTMLDivElement | null) => void;
+  onTabFocus: () => void;
+  onMoveFocus: (offset: number) => void;
+  onFocusBoundary: (boundary: "first" | "last") => void;
 }
 
 function SortableSessionTab({
@@ -508,6 +565,11 @@ function SortableSessionTab({
   openSurfaceKeys,
   splitActive,
   pending,
+  tabIndex,
+  registerTabRef,
+  onTabFocus,
+  onMoveFocus,
+  onFocusBoundary,
 }: SortableSessionTabProps) {
   const [menuPosition, setMenuPosition] = useState<{
     x: number;
@@ -578,10 +640,25 @@ function SortableSessionTab({
     transform: CSS.Transform.toString(transform),
     transition,
   };
+  const openMenuFromElement = (element: HTMLElement) => {
+    const rect = element.getBoundingClientRect();
+    setMenuPosition({
+      x: Math.max(8, Math.min(window.innerWidth - 264, rect.left)),
+      y: rect.bottom + 4,
+    });
+  };
+  const setCombinedRef = (node: HTMLDivElement | null) => {
+    setNodeRef(node);
+    registerTabRef(node);
+  };
   return (
     <div
-      ref={setNodeRef}
+      ref={setCombinedRef}
       style={style}
+      {...attributes}
+      role="tab"
+      tabIndex={tabIndex}
+      aria-selected={tab.active}
       data-testid="channel-session-tab"
       data-session-tab-key={tab.key}
       data-active={tab.active ? "true" : "false"}
@@ -599,17 +676,48 @@ function SortableSessionTab({
         pending ? "bg-accent/[0.06]" : "",
       ].join(" ")}
       onClick={() => onSelect(tab)}
+      onFocus={onTabFocus}
       onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        onSelect(tab);
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          onMoveFocus(1);
+          return;
+        }
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          onMoveFocus(-1);
+          return;
+        }
+        if (event.key === "Home") {
+          event.preventDefault();
+          onFocusBoundary("first");
+          return;
+        }
+        if (event.key === "End") {
+          event.preventDefault();
+          onFocusBoundary("last");
+          return;
+        }
+        if (event.key === "Delete" || event.key === "Backspace") {
+          event.preventDefault();
+          onClose(tab);
+          return;
+        }
+        if (event.key === "F10" && event.shiftKey) {
+          event.preventDefault();
+          openMenuFromElement(event.currentTarget);
+          return;
+        }
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect(tab);
+        }
       }}
       onContextMenu={(event) => {
         event.preventDefault();
         event.stopPropagation();
         setMenuPosition({ x: event.clientX, y: event.clientY });
       }}
-      {...attributes}
     >
       <span
         aria-hidden="true"

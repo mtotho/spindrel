@@ -1,3 +1,45 @@
+export const CHAT_SHORTCUTS = {
+    switchSessions: {
+        mac: "⌘⌥S",
+        win: "Ctrl+Alt+S",
+        label: "Switch sessions",
+    },
+    commandPalette: {
+        mac: "⌘K",
+        win: "Ctrl+K",
+        label: "Command palette",
+    },
+    openSlashCommands: {
+        mac: "/",
+        win: "/",
+        label: "Slash commands",
+    },
+    focusLayout: {
+        mac: "⌘⌥B",
+        win: "Ctrl+Alt+B",
+        label: "Focus chat panes",
+    },
+    browseFiles: {
+        mac: "⌘⇧B",
+        win: "Ctrl+Shift+B",
+        label: "Browse files",
+    },
+    toggleWorkbench: {
+        mac: "⌘B",
+        win: "Ctrl+B",
+        label: "Toggle workbench",
+    },
+    closeActiveTab: {
+        mac: "⌘W",
+        win: "Ctrl+W",
+        label: "Close active tab",
+    },
+    showKeyboardHelp: {
+        mac: "?",
+        win: "?",
+        label: "Keyboard shortcuts",
+    },
+};
 export function isEditableKeyboardTarget(target) {
     const el = target;
     const tag = typeof el?.tagName === "string" ? el.tagName.toUpperCase() : "";
@@ -6,4 +48,38 @@ export function isEditableKeyboardTarget(target) {
     if (el?.isContentEditable)
         return true;
     return !!el?.closest?.('[contenteditable="true"], [role="textbox"]');
+}
+export function isApplePlatform(userAgent) {
+    const source = userAgent ?? (typeof navigator !== "undefined" ? navigator.userAgent : "");
+    return /Mac|iPhone|iPad/.test(source);
+}
+export function getChatShortcutLabel(id, userAgent) {
+    const shortcut = CHAT_SHORTCUTS[id];
+    return isApplePlatform(userAgent) ? shortcut.mac : shortcut.win;
+}
+export function isSwitchSessionsShortcut(event) {
+    if (event.repeat)
+        return false;
+    const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
+    return (event.metaKey || event.ctrlKey) === true
+        && event.altKey === true
+        && event.shiftKey !== true
+        && key === "s";
+}
+export function isKeyboardHelpShortcut(event) {
+    if (event.repeat)
+        return false;
+    return event.key === "?"
+        && event.metaKey !== true
+        && event.ctrlKey !== true
+        && event.altKey !== true;
+}
+export function isCloseActiveChatTabShortcut(event) {
+    if (event.repeat)
+        return false;
+    const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
+    return (event.metaKey || event.ctrlKey) === true
+        && event.altKey !== true
+        && event.shiftKey !== true
+        && key === "w";
 }

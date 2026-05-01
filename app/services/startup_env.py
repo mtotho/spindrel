@@ -107,7 +107,14 @@ async def ensure_encryption_key(
     try:
         upsert_dotenv_value(path, "ENCRYPTION_KEY", new_key)
         logger.info("Auto-generated ENCRYPTION_KEY and saved to .env; back this up")
-    except OSError:
+    except OSError as exc:
+        if getattr(settings, "ENCRYPTION_STRICT", True):
+            raise RuntimeError(
+                "Auto-generated ENCRYPTION_KEY but could not persist it to .env "
+                f"({exc}). The in-memory key would not survive a restart, leaving "
+                "future stored secrets unrecoverable. Fix the .env path or "
+                "explicitly set ENCRYPTION_KEY before starting."
+            ) from exc
         logger.warning(
             "Auto-generated ENCRYPTION_KEY but could not write to .env. "
             "Add the key from the running config to your environment to persist it."

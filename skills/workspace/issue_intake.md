@@ -50,6 +50,19 @@ launchable Project work packs.
 7. Work-pack creation does not launch a Project coding run. The operator or a
    later explicit action chooses which proposed packs to launch.
 
+## Backlog Triage Runs
+
+1. Use the Issue Intake triage run when raw saved notes or autonomous blocker
+   reports need a grouped pass outside the current conversation.
+2. Treat the triage run as the same factory intake model, not a separate
+   manager or workflow system: raw Attention items become proposed Work Packs,
+   then a human reviews and launches them later.
+3. The triage run must report through `report_issue_work_packs` and include a
+   triage receipt. That receipt is the durable explanation for grouping,
+   launch readiness, follow-up questions, and excluded or non-code items.
+4. If the current conversation already has enough detail, prefer
+   `create_issue_work_packs` instead of starting another triage run.
+
 ## Boundaries
 
 - `publish_issue_intake` is for user-requested conversational capture.
@@ -62,3 +75,6 @@ launchable Project work packs.
 - `report_issue_work_packs` remains restricted to issue-intake triage tasks.
   Do not use it for ordinary conversation planning.
 - Project coding runs start only after a human approves a work pack launch.
+- Do not invent a separate intake bot, factory table, or Project launch
+  workflow. Attention Items, Issue Work Packs, Project coding runs, receipts,
+  and review sessions are the v1 factory objects.

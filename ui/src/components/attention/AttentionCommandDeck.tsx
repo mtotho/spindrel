@@ -31,6 +31,7 @@ import {
   useIssueWorkPackAction,
   useBatchLaunchIssueWorkPacksProjectRuns,
   useLaunchIssueWorkPackProjectRun,
+  useIssueTriageRuns,
   useStartAttentionTriageRun,
   useStartIssueTriageRun,
   useSubmitAttentionTriageFeedback,
@@ -808,6 +809,7 @@ function ModeButton({ active, icon, label, count, onClick }: { active: boolean; 
 function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
   const startIssueTriage = useStartIssueTriageRun();
   const { data: workPacks = [] } = useIssueWorkPacks();
+  const { data: issueTriageRuns = [] } = useIssueTriageRuns({ limit: 6 });
   const { data: projects = [] } = useProjects();
   const [selectedProjectId, setSelectedProjectId] = useState(() => localStorage.getItem("spindrel.issueFactory.projectId") || "");
   const [selectedChannelId, setSelectedChannelId] = useState(() => localStorage.getItem("spindrel.issueFactory.channelId") || "");
@@ -906,6 +908,8 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
           </div>
         )}
       </section>
+
+      <IssueTriageRunsPanel runs={issueTriageRuns} />
 
       <section>
         <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Raw intake</div>
@@ -1048,6 +1052,38 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
         )}
       </section>
     </div>
+  );
+}
+
+function IssueTriageRunsPanel({ runs }: { runs: AttentionTriageRunResponse[] }) {
+  if (!runs.length) return null;
+  return (
+    <section data-testid="issue-triage-runs-panel">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Triage runs</div>
+      <div className="space-y-2">
+        {runs.map((run) => {
+          const status = runStatusLabel(run);
+          const statusClass = status === "failed" ? "text-danger" : status === "running" ? "text-accent" : status === "queued" ? "text-warning" : "text-success";
+          return (
+            <div key={run.task_id} className="rounded-md bg-surface-overlay/25 px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="inline-flex min-w-0 items-center gap-2 text-sm font-medium text-text">
+                  {status === "running" ? <Loader2 size={14} className="shrink-0 animate-spin text-accent" /> : <Clock size={14} className="shrink-0 text-text-dim" />}
+                  <span className="truncate">Issue triage</span>
+                </div>
+                <div className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${statusClass}`}>{status}</div>
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
+                <span>{run.item_count} intake item{run.item_count === 1 ? "" : "s"}</span>
+                <span>{run.work_pack_count ?? 0} work pack{(run.work_pack_count ?? 0) === 1 ? "" : "s"}</span>
+                <span>{formatRunTime(run.completed_at ?? run.created_at)}</span>
+              </div>
+              {run.error && <div className="mt-1 text-xs text-danger-muted">{run.error}</div>}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

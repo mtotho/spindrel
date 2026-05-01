@@ -52,6 +52,69 @@ function runtimeListCount(value: unknown): string | null {
   return Array.isArray(value) ? `${value.length} item${value.length === 1 ? "" : "s"}` : null;
 }
 
+function cleanPreviewText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  let text = value.trim();
+  if (!text) return null;
+  if (text.startsWith("<spindrel_context_hints>")) {
+    const afterHints = text.split("</spindrel_context_hints>").slice(1).join("</spindrel_context_hints>").trim();
+    text = afterHints || text.split("\n").find((line) => line.trim() && !line.includes("spindrel_context_hints")) || "Host context hint";
+  }
+  text = text.replace(/\s+/g, " ").trim();
+  return text.length > 90 ? `${text.slice(0, 87)}...` : text;
+}
+
+function itemLabel(item: any, fields: string[]): string | null {
+  if (!item || typeof item !== "object") return null;
+  for (const field of fields) {
+    const value = field.split(".").reduce<any>((acc, part) => acc && typeof acc === "object" ? acc[part] : undefined, item);
+    const text = cleanPreviewText(value);
+    if (text) return text;
+  }
+  return null;
+}
+
+function buildRuntimeItemPreview(command: string, data: Record<string, any> | null) {
+  if (!data) return [];
+
+  if (command === "apps") {
+    const apps = Array.isArray(data.apps) ? data.apps : Array.isArray(data.data) ? data.data : [];
+    return apps.map((app) => itemLabel(app, ["name", "id"])).filter(Boolean).slice(0, 6) as string[];
+  }
+
+  if (command === "plugins") {
+    const marketplaces = Array.isArray(data.marketplaces) ? data.marketplaces : [];
+    const plugins = marketplaces.flatMap((marketplace) => Array.isArray(marketplace?.plugins) ? marketplace.plugins : []);
+    return plugins.map((plugin) => itemLabel(plugin, ["interface.displayName", "name", "id"])).filter(Boolean).slice(0, 6) as string[];
+  }
+
+  if (command === "skills") {
+    if (Array.isArray(data.skills)) {
+      return data.skills.map((skill) => itemLabel(skill, ["name", "path"])).filter(Boolean).slice(0, 6) as string[];
+    }
+    const rows = Array.isArray(data.data) ? data.data : [];
+    const skills = rows.flatMap((row) => Array.isArray(row?.skills) ? row.skills : []);
+    return skills.map((skill) => itemLabel(skill, ["name"])).filter(Boolean).slice(0, 6) as string[];
+  }
+
+  if (command === "mcp-status") {
+    const servers = Array.isArray(data.data) ? data.data : [];
+    return servers.map((server) => itemLabel(server, ["name"])).filter(Boolean).slice(0, 6) as string[];
+  }
+
+  if (command === "features") {
+    const features = Array.isArray(data.data) ? data.data : [];
+    return features.map((feature) => itemLabel(feature, ["displayName", "name"])).filter(Boolean).slice(0, 6) as string[];
+  }
+
+  if (command === "resume" || command === "agents") {
+    const threads = Array.isArray(data.data) ? data.data : [];
+    return threads.map((thread) => itemLabel(thread, ["name", "agentNickname", "preview", "id"])).filter(Boolean).slice(0, 4) as string[];
+  }
+
+  return [];
+}
+
 function buildRuntimeDataPreview(command: string, data: Record<string, any> | null) {
   if (!data) return [];
   const items: Array<{ label: string; value: string }> = [];
@@ -75,10 +138,86 @@ function buildRuntimeDataPreview(command: string, data: Record<string, any> | nu
   }
 
   if (command === "approvals") {
-    const requirements = runtimeListCount(data.requirements)
-      || runtimeListCount(data.configRequirements)
-      || runtimeListCount(data.items);
-    if (requirements) items.push({ label: "Requirements", value: requirements });
+    const source = data.requirements ?? data.configRequirements ?? data.items;
+    const requirements = runtimeListCount(source);
+    items.push({ label: "Requirements", value: requirements || "none" });
+    return items;
+  }
+
+  if (command === "apps") {
+    const apps = Array.isArray(data.apps) ? data.apps : Array.isArray(data.data) ? data.data : [];
+    if (apps.length > 0) {
+      const enabled = apps.filter((app) => app && typeof app === "object" && app.isEnabled === true).length;
+      const accessible = apps.filter((app) => app && typeof app === "object" && app.isAccessible === true).length;
+      items.push({ label: "Apps", value: `${apps.length} items` });
+      items.push({ label: "Enabled", value: String(enabled) });
+      items.push({ label: "Accessible", value: String(accessible) });
+    }
+    return items;
+  }
+
+  if (command === "plugins") {
+    const marketplaces = Array.isArray(data.marketplaces) ? data.marketplaces : [];
+    const plugins = marketplaces.flatMap((marketplace) => Array.isArray(marketplace?.plugins) ? marketplace.plugins : []);
+    const installed = plugins.filter((plugin) => plugin && typeof plugin === "object" && plugin.installed === true).length;
+    const enabled = plugins.filter((plugin) => plugin && typeof plugin === "object" && plugin.enabled === true).length;
+    items.push({ label: "Marketplaces", value: String(marketplaces.length) });
+    items.push({ label: "Plugins", value: String(plugins.length) });
+    items.push({ label: "Installed", value: String(installed) });
+    items.push({ label: "Enabled", value: String(enabled) });
+    return items;
+  }
+
+  if (command === "skills") {
+    const directSkills = Array.isArray(data.skills) ? data.skills : null;
+    if (directSkills) {
+      const sources = new Set(
+        directSkills
+          .map((skill) => skill && typeof skill === "object" ? skill.source : null)
+          .filter(Boolean),
+      );
+      items.push({ label: "Skills", value: String(directSkills.length) });
+      items.push({ label: "Sources", value: String(sources.size) });
+      return items;
+    }
+    const rows = Array.isArray(data.data) ? data.data : [];
+    const skillCount = rows.reduce((total, row) => total + (Array.isArray(row?.skills) ? row.skills.length : 0), 0);
+    items.push({ label: "Skills", value: String(skillCount) });
+    items.push({ label: "CWDs", value: String(rows.length) });
+    return items;
+  }
+
+  if (command === "mcp-status") {
+    const servers = Array.isArray(data.data) ? data.data : [];
+    const toolCount = servers.reduce((total, server) => {
+      const tools = server?.tools && typeof server.tools === "object" ? Object.keys(server.tools).length : 0;
+      return total + tools;
+    }, 0);
+    const resourceCount = servers.reduce((total, server) => total + (Array.isArray(server?.resources) ? server.resources.length : 0), 0);
+    items.push({ label: "Servers", value: String(servers.length) });
+    items.push({ label: "Tools", value: String(toolCount) });
+    items.push({ label: "Resources", value: String(resourceCount) });
+    return items;
+  }
+
+  if (command === "features") {
+    const features = Array.isArray(data.data) ? data.data : [];
+    const enabled = features.filter((feature) => feature && typeof feature === "object" && feature.enabled === true).length;
+    const defaultEnabled = features.filter((feature) => feature && typeof feature === "object" && feature.defaultEnabled === true).length;
+    items.push({ label: "Features", value: String(features.length) });
+    items.push({ label: "Enabled", value: String(enabled) });
+    items.push({ label: "Default", value: String(defaultEnabled) });
+    return items;
+  }
+
+  if (command === "resume" || command === "agents") {
+    const threads = Array.isArray(data.data) ? data.data : [];
+    const loaded = threads.filter((thread) => thread?.status?.type === "loaded").length;
+    const ephemeral = threads.filter((thread) => thread?.ephemeral === true).length;
+    items.push({ label: command === "resume" ? "Threads" : "Agent threads", value: String(threads.length) });
+    items.push({ label: "Loaded", value: String(loaded) });
+    items.push({ label: "Ephemeral", value: String(ephemeral) });
+    if (data.nextCursor) items.push({ label: "More", value: "yes" });
     return items;
   }
 
@@ -143,6 +282,7 @@ function HarnessRuntimeCommandCard({
   const data = payload.data && typeof payload.data === "object" ? payload.data as Record<string, any> : null;
   const suggestedCommand = data?.suggested_command ? String(data.suggested_command) : "";
   const previewItems = buildRuntimeDataPreview(command, data);
+  const itemPreview = buildRuntimeItemPreview(command, data);
   return (
     <SlashResultPanel
       chatMode={chatMode}
@@ -165,6 +305,18 @@ function HarnessRuntimeCommandCard({
                 <div className="truncate font-mono text-[11px] text-text">{item.value}</div>
               </div>
             ))}
+          </div>
+        )}
+        {itemPreview.length > 0 && (
+          <div className="grid gap-1 rounded bg-surface-overlay/40 px-2 py-1.5">
+            <div className="text-[10px] uppercase text-text-dim">Showing</div>
+            <div className="flex flex-wrap gap-1.5">
+              {itemPreview.map((item) => (
+                <span key={item} className="max-w-full truncate rounded bg-surface-overlay/70 px-2 py-1 font-mono text-[11px] text-text">
+                  {item}
+                </span>
+              ))}
+            </div>
           </div>
         )}
         {status === "terminal_handoff" && suggestedCommand && (
