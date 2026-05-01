@@ -33,6 +33,10 @@ from app.services.project_runtime import load_project_runtime_environment_for_id
 from app.services.project_run_handoff import CommandResult
 
 
+def _factory_meta() -> dict:
+    return {"blueprint_snapshot": {"repos": [{"path": "spindrel", "branch": "development"}]}}
+
+
 def test_project_coding_run_defaults_use_repo_branch_and_safe_slug():
     task_id = uuid.UUID("12345678-1234-5678-1234-567812345678")
     project = Project(
@@ -436,7 +440,7 @@ async def test_project_coding_run_schedule_definitions_are_not_listed_as_runs(db
         name="Spindrel",
         slug="spindrel",
         root_path="common/projects/spindrel",
-        metadata_={},
+        metadata_=_factory_meta(),
     )
     channel = Channel(
         id=channel_id,
@@ -475,7 +479,7 @@ async def test_project_review_batches_group_launch_batch_runs_with_source_packs_
         name="Spindrel",
         slug="spindrel-review-inbox",
         root_path="common/projects/spindrel",
-        metadata_={},
+        metadata_=_factory_meta(),
     )
     channel = Channel(
         id=channel_id,
@@ -578,7 +582,7 @@ async def test_project_review_session_ledger_derives_outcomes_sources_and_eviden
         name="Spindrel",
         slug="spindrel-review-ledger",
         root_path="common/projects/spindrel",
-        metadata_={},
+        metadata_=_factory_meta(),
     )
     channel = Channel(
         id=channel_id,

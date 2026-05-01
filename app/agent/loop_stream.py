@@ -218,6 +218,7 @@ async def stream_context_assembly_events(
         model_override=model_override,
         provider_id_override=provider_id_override,
         tool_surface_policy=(run_control_policy or {}).get("tool_surface"),
+        required_tool_names=(run_control_policy or {}).get("required_tools"),
     ):
         yield event
 

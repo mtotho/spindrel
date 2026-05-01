@@ -1033,6 +1033,15 @@ async def _run_spindrel_heartbeat(
         # even when interactive chat allows it).
         from app.agent.context import current_run_origin
         current_run_origin.set("heartbeat")
+        _run_control_policy = dict(prepared.execution_policy or {})
+        _configured_tools = [
+            str(value)
+            for value in ((getattr(hb, "execution_config", None) or {}).get("tools") or [])
+            if value
+        ]
+        if _configured_tools:
+            _run_control_policy["required_tools"] = list(dict.fromkeys(_configured_tools))
+
         run_result = await asyncio.wait_for(
             run(
                 messages, bot, prepared.prompt,
@@ -1050,7 +1059,7 @@ async def _run_spindrel_heartbeat(
                 skip_tool_policy=hb.skip_tool_approval,
                 task_mode=True,
                 context_profile_name="heartbeat",
-                run_control_policy=prepared.execution_policy,
+                run_control_policy=_run_control_policy,
             ),
             timeout=_hb_timeout,
         )

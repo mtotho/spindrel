@@ -96,7 +96,7 @@ def test_heartbeat_profile_suppresses_ambient_skill_index():
 
 def test_profile_policy_matrix_for_restricted_origins():
     expected = {
-        "chat": (None, True, True, True),
+        "chat": (8, False, True, True),
         "planning": (2, True, True, False),
         "executing": (4, True, True, True),
         "task_recent": (None, True, True, False),

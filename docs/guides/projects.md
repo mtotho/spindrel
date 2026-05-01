@@ -48,6 +48,15 @@ missing repos, skips existing repo paths, runs ordered shell setup commands, and
 records redacted run history. Secret values stay in the secret vault; Projects
 only store bindings to those vault entries.
 
+Blueprints are durable recipes, not per-run copies. A direct Project can create
+a Blueprint from its current state; Spindrel records detected child git repos
+plus existing Project metadata such as dependency stacks, dev targets, env
+defaults, and secret slots, then applies that snapshot back to the Project.
+Fresh instances and formal runs use the applied snapshot. The disposable
+instance is what changes per run.
+
+![Direct Project setup with Blueprint creation CTA](../images/project-workspace-setup-blueprint-cta.png)
+
 ## Applied Blueprints
 
 ![Applied Blueprint section on Project settings](../images/project-workspace-settings-blueprint.png)
@@ -56,6 +65,12 @@ When a Project is created from a Blueprint, the Project stores an applied
 snapshot. Editing or deleting the Blueprint later does not rewrite existing
 Projects. Use the Project settings Blueprint section to inspect the snapshot,
 repo/env declarations, materialization result, and required secret bindings.
+
+Commits do not require Blueprint edits. Fresh instances clone the declared
+branch when created, and Project coding agents still inspect git state and
+update from the configured base branch when safe. Update the Blueprint only
+when the recipe changes: repo URL/path/branch, setup commands, dependency
+stack, env slots, secret bindings, dev targets, or starter files.
 
 The Project runtime environment is derived from the applied snapshot, not from
 later Blueprint edits. Env defaults and bound Project secrets are injected into
@@ -81,6 +96,11 @@ bound to a fresh instance through the session Project-instance API. Project
 session composers expose that binding as quiet work-surface text near the
 composer controls, not as channel header chrome; creating or clearing a fresh
 copy affects future turns only.
+
+Ad hoc Project sessions stay on the shared Project root by default. Use an
+isolated Project session when two ad hoc sessions may edit, test, or restart
+the same repo in parallel. Formal coding runs already isolate files, branch,
+Dependency Stack, and dev target ports by default.
 
 ## Agent Coding Runs
 

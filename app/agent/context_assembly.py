@@ -56,11 +56,11 @@ _PLAN_MODE_CONTROL_TOOLS = (
     "request_plan_replan",
 )
 _AGENT_SELF_INSPECTION_PROMPT = (
-    "Agent self-inspection: use list_agent_capabilities before broad API, config, "
-    "integration, widget, Project, harness, or readiness work. Use run_agent_doctor "
-    "when blocked, missing tools/scopes/skills, or before asking a human to inspect "
-    "settings. If skills.recommended_now is present, follow its first_action before "
-    "procedural work."
+    "Agent self-inspection: when self-inspection tools are exposed, use them before "
+    "broad API, config, integration, widget, Project, or readiness work. When they "
+    "are not exposed, use the loaded task tools and report/propose a narrow config "
+    "change if a required tool or scope is missing. If skills.recommended_now is "
+    "present, follow its first_action before procedural work."
 )
 
 
@@ -561,7 +561,7 @@ async def _run_context_pruning(
     from app.agent.context_pruning import prune_tool_results
     _prune_stats = prune_tool_results(messages, min_content_length=_pruning_min_len)
     if _prune_stats["pruned_count"] > 0 or _prune_stats.get("tool_call_args_pruned", 0) > 0:
-        ledger.record_chars("context_pruning_saved", -_prune_stats["chars_saved"])
+        ledger.inject_decisions["context_pruning_saved_chars"] = str(_prune_stats["chars_saved"])
         yield {
             "type": "context_pruning",
             "scope": "turn_boundary",
@@ -1420,6 +1420,7 @@ async def _compose_heartbeat_tool_surface(
     enrolled_tool_names: list[str],
     tagged_tool_names: list[str],
     tagged_skill_names: list[str],
+    required_tool_names: list[str] | tuple[str, ...] | None,
     plan_mode_active: bool,
     user_message: Any,
     threshold: float,
@@ -1476,6 +1477,8 @@ async def _compose_heartbeat_tool_surface(
 
     for n in (bot.pinned_tools or []):
         _add(n)
+    for n in (required_tool_names or []):
+        _add(str(n), allow_baseline=True)
     for n in tagged_tool_names:
         _add(n, allow_baseline=True)
     if bot.tool_discovery:
@@ -1567,6 +1570,11 @@ async def _compose_heartbeat_tool_surface(
 
     heartbeat_surface = {
         "pin_set": list(pin_set),
+        "required_tools": list(required_tool_names or []),
+        "required_tools_missing": [
+            str(n) for n in (required_tool_names or [])
+            if str(n) not in by_name
+        ],
         "baseline_pins_filtered": [
             n for n in (bot.pinned_tools or [])
             if n in AUTO_INJECTED_PIN_NAMES and n in by_name
@@ -1597,6 +1605,7 @@ async def _run_tool_retrieval(
     client_id: Any,
     context_profile: Any,
     tool_surface_policy: str | None,
+    required_tool_names: list[str] | tuple[str, ...] | None,
     ledger: AssemblyLedger,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Tool-RAG retrieval + policy gate + pinned/retrieved merge + compact
@@ -1642,7 +1651,11 @@ async def _run_tool_retrieval(
     if _plan_mode_active:
         _add_local_tool_schemas(by_name, _PLAN_MODE_CONTROL_TOOLS)
 
-    _surface_policy = tool_surface_policy if tool_surface_policy in {"focused_escape", "strict", "full"} else "full"
+    _surface_policy = (
+        tool_surface_policy
+        if tool_surface_policy in {"focused_escape", "strict", "full"}
+        else "focused_escape"
+    )
     _authorized_names: set[str] = set(by_name.keys())
     out_state["authorized_names"] = _authorized_names
 
@@ -1675,6 +1688,7 @@ async def _run_tool_retrieval(
             enrolled_tool_names=_enrolled_tool_names,
             tagged_tool_names=tagged_tool_names,
             tagged_skill_names=tagged_skill_names,
+            required_tool_names=required_tool_names,
             plan_mode_active=_plan_mode_active,
             user_message=user_message,
             threshold=th,
@@ -1768,7 +1782,7 @@ async def _run_tool_retrieval(
         _plan_mode_pins = list(_PLAN_MODE_CONTROL_TOOLS) if _plan_mode_active else []
         _broad_pinned = list(bot.pinned_tools or [])
         if _surface_policy == "full":
-            _effective_pinned = _broad_pinned + tagged_tool_names + ["get_tool_info"]
+            _effective_pinned = list(required_tool_names or []) + _broad_pinned + tagged_tool_names + ["get_tool_info"]
             if bot.tool_discovery:
                 _effective_pinned.append("search_tools")
                 _effective_pinned.append("list_tool_signatures")
@@ -1778,7 +1792,7 @@ async def _run_tool_retrieval(
             if bot.skills and (context_profile.allow_skill_index or tagged_skill_names):
                 _effective_pinned += ["get_skill", "get_skill_list"]
         elif _surface_policy == "focused_escape":
-            _effective_pinned = tagged_tool_names + ["get_tool_info"]
+            _effective_pinned = list(required_tool_names or []) + tagged_tool_names + ["get_tool_info"]
             if bot.tool_discovery:
                 _effective_pinned.append("search_tools")
                 _effective_pinned.append("list_tool_signatures")
@@ -1786,7 +1800,7 @@ async def _run_tool_retrieval(
             if tagged_skill_names:
                 _effective_pinned += ["get_skill", "get_skill_list"]
         else:
-            _effective_pinned = list(tagged_tool_names)
+            _effective_pinned = list(required_tool_names or []) + list(tagged_tool_names)
             if tagged_skill_names:
                 _effective_pinned += ["get_skill", "get_skill_list"]
         if _plan_mode_pins:
@@ -1854,6 +1868,11 @@ async def _run_tool_retrieval(
             "threshold": th,
             "pool_total": len(by_name),
             "pinned": list(bot.pinned_tools or []),
+            "required_tools": list(required_tool_names or []),
+            "required_tools_missing": [
+                str(n) for n in (required_tool_names or [])
+                if str(n) not in by_name
+            ],
             "included": sorted(by_name.keys()),
             "enrolled_working_set": list(_enrolled_tool_names),
             "retrieved": [t["function"]["name"] for t in retrieved],
@@ -2616,6 +2635,7 @@ async def assemble_context(
     model_override: str | None = None,
     provider_id_override: str | None = None,
     tool_surface_policy: str | None = None,
+    required_tool_names: list[str] | tuple[str, ...] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject all RAG context into messages and yield status events.
 
@@ -2630,6 +2650,10 @@ async def assemble_context(
     ))
 
     context_profile = get_context_profile(context_profile_name or "chat")
+    if isinstance(required_tool_names, str):
+        required_tool_names = [required_tool_names]
+    elif required_tool_names is not None:
+        required_tool_names = [str(n) for n in required_tool_names if n]
     result.context_profile = context_profile.name
     result.context_origin = current_run_origin.get(None)
     result.context_policy = context_profile.to_policy_dict()
@@ -2843,6 +2867,7 @@ async def assemble_context(
             client_id=client_id,
             context_profile=context_profile,
             tool_surface_policy=tool_surface_policy,
+            required_tool_names=required_tool_names,
             state=stage_state,
             ledger=ledger,
         ):

@@ -62,6 +62,15 @@ Mission Control or the compatibility Command Center intake API, use
 `source_type="user"`, and can be immediately assigned to a bot or left as
 unassigned intake.
 
+Conversational issue intake is the Project Factory bridge for rough user notes.
+When a user is explicitly dumping bugs, ideas, or planning notes, normal
+Project-bound agents save each discrete note with `publish_issue_intake`. Those
+notes remain pending raw intake until a later conversational or operator sweep
+groups them into Issue Work Packs. Agents can use the read-only
+`list_issue_intake` tool to discuss pending notes and existing Work Packs before
+calling `create_issue_work_packs`; none of those actions launch Project coding
+runs.
+
 ## Visibility
 
 Bot-authored and user-authored channel items are visible to normal channel

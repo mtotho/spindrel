@@ -4,9 +4,11 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy import select
 
-from app.db.models import Channel, ProjectInstance, SecretValue, SharedWorkspace, Task
+from app.db.models import Channel, Project, ProjectInstance, ProjectSecretBinding, SecretValue, SharedWorkspace, Task
 from app.services.encryption import encrypt
+from app.services.projects import project_directory_from_project
 from tests.integration.conftest import AUTH_HEADERS
 
 pytestmark = pytest.mark.asyncio
@@ -92,6 +94,55 @@ class TestProjectsApi:
         listed = await client.get(f"/api/v1/projects/{project_id}/run-receipts", headers=AUTH_HEADERS)
         assert listed.status_code == 200
         assert [row["id"] for row in listed.json()] == [receipt_body["id"]]
+
+    async def test_create_blueprint_from_current_project_applies_recipe(self, client, db_session):
+        workspace = await _workspace(db_session)
+        created = await client.post(
+            "/api/v1/projects",
+            json={
+                "workspace_id": str(workspace.id),
+                "name": "Current State Project",
+                "root_path": f"common/projects/current-state-{uuid.uuid4().hex[:8]}",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert created.status_code == 201
+        project_id = uuid.UUID(created.json()["id"])
+        project = await db_session.get(Project, project_id)
+        assert project is not None
+
+        repo_dir = project_directory_from_project(project).host_path + "/example-repo"
+        import os
+        import subprocess
+
+        os.makedirs(repo_dir, exist_ok=True)
+        subprocess.run(["git", "init", "-b", "development"], cwd=repo_dir, check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(["git", "remote", "add", "origin", "https://github.com/example/example-repo.git"], cwd=repo_dir, check=True)
+
+        resp = await client.post(
+            f"/api/v1/projects/{project_id}/blueprint-from-current",
+            json={"apply_to_project": True},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["applied"] is True
+        assert body["blueprint"]["repos"] == [
+            {
+                "name": "example-repo",
+                "url": "https://github.com/example/example-repo.git",
+                "path": "example-repo",
+                "branch": "development",
+            }
+        ]
+        assert body["project"]["applied_blueprint_id"] == body["blueprint"]["id"]
+
+        await db_session.refresh(project)
+        assert project.metadata_["blueprint_snapshot"]["repos"][0]["path"] == "example-repo"
+        slots = (await db_session.execute(
+            select(ProjectSecretBinding).where(ProjectSecretBinding.project_id == project_id)
+        )).scalars().all()
+        assert slots == []
 
     async def test_project_run_receipts_are_idempotent(self, client, db_session):
         workspace = await _workspace(db_session)

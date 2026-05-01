@@ -1030,6 +1030,7 @@ def build_native_cli_command(
     parts = ["codex"]
     if native_session_id:
         parts.extend(["resume", native_session_id])
+    parts.append("--no-alt-screen")
     if model:
         parts.extend(["--model", model])
     if effort:

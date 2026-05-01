@@ -119,29 +119,29 @@ async def stream_loop_setup(
         [t["function"]["name"] for t in all_tools] if all_tools else "(none)",
     )
 
-    if context_profile_name == "heartbeat":
-        tool_schema_chars = sum(len(json.dumps(t, default=str)) for t in (tools_param or []))
-        tool_surface_event = {
-            "type": "tool_surface_summary",
-            "context_profile": context_profile_name,
-            "tool_count": len(tools_param or []),
-            "tool_schema_tokens_estimate": estimate_chars_to_tokens(tool_schema_chars),
-            "tools": [(t.get("function") or {}).get("name") for t in (tools_param or [])],
-            "tool_surface": run_control.policy.get("tool_surface") or "unknown",
-            "continuation_mode": run_control.policy.get("continuation_mode") or "stateless",
-            "max_iterations_source": max_iterations_source,
-            "effective_max_iterations": effective_max_iterations,
-        }
-        yield _event_with_compaction_tag(tool_surface_event, compaction)
-        if correlation_id is not None:
-            safe_create_task_fn(record_trace_event_fn(
-                correlation_id=correlation_id,
-                session_id=session_id,
-                bot_id=bot.id,
-                client_id=client_id,
-                event_type="tool_surface_summary",
-                data={k: v for k, v in tool_surface_event.items() if k != "type"},
-            ))
+    tool_schema_chars = sum(len(json.dumps(t, default=str)) for t in (tools_param or []))
+    tool_surface_event = {
+        "type": "tool_surface_summary",
+        "context_profile": context_profile_name or "chat",
+        "tool_count": len(tools_param or []),
+        "tool_schema_tokens_estimate": estimate_chars_to_tokens(tool_schema_chars),
+        "tools": [(t.get("function") or {}).get("name") for t in (tools_param or [])],
+        "tool_surface": run_control.policy.get("tool_surface") or "focused_escape",
+        "required_tools": list(run_control.policy.get("required_tools") or []),
+        "continuation_mode": run_control.policy.get("continuation_mode") or "stateless",
+        "max_iterations_source": max_iterations_source,
+        "effective_max_iterations": effective_max_iterations,
+    }
+    yield _event_with_compaction_tag(tool_surface_event, compaction)
+    if correlation_id is not None:
+        safe_create_task_fn(record_trace_event_fn(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot.id,
+            client_id=client_id,
+            event_type="tool_surface_summary",
+            data={k: v for k, v in tool_surface_event.items() if k != "type"},
+        ))
 
     ctx = LoopRunContext(
         bot=bot,

@@ -347,6 +347,8 @@ async def create_project_coding_run_review_session(
     project: Project,
     body: ProjectCodingRunReviewCreate,
 ) -> Task:
+    if not project_snapshot(project):
+        raise ValueError("Project coding-run reviews require an applied Blueprint snapshot. Create a Blueprint from this Project first.")
     channel = await db.get(Channel, body.channel_id)
     if channel is None:
         raise ValueError("channel not found")

@@ -129,6 +129,52 @@ services:
 
 
 @pytest.mark.asyncio
+async def test_project_instance_scoped_dependency_stacks_do_not_share_instances(db_session):
+    workspace_id = uuid.uuid4()
+    project = _project(workspace_id)
+    first = ProjectInstance(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        project_id=project.id,
+        root_path="common/project-instances/dependency/first",
+        status="ready",
+    )
+    second = ProjectInstance(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        project_id=project.id,
+        root_path="common/project-instances/dependency/second",
+        status="ready",
+    )
+    db_session.add_all([project, first, second])
+    await db_session.commit()
+
+    first_runtime = await ensure_project_dependency_stack_instance(
+        db_session,
+        project,
+        project_instance=first,
+        scope="project_instance",
+    )
+    second_runtime = await ensure_project_dependency_stack_instance(
+        db_session,
+        project,
+        project_instance=second,
+        scope="project_instance",
+    )
+    first_again = await ensure_project_dependency_stack_instance(
+        db_session,
+        project,
+        project_instance=first,
+        scope="project_instance",
+    )
+
+    assert first_runtime.id != second_runtime.id
+    assert first_again.id == first_runtime.id
+    assert first_runtime.project_instance_id == first.id
+    assert second_runtime.project_instance_id == second.id
+
+
+@pytest.mark.asyncio
 async def test_prepare_dependency_stack_commits_stack_link_before_start(db_session, monkeypatch):
     workspace_id = uuid.uuid4()
     project = Project(

@@ -17,6 +17,18 @@ or feedback-loop work without a formal Project coding run, do not load a broad
 runtime Project skill. Ask the user to attach the relevant Project-local files
 or dependency context with composer mentions such as `@file:<path>` or
 `@project:dependencies`, then use normal shell/file tools in the Project root.
+Ad hoc sessions use the shared Project root by default, like a normal CLI
+checkout. If the user wants parallel ad hoc work that should not touch the
+shared root, ask them to start an isolated Project session; that binds the
+session to a fresh Project instance and gives dependency-stack tools a
+Project-instance-scoped stack.
+
+Blueprints are durable Project recipes. Fresh Project instances are disposable
+copies created from the Project's applied Blueprint snapshot. Do not treat a
+Blueprint as per-run state; update it only when the setup recipe changes, such
+as repos, branch, setup commands, env slots, dependency stack, or dev targets.
+Fresh instances clone the declared branch when they are created, so they pick
+up the latest remote state at that moment.
 
 If the user is still shaping a plan, issue list, or multi-part track, load
 `workspace/issue_intake` first and use `create_issue_work_packs` to publish
@@ -43,6 +55,8 @@ the user explicitly asked to launch a coding run.
 
 1. Confirm you are in the Project work surface. Use the Project root for file,
    command, test, screenshot, and handoff work.
+   Formal Project coding runs already use a fresh Project instance, generated
+   branch, run-scoped Dependency Stack, and assigned dev target ports.
 2. Before editing, inspect current state and call
    `prepare_project_run_handoff(action="prepare_branch")`.
 3. Make focused changes with your native harness file and shell tools inside
@@ -97,6 +111,10 @@ the user explicitly asked to launch a coding run.
 
 ## Boundaries
 
+- Project coding runs and review sessions require an applied Blueprint snapshot.
+  If launch is blocked because the Project has no recipe, ask the operator to
+  create a Blueprint from the current Project or create a Project from an
+  existing Blueprint.
 - Do not import repo-local `.agents` skills into runtime. It is OK to read
   Project-local instruction files as guidance for the current Project, but do
   not copy them into runtime skill storage or assume they apply globally.

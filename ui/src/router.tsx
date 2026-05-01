@@ -61,6 +61,7 @@ const SettingsSystemPage = lazy(() => import("@/app/(app)/settings/system"));
 const NewChannelPage = lazy(() => import("@/app/(app)/channels/new"));
 const ChannelPage = lazy(() => import("@/app/(app)/channels/[channelId]/index"));
 const ChannelSettings = lazy(() => import("@/app/(app)/channels/[channelId]/settings"));
+const NoteWorkspacePage = lazy(() => import("@/app/(app)/channels/[channelId]/NoteWorkspacePage"));
 
 // Channel tabs / sub-components used as pages
 
@@ -180,6 +181,7 @@ export const router = createBrowserRouter([
             children: [
               { index: true, element: <ChannelPage /> },
               { path: "settings", element: <ChannelSettings /> },
+              { path: "notes/:slug", element: <NoteWorkspacePage /> },
               // Sub-routes for the pipeline run-view modal. The ChannelPage
               // detects these via useMatch and layers the modal on top —
               // the URL is the source of truth, but the chat subscription

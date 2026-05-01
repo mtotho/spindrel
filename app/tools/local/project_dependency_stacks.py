@@ -5,7 +5,7 @@ import json
 import uuid
 from typing import Any
 
-from app.agent.context import current_channel_id, current_project_instance_id, current_task_id
+from app.agent.context import current_channel_id, current_project_instance_id, current_session_id, current_task_id
 from app.tools.registry import register
 
 
@@ -44,6 +44,12 @@ async def _resolve_project_dependencies_context(db, project_id: str | None = Non
         raise ValueError("Project dependency stack requires a Project-bound task or channel")
     project_instance_id = getattr(task, "project_instance_id", None) if task is not None else None
     project_instance_id = project_instance_id or current_project_instance_id.get()
+    if project_instance_id is None and task is None:
+        from app.db.models import Session
+
+        session_id = current_session_id.get()
+        session = await db.get(Session, session_id) if session_id else None
+        project_instance_id = getattr(session, "project_instance_id", None) if session is not None else None
     project_instance = await db.get(ProjectInstance, project_instance_id) if project_instance_id else None
     return project, task, project_instance
 
@@ -72,8 +78,14 @@ async def get_project_dependency_stack(project_id: str | None = None, task_id: s
 
         async with async_session() as db:
             project, task, _project_instance = await _resolve_project_dependencies_context(db, project_id, task_id)
-            scope = "task" if task is not None else "project"
-            payload = await get_stack(db, project, task_id=task.id if task is not None else None, scope=scope)
+            scope = "task" if task is not None else ("project_instance" if _project_instance is not None else "project")
+            payload = await get_stack(
+                db,
+                project,
+                task_id=task.id if task is not None else None,
+                project_instance=_project_instance,
+                scope=scope,
+            )
         return json.dumps({"ok": True, **payload}, ensure_ascii=False)
     except Exception as exc:
         return _tool_error(str(exc), "project_dependency_stack_status_failed")
@@ -135,9 +147,15 @@ async def manage_project_dependency_stack(
 
         async with async_session() as db:
             project, task, project_instance = await _resolve_project_dependencies_context(db, project_id, task_id)
-            scope = "task" if task is not None else "project"
+            scope = "task" if task is not None else ("project_instance" if project_instance is not None else "project")
             if action == "status":
-                payload = await get_stack(db, project, task_id=task.id if task is not None else None, scope=scope)
+                payload = await get_stack(
+                    db,
+                    project,
+                    task_id=task.id if task is not None else None,
+                    project_instance=project_instance,
+                    scope=scope,
+                )
                 instance_payload = payload.get("instance")
                 if not instance_payload:
                     return json.dumps({"ok": True, **payload}, ensure_ascii=False)

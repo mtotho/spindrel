@@ -1861,6 +1861,19 @@ export interface ProjectFromBlueprintWrite {
   secret_bindings?: Record<string, string | null>;
 }
 
+export interface ProjectBlueprintFromCurrentWrite {
+  name?: string | null;
+  apply_to_project?: boolean;
+}
+
+export interface ProjectBlueprintFromCurrentResult {
+  blueprint: ProjectBlueprint;
+  project: Project;
+  detected_repos: Array<Record<string, any>>;
+  warnings: string[];
+  applied: boolean;
+}
+
 export interface WorkspaceCreate {
   name: string;
   description?: string;

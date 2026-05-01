@@ -250,11 +250,19 @@ async def _existing_instance(
     *,
     project_id: uuid.UUID,
     task_id: uuid.UUID | None,
+    project_instance_id: uuid.UUID | None = None,
     scope: str,
 ) -> ProjectDependencyStackInstance | None:
     if task_id is not None:
         stmt = select(ProjectDependencyStackInstance).where(
             ProjectDependencyStackInstance.task_id == task_id,
+            ProjectDependencyStackInstance.deleted_at.is_(None),
+        )
+    elif scope == "project_instance" and project_instance_id is not None:
+        stmt = select(ProjectDependencyStackInstance).where(
+            ProjectDependencyStackInstance.project_id == project_id,
+            ProjectDependencyStackInstance.project_instance_id == project_instance_id,
+            ProjectDependencyStackInstance.scope == scope,
             ProjectDependencyStackInstance.deleted_at.is_(None),
         )
     else:
@@ -271,10 +279,17 @@ async def get_project_dependency_stack(
     project: Project,
     *,
     task_id: uuid.UUID | None = None,
+    project_instance: ProjectInstance | None = None,
     scope: str = "project",
 ) -> dict[str, Any]:
     spec = project_dependency_stack_spec(project)
-    instance = await _existing_instance(db, project_id=project.id, task_id=task_id, scope=scope)
+    instance = await _existing_instance(
+        db,
+        project_id=project.id,
+        task_id=task_id,
+        project_instance_id=project_instance.id if project_instance is not None else None,
+        scope=scope,
+    )
     stack = await db.get(DockerStack, instance.docker_stack_id) if instance and instance.docker_stack_id else None
     return {
         "configured": spec.configured,
@@ -300,6 +315,7 @@ async def ensure_project_dependency_stack_instance(
         db,
         project_id=project.id,
         task_id=task.id if task is not None else None,
+        project_instance_id=project_instance.id if project_instance is not None else None,
         scope=resolved_scope,
     )
     if existing is not None:

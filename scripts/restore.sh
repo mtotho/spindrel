@@ -20,6 +20,12 @@ BACKUP_DIR="${BACKUP_DIR:-${REPO_DIR}/backups}"
 RCLONE_REMOTE="${RCLONE_REMOTE:?Error: RCLONE_REMOTE is not set. Example: export RCLONE_REMOTE=:s3:your-bucket-name}"
 RESTORE_DIR="${REPO_DIR}/restore"
 
+# Encryption: prefer dedicated BACKUP_ENCRYPTION_KEY; fall back to
+# ENCRYPTION_KEY. Backups produced after the 2026-05 hardening are
+# encrypted (.tar.gz.enc); plaintext (.tar.gz) remains supported for
+# legacy archives.
+BACKUP_KEY="${BACKUP_ENCRYPTION_KEY:-${ENCRYPTION_KEY:-}}"
+
 usage() {
   echo "Usage: $0 [path-to-archive.tar.gz]"
   echo ""
@@ -47,10 +53,15 @@ else
     --s3-secret-access-key "$AWS_SECRET_ACCESS_KEY" \
     --s3-region "${AWS_REGION:-us-east-1}" \
     --s3-no-check-bucket \
-    --include "agent-backup-*.tar.gz" \
+    --include "agent-backup-*.tar.gz*" \
     --max-depth 1
+  # Prefer encrypted archives over plaintext when both exist.
   # shellcheck disable=SC2012
-  ARCHIVE="$(ls -t "$BACKUP_DIR"/agent-backup-*.tar.gz 2>/dev/null | head -1)"
+  ARCHIVE="$(ls -t "$BACKUP_DIR"/agent-backup-*.tar.gz.enc 2>/dev/null | head -1)"
+  if [[ -z "$ARCHIVE" ]]; then
+    # shellcheck disable=SC2012
+    ARCHIVE="$(ls -t "$BACKUP_DIR"/agent-backup-*.tar.gz 2>/dev/null | head -1)"
+  fi
   if [[ -z "$ARCHIVE" ]]; then
     echo "[restore] No backup archives found." >&2
     exit 1
@@ -58,11 +69,33 @@ else
   echo "[restore] Using $ARCHIVE"
 fi
 
-# ── 2. Extract ──────────────────────────────────────────────────────────────
+# ── 2. Decrypt (if .enc) and extract ───────────────────────────────────────
 echo "[restore] Extracting …"
 rm -rf "$RESTORE_DIR"
 mkdir -p "$RESTORE_DIR"
-tar xzf "$ARCHIVE" -C "$RESTORE_DIR"
+if [[ "$ARCHIVE" == *.enc ]]; then
+  if [[ -z "$BACKUP_KEY" ]]; then
+    echo "[restore] FATAL: archive is encrypted (.enc) but no ENCRYPTION_KEY / BACKUP_ENCRYPTION_KEY is set." >&2
+    exit 4
+  fi
+  KEY_FILE="$(mktemp)"
+  chmod 600 "$KEY_FILE"
+  # shellcheck disable=SC2064
+  trap "rm -f '$KEY_FILE'" EXIT
+  printf '%s' "$BACKUP_KEY" > "$KEY_FILE"
+  PLAIN_ARCHIVE="${ARCHIVE%.enc}"
+  openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 \
+    -in "$ARCHIVE" \
+    -out "$PLAIN_ARCHIVE" \
+    -pass "file:$KEY_FILE"
+  rm -f "$KEY_FILE"
+  trap - EXIT
+  tar xzf "$PLAIN_ARCHIVE" -C "$RESTORE_DIR"
+  # Remove the decrypted plaintext immediately — only the .enc copy stays on disk.
+  rm -f "$PLAIN_ARCHIVE"
+else
+  tar xzf "$ARCHIVE" -C "$RESTORE_DIR"
+fi
 
 # ── 3. Restore config files ────────────────────────────────────────────────
 echo "[restore] Restoring config files …"

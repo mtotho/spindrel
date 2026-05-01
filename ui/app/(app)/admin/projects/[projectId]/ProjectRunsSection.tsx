@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   useCleanupProjectCodingRun,
+  useCreateProjectBlueprintFromCurrent,
   useContinueProjectCodingRun,
   useCreateProjectCodingRun,
   useProjectCodingRunReviewBatches,
@@ -250,6 +251,7 @@ export function ProjectRunsSection({
   const { data: reviewBatches = [] } = useProjectCodingRunReviewBatches(project.id);
   const { data: reviewSessions = [] } = useProjectCodingRunReviewSessions(project.id);
   const createRun = useCreateProjectCodingRun(project.id);
+  const createBlueprint = useCreateProjectBlueprintFromCurrent(project.id);
   const continueRun = useContinueProjectCodingRun(project.id);
   const markReviewedBatch = useMarkProjectCodingRunsReviewed(project.id);
   const createReviewSession = useCreateProjectCodingRunReviewSession(project.id);
@@ -272,6 +274,7 @@ export function ProjectRunsSection({
   }, [channels, selectedChannelId]);
 
   const selectedChannel = channels?.find((channel) => channel.id === selectedChannelId);
+  const hasBlueprintSnapshot = Boolean(project.metadata_?.blueprint_snapshot);
   const createdRun = runs.find((run) => run.id === createdRunId);
   const changeRun = runs.find((run) => run.id === changeRunId);
   const selectedRuns = runs.filter((run) => selectedRunIds.includes(run.id));
@@ -298,7 +301,7 @@ export function ProjectRunsSection({
     ));
   };
   const startRun = () => {
-    if (!selectedChannel || createRun.isPending) return;
+    if (!selectedChannel || !hasBlueprintSnapshot || createRun.isPending) return;
     createRun.mutate(
       {
         channel_id: selectedChannel.id,
@@ -405,7 +408,7 @@ export function ProjectRunsSection({
           <ActionButton
             label={createRun.isPending ? "Starting" : "Start Run"}
             icon={<Play size={14} />}
-            disabled={!selectedChannel || createRun.isPending}
+            disabled={!selectedChannel || !hasBlueprintSnapshot || createRun.isPending}
             onPress={startRun}
           />
         }
@@ -444,6 +447,25 @@ export function ProjectRunsSection({
             testId="project-run-execution-access"
           />
         </div>
+        {!hasBlueprintSnapshot && (
+          <div className="mt-3">
+            <SettingsControlRow
+              leading={<AlertTriangle size={14} />}
+              title="Blueprint recipe required"
+              description="Create a durable Blueprint from this Project before launching isolated coding runs."
+              meta={<StatusBadge label="setup needed" variant="warning" />}
+              action={
+                <ActionButton
+                  label={createBlueprint.isPending ? "Creating" : "Create Blueprint"}
+                  icon={<FileText size={13} />}
+                  size="small"
+                  disabled={createBlueprint.isPending}
+                  onPress={() => createBlueprint.mutate({ apply_to_project: true })}
+                />
+              }
+            />
+          </div>
+        )}
         {createdRun && (
           <div className="mt-3">
             <SettingsControlRow

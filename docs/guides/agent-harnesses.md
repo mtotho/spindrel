@@ -181,6 +181,10 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 
 ![Harness SDK usage rows in light mode](../images/harness-usage-logs-light.png)
 
+![Codex native CLI embedded in a harness session](../images/native-cli/harness-codex-native-cli-terminal-dark.png)
+
+![Codex native CLI messages mirrored back into Spindrel chat](../images/native-cli/harness-codex-native-cli-mirror-dark.png)
+
 Regenerate the non-question fixtures with:
 
 ```bash

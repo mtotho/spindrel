@@ -44,8 +44,9 @@ rclone lsd "$RCLONE_REMOTE"
 This will:
 1. `pg_dump` the database via `docker compose exec`
 2. Bundle the dump with `.env`, `bots/`, `skills/`, `tools/`, `integrations/`, and `mcp.yaml`
-3. Upload the tarball to the rclone remote (`RCLONE_REMOTE`)
-4. Prune local backups to the most recent 7
+3. **Encrypt the tarball** with AES-256-CBC + PBKDF2 (100k iters), using `BACKUP_ENCRYPTION_KEY` (preferred) or `ENCRYPTION_KEY` as the passphrase. Output is `agent-backup-*.tar.gz.enc`. Plaintext is only produced if `ENCRYPTION_STRICT=false` is set explicitly.
+4. Upload the encrypted archive to the rclone remote (`RCLONE_REMOTE`)
+5. Prune local backups (encrypted + plaintext) to the most recent 7
 
 ### 3. Set up cron (daily at 2 AM)
 
@@ -80,8 +81,13 @@ This pulls the latest archive from the rclone remote, extracts config files, res
 If config files haven't changed and you only need to roll back data:
 
 ```bash
-docker compose exec -T postgres pg_restore -U agent -d agentdb \
-  --clean --if-exists --no-owner < ./backups/agentdb_YYYYMMDD_HHMMSS.dump
+# Encrypted archive — pipe through openssl first.
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 \
+  -in ./backups/agent-backup-YYYYMMDD_HHMMSS.tar.gz.enc \
+  -pass "pass:$BACKUP_ENCRYPTION_KEY" \
+  | tar -xzOf - "agentdb_YYYYMMDD_HHMMSS.dump" \
+  | docker compose exec -T postgres pg_restore -U agent -d agentdb \
+      --clean --if-exists --no-owner
 docker compose restart agent-server
 ```
 
@@ -97,6 +103,8 @@ Both scripts support environment variable overrides:
 | `RCLONE_REMOTE` | *(required)* | rclone remote path (e.g. `:s3:your-bucket-name`) |
 | `BACKUP_DIR` | `./backups` | Local directory for backup archives |
 | `LOCAL_KEEP` | `7` | Number of local backups to retain (backup.sh only) |
+| `BACKUP_ENCRYPTION_KEY` | *(falls back to `ENCRYPTION_KEY`)* | Passphrase for AES-256-CBC archive encryption. Recommended to set this distinctly from `ENCRYPTION_KEY` so a leaked live key does not also unlock backups. |
+| `ENCRYPTION_STRICT` | `true` | When true, `backup.sh` refuses to run if no encryption key is set. Set to `false` only for ephemeral dev. |
 
 ## What's backed up
 

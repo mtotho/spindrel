@@ -94,7 +94,7 @@ def test_project_coding_run_review_defaults_to_selected_run_finalizer():
 
     assert payload["surface"] == "project_coding_run_review"
     assert defaults["session_target"] == {"mode": "new_each_run"}
-    assert defaults["project_instance"] == {"mode": "shared"}
+    assert defaults["project_instance"] == {"mode": "fresh"}
     assert "finalize_project_coding_run_review" in defaults["tools"]
     assert "get_project_coding_run_review_context" in defaults["tools"]
     assert "prepare_project_run_handoff" in defaults["tools"]

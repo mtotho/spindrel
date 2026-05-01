@@ -1,80 +1,92 @@
 ---
 name: Issue Intake
 description: >
-  Capture user-described issues and turn planning conversations into proposed
-  Project work packs, without launching implementation work.
-triggers: add this issue, save this bug, issue inbox, report this issue, triage later, work pack
+  Capture rough bugs, ideas, and planning notes as pending Issue Intake items;
+  review pending intake conversationally; and group accepted items into
+  proposed Project Work Packs without launching implementation work.
+triggers: add this issue, save this bug, issue inbox, report this issue, triage later, work pack, sweep issues, group these notes
 category: workspace
 ---
 
 # Issue Intake
 
-Use this skill when the user asks you to save, add, report, or remember a bug,
-quality problem, task idea, or rough issue for later triage. Also use it when
-the user asks you to turn a planning conversation or multi-part track into
-launchable Project work packs.
+Use this skill when the user is dumping bugs, ideas, rough notes, or asks to
+turn a planning conversation into proposed Project Work Packs.
 
-## Conversational Capture
+## Mental Model
 
-1. Clarify only what is needed to make the note useful. Good fields are:
-   observed behavior, expected behavior, reproduction steps, affected surface,
-   severity, and any Project/repo hint.
-2. If the user explicitly says to save it rough, do not over-interview them.
-3. Call `publish_issue_intake` once the note is clear enough or explicitly
-   accepted as rough.
-4. Tell the user it was added to Mission Control Review for later triage. Do
-   not claim a coding run, PR, or fix has started.
+- **Issue Intake item**: a pending rough note. It is not a channel note, not a
+  Work Pack, and not launched work.
+- **Work Pack**: a proposed implementation or follow-up unit created from one
+  or more intake items or from a planning conversation.
+- **Project coding run**: starts only after a human/operator launches a Work
+  Pack. Creating or listing intake never launches work.
 
-## Conversational Work Packs
+## Capture Rough Notes
 
-1. Use `create_issue_work_packs` when the user asks you to convert the current
-   conversation, plan, rough notes, or track into proposed implementation units.
-2. Use the LLM to group the conversation into the smallest useful discrete
-   work units. Do not invent a separate triage process when the conversation
-   already has enough detail.
-3. Use `needs_info` for vague items that need another user answer. Use
-   `not_code_work` for planning, research, future ideas, or operator decisions
-   that should not launch a coding run directly.
-4. For code packs, write `launch_prompt` as the prompt a later Project coding
-   run should receive. Include expected repo-local tests, screenshot/evidence
-   needs, handoff/PR expectations, and receipt requirements when they matter.
-5. Prefer one `create_issue_work_packs` call containing the full proposed set,
-   so the review surface receives one coherent grouping decision.
-   Include a top-level `triage_receipt` on that same call with a concise
-   summary, grouping rationale, launch-readiness notes, follow-up questions,
-   and excluded/not-code items. This receipt is the audit trail a later
-   operator uses to understand why the packs exist.
-6. You do not need to create or track source issue IDs first. If you omit
-   `source_item_ids`, Spindrel creates backing conversation intake items and
-   links the work packs to them.
-7. Work-pack creation does not launch a Project coding run. The operator or a
-   later explicit action chooses which proposed packs to launch.
+When the user is explicitly jotting, dumping, saving, or reporting rough bugs
+or ideas, call `publish_issue_intake` once for each discrete note.
 
-## Backlog Triage Runs
+- Do not write these into channel notes as the source of truth.
+- Clarify only when the note would be useless without one missing fact.
+- If the user says to save it rough, capture it without over-interviewing.
+- Use `category_hint="idea"` or `category_hint="planning"` for future ideas,
+  design considerations, or planning notes that are not immediate bugs.
+- Tell the user the item is saved as pending intake and visible in Mission
+  Control Issue Intake.
 
-1. Use the Issue Intake triage run when raw saved notes or autonomous blocker
-   reports need a grouped pass outside the current conversation.
-2. Treat the triage run as the same factory intake model, not a separate
-   manager or workflow system: raw Attention items become proposed Work Packs,
-   then a human reviews and launches them later.
-3. The triage run must report through `report_issue_work_packs` and include a
-   triage receipt. That receipt is the durable explanation for grouping,
-   launch readiness, follow-up questions, and excluded or non-code items.
-4. If the current conversation already has enough detail, prefer
-   `create_issue_work_packs` instead of starting another triage run.
+## Review Current Intake
+
+When the user asks what issues, rough notes, ideas, or Work Packs are waiting,
+call `list_issue_intake`.
+
+- Use `scope="current_channel"` by default.
+- Use `scope="workspace"` only when the user asks for a broader sweep.
+- Summarize pending raw intake separately from existing Work Packs.
+- Treat pending intake as unconfirmed grouping material, not accepted launch
+  instructions.
+
+## Create Work Packs
+
+Use `create_issue_work_packs` only when the user asks to sweep, group, triage,
+turn notes into packs, or convert a plan/track into proposed work.
+
+1. Call `list_issue_intake` first unless all source material is only the
+   current conversation.
+2. Group related items into the smallest useful discrete Work Packs.
+3. Use existing `source_item_ids` from `list_issue_intake` when grouping saved
+   intake items.
+4. Use `needs_info` for vague items needing another answer.
+5. Use `not_code_work` for planning, research, future ideas, or operator
+   decisions that should not launch a coding run.
+6. For launchable code packs, write `launch_prompt` as the prompt a later
+   Project coding run should receive. Include expected repo-local tests,
+   screenshot/evidence needs, PR/handoff expectations, and receipt
+   requirements when they matter.
+7. Prefer one `create_issue_work_packs` call containing the full proposed set.
+   Include a top-level `triage_receipt` with summary, grouping rationale,
+   launch readiness, follow-up questions, and excluded/not-code items.
+
+If `source_item_ids` are omitted, Spindrel creates backing conversation intake
+items and links the Work Packs to them. That is fine for a pure planning
+conversation, but use existing source IDs when saved pending intake exists.
+
+## Scheduled Or Operator Triage
+
+Backlog triage runs use the same factory model:
+
+- Raw Attention/Issue Intake items become proposed Work Packs.
+- Work Packs are reviewed before launch.
+- `report_issue_work_packs` is only for issue-intake triage tasks.
 
 ## Boundaries
 
-- `publish_issue_intake` is for user-requested conversational capture.
-- `create_issue_work_packs` is for normal Project-bound agents turning a
-  planning conversation into proposed work packs. It works from ordinary
-  Codex/Claude/SDK channels when the tool is available; it is not
-  harness-specific.
-- `report_issue` is for autonomous task or heartbeat runs reporting blockers
-  they discovered while doing assigned work.
-- `report_issue_work_packs` remains restricted to issue-intake triage tasks.
-  Do not use it for ordinary conversation planning.
-- Project coding runs start only after a human approves a work pack launch.
-- Do not invent a separate intake bot, factory table, or Project launch
-  workflow. Attention Items, Issue Work Packs, Project coding runs, receipts,
-  and review sessions are the v1 factory objects.
+- `publish_issue_intake`: conversational capture of rough notes.
+- `list_issue_intake`: read-only review of pending intake and active Work
+  Packs.
+- `create_issue_work_packs`: ordinary Project/channel agents creating proposed
+  Work Packs from conversation or listed intake.
+- `report_issue`: autonomous scheduled/heartbeat/task runs reporting blockers.
+- `report_issue_work_packs`: restricted triage-task reporting path.
+- Never claim that a coding run, PR, or fix started unless a separate launch
+  action actually happened.

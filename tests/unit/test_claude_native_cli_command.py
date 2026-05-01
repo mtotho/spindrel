@@ -14,4 +14,4 @@ def test_claude_native_cli_command_resumes_session_with_title_and_settings():
         title="Harness parity",
     )
 
-    assert command == "claude --resume sess-123 --name 'Harness parity' --model claude-sonnet-4-6 --effort high"
+    assert command == "claude -r sess-123 -n 'Harness parity' --model claude-sonnet-4-6 --effort high"

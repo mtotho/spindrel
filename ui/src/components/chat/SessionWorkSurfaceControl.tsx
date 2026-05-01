@@ -1,5 +1,9 @@
 import { FolderOpen } from "lucide-react";
-import { useSessionProjectInstance } from "@/src/api/hooks/useChannelSessions";
+import {
+  useClearSessionProjectInstance,
+  useCreateSessionProjectInstance,
+  useSessionProjectInstance,
+} from "@/src/api/hooks/useChannelSessions";
 
 interface SessionWorkSurfaceControlProps {
   sessionId?: string | null;
@@ -25,6 +29,8 @@ export function SessionWorkSurfaceControl({
   presentation = "composer",
 }: SessionWorkSurfaceControlProps) {
   const { data, isLoading, error } = useSessionProjectInstance(sessionId);
+  const createInstance = useCreateSessionProjectInstance(sessionId);
+  const clearInstance = useClearSessionProjectInstance(sessionId);
 
   if (!sessionId || isLoading || error || !data?.project_id || !data.root_path) return null;
 
@@ -49,6 +55,32 @@ export function SessionWorkSurfaceControl({
             <FolderOpen size={12} />
             Open files
           </a>
+        )}
+        {bound ? (
+          <button
+            type="button"
+            disabled={clearInstance.isPending}
+            onClick={() => clearInstance.mutate()}
+            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay disabled:opacity-50"
+          >
+            Return to shared Project
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={createInstance.isPending}
+            onClick={() => createInstance.mutate()}
+            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay disabled:opacity-50"
+          >
+            Start isolated Project session
+          </button>
+        )}
+        {(createInstance.error || clearInstance.error) && (
+          <div className="px-2 py-1 text-[11px] text-danger">
+            {(createInstance.error || clearInstance.error) instanceof Error
+              ? (createInstance.error || clearInstance.error)?.message
+              : "Work surface update failed."}
+          </div>
         )}
       </div>
     );

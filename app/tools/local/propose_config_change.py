@@ -52,6 +52,10 @@ _CHANNEL_ALLOWED_CONFIG: frozenset[str] = frozenset({
     "heartbeat_context_lookback",
 })
 
+_HEARTBEAT_ALLOWED_EXECUTION_CONFIG: frozenset[str] = frozenset({
+    "tools",
+})
+
 _PIPELINE_MODE_VALUES = {"auto", "on", "off"}
 _LAYOUT_MODE_VALUES = {"full", "rail-header-chat", "rail-chat", "dashboard-only"}
 _CHAT_MODE_VALUES = {"default", "terminal"}
@@ -234,6 +238,41 @@ async def _apply_integration(target_id: str, field: str, new_value: Any, rationa
     return _applied("integration", target_id, field, before, new_value, rationale)
 
 
+async def _apply_heartbeat(target_id: str, field: str, new_value: Any, rationale: str) -> str:
+    from sqlalchemy.orm.attributes import flag_modified
+    from app.db.engine import async_session
+    from app.db.models import ChannelHeartbeat
+
+    if not field.startswith("execution_config."):
+        return _refuse("heartbeat", field, "only execution_config.<key> fields are allowed")
+    config_key = field[len("execution_config."):]
+    if config_key not in _HEARTBEAT_ALLOWED_EXECUTION_CONFIG:
+        return _refuse("heartbeat", field, f"execution_config key not in allowlist {sorted(_HEARTBEAT_ALLOWED_EXECUTION_CONFIG)}")
+    if config_key == "tools" and (
+        not isinstance(new_value, list)
+        or not all(isinstance(item, str) and item.strip() for item in new_value)
+    ):
+        return _refuse("heartbeat", field, "tools must be a list of non-empty strings")
+
+    async with async_session() as db:
+        import uuid
+        try:
+            row = await db.get(ChannelHeartbeat, uuid.UUID(target_id))
+        except (ValueError, TypeError):
+            row = None
+        if row is None:
+            return _refuse("heartbeat", field, f"heartbeat '{target_id}' not found")
+        cfg = copy.deepcopy(row.execution_config or {})
+        before = cfg.get(config_key)
+        cfg[config_key] = list(dict.fromkeys(new_value)) if config_key == "tools" else new_value
+        row.execution_config = cfg
+        flag_modified(row, "execution_config")
+        row.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    return _applied("heartbeat", target_id, field, before, cfg.get(config_key), rationale)
+
+
 # ---------------------------------------------------------------------------
 # Tool entry point
 # ---------------------------------------------------------------------------
@@ -257,14 +296,14 @@ async def _apply_integration(target_id: str, field: str, new_value: Any, rationa
             "properties": {
                 "scope": {
                     "type": "string",
-                    "enum": ["bot", "channel", "integration"],
+                    "enum": ["bot", "channel", "integration", "heartbeat"],
                     "description": "Which kind of config to change.",
                 },
                 "target_id": {
                     "type": "string",
                     "description": (
                         "Identifier for the target: bot id (e.g. 'crumb'), "
-                        "channel UUID or client_id, or integration slug (e.g. 'frigate')."
+                        "channel UUID or client_id, heartbeat UUID, or integration slug (e.g. 'frigate')."
                     ),
                 },
                 "field": {
@@ -343,4 +382,6 @@ async def propose_config_change(
         return await _apply_channel(target_id, field, new_value, rationale)
     if scope == "integration":
         return await _apply_integration(target_id, field, new_value, rationale)
-    return _refuse(scope, field, f"unknown scope '{scope}'; must be bot | channel | integration")
+    if scope == "heartbeat":
+        return await _apply_heartbeat(target_id, field, new_value, rationale)
+    return _refuse(scope, field, f"unknown scope '{scope}'; must be bot | channel | integration | heartbeat")

@@ -35,25 +35,64 @@ export class ApiError extends Error {
   }
 }
 
+type RefreshResult =
+  | { ok: true; token: string }
+  | { ok: false; clearAuth: boolean };
+
+let refreshInFlight: Promise<RefreshResult> | null = null;
+let refreshBlockedUntil = 0;
+
+function retryDelayMs(res: Response): number {
+  const retryAfter = res.headers.get("Retry-After");
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+    const dateMs = Date.parse(retryAfter);
+    if (Number.isFinite(dateMs)) return Math.max(0, dateMs - Date.now());
+  }
+  return res.status === 429 ? 60_000 : 5_000;
+}
+
 /** Try to refresh the access token using the stored refresh token.
- *  Returns the new access token on success, null on failure. */
-async function tryRefresh(): Promise<string | null> {
+ *  Concurrent 401s share one refresh call so an expired access token does not
+ *  stampede /auth/refresh and trip the auth rate limiter. */
+async function doRefresh(): Promise<RefreshResult> {
   const { serverUrl, refreshToken } = useAuthStore.getState();
-  if (!serverUrl || !refreshToken) return null;
+  if (!serverUrl || !refreshToken) return { ok: false, clearAuth: false };
+  if (Date.now() < refreshBlockedUntil) return { ok: false, clearAuth: false };
   try {
     const res = await fetch(`${serverUrl}/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // 401/403 means the stored refresh token is no longer usable. 429,
+      // network errors, and 5xx are transient; keep the session so the next
+      // request can retry instead of forcing an unnecessary login.
+      if (res.status === 429 || res.status >= 500) {
+        refreshBlockedUntil = Date.now() + retryDelayMs(res);
+      }
+      return { ok: false, clearAuth: res.status === 401 || res.status === 403 };
+    }
     const data = await res.json() as { access_token?: string };
-    if (!data.access_token) return null;
+    if (!data.access_token) return { ok: false, clearAuth: false };
     useAuthStore.getState().setAccessToken(data.access_token);
-    return data.access_token;
+    refreshBlockedUntil = 0;
+    return { ok: true, token: data.access_token };
   } catch {
-    return null;
+    refreshBlockedUntil = Date.now() + 5_000;
+    return { ok: false, clearAuth: false };
   }
+}
+
+function tryRefresh(): Promise<RefreshResult> {
+  if (!refreshInFlight) {
+    refreshInFlight = doRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
 }
 
 export async function apiFetch<T = unknown>(
@@ -79,12 +118,12 @@ export async function apiFetch<T = unknown>(
 
   // Auto-refresh on 401 if we have a refresh token
   if (res.status === 401 && useAuthStore.getState().refreshToken) {
-    const newToken = await tryRefresh();
-    if (newToken) {
-      headers.Authorization = `Bearer ${newToken}`;
+    const refresh = await tryRefresh();
+    if (refresh.ok) {
+      headers.Authorization = `Bearer ${refresh.token}`;
       res = await fetch(url, { ...options, headers });
-    } else {
-      // Refresh failed — clear auth and force re-login
+    } else if (refresh.clearAuth) {
+      // Refresh token is invalid or expired — clear auth and force re-login.
       useAuthStore.getState().clear();
     }
   }
@@ -120,11 +159,11 @@ export async function apiFetchText(
   let res = await fetch(url, { ...options, headers });
 
   if (res.status === 401 && useAuthStore.getState().refreshToken) {
-    const newToken = await tryRefresh();
-    if (newToken) {
-      headers.Authorization = `Bearer ${newToken}`;
+    const refresh = await tryRefresh();
+    if (refresh.ok) {
+      headers.Authorization = `Bearer ${refresh.token}`;
       res = await fetch(url, { ...options, headers });
-    } else {
+    } else if (refresh.clearAuth) {
       useAuthStore.getState().clear();
     }
   }

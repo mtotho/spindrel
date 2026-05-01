@@ -204,6 +204,7 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
         "project-workspace-blueprint-editor.png",
         "project-workspace-settings-blueprint.png",
         "project-workspace-setup-ready.png",
+        "project-workspace-setup-blueprint-cta.png",
         "project-workspace-setup-run-history.png",
         "project-workspace-instances.png",
         "project-workspace-runs.png",
@@ -230,6 +231,7 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
     assert routes["project-workspace-blueprint-editor"] == "/admin/projects/blueprints/blueprint-1"
     assert routes["project-workspace-settings-blueprint"] == "/admin/projects/blueprint-project-1#Settings"
     assert routes["project-workspace-setup-ready"] == "/admin/projects/blueprint-project-1#Setup"
+    assert routes["project-workspace-setup-blueprint-cta"] == "/admin/projects/project-1#Setup"
     assert routes["project-workspace-setup-run-history"] == "/admin/projects/blueprint-project-1#Setup"
     assert routes["project-workspace-instances"] == "/admin/projects/blueprint-project-1#Instances"
     assert routes["project-workspace-runs"] == "/admin/projects/project-1#Runs"

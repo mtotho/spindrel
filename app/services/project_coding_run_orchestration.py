@@ -32,6 +32,7 @@ from app.services.project_coding_run_lib import (
     _safe_dependency_stack_target,
     _utcnow,
 )
+from app.services.project_runtime import project_snapshot
 
 
 def _project_coding_run_prompt(
@@ -132,6 +133,8 @@ async def create_project_coding_run(
     *,
     commit: bool = True,
 ) -> Task:
+    if not project_snapshot(project):
+        raise ValueError("Project coding runs require an applied Blueprint snapshot. Create a Blueprint from this Project first.")
     channel = await db.get(Channel, body.channel_id)
     if channel is None:
         raise ValueError("channel not found")

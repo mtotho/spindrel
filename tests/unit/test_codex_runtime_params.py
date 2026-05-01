@@ -138,7 +138,7 @@ def test_codex_native_cli_command_resumes_thread_in_cwd():
         effort="high",
     )
 
-    assert command == "codex resume thread-123 --model gpt-5.5 -c 'model_reasoning_effort=\"high\"' --cd '/workspace/my repo'"
+    assert command == "codex resume thread-123 --no-alt-screen --model gpt-5.5 -c 'model_reasoning_effort=\"high\"' --cd '/workspace/my repo'"
 
 
 def test_codex_thread_name_from_prompt_ignores_spindrel_wrappers():

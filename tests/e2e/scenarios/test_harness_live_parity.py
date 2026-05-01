@@ -821,12 +821,14 @@ async def _capture_session_marker_screenshot(
 async def _send_native_cli_prompt_via_ui(
     client: E2EClient,
     *,
+    runtime_name: str,
     channel_id: str,
     session_id: str,
     prompt: str,
     marker: str,
     screenshot_name: str | None = None,
-) -> Path | None:
+    toggle_to_chat_after_submit: bool = True,
+) -> tuple[Path | None, dict[str, Any] | None]:
     pytest.importorskip("playwright.async_api")
     from playwright.async_api import async_playwright
     from scripts.screenshots.playwright_runtime import launch_async_browser
@@ -863,7 +865,7 @@ async def _send_native_cli_prompt_via_ui(
             try:
                 await native_toggle.wait_for(state="visible", timeout=30_000)
             except Exception:
-                debug_path = _artifact_root() / "native-cli" / "harness-codex-native-cli-toggle-missing.png"
+                debug_path = _artifact_root() / "native-cli" / f"harness-{runtime_name}-native-cli-toggle-missing.png"
                 debug_path.parent.mkdir(parents=True, exist_ok=True)
                 with contextlib.suppress(Exception):
                     await page.screenshot(path=str(debug_path), full_page=False)
@@ -877,7 +879,7 @@ async def _send_native_cli_prompt_via_ui(
             try:
                 await panel.wait_for(state="visible", timeout=60_000)
             except Exception:
-                debug_path = _artifact_root() / "native-cli" / "harness-codex-native-cli-mount-failed.png"
+                debug_path = _artifact_root() / "native-cli" / f"harness-{runtime_name}-native-cli-mount-failed.png"
                 debug_path.parent.mkdir(parents=True, exist_ok=True)
                 with contextlib.suppress(Exception):
                     await page.screenshot(path=str(debug_path), full_page=False)
@@ -888,9 +890,38 @@ async def _send_native_cli_prompt_via_ui(
                 )
             xterm = page.locator('[data-testid="admin-terminal-xterm"] .xterm').first
             await xterm.wait_for(state="visible", timeout=60_000)
+            try:
+                await page.wait_for_function(
+                    """() => {
+                        const text = document.body.innerText.toLowerCase();
+                        return (
+                            text.includes("tab to queue message")
+                            || text.includes("type /")
+                            || text.includes("use /skills")
+                            || text.includes("context left")
+                            || text.includes("? for shortcuts")
+                            || text.includes("esc to interrupt")
+                            || text.includes("bypassing permissions")
+                            || text.includes("cwd:")
+                        );
+                    }""",
+                    timeout=90_000,
+                )
+            except Exception:
+                debug_path = _artifact_root() / "native-cli" / f"harness-{runtime_name}-native-cli-ready-timeout.png"
+                debug_path.parent.mkdir(parents=True, exist_ok=True)
+                with contextlib.suppress(Exception):
+                    await page.screenshot(path=str(debug_path), full_page=False)
+                body = await page.locator("body").inner_text(timeout=10_000)
+                raise AssertionError(
+                    "Native CLI did not become ready before input; "
+                    f"debug screenshot: {debug_path}; body tail:\n{body[-2000:]}"
+                )
             await xterm.click(position={"x": 80, "y": 120})
             await page.keyboard.type(prompt, delay=8)
-            await page.keyboard.press("Tab")
+            await page.keyboard.press("Enter")
+            if toggle_to_chat_after_submit:
+                await page.get_by_role("button", name=re.compile(r"^Spindrel chat$")).click(timeout=30_000)
             await page.wait_for_function(
                 "(marker) => document.body.innerText.toLowerCase().includes(marker.toLowerCase())",
                 arg=marker,
@@ -899,10 +930,49 @@ async def _send_native_cli_prompt_via_ui(
             await _assert_no_horizontal_overflow(page, "native-cli-ui")
             if out_path is not None:
                 await page.screenshot(path=str(out_path), full_page=False)
+            mirrored_message: dict[str, Any] | None = None
+            deadline = time.monotonic() + _timeout()
+            while time.monotonic() < deadline:
+                messages = await client.get_session_messages(session_id, limit=80)
+                for message in reversed(messages):
+                    if marker not in str(message.get("content") or ""):
+                        continue
+                    metadata = _message_metadata(message)
+                    native_meta = metadata.get("harness_native_cli")
+                    if isinstance(native_meta, dict) and native_meta.get("runtime") == runtime_name:
+                        mirrored_message = message
+                        break
+                if mirrored_message is not None:
+                    break
+                await asyncio.sleep(2)
+            if mirrored_message is None and out_path is not None:
+                timeout_path = out_path.with_name(f"{out_path.stem}-mirror-timeout{out_path.suffix}")
+                with contextlib.suppress(Exception):
+                    await page.screenshot(path=str(timeout_path), full_page=False)
+            if mirrored_message is not None and toggle_to_chat_after_submit:
+                mirrored_text = str(mirrored_message.get("content") or "")
+                try:
+                    await page.wait_for_function(
+                        "(text) => document.body.innerText.toLowerCase().includes(text.toLowerCase())",
+                        arg=mirrored_text,
+                        timeout=60_000,
+                    )
+                except Exception:
+                    debug_path = _artifact_root() / "native-cli" / f"harness-{runtime_name}-native-cli-chat-mirror-timeout.png"
+                    debug_path.parent.mkdir(parents=True, exist_ok=True)
+                    with contextlib.suppress(Exception):
+                        await page.screenshot(path=str(debug_path), full_page=False)
+                    body = await page.locator("body").inner_text(timeout=10_000)
+                    raise AssertionError(
+                        "Native CLI mirror persisted but did not appear in Spindrel chat after toggling back; "
+                        f"debug screenshot: {debug_path}; body tail:\n{body[-2000:]}"
+                    )
+                if out_path is not None:
+                    await page.screenshot(path=str(out_path), full_page=False)
             await context.close()
         finally:
             await browser.close()
-    return out_path
+    return out_path, mirrored_message
 
 
 def _browser_ui_url(client: E2EClient) -> str:
@@ -2184,8 +2254,9 @@ async def test_live_codex_native_cli_terminal_mirrors_to_spindrel(
     _assert_clean_turn(bootstrap)
     assert f"bootstrap ready {marker}" in bootstrap.response_text.lower()
 
-    terminal_screenshot = await _send_native_cli_prompt_via_ui(
+    terminal_screenshot, mirrored_message = await _send_native_cli_prompt_via_ui(
         client,
+        runtime_name=case.runtime,
         channel_id=channel_id,
         session_id=session_id,
         prompt=f"Reply exactly: native cli mirror ok {marker}",
@@ -2201,22 +2272,6 @@ async def test_live_codex_native_cli_terminal_mirrors_to_spindrel(
             f"native CLI terminal screenshot was not written: {terminal_screenshot}"
         )
 
-    deadline = time.monotonic() + _timeout()
-    mirrored_message: dict[str, Any] | None = None
-    while time.monotonic() < deadline:
-        messages = await client.get_session_messages(session_id, limit=80)
-        for message in reversed(messages):
-            if marker not in str(message.get("content") or ""):
-                continue
-            metadata = _message_metadata(message)
-            native_meta = metadata.get("harness_native_cli")
-            if isinstance(native_meta, dict) and native_meta.get("runtime") == "codex":
-                mirrored_message = message
-                break
-        if mirrored_message is not None:
-            break
-        await asyncio.sleep(2)
-
     assert mirrored_message is not None, f"native CLI mirror did not persist marker {marker}"
     assert f"native cli mirror ok {marker}" in str(mirrored_message.get("content") or "").lower()
 
@@ -2229,6 +2284,47 @@ async def test_live_codex_native_cli_terminal_mirrors_to_spindrel(
             screenshot_name="harness-codex-native-cli-mirror-dark",
         )
         assert screenshot.is_file(), f"native CLI mirror screenshot was not written: {screenshot}"
+
+
+@pytest.mark.asyncio
+async def test_live_claude_native_cli_terminal_mirrors_to_spindrel(
+    client: E2EClient,
+) -> None:
+    _requires_tier("terminal")
+    case = next(harness for harness in HARNESSES if harness.name == "claude")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    marker = f"native-cli-mirror-{uuid.uuid4().hex[:8]}"
+    bootstrap = await client.chat_session_stream(
+        f"Native CLI mirror bootstrap {marker}. Do not use tools. Reply exactly: bootstrap ready {marker}",
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(bootstrap)
+    assert f"bootstrap ready {marker}" in bootstrap.response_text.lower()
+
+    mirror_screenshot, mirrored_message = await _send_native_cli_prompt_via_ui(
+        client,
+        runtime_name=case.runtime,
+        channel_id=channel_id,
+        session_id=session_id,
+        prompt=f"Reply exactly: native cli mirror ok {marker}",
+        marker=marker,
+        screenshot_name=(
+            "harness-claude-native-cli-mirror-dark"
+            if _should_capture_screenshots("harness-claude-native-cli-mirror")
+            else None
+        ),
+    )
+    if mirror_screenshot is not None:
+        assert mirror_screenshot.is_file(), (
+            f"Claude native CLI mirror screenshot was not written: {mirror_screenshot}"
+        )
+
+    assert mirrored_message is not None, f"Claude native CLI mirror did not persist marker {marker}"
+    assert f"native cli mirror ok {marker}" in str(mirrored_message.get("content") or "").lower()
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)

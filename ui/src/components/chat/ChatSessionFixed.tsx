@@ -115,6 +115,7 @@ export function FixedSessionChatSession({
   const { sessionPlan, planBusy, handleTogglePlanMode } = useChatSessionPlan(sessionId);
   const [slashSyntheticMessages, setSlashSyntheticMessages] = useState<Message[]>([]);
   const [nativeCliOpen, setNativeCliOpen] = useState(false);
+  const [nativeCliStarted, setNativeCliStarted] = useState(false);
   const isHarnessSession = !!sessionBot?.harness_runtime;
 
   const [dockExpanded, setDockExpanded] = useState(
@@ -348,62 +349,84 @@ export function FixedSessionChatSession({
           </div>
         </div>
       )}
-      {isHarnessSession && (
-        <div className="flex h-9 shrink-0 items-center justify-end gap-1 border-b border-surface-border/60 bg-surface/70 px-3">
+      {isHarnessSession && !nativeCliOpen && (
+        <div className="flex h-9 shrink-0 items-center justify-end gap-1 bg-surface/70 px-3">
           <button
             type="button"
-            onClick={() => setNativeCliOpen((open) => !open)}
+            onClick={() => {
+              setNativeCliStarted(true);
+              setNativeCliOpen(true);
+            }}
             className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium ${
-              nativeCliOpen
+              nativeCliStarted
                 ? "bg-accent/15 text-accent"
                 : "text-text-dim hover:bg-surface-overlay hover:text-text"
             }`}
-            title={nativeCliOpen ? "Return to Spindrel chat" : "Open the runtime's native CLI for this session"}
-            aria-pressed={nativeCliOpen}
+            title={nativeCliStarted ? "Return to the running native CLI for this session" : "Open the runtime's native CLI for this session"}
+            aria-pressed={nativeCliStarted}
           >
             <TerminalIcon size={13} />
-            {nativeCliOpen ? "Spindrel chat" : "Native CLI"}
+            {nativeCliStarted ? "Native CLI running" : "Native CLI"}
           </button>
         </div>
       )}
       <div className="relative min-h-0 flex-1">
-        {nativeCliOpen ? (
-          <Suspense fallback={<div className="flex h-full items-center justify-center bg-[#0a0d12] text-[12px] text-zinc-500">Starting native CLI...</div>}>
-            <TerminalPanel
-              title={`${sessionBot?.harness_runtime ?? "harness"} native CLI`}
-              sessionCreatePath={`/api/v1/admin/sessions/${sessionId}/harness/native-terminal`}
-              className="h-full"
-              onExit={() => {
-                qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
-              }}
-            />
-          </Suspense>
-        ) : (
-          <>
-            <SessionChatView
-              sessionId={sessionId}
-              parentChannelId={parentChannelId}
-              botId={botId}
-              emptyStateComponent={emptyState}
-              scrollPaddingBottom={composerInTranscriptFlow ? 20 : inputOverlayHeight + 16}
-              chatMode={chatMode}
-              syntheticMessages={slashSyntheticMessages}
-              showSessionResumeCard
-              sessionResumeSeed={{
-                surfaceKind: source.externalDelivery === "none" ? "channel" : "session",
-                title,
-                botName: sessionBot?.name,
-                botModel: isHarnessSession ? null : sessionBot?.model,
-              }}
-              onOpenSessions={onOpenSessions}
-              bottomSlot={composerInTranscriptFlow ? composer : undefined}
-            />
-            {!composerInTranscriptFlow && (
-              <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
-                {composer}
-              </div>
-            )}
-          </>
+        <div
+          className={`h-full min-h-0 ${nativeCliOpen ? "pointer-events-none opacity-0" : "opacity-100"}`}
+          aria-hidden={nativeCliOpen}
+        >
+          <SessionChatView
+            sessionId={sessionId}
+            parentChannelId={parentChannelId}
+            botId={botId}
+            emptyStateComponent={emptyState}
+            scrollPaddingBottom={composerInTranscriptFlow ? 20 : inputOverlayHeight + 16}
+            chatMode={chatMode}
+            syntheticMessages={slashSyntheticMessages}
+            showSessionResumeCard
+            sessionResumeSeed={{
+              surfaceKind: source.externalDelivery === "none" ? "channel" : "session",
+              title,
+              botName: sessionBot?.name,
+              botModel: isHarnessSession ? null : sessionBot?.model,
+            }}
+            onOpenSessions={onOpenSessions}
+            bottomSlot={composerInTranscriptFlow ? composer : undefined}
+          />
+          {!composerInTranscriptFlow && (
+            <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
+              {composer}
+            </div>
+          )}
+        </div>
+        {isHarnessSession && nativeCliStarted && (
+          <div
+            className={`absolute inset-0 min-h-0 bg-[#0a0d12] transition-opacity ${
+              nativeCliOpen ? "pointer-events-auto z-[6] opacity-100" : "pointer-events-none z-0 opacity-0"
+            }`}
+            aria-hidden={!nativeCliOpen}
+          >
+            <button
+              type="button"
+              onClick={() => setNativeCliOpen(false)}
+              className="absolute right-3 top-3 z-10 inline-flex h-7 items-center gap-1.5 rounded-md bg-surface-overlay/80 px-2 text-[11px] font-medium text-accent backdrop-blur hover:bg-surface-overlay hover:text-accent"
+              title="Return to Spindrel chat"
+              aria-pressed={nativeCliOpen}
+            >
+              <TerminalIcon size={13} />
+              Spindrel chat
+            </button>
+            <Suspense fallback={<div className="flex h-full items-center justify-center bg-[#0a0d12] text-[12px] text-zinc-500">Starting native CLI...</div>}>
+              <TerminalPanel
+                chrome="bare"
+                sessionCreatePath={`/api/v1/admin/sessions/${sessionId}/harness/native-terminal`}
+                className="h-full"
+                onExit={() => {
+                  qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
+                }}
+              />
+            </Suspense>
+          </div>
         )}
       </div>
     </div>

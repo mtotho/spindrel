@@ -1,8 +1,11 @@
 """API v1 — Projects."""
 from __future__ import annotations
 
+import asyncio
+import os
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -151,6 +154,19 @@ class ProjectBlueprintWrite(BaseModel):
         if value is None:
             return None
         return [item.strip() for item in value if item and item.strip()]
+
+
+class ProjectBlueprintFromCurrentWrite(BaseModel):
+    name: str | None = None
+    apply_to_project: bool = True
+
+
+class ProjectBlueprintFromCurrentOut(BaseModel):
+    blueprint: ProjectBlueprintOut
+    project: ProjectOut
+    detected_repos: list[dict] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    applied: bool = False
 
 
 class ProjectSecretBindingOut(BaseModel):
@@ -546,6 +562,122 @@ def _blueprint_out(blueprint: ProjectBlueprint) -> ProjectBlueprintOut:
     return ProjectBlueprintOut.model_validate(blueprint)
 
 
+async def _git_value(cwd: Path, *args: str) -> str | None:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            *args,
+            cwd=str(cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        return None
+    stdout, _ = await proc.communicate()
+    if proc.returncode != 0:
+        return None
+    value = stdout.decode(errors="replace").strip()
+    return value or None
+
+
+async def _detect_project_repos(project: Project) -> tuple[list[dict], list[str]]:
+    project_dir = project_directory_from_project(project)
+    root = Path(project_dir.host_path).resolve()
+    warnings: list[str] = []
+    if not root.exists():
+        return [], [f"Project root does not exist yet: /{project.root_path}"]
+
+    candidates: list[Path] = []
+    if (root / ".git").exists():
+        warnings.append(
+            "The Project root itself is a git repository. Blueprint setup clones repos into child paths, "
+            "so add an explicit repo declaration if this Project should be recreated at the root."
+        )
+    for parent, dirs, _files in os.walk(root):
+        parent_path = Path(parent)
+        depth = len(parent_path.relative_to(root).parts)
+        if depth > 2:
+            dirs[:] = []
+            continue
+        if ".git" in dirs:
+            candidates.append(parent_path)
+            dirs[:] = []
+
+    repos: list[dict] = []
+    seen: set[str] = set()
+    for repo_path in candidates:
+        if repo_path == root:
+            continue
+        rel = repo_path.relative_to(root).as_posix()
+        if rel in seen:
+            continue
+        seen.add(rel)
+        remote = await _git_value(repo_path, "remote", "get-url", "origin")
+        branch = await _git_value(repo_path, "rev-parse", "--abbrev-ref", "HEAD")
+        repos.append(
+            {
+                "name": repo_path.name,
+                "url": remote or "",
+                "path": rel,
+                "branch": branch if branch and branch != "HEAD" else "",
+            }
+        )
+    if not repos:
+        warnings.append("No child git repositories were detected under the Project root.")
+    return repos, warnings
+
+
+async def _apply_blueprint_snapshot_to_project(
+    db: AsyncSession,
+    *,
+    project: Project,
+    blueprint: ProjectBlueprint,
+) -> None:
+    snapshot = project_blueprint_snapshot(blueprint)
+    metadata = dict(project.metadata_ or {})
+    metadata["blueprint"] = {"id": str(blueprint.id), "name": blueprint.name, "slug": blueprint.slug}
+    metadata["blueprint_snapshot"] = snapshot
+    project.metadata_ = metadata
+    project.applied_blueprint_id = blueprint.id
+    if blueprint.description and not project.description:
+        project.description = blueprint.description
+    if blueprint.prompt and not project.prompt:
+        project.prompt = blueprint.prompt
+    if blueprint.prompt_file_path and not project.prompt_file_path:
+        project.prompt_file_path = blueprint.prompt_file_path
+
+    existing_slots = set((await db.execute(
+        select(ProjectSecretBinding.logical_name).where(ProjectSecretBinding.project_id == project.id)
+    )).scalars().all())
+    for logical_name in _blueprint_required_secret_names(blueprint):
+        if logical_name in existing_slots:
+            continue
+        db.add(ProjectSecretBinding(project_id=project.id, logical_name=logical_name))
+
+    materialize_project_blueprint(project_directory_from_project(project), blueprint)
+
+
+async def _unique_blueprint_slug(
+    db: AsyncSession,
+    *,
+    workspace_id: uuid.UUID | None,
+    base: str,
+) -> str:
+    candidate = normalize_project_slug(base, fallback="project-blueprint")
+    suffix = 2
+    while True:
+        existing = (await db.execute(
+            select(ProjectBlueprint.id).where(
+                ProjectBlueprint.workspace_id == workspace_id,
+                ProjectBlueprint.slug == candidate,
+            )
+        )).scalar_one_or_none()
+        if existing is None:
+            return candidate
+        candidate = f"{normalize_project_slug(base, fallback='project-blueprint')}-{suffix}"
+        suffix += 1
+
+
 def _setup_run_out(run: ProjectSetupRun) -> ProjectSetupRunOut:
     return ProjectSetupRunOut.model_validate(run)
 
@@ -793,6 +925,83 @@ async def create_project_from_blueprint(
         raise HTTPException(status_code=409, detail=f"project creation from blueprint failed: {exc}") from exc
     await db.refresh(project)
     return await _project_out(db, project)
+
+
+@router.post("/{project_id}/blueprint-from-current", response_model=ProjectBlueprintFromCurrentOut, status_code=201)
+async def create_project_blueprint_from_current(
+    project_id: uuid.UUID,
+    body: ProjectBlueprintFromCurrentWrite | None = None,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    payload = body or ProjectBlueprintFromCurrentWrite()
+    detected_repos, warnings = await _detect_project_repos(project)
+    metadata = dict(project.metadata_ or {})
+    snapshot = metadata.get("blueprint_snapshot") if isinstance(metadata.get("blueprint_snapshot"), dict) else {}
+    blueprint_metadata = dict(snapshot.get("metadata") or {})
+    if isinstance(metadata.get("dev_targets"), list):
+        blueprint_metadata["dev_targets"] = metadata["dev_targets"]
+    elif isinstance(blueprint_metadata.get("dev_targets"), list):
+        blueprint_metadata["dev_targets"] = blueprint_metadata["dev_targets"]
+
+    repos = list(snapshot.get("repos") or []) or detected_repos
+    if repos and any(not str(repo.get("url") or "").strip() for repo in repos if isinstance(repo, dict)):
+        warnings.append("One or more detected repos has no origin remote URL; setup will need that repo declaration completed.")
+
+    dependency_stack = metadata.get("dependency_stack")
+    if not isinstance(dependency_stack, dict):
+        dependency_stack = snapshot.get("dependency_stack") if isinstance(snapshot.get("dependency_stack"), dict) else {}
+    env = snapshot.get("env") if isinstance(snapshot.get("env"), dict) else {}
+    required_secrets: list[str] = []
+    for item in snapshot.get("required_secrets") or []:
+        if isinstance(item, str):
+            name = item.strip()
+        elif isinstance(item, dict):
+            name = str(item.get("name") or item.get("key") or "").strip()
+        else:
+            name = ""
+        if name and name not in required_secrets:
+            required_secrets.append(name)
+    setup_commands = list(snapshot.get("setup_commands") or [])
+
+    name = (payload.name or f"{project.name} Blueprint").strip()
+    slug = await _unique_blueprint_slug(db, workspace_id=project.workspace_id, base=name)
+    blueprint = ProjectBlueprint(
+        workspace_id=project.workspace_id,
+        name=name,
+        slug=slug,
+        description=project.description,
+        default_root_path_pattern=project.root_path,
+        prompt=project.prompt,
+        prompt_file_path=normalize_project_path(project.prompt_file_path),
+        folders=list(snapshot.get("folders") or []),
+        files=dict(snapshot.get("files") or {}),
+        knowledge_files=dict(snapshot.get("knowledge_files") or {}),
+        repos=[repo for repo in repos if isinstance(repo, dict)],
+        setup_commands=setup_commands,
+        dependency_stack=dependency_stack,
+        env={str(key): str(value) for key, value in env.items()},
+        required_secrets=required_secrets,
+        metadata_=blueprint_metadata,
+    )
+    db.add(blueprint)
+    await db.flush()
+    applied = bool(payload.apply_to_project)
+    if applied:
+        await _apply_blueprint_snapshot_to_project(db, project=project, blueprint=blueprint)
+    await db.commit()
+    await db.refresh(blueprint)
+    await db.refresh(project)
+    return ProjectBlueprintFromCurrentOut(
+        blueprint=_blueprint_out(blueprint),
+        project=await _project_out(db, project),
+        detected_repos=detected_repos,
+        warnings=warnings,
+        applied=applied,
+    )
 
 
 @router.get("", response_model=list[ProjectOut])

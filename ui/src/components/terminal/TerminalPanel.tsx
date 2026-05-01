@@ -23,6 +23,8 @@ interface TerminalPanelProps {
   sessionCreatePath?: string;
   /** Extra POST body fields for custom terminal launch endpoints. */
   sessionCreateBody?: Record<string, unknown>;
+  /** Visual treatment for terminals embedded inside an existing command surface. */
+  chrome?: "framed" | "bare";
 }
 
 type WireMessage =
@@ -64,6 +66,7 @@ export function TerminalPanel({
   title,
   sessionCreatePath = "/api/v1/admin/terminal/sessions",
   sessionCreateBody,
+  chrome = "framed",
 }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
@@ -252,9 +255,12 @@ export function TerminalPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed, startCwd, createPath, createBody]);
 
+  const showTitle = chrome === "framed" && !!title;
+  const terminalInsetClass = chrome === "bare" ? "p-0" : "p-2";
+
   return (
     <div data-testid="admin-terminal-panel" className={`relative flex min-h-0 flex-1 flex-col bg-[#0a0d12] ${className ?? ""}`}>
-      {title && (
+      {showTitle && (
         <div className="flex h-8 shrink-0 items-center border-b border-white/10 px-3 font-mono text-[11px] text-zinc-400">
           {title}
         </div>
@@ -262,7 +268,7 @@ export function TerminalPanel({
       <div
         ref={containerRef}
         data-testid="admin-terminal-xterm"
-        className={`absolute inset-x-0 bottom-0 p-2 ${title ? "top-8" : "top-0"}`}
+        className={`absolute inset-x-0 bottom-0 ${terminalInsetClass} ${showTitle ? "top-8" : "top-0"}`}
       />
       {status === "connecting" && (
         <div className="absolute inset-0 flex items-center justify-center bg-[#0a0d12]/90">

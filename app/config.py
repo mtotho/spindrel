@@ -514,6 +514,12 @@ class Settings(BaseSettings):
     # deployments. Tests override via tests/conftest.py.
     ENCRYPTION_STRICT: bool = True
 
+    # Manifest signing — HMAC-SHA256 over canonical skill / widget bodies.
+    # When unset, ``manifest_signing.compute_signature`` falls back to
+    # ENCRYPTION_KEY. Setting a distinct value lets admins rotate the
+    # manifest key without rotating the live data-encryption key.
+    MANIFEST_SIGNING_KEY: str = ""
+
     # Web Push / VAPID
     # Generate a keypair once via: `python -m app.tools.generate_vapid_keys`,
     # then paste the printed lines into `.env`. When unset, push endpoints

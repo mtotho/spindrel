@@ -481,6 +481,21 @@ test("session composers use the parent channel for tool discovery menus", () => 
   assert.match(ephemeralSession, /toolContextChannelId=\{scratchBoundChannelId \?\? parentChannelId\}/);
 });
 
+test("native CLI session view uses bare terminal chrome inside the chat surface", () => {
+  const fixedSession = readChatFile("ChatSessionFixed.tsx");
+  const terminalPanel = readFileSync(
+    resolve(process.cwd(), "src/components/terminal/TerminalPanel.tsx"),
+    "utf8",
+  );
+
+  assert.match(terminalPanel, /chrome\?:\s*"framed"\s*\|\s*"bare"/);
+  assert.match(terminalPanel, /const showTitle = chrome === "framed" && !!title;/);
+  assert.match(terminalPanel, /const terminalInsetClass = chrome === "bare" \? "p-0" : "p-2";/);
+  assert.match(fixedSession, /\{isHarnessSession && !nativeCliOpen && \(/);
+  assert.match(fixedSession, /chrome="bare"/);
+  assert.doesNotMatch(fixedSession, /title=\{`\$\{sessionBot\?\.harness_runtime \?\? "harness"\} native CLI`\}/);
+});
+
 test("chat sends thread a stable client-local id through optimistic rows and requests", () => {
   const channelHook = readFileSync(
     resolve(process.cwd(), "app/(app)/channels/[channelId]/useChannelChat.ts"),
@@ -652,4 +667,14 @@ test("channel route renders desktop session tabs through dedicated components an
   assert.match(sessionTabs, /data-testid="channel-session-inline-picker"/);
   assert.match(sessionSurfaces, /export function buildChannelSessionTabItems/);
   assert.match(sessionSurfaces, /export function snapshotChannelSessionTabLayout/);
+});
+
+test("fixed harness sessions keep native CLI mounted when returning to chat", () => {
+  const fixedSession = readChatFile("ChatSessionFixed.tsx");
+
+  assert.match(fixedSession, /nativeCliStarted/);
+  assert.match(fixedSession, /setNativeCliStarted\(true\)/);
+  assert.match(fixedSession, /isHarnessSession && nativeCliStarted/);
+  assert.match(fixedSession, /pointer-events-none z-0 opacity-0/);
+  assert.doesNotMatch(fixedSession, /nativeCliOpen \? \([\s\S]*<TerminalPanel[\s\S]*\) : \(/);
 });

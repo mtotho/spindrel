@@ -3764,6 +3764,28 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         ),
     ),
     ScreenshotSpec(
+        name="project-workspace-setup-blueprint-cta",
+        route="/admin/projects/{project_workspace_project}#Setup",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-setup-ready\"]') "
+            "&& document.body.innerText.includes('No Blueprint recipe applied') "
+            "&& document.body.innerText.includes('Create Blueprint')"
+        ),
+        output="project-workspace-setup-blueprint-cta.png",
+        color_scheme="dark",
+        full_page=True,
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('No Blueprint recipe applied') "
+            "&& text.includes('Create Blueprint') "
+            "&& text.includes('fresh instances') "
+            "&& text.includes('isolated factory runs'), "
+            "detail: 'Direct Project setup tab did not show the Blueprint creation CTA' };"
+        ),
+    ),
+    ScreenshotSpec(
         name="project-workspace-setup-run-history",
         route="/admin/projects/{project_workspace_blueprint_project}#Setup",
         viewport={"width": 1440, "height": 1000},

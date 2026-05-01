@@ -26,6 +26,31 @@ logger = logging.getLogger(__name__)
 
 
 _PARALLEL_UNSAFE_TIERS = {"mutating", "exec_capable", "control_plane"}
+_READ_ONLY_CACHEABLE_TOOLS = {
+    "get_memory_file",
+    "search_memory",
+    "read_conversation_history",
+    "read_sub_session",
+    "search_workspace",
+    "search_channel_archive",
+    "search_channel_workspace",
+    "search_channel_knowledge",
+    "search_bot_knowledge",
+    "sonarr_queue",
+    "radarr_queue",
+    "sonarr_calendar",
+    "qbit_torrents",
+    "arr_heartbeat_snapshot",
+    "jellyfin_library",
+    "jellyfin_now_playing",
+    "jellyseerr_requests",
+    "prowlarr_search",
+    "sonarr_wanted",
+    "sonarr_indexers",
+    "sonarr_quality_profiles",
+    "frigate_list_cameras",
+    "frigate_get_events",
+}
 
 
 def _tool_calls_are_parallel_safe(tool_calls: list[dict[str, Any]]) -> bool:
@@ -34,6 +59,35 @@ def _tool_calls_are_parallel_safe(tool_calls: list[dict[str, Any]]) -> bool:
         if get_tool_safety_tier(name) in _PARALLEL_UNSAFE_TIERS:
             return False
     return True
+
+
+def _tool_call_cache_key(tc: dict[str, Any]) -> Any:
+    return make_signature(tc["function"]["name"], tc["function"]["arguments"])
+
+
+def _tool_call_is_cacheable(name: str, args: Any = None) -> bool:
+    if name == "file":
+        parsed = _parse_tool_args(args)
+        operation = parsed.get("operation") if isinstance(parsed, dict) else None
+        return operation in {None, "read", "history"}
+    if name == "memory":
+        parsed = _parse_tool_args(args)
+        action = parsed.get("action") if isinstance(parsed, dict) else None
+        return action in {None, "get", "list", "search", "read"}
+    return name in _READ_ONLY_CACHEABLE_TOOLS or get_tool_safety_tier(name) == "read_only"
+
+
+def _tool_batch_has_cache_pressure(tool_calls: list[dict[str, Any]], state: LoopRunState) -> bool:
+    seen: set[Any] = set()
+    for tc in tool_calls:
+        name = tc["function"]["name"]
+        if not _tool_call_is_cacheable(name, tc["function"].get("arguments")):
+            continue
+        key = _tool_call_cache_key(tc)
+        if key in seen or key in state.tool_result_cache:
+            return True
+        seen.add(key)
+    return False
 
 
 def _parse_tool_args(args: Any) -> Any:
@@ -280,6 +334,15 @@ async def _process_tool_call_result(
     if tc_result.injected_images:
         state.iteration_injected_images.extend(tc_result.injected_images)
 
+    cache_key = make_signature(name, args)
+    if (
+        _tool_call_is_cacheable(name, args)
+        and not tc_result.needs_approval
+        and not tc_result.tool_event.get("error")
+        and tc_result.result_for_llm is not None
+    ):
+        state.tool_result_cache[cache_key] = tc_result.result_for_llm
+
     tool_message: dict[str, Any] = {
         "role": "tool",
         "tool_call_id": tc["id"],
@@ -344,6 +407,7 @@ async def dispatch_iteration_tool_calls(
         and len(accumulated_tool_calls) >= 2
         and not has_client_tool
         and _tool_calls_are_parallel_safe(accumulated_tool_calls)
+        and not _tool_batch_has_cache_pressure(accumulated_tool_calls, state)
     )
 
     if use_parallel:
@@ -485,6 +549,48 @@ async def dispatch_iteration_tool_calls(
                 "args": args,
                 "tool_call_id": tc["id"],
             }, ctx.compaction)
+
+            cache_key = _tool_call_cache_key(tc)
+            if _tool_call_is_cacheable(name, args) and cache_key in state.tool_result_cache:
+                cached_content = state.tool_result_cache[cache_key]
+                state.tool_calls_made.append(name)
+                state.tool_call_trace.append(cache_key)
+                state.messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": cached_content,
+                    "_cache_hit": True,
+                })
+                yield _event_with_compaction_tag({
+                    "type": "tool_result",
+                    "tool": name,
+                    "result": cached_content,
+                    "cache_hit": True,
+                }, ctx.compaction)
+                continue
+
+            if get_tool_safety_tier(name) in _PARALLEL_UNSAFE_TIERS:
+                if cache_key in state.mutating_tool_call_seen:
+                    error = json.dumps({
+                        "error": (
+                            "Duplicate mutating/control-plane tool call blocked. "
+                            "Use the existing result or fetch fresh read-only state before retrying."
+                        )
+                    })
+                    state.tool_calls_made.append(name)
+                    state.tool_call_trace.append(cache_key)
+                    state.messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": error,
+                    })
+                    yield _event_with_compaction_tag({
+                        "type": "tool_result",
+                        "tool": name,
+                        "error": "Duplicate mutating/control-plane tool call blocked",
+                    }, ctx.compaction)
+                    continue
+                state.mutating_tool_call_seen.add(cache_key)
 
             tc_result = await _dispatch_tool(
                 name=name,

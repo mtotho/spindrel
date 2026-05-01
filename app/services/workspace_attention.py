@@ -1783,6 +1783,139 @@ async def list_issue_work_packs(
     return [await serialize_issue_work_pack(db, pack) for pack in packs]
 
 
+def _issue_intake_summary(item: dict[str, Any]) -> dict[str, Any]:
+    evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+    issue_intake = evidence.get("issue_intake") if isinstance(evidence, dict) else None
+    agent_report = evidence.get("report_issue") if isinstance(evidence, dict) else None
+    channel_id = item.get("channel_id")
+    return {
+        "id": item.get("id"),
+        "title": item.get("title"),
+        "summary": item.get("message"),
+        "status": item.get("status"),
+        "severity": item.get("severity"),
+        "source": "conversation" if isinstance(issue_intake, dict) else "agent_report",
+        "category_hint": (
+            issue_intake.get("category_hint")
+            if isinstance(issue_intake, dict)
+            else agent_report.get("category") if isinstance(agent_report, dict) else None
+        ),
+        "project_hint": issue_intake.get("project_hint") if isinstance(issue_intake, dict) else None,
+        "tags": issue_intake.get("tags") if isinstance(issue_intake, dict) else [],
+        "channel_id": channel_id,
+        "channel_name": item.get("channel_name"),
+        "links": {
+            "mission_control": "/hub/attention?mode=issues",
+            "channel": f"/channels/{channel_id}" if channel_id else None,
+        },
+    }
+
+
+def _issue_work_pack_summary(pack: dict[str, Any]) -> dict[str, Any]:
+    project_id = pack.get("project_id")
+    channel_id = pack.get("channel_id")
+    return {
+        "id": pack.get("id"),
+        "title": pack.get("title"),
+        "summary": pack.get("summary"),
+        "status": pack.get("status"),
+        "category": pack.get("category"),
+        "confidence": pack.get("confidence"),
+        "launchable": bool(pack.get("launch_prompt")) and pack.get("status") == "proposed",
+        "source_item_ids": pack.get("source_item_ids") or [],
+        "project_id": project_id,
+        "project_name": pack.get("project_name"),
+        "channel_id": channel_id,
+        "channel_name": pack.get("channel_name"),
+        "triage_receipt_id": pack.get("triage_receipt_id"),
+        "links": {
+            "project_runs": f"/admin/projects/{project_id}#Runs" if project_id else None,
+            "channel": f"/channels/{channel_id}" if channel_id else None,
+            "mission_control": "/hub/attention?mode=issues",
+        },
+    }
+
+
+async def list_issue_intake_state(
+    db: AsyncSession,
+    *,
+    channel_id: uuid.UUID | None = None,
+    scope: str = "current_channel",
+    include_work_packs: bool = True,
+    limit: int = 25,
+) -> dict[str, Any]:
+    clean_scope = (scope or "current_channel").strip().lower()
+    if clean_scope not in {"current_channel", "workspace"}:
+        raise ValidationError("scope must be current_channel or workspace.")
+    if clean_scope == "current_channel" and channel_id is None:
+        raise ValidationError("current_channel scope requires channel context.")
+
+    max_items = max(1, min(int(limit or 25), 100))
+    clauses = [
+        WorkspaceAttentionItem.status.in_(VISIBLE_STATUSES),
+        WorkspaceAttentionItem.source_type.in_(("bot", "user")),
+    ]
+    if clean_scope == "current_channel":
+        clauses.append(WorkspaceAttentionItem.channel_id == channel_id)
+    stmt = select(WorkspaceAttentionItem).where(*clauses).order_by(
+        desc(WorkspaceAttentionItem.last_seen_at),
+        desc(WorkspaceAttentionItem.created_at),
+    ).limit(max_items * 4)
+    candidates = [
+        item for item in (await db.execute(stmt)).scalars().all()
+        if _is_issue_intake_candidate(item)
+    ][:max_items]
+    pending_intake = [
+        _issue_intake_summary(item)
+        for item in await serialize_attention_items(db, candidates)
+    ]
+
+    work_packs: list[dict[str, Any]] = []
+    if include_work_packs:
+        pack_clauses = [IssueWorkPack.status.in_(("proposed", "needs_info"))]
+        if clean_scope == "current_channel":
+            pack_clauses.append(IssueWorkPack.channel_id == channel_id)
+        pack_stmt = select(IssueWorkPack).where(*pack_clauses).order_by(
+            desc(IssueWorkPack.updated_at),
+            desc(IssueWorkPack.created_at),
+        ).limit(max_items)
+        rows = list((await db.execute(pack_stmt)).scalars().all())
+        work_packs = [
+            _issue_work_pack_summary(await serialize_issue_work_pack(db, pack))
+            for pack in rows
+        ]
+
+    launchable = sum(1 for pack in work_packs if pack.get("launchable"))
+    needs_info = sum(1 for pack in work_packs if pack.get("status") == "needs_info")
+    return {
+        "ok": True,
+        "message": (
+            f"Found {len(pending_intake)} pending intake item"
+            f"{'' if len(pending_intake) == 1 else 's'}"
+            f" and {len(work_packs)} active work pack"
+            f"{'' if len(work_packs) == 1 else 's'}."
+        ),
+        "scope": clean_scope,
+        "counts": {
+            "pending_intake": len(pending_intake),
+            "work_packs": len(work_packs),
+            "launchable_work_packs": launchable,
+            "needs_info_work_packs": needs_info,
+        },
+        "pending_intake": pending_intake,
+        "work_packs": work_packs,
+        "links": {
+            "mission_control_issues": "/hub/attention?mode=issues",
+            "channel": f"/channels/{channel_id}" if channel_id else None,
+        },
+        "next_actions": [
+            "Discuss pending notes with the user before grouping if scope is unclear.",
+            "Use create_issue_work_packs when the user asks to sweep, group, or create work packs.",
+            "Launch work packs only after human review.",
+        ],
+    }
+
+
 async def get_issue_work_pack(db: AsyncSession, pack_id: uuid.UUID) -> IssueWorkPack:
     pack = await db.get(IssueWorkPack, pack_id)
     if pack is None:

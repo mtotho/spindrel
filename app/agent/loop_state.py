@@ -31,6 +31,8 @@ class LoopRunState:
     transcript_entries: list[dict] = field(default_factory=list)
     thinking_content: str = ""
     tool_call_trace: list[ToolCallSignature] = field(default_factory=list)
+    tool_result_cache: dict[ToolCallSignature, str] = field(default_factory=dict)
+    mutating_tool_call_seen: set[ToolCallSignature] = field(default_factory=set)
     tools_to_enroll: list[str] = field(default_factory=list)
     loop_broken_reason: str | None = None
     detected_cycle_len: int = 0

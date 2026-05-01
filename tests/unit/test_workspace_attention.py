@@ -26,6 +26,7 @@ from app.services.workspace_attention import (
     get_attention_triage_run,
     get_issue_intake_triage_run,
     list_attention_triage_runs,
+    list_issue_intake_state,
     list_issue_intake_triage_runs,
     list_attention_items,
     launch_issue_work_packs_project_runs,
@@ -226,6 +227,62 @@ async def test_create_issue_intake_note_creates_user_issue_intake(db_session):
     assert item.target_kind == "system"
     assert item.evidence["issue_intake"]["source"] == "user"
     assert item.evidence["issue_intake"]["category_hint"] == "quality"
+
+
+@pytest.mark.asyncio
+async def test_list_issue_intake_state_returns_pending_notes_and_active_packs(db_session):
+    workspace_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="codex",
+        client_id="project-agent-intake-list",
+        workspace_id=workspace_id,
+    )
+    db_session.add(channel)
+    await db_session.commit()
+    pending = await publish_issue_intake(
+        db_session,
+        bot_id="codex",
+        channel_id=channel_id,
+        title="Screenshot review is confusing",
+        summary="The agent needs a clear pending issue note before grouping.",
+        category_hint="quality",
+        tags=["screenshots"],
+    )
+    packed = await publish_issue_intake(
+        db_session,
+        bot_id="codex",
+        channel_id=channel_id,
+        title="Already grouped",
+        summary="This should not remain in raw pending intake after a pack exists.",
+        category_hint="bug",
+    )
+    pack = await create_manual_issue_work_pack(
+        db_session,
+        actor="bot:codex",
+        title="Clarify issue intake status",
+        summary="Make pending issue intake clear to agents and users.",
+        category="code_bug",
+        confidence="high",
+        source_item_ids=[str(packed.id)],
+        launch_prompt="Implement issue intake status clarity.",
+        channel_id=channel_id,
+        metadata={"source": "conversation"},
+    )
+
+    state = await list_issue_intake_state(db_session, channel_id=channel_id, scope="current_channel")
+
+    assert state["ok"] is True
+    assert state["counts"]["pending_intake"] == 1
+    assert state["counts"]["work_packs"] == 1
+    assert state["counts"]["launchable_work_packs"] == 1
+    assert state["pending_intake"][0]["id"] == str(pending.id)
+    assert state["pending_intake"][0]["category_hint"] == "quality"
+    assert state["work_packs"][0]["id"] == str(pack.id)
+    assert state["work_packs"][0]["launchable"] is True
+    assert state["links"]["mission_control_issues"] == "/hub/attention?mode=issues"
 
 
 async def test_create_manual_issue_work_pack_links_source_items(db_session):
@@ -527,6 +584,58 @@ async def test_create_issue_work_packs_tool_uses_normal_agent_channel_context(
     assert payload["work_packs"][0]["metadata"]["source"] == "conversation"
     assert payload["work_packs"][0]["project_id"] == str(project_id)
     assert payload["work_packs"][0]["triage_receipt"]["summary"] == "One coherent Project-bound work pack."
+
+
+@pytest.mark.asyncio
+async def test_issue_intake_tools_return_pending_status_and_list_backlog(
+    db_session,
+    patched_async_sessions,
+    agent_context,
+    monkeypatch,
+):
+    from app.tools import registry
+    from app.tools.local import workspace_attention as attention_tools
+
+    monkeypatch.setattr(attention_tools, "async_session", patched_async_sessions)
+    workspace_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    channel = Channel(
+        id=channel_id,
+        name="Project Intake",
+        bot_id="codex",
+        client_id="project-agent-tool-intake-list",
+        workspace_id=workspace_id,
+    )
+    db_session.add(channel)
+    await db_session.commit()
+    agent_context(bot_id="codex", channel_id=channel_id, session_id=uuid.uuid4())
+
+    assert "list_issue_intake" in registry._tools
+    assert registry.get_tool_context_requirements("list_issue_intake") == (True, True)
+
+    raw_capture = await attention_tools.publish_issue_intake(
+        title="Dumped rough note",
+        summary="This should be saved as pending intake, not a channel note.",
+        category_hint="idea",
+        tags=["planning"],
+    )
+    capture = json.loads(raw_capture)
+
+    assert capture["ok"] is True
+    assert capture["state"] == "pending_intake"
+    assert capture["item_summary"]["title"] == "Dumped rough note"
+    assert capture["item_summary"]["category_hint"] == "idea"
+    assert capture["links"]["mission_control_issues"] == "/hub/attention?mode=issues"
+    assert capture["item"]["evidence"]["issue_intake"]["source"] == "conversation"
+
+    raw_list = await attention_tools.list_issue_intake()
+    listed = json.loads(raw_list)
+
+    assert listed["ok"] is True
+    assert listed["counts"]["pending_intake"] == 1
+    assert listed["pending_intake"][0]["title"] == "Dumped rough note"
+    assert listed["pending_intake"][0]["source"] == "conversation"
+    assert listed["work_packs"] == []
 
 
 @pytest.mark.asyncio

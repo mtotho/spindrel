@@ -2,7 +2,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, FolderGit2, FolderOpen, GitPullRequest, Hash, KeyRound, Layers, Play, Plus, RotateCw, Save, ServerCog, Terminal, Unlink, Users } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
-import { useCreateProjectInstance, useManageProjectDependencyStack, useProject, useProjectChannels, useProjectCodingRunReviewBatches, useProjectCodingRuns, useProjectInstances, useProjectRunReceipts, useProjectRuntimeEnv, useProjectDependencyStack, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
+import { useCreateProjectBlueprintFromCurrent, useCreateProjectInstance, useManageProjectDependencyStack, useProject, useProjectChannels, useProjectCodingRunReviewBatches, useProjectCodingRuns, useProjectInstances, useProjectRunReceipts, useProjectRuntimeEnv, useProjectDependencyStack, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
 import { useCreateChannel, useChannels, usePatchChannelSettings } from "@/src/api/hooks/useChannels";
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useSecretValues } from "@/src/api/hooks/useSecretValues";
@@ -627,12 +627,15 @@ function DependencyStackSection({ project }: { project: Project }) {
 }
 
 function ProjectSetupSection({ project, setup }: { project: Project; setup?: ProjectSetup }) {
+  const navigate = useNavigate();
   const { data: secrets = [] } = useSecretValues();
   const updateBindings = useUpdateProjectSecretBindings(project.id);
   const runSetup = useRunProjectSetup(project.id);
+  const createBlueprint = useCreateProjectBlueprintFromCurrent(project.id);
   const [bindingsDraft, setBindingsDraft] = useState<Record<string, string>>({});
 
   const plan = setup?.plan;
+  const hasBlueprintSnapshot = Boolean(project.metadata_?.blueprint_snapshot);
   const repos = Array.isArray(plan?.repos) ? plan.repos : [];
   const commands = Array.isArray(plan?.commands) ? plan.commands : [];
   const secretSlots = Array.isArray(plan?.secret_slots) ? plan.secret_slots : [];
@@ -683,31 +686,83 @@ function ProjectSetupSection({ project, setup }: { project: Project; setup?: Pro
         title="Setup"
         description="Clone repos and run setup commands declared by this Project's applied Blueprint snapshot."
         action={
-          <ActionButton
-            label={runSetup.isPending ? "Running" : "Run Setup"}
-            icon={<Play size={14} />}
-            disabled={!plan?.ready || runSetup.isPending}
-            onPress={() => runSetup.mutate()}
-          />
+          hasBlueprintSnapshot ? (
+            <ActionButton
+              label={runSetup.isPending ? "Running" : "Run Setup"}
+              icon={<Play size={14} />}
+              disabled={!plan?.ready || runSetup.isPending}
+              onPress={() => runSetup.mutate()}
+            />
+          ) : (
+            <ActionButton
+              label={createBlueprint.isPending ? "Creating" : "Create Blueprint"}
+              icon={<Layers size={14} />}
+              disabled={createBlueprint.isPending}
+              onPress={() => createBlueprint.mutate({ apply_to_project: true })}
+            />
+          )
         }
       >
         <div data-testid="project-workspace-setup-ready" className="flex flex-col gap-3">
-          <SettingsControlRow
-            leading={plan?.ready ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
-            title={readyLabel}
-            description={
-              plan?.ready
-                ? "Setup can prepare this Project root with declared repos and commands."
-                : missingSecrets.length > 0
-                  ? missingSecrets.join(", ")
-                  : invalidRepos.length > 0
-                    ? "One or more repo declarations need a safe path or supported URL."
-                    : invalidCommands.length > 0
-                      ? "One or more setup commands need a command, safe cwd, or valid timeout."
-                      : "Add repo declarations or setup commands to the Blueprint before running setup."
-            }
-            meta={<StatusBadge label={readyLabel} variant={readyTone} />}
-          />
+          {!hasBlueprintSnapshot ? (
+            <SettingsControlRow
+              leading={<Layers size={14} />}
+              title="No Blueprint recipe applied"
+              description="Create a durable Blueprint from this Project so setup, fresh instances, and isolated factory runs have a reproducible recipe."
+              meta={<StatusBadge label="recipe needed" variant="warning" />}
+              action={
+                <ActionButton
+                  label={createBlueprint.isPending ? "Creating" : "Create"}
+                  icon={<Plus size={13} />}
+                  size="small"
+                  disabled={createBlueprint.isPending}
+                  onPress={() => createBlueprint.mutate({ apply_to_project: true })}
+                />
+              }
+            />
+          ) : (
+            <SettingsControlRow
+              leading={plan?.ready ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+              title={readyLabel}
+              description={
+                plan?.ready
+                  ? "Setup can prepare this Project root with declared repos and commands."
+                  : missingSecrets.length > 0
+                    ? missingSecrets.join(", ")
+                    : invalidRepos.length > 0
+                      ? "One or more repo declarations need a safe path or supported URL."
+                      : invalidCommands.length > 0
+                        ? "One or more setup commands need a command, safe cwd, or valid timeout."
+                        : "Add repo declarations or setup commands to the Blueprint before running setup."
+              }
+              meta={<StatusBadge label={readyLabel} variant={readyTone} />}
+            />
+          )}
+          {createBlueprint.data && (
+            <SettingsControlRow
+              leading={<CheckCircle2 size={14} />}
+              title="Blueprint created"
+              description={`${createBlueprint.data.detected_repos.length} repo declarations detected${createBlueprint.data.warnings.length ? ` · ${createBlueprint.data.warnings[0]}` : ""}`}
+              meta={<QuietPill label={createBlueprint.data.applied ? "applied" : "created"} />}
+              action={
+                <ActionButton
+                  label="Open"
+                  icon={<ExternalLink size={13} />}
+                  size="small"
+                  variant="secondary"
+                  onPress={() => navigate(`/admin/projects/blueprints/${createBlueprint.data?.blueprint.id}`)}
+                />
+              }
+            />
+          )}
+          {createBlueprint.error && (
+            <SettingsControlRow
+              leading={<AlertTriangle size={14} />}
+              title="Blueprint was not created"
+              description={createBlueprint.error instanceof Error ? createBlueprint.error.message : "The Blueprint request failed."}
+              meta={<StatusBadge label="failed" variant="danger" />}
+            />
+          )}
           {runSetup.error && (
             <SettingsControlRow
               leading={<AlertTriangle size={14} />}

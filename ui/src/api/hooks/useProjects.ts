@@ -4,6 +4,8 @@ import type {
   Channel,
   Project,
   ProjectBlueprint,
+  ProjectBlueprintFromCurrentResult,
+  ProjectBlueprintFromCurrentWrite,
   ProjectBlueprintWrite,
   ProjectCodingRun,
   ProjectCodingRunReviewBatch,
@@ -377,6 +379,25 @@ export function useCreateProjectFromBlueprint() {
     onSuccess: (project) => {
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["projects", project.id] });
+    },
+  });
+}
+
+export function useCreateProjectBlueprintFromCurrent(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: ProjectBlueprintFromCurrentWrite = { apply_to_project: true }) =>
+      apiFetch<ProjectBlueprintFromCurrentResult>(`/api/v1/projects/${projectId}/blueprint-from-current`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["project-blueprints"] });
+      qc.invalidateQueries({ queryKey: ["project-blueprints", result.blueprint.id] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "setup"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "runtime-env"] });
     },
   });
 }

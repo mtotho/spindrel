@@ -971,6 +971,180 @@ async def _check_allow_rules_autonomous_scope(db: AsyncSession) -> SecurityCheck
     )
 
 
+def _check_backup_encryption_at_rest() -> SecurityCheck:
+    """Surface backup archives in ``backups/`` that are stored as
+    plaintext. Encrypted backups (``.tar.gz.enc``) are produced by the
+    2026-05 ``backup.sh`` pipeline; plaintext ``.tar.gz`` archives are
+    legacy and should be re-encrypted (run a fresh ``backup.sh``) and
+    removed once verified.
+    """
+    from pathlib import Path
+    from app.services.backup_encryption import inspect_backup_dir
+
+    # backups/ lives at the repo root regardless of cwd.
+    repo_root = Path(__file__).resolve().parents[2]
+    backup_dir = repo_root / "backups"
+    statuses = inspect_backup_dir(backup_dir)
+
+    if not statuses:
+        return SecurityCheck(
+            id="backup_encryption_at_rest",
+            category="backups",
+            severity=Severity.warning,
+            status=Status.passed,
+            message="No backup archives present in backups/.",
+            details={"backup_dir": str(backup_dir), "archive_count": 0},
+        )
+
+    plaintext = [s.name for s in statuses if not s.encrypted]
+    encrypted = [s.name for s in statuses if s.encrypted]
+
+    if not plaintext:
+        return SecurityCheck(
+            id="backup_encryption_at_rest",
+            category="backups",
+            severity=Severity.warning,
+            status=Status.passed,
+            message=f"All {len(encrypted)} backup archive(s) encrypted at rest.",
+            details={
+                "backup_dir": str(backup_dir),
+                "encrypted_count": len(encrypted),
+                "plaintext_count": 0,
+            },
+        )
+
+    return SecurityCheck(
+        id="backup_encryption_at_rest",
+        category="backups",
+        severity=Severity.warning,
+        status=Status.warning,
+        message=(
+            f"{len(plaintext)} of {len(statuses)} backup archive(s) are plaintext "
+            ".tar.gz — they include the .env file (API keys/OAuth tokens) and a "
+            "Postgres dump that may contain decrypted secrets."
+        ),
+        recommendation=(
+            "Set BACKUP_ENCRYPTION_KEY (or use ENCRYPTION_KEY) and run "
+            "scripts/backup.sh to produce a .tar.gz.enc archive; verify "
+            "scripts/restore.sh decrypts it; then delete the plaintext "
+            ".tar.gz copies. Future backups encrypt automatically when "
+            "ENCRYPTION_STRICT=true (default)."
+        ),
+        details={
+            "backup_dir": str(backup_dir),
+            "encrypted_count": len(encrypted),
+            "plaintext_count": len(plaintext),
+            "plaintext_archives": plaintext[:25],
+        },
+    )
+
+
+async def _check_manifest_hash_drift(db: AsyncSession) -> SecurityCheck:
+    """Recompute canonical content hashes for Skill + WidgetTemplatePackage
+    rows and report any whose stored ``content_hash`` no longer matches.
+
+    Drift means a writer mutated the body without updating the hash, OR
+    a non-writer code path (direct DB tampering, an out-of-band import,
+    a migration that landed body-only) bypassed the hash bookkeeping.
+    Either way, the row's integrity record is unreliable until the hash
+    is recomputed and re-signed.
+
+    This is the Phase 1 audit signal for the supply-chain signing track —
+    it surfaces existing tamper evidence today without requiring the
+    Phase 2 ``signature`` column or verify-on-read enforcement.
+    """
+    from app.db.models import Skill, WidgetTemplatePackage
+    from app.services.manifest_signing import (
+        detect_skill_drift,
+        detect_widget_drift,
+    )
+
+    skill_rows = (await db.execute(select(Skill))).scalars().all()
+    widget_rows = (await db.execute(select(WidgetTemplatePackage))).scalars().all()
+
+    skill_findings = detect_skill_drift(list(skill_rows))
+    widget_findings = detect_widget_drift(list(widget_rows))
+
+    total_findings = len(skill_findings) + len(widget_findings)
+    total_rows = len(skill_rows) + len(widget_rows)
+
+    if total_rows == 0:
+        return SecurityCheck(
+            id="manifest_hash_drift",
+            category="manifest_signing",
+            severity=Severity.warning,
+            status=Status.passed,
+            message="No skills or widget template packages to verify.",
+            details={
+                "skill_count": 0,
+                "widget_template_count": 0,
+                "drift_findings": 0,
+            },
+        )
+
+    if total_findings == 0:
+        return SecurityCheck(
+            id="manifest_hash_drift",
+            category="manifest_signing",
+            severity=Severity.warning,
+            status=Status.passed,
+            message=(
+                f"All {total_rows} skill / widget rows have intact "
+                "content_hash bookkeeping."
+            ),
+            details={
+                "skill_count": len(skill_rows),
+                "widget_template_count": len(widget_rows),
+                "drift_findings": 0,
+            },
+        )
+
+    return SecurityCheck(
+        id="manifest_hash_drift",
+        category="manifest_signing",
+        severity=Severity.warning,
+        status=Status.warning,
+        message=(
+            f"{total_findings} row(s) have content_hash drift "
+            f"({len(skill_findings)} skill, {len(widget_findings)} widget). "
+            "Stored hash does not match a fresh sha256 of the body — a "
+            "writer skipped the hash update or the body was edited "
+            "out-of-band."
+        ),
+        recommendation=(
+            "Inspect each drifted row. If the body is the intended state, "
+            "rewrite it via the normal writer (e.g. manage_bot_skill, widget "
+            "package edit) so the hash is recomputed. If the body is wrong, "
+            "restore from a backup. Phase 2 of this track will add a "
+            "signature column and verify-on-read so out-of-band edits are "
+            "rejected automatically."
+        ),
+        details={
+            "skill_count": len(skill_rows),
+            "widget_template_count": len(widget_rows),
+            "drift_findings": total_findings,
+            "skill_drift": [
+                {
+                    "id": f.target_id,
+                    "name": f.name,
+                    "stored": f.stored_hash[:16] + "…",
+                    "recomputed": f.recomputed_hash[:16] + "…",
+                }
+                for f in skill_findings[:25]
+            ],
+            "widget_drift": [
+                {
+                    "id": f.target_id,
+                    "name": f.name,
+                    "stored": f.stored_hash[:16] + "…",
+                    "recomputed": f.recomputed_hash[:16] + "…",
+                }
+                for f in widget_findings[:25]
+            ],
+        },
+    )
+
+
 async def _check_run_script_allowed_tools_coverage(db: AsyncSession) -> SecurityCheck:
     """Surface stored scripts that lack an explicit ``allowed_tools`` allowlist.
 
@@ -1280,6 +1454,7 @@ async def run_security_audit(db: AsyncSession) -> SecurityAuditResponse:
     checks.append(_check_inbound_callback_security())
     checks.append(_check_machine_control_tool_gates())
     checks.append(_check_browser_live_pairing_surface())
+    checks.append(_check_backup_encryption_at_rest())
 
     # DB-dependent checks
     checks.append(await _check_exec_tools_without_rules(db))
@@ -1288,6 +1463,7 @@ async def run_security_audit(db: AsyncSession) -> SecurityAuditResponse:
     checks.append(await _check_policy_rule_count(db))
     checks.append(await _check_allow_rules_autonomous_scope(db))
     checks.append(await _check_run_script_allowed_tools_coverage(db))
+    checks.append(await _check_manifest_hash_drift(db))
     checks.append(await _check_mcp_servers_count(db))
     checks.append(await _check_mcp_outbound_url_guard(db))
     checks.append(await _check_machine_control_lease_state(db))

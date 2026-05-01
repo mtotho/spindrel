@@ -239,6 +239,37 @@ PUBLISH_ISSUE_INTAKE_SCHEMA = {
 }
 
 
+LIST_ISSUE_INTAKE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "list_issue_intake",
+        "description": (
+            "Read pending conversational issue intake and active issue work packs. "
+            "Use this before discussing a sweep/grouping pass, or when the user asks "
+            "what rough notes, ideas, or work packs are currently waiting."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "scope": {
+                    "type": "string",
+                    "enum": ["current_channel", "workspace"],
+                    "description": "current_channel lists this channel's intake. workspace lists visible workspace issue intake.",
+                },
+                "include_work_packs": {
+                    "type": "boolean",
+                    "description": "Include proposed and needs-info work packs alongside raw intake.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of pending intake items and work packs to return. Defaults to 25, max 100.",
+                },
+            },
+        },
+    },
+}
+
+
 CREATE_ISSUE_WORK_PACKS_SCHEMA = {
     "type": "function",
     "function": {
@@ -451,7 +482,53 @@ async def publish_issue_intake(
             payload = await serialize_attention_item(db, item)
         except (NotFoundError, ValidationError) as exc:
             return json.dumps({"error": str(exc)})
-    return json.dumps({"item": payload}, default=str)
+    channel_id = current_channel_id.get()
+    item_summary = {
+        "id": payload.get("id"),
+        "title": payload.get("title"),
+        "status": payload.get("status"),
+        "severity": payload.get("severity"),
+        "category_hint": (payload.get("evidence") or {}).get("issue_intake", {}).get("category_hint"),
+        "channel_id": payload.get("channel_id"),
+        "channel_name": payload.get("channel_name"),
+    }
+    return json.dumps({
+        "ok": True,
+        "message": "Saved 1 pending issue-intake note for later triage.",
+        "state": "pending_intake",
+        "item_summary": item_summary,
+        "links": {
+            "mission_control_issues": "/hub/attention?mode=issues",
+            "channel": f"/channels/{channel_id}" if channel_id else None,
+        },
+        "next_actions": [
+            "Review pending notes in Mission Control Issue Intake.",
+            "Use list_issue_intake before a later sweep/grouping conversation.",
+            "Use create_issue_work_packs only when the user asks to group or create packs.",
+        ],
+        "item": payload,
+    }, default=str)
+
+
+@register(LIST_ISSUE_INTAKE_SCHEMA, safety_tier="readonly", requires_bot_context=True, requires_channel_context=True)
+async def list_issue_intake(
+    scope: str = "current_channel",
+    include_work_packs: bool = True,
+    limit: int = 25,
+) -> str:
+    async with async_session() as db:
+        try:
+            from app.services.workspace_attention import list_issue_intake_state
+            payload = await list_issue_intake_state(
+                db,
+                channel_id=current_channel_id.get(),
+                scope=scope,
+                include_work_packs=include_work_packs,
+                limit=limit,
+            )
+        except (NotFoundError, ValidationError) as exc:
+            return json.dumps({"error": str(exc)})
+    return json.dumps(payload, default=str)
 
 
 @register(CREATE_ISSUE_WORK_PACKS_SCHEMA, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
