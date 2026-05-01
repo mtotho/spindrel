@@ -22,6 +22,7 @@ import json
 import logging
 import mimetypes
 import os
+import shutil
 import subprocess
 from collections.abc import AsyncIterator
 from typing import Any, Mapping
@@ -205,6 +206,29 @@ def _credential_path() -> str:
     """
     config_dir = os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude"))
     return os.path.join(config_dir, ".credentials.json")
+
+
+def _resolve_claude_cli_path() -> str | None:
+    """Prefer the installed Claude Code CLI over the SDK bundled binary.
+
+    The Python SDK defaults to its bundled Bun executable when present. Recent
+    bundled builds have crashed in our Docker runtime before emitting the SDK
+    init message, while the installed `claude` binary keeps working and returns
+    structured auth/runtime errors. Passing `cli_path` preserves SDK semantics
+    while avoiding that brittle bundled-binary path.
+    """
+    for env_name in ("CLAUDE_CODE_CLI_PATH", "CLAUDE_CLI_PATH"):
+        raw = os.environ.get(env_name)
+        if raw and os.path.isfile(raw) and os.access(raw, os.X_OK):
+            return raw
+    path = shutil.which("claude")
+    if path:
+        return path
+    return None
+
+
+def _claude_cli_command(*args: str) -> list[str]:
+    return [_resolve_claude_cli_path() or "claude", *args]
 
 
 def _build_claude_query_input(
@@ -437,6 +461,8 @@ class ClaudeCodeRuntime:
             # allowlist, we get a quick allow rather than a stall.
             "can_use_tool": _make_can_use_tool(ctx, runtime=self),
         }
+        if cli_path := _resolve_claude_cli_path():
+            options_kwargs["cli_path"] = cli_path
         if ctx.harness_session_id:
             options_kwargs["resume"] = ctx.harness_session_id
         if ctx.model:
@@ -546,6 +572,8 @@ class ClaudeCodeRuntime:
             "permission_mode": ctx.permission_mode,
             "can_use_tool": _make_can_use_tool(ctx, runtime=self),
         }
+        if cli_path := _resolve_claude_cli_path():
+            options_kwargs["cli_path"] = cli_path
         if ctx.model:
             options_kwargs["model"] = ctx.model
         _set_effort_kwarg(ClaudeAgentOptions, options_kwargs, ctx.effort)
@@ -599,16 +627,37 @@ class ClaudeCodeRuntime:
 
     def auth_status(self) -> AuthStatus:
         path = _credential_path()
+        cli_path = _resolve_claude_cli_path()
+        if not cli_path:
+            return AuthStatus(
+                ok=False,
+                detail=(
+                    "Claude Code CLI was not found. Install Claude Code or set "
+                    "CLAUDE_CODE_CLI_PATH to the container-visible binary."
+                ),
+                suggested_command="npm install -g @anthropic-ai/claude-code",
+            )
         if os.path.exists(path):
-            return AuthStatus(ok=True, detail=f"Logged in via {path}")
+            status_detail = _probe_claude_auth_status(cli_path)
+            if status_detail is not None:
+                ok, detail = status_detail
+                return AuthStatus(
+                    ok=ok,
+                    detail=f"{detail} Credentials: {path}. CLI: {cli_path}",
+                    suggested_command=None if ok else "claude auth login",
+                )
+            return AuthStatus(
+                ok=True,
+                detail=f"Credentials found at {path}. CLI: {cli_path}",
+            )
         return AuthStatus(
             ok=False,
             detail=(
                 f"Credentials not found at {path}. "
-                f"Click 'Run claude login' below — a terminal opens inside the "
+                f"Click 'Run claude auth login' below — a terminal opens inside the "
                 f"Spindrel container with the command pre-seeded."
             ),
-            suggested_command="claude login",
+            suggested_command="claude auth login",
         )
 
     async def execute_native_command(
@@ -634,7 +683,7 @@ class ClaudeCodeRuntime:
         if command_id == "version":
             try:
                 proc = subprocess.run(
-                    ["claude", "--version"],
+                    _claude_cli_command("--version"),
                     check=False,
                     capture_output=True,
                     text=True,
@@ -766,6 +815,38 @@ def _list_claude_skills_from_runtime_dirs(ctx: TurnContext) -> HarnessRuntimeCom
     )
 
 
+def _probe_claude_auth_status(cli_path: str) -> tuple[bool, str] | None:
+    """Return native `claude auth status` when the installed CLI supports it."""
+    try:
+        proc = subprocess.run(
+            [cli_path, "auth", "status", "--json"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception as exc:
+        return False, f"Claude auth status probe failed: {exc}."
+    raw = (proc.stdout or proc.stderr or "").strip()
+    if proc.returncode != 0:
+        return False, raw or f"claude auth status exited {proc.returncode}."
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not payload.get("loggedIn"):
+        return False, "Claude Code reports not logged in."
+    method = payload.get("authMethod") or "unknown auth"
+    subscription = payload.get("subscriptionType")
+    provider = payload.get("apiProvider")
+    bits = [f"Claude Code reports logged in via {method}"]
+    if provider:
+        bits.append(f"provider={provider}")
+    if subscription:
+        bits.append(f"subscription={subscription}")
+    return True, "; ".join(bits) + "."
+
+
 def _claude_management_terminal_handoff(
     command_id: str,
     args: tuple[str, ...],
@@ -799,12 +880,12 @@ def _claude_management_command(command_id: str, args: tuple[str, ...]) -> list[s
     cleaned_args = [arg.strip() for arg in args if arg and arg.strip()]
     if command_id in {"plugins", "plugin"}:
         subcommand = cleaned_args or ["list"]
-        return ["claude", "plugin", *subcommand]
+        return _claude_cli_command("plugin", *subcommand)
     if command_id in {"skills", "mcp", "agents", "hooks"}:
         subcommand = cleaned_args or ["list"]
-        return ["claude", command_id, *subcommand]
+        return _claude_cli_command(command_id, *subcommand)
     if command_id in {"status", "doctor"}:
-        return ["claude", command_id, *cleaned_args]
+        return _claude_cli_command(command_id, *cleaned_args)
     return None
 
 

@@ -1,8 +1,8 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, FolderGit2, FolderOpen, Hash, KeyRound, Layers, Play, Plus, Save, Terminal, Unlink, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, FolderGit2, FolderOpen, Hash, KeyRound, Layers, Play, Plus, RotateCw, Save, ServerCog, Terminal, Unlink, Users } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
-import { useCreateProjectInstance, useProject, useProjectChannels, useProjectInstances, useProjectRunReceipts, useProjectRuntimeEnv, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
+import { useCreateProjectInstance, useManageProjectDependencyStack, useProject, useProjectChannels, useProjectInstances, useProjectRunReceipts, useProjectRuntimeEnv, useProjectDependencyStack, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
 import { useCreateChannel, useChannels, usePatchChannelSettings } from "@/src/api/hooks/useChannels";
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useSecretValues } from "@/src/api/hooks/useSecretValues";
@@ -313,6 +313,93 @@ function setupTone(status: string): "success" | "warning" | "danger" | "neutral"
   return "neutral";
 }
 
+function DependencyStackSection({ project }: { project: Project }) {
+  const { data: dependencyStack } = useProjectDependencyStack(project.id);
+  const manageStack = useManageProjectDependencyStack(project.id);
+  const configured = dependencyStack?.configured ?? false;
+  const spec = dependencyStack?.spec ?? {};
+  const instance = dependencyStack?.instance ?? null;
+  const status = instance?.status ?? (configured ? "not prepared" : "not configured");
+  const commandNames = Object.keys(spec.commands ?? instance?.commands ?? {});
+  const envKeys = Object.keys(instance?.env ?? spec.env ?? {});
+  const busy = manageStack.isPending;
+  const runAction = (action: string) => manageStack.mutate({ action });
+
+  return (
+    <Section
+      title="Dependency Stack"
+      description="Docker-backed databases and services for Project work. Agents start app servers themselves with native bash."
+      action={
+        configured ? (
+          <div className="flex flex-wrap justify-end gap-1">
+            <ActionButton
+              label={instance ? "Reload" : "Prepare"}
+              icon={<RotateCw size={14} />}
+              size="small"
+              disabled={busy}
+              onPress={() => runAction(instance ? "reload" : "prepare")}
+            />
+            <ActionButton
+              label="Health"
+              size="small"
+              variant="secondary"
+              disabled={busy || !instance}
+              onPress={() => runAction("health")}
+            />
+          </div>
+        ) : undefined
+      }
+    >
+      <div data-testid="project-dependency-stack" className="flex flex-col gap-2">
+        <SettingsControlRow
+          leading={<ServerCog size={14} />}
+          title={configured ? `Stack ${status}` : "No dependency stack declared"}
+          description={
+            configured
+              ? (
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="truncate font-mono text-[11px] text-text-dim">{spec.source_path || instance?.source_path || "inline compose spec"}</span>
+                  <span>Agents use the provided env and launch their own dev server on an unused or assigned port.</span>
+                  {envKeys.length > 0 && <span className="truncate text-[11px] text-text-dim">Env: {envKeys.join(", ")}</span>}
+                  {commandNames.length > 0 && <span className="truncate text-[11px] text-text-dim">Commands: {commandNames.join(", ")}</span>}
+                  {instance?.error_message && <span className="truncate text-[11px] text-danger">{instance.error_message}</span>}
+                </span>
+              )
+              : "Declare dependency_stack on the Project Blueprint to let Spindrel prepare Docker-backed dependencies."
+          }
+          meta={<StatusBadge label={status} variant={status === "running" ? "success" : configured ? "warning" : "neutral"} />}
+          action={
+            instance ? (
+              <div className="flex flex-wrap justify-end gap-1">
+                <ActionButton label="Restart" size="small" variant="secondary" disabled={busy} onPress={() => runAction("restart")} />
+                <ActionButton label="Logs" size="small" variant="ghost" disabled={busy} onPress={() => manageStack.mutate({ action: "logs", tail: 80 })} />
+              </div>
+            ) : undefined
+          }
+        />
+        {manageStack.data?.logs && (
+          <pre className="max-h-52 overflow-auto rounded-md bg-surface-raised/40 p-3 text-[11px] leading-5 text-text-muted">
+            {String(manageStack.data.logs)}
+          </pre>
+        )}
+        {manageStack.data?.body && (
+          <pre className="max-h-32 overflow-auto rounded-md bg-surface-raised/40 p-3 text-[11px] leading-5 text-text-muted">
+            {String(manageStack.data.body)}
+          </pre>
+        )}
+        {manageStack.error && (
+          <SettingsControlRow
+            leading={<AlertTriangle size={14} />}
+            title="Dependency stack action failed"
+            description={manageStack.error instanceof Error ? manageStack.error.message : "The dependency stack request failed."}
+            meta={<StatusBadge label="failed" variant="danger" />}
+          />
+        )}
+      </div>
+    </Section>
+  );
+}
+
 function ProjectSetupSection({ project, setup }: { project: Project; setup?: ProjectSetup }) {
   const { data: secrets = [] } = useSecretValues();
   const updateBindings = useUpdateProjectSecretBindings(project.id);
@@ -405,6 +492,8 @@ function ProjectSetupSection({ project, setup }: { project: Project; setup?: Pro
           )}
         </div>
       </Section>
+
+      <DependencyStackSection project={project} />
 
       <Section title="Command Plan" description="Commands run in order after repository setup. Cwd values are Project-relative.">
         <div className="flex flex-col gap-2">

@@ -6,12 +6,18 @@ coding-run evidence.
 
 ## Execution Contexts
 
-There are three different agent surfaces:
+There are three different agent surfaces. In this project track, use these two
+short names when discussing development execution:
+
+- **Local dev mode**: a repo-dev agent in a source checkout, like Codex running
+  from this repository on a developer machine.
+- **Spindrel dev mode**: a Codex/Claude harness agent running inside a
+  Project-bound channel or Project coding run.
 
 | Context | Uses | E2E path |
 |---|---|---|
-| Local repo-dev agent | Shell in this checkout, repo `.agents/skills` | Run pytest and screenshot scripts directly. |
-| Harness task agent | Native Codex/Claude shell/edit tools in the Project work surface | Edit files natively; use task-granted Spindrel tools for e2e, screenshots, machine/server, Docker/compose, and receipts. |
+| Local dev mode | Shell in this checkout, repo `.agents/skills` | Run Python/pytest/screenshot scripts directly; use the helper for Docker-backed dependencies, then start API/UI/dev servers from this checkout on unused ports. |
+| Spindrel dev mode | Native Codex/Claude shell/edit tools in the Project work surface | Edit files and run repo-local commands natively; start app/dev servers yourself on assigned or unused ports; use Project Dependency Stack tools for Docker-backed databases/services; use Spindrel tools for e2e, screenshots, server/machine, and receipts. |
 | Normal Spindrel bot | Runtime tools and runtime `skills/` | Load `e2e_testing`, then call `run_e2e_tests` or granted machine tools. |
 
 Harness agents may have native shell access, but infrastructure control is not
@@ -20,9 +26,12 @@ native harness shell. A Project coding/review task that needs e2e, screenshots,
 server commands, or Docker/compose must receive a task-scoped grant and use the
 Spindrel tool/API path so the action is auditable and reviewable.
 
-Fresh Project Instances are currently disposable Project roots selected through
-the WorkSurface policy. They are not per-task Docker sidecars. Per-task Docker
-stacks are future Project Factory work.
+Fresh Project Instances are disposable Project roots selected through the
+WorkSurface policy. Project Dependency Stacks are the Docker-backed dependency
+layer for those roots: a Project declares a stack spec, and coding runs prepare
+a run-scoped dependency instance through Spindrel tools. Agents still start
+their own app/dev servers from source. The harness shell should not use raw
+Docker.
 
 ## Local Fresh E2E Setup
 
@@ -38,23 +47,26 @@ python scripts/agent_e2e_dev.py doctor
 python scripts/agent_e2e_dev.py commands
 ```
 
-Then have the helper build current source, recreate the local Spindrel e2e
-stack, and wait for health:
+Then have the helper start the shared local dependencies:
 
 ```bash
-python scripts/agent_e2e_dev.py prepare
+python scripts/agent_e2e_dev.py prepare-deps
 python scripts/agent_e2e_dev.py doctor
 ```
 
-The default local stack is durable across normal Docker restarts: Postgres uses
-a named Docker volume, the server runs on `localhost:18000`, and the API key
-defaults to `e2e-test-key-12345`. `prepare` recreates only the Spindrel app
-container, so local provider/OAuth state survives normal rebuilds and restarts.
-Future agents should run `doctor` first; if it reports
+The default local dependency stack is durable across normal Docker restarts:
+Postgres uses a named Docker volume, Postgres is exposed on `localhost:15432`
+unless overridden, and the API key defaults to `e2e-test-key-12345`. Run the
+Spindrel API/UI yourself from this source checkout on unused ports while
+iterating. Future agents should run `doctor` first; if it reports
 `subscription bootstrap: connected`, do not restart the browser OAuth flow.
 `write-env` also writes stable local `ENCRYPTION_KEY` and `JWT_SECRET` values.
 Do not remove those while keeping the durable Postgres volume; encrypted
 provider/OAuth rows cannot boot under a different key.
+
+Use `python scripts/agent_e2e_dev.py prepare` only when you intentionally need
+the full Docker app-container e2e stack, such as harness parity or a fixture
+that explicitly expects the app container.
 
 Only wipe local e2e state when that is the explicit goal:
 
@@ -119,6 +131,14 @@ The parity bots are seeded with the baseline Spindrel bridge tools required by
 the live scenarios, including `get_tool_info`, channel history, memory, and
 skill lookup tools.
 
+Claude Code readiness includes a tiny live auth smoke. Native
+`claude auth status` can still report logged-in when the first SDK turn returns
+`401 authentication_failed`, so a failed smoke prints the exact refresh command:
+
+```bash
+docker exec -it -u spindrel spindrel-local-e2e-spindrel-1 claude auth login
+```
+
 Focused local runs reuse the deployed parity scenarios:
 
 ```bash
@@ -126,6 +146,18 @@ Focused local runs reuse the deployed parity scenarios:
 ./scripts/run_harness_parity_local.sh --tier skills -k "native_image_input_manifest"
 ./scripts/run_harness_parity_local.sh --tier replay -k "persisted_tool_replay_survives_refetch"
 ```
+
+For faster iteration, run focused slices in bounded parallel batches:
+
+```bash
+./scripts/run_harness_parity_local_batch.sh --preset smoke
+./scripts/run_harness_parity_local_batch.sh --preset fast --jobs 3
+./scripts/run_harness_parity_local_batch.sh --preset deep --list
+```
+
+Batch logs are written under `scratch/agent-e2e/harness-parity-runs/`. Use
+focused selectors for parallel runs; full tier sweeps still create enough
+shared channel pressure that they should be run sequentially.
 
 For visual feedback, use local screenshots first:
 
@@ -243,9 +275,16 @@ Project coding-run and review agents should:
 1. Work only inside the resolved Project or Project Instance root.
 2. Update from the configured base branch when safe.
 3. Use native Codex/Claude editing and shell tools for repo-local code work.
-4. Use `run_e2e_tests(status)` before e2e checks to confirm the target.
-5. Use task-granted Spindrel tools for e2e, screenshots, server/machine, and Docker/compose actions.
-6. Publish receipts with tests, screenshots, branch/PR handoff, and any blocked infrastructure grants.
+4. Use `get_project_dependency_stack` and `manage_project_dependency_stack` for
+   Project-declared Docker-backed databases, service dependencies, logs,
+   restarts, rebuilds, service commands, health checks, and connection env. If
+   stack shape changes, edit the Project compose file and call
+   `manage_project_dependency_stack(action="reload")`.
+5. Start app/dev servers yourself from source on an assigned or unused port.
+   Do not restart another agent's process.
+6. Use `run_e2e_tests(status)` before e2e checks to confirm the target.
+7. Use task-granted Spindrel tools for e2e, screenshots, server/machine, and Docker/compose actions.
+8. Publish receipts with tests, screenshots, dependency stack evidence, branch/PR handoff, and any blocked infrastructure grants.
 
 If a task does not have the needed grant, report the missing grant instead of
 attempting ambient infrastructure access.

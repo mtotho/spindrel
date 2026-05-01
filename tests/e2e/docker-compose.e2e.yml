@@ -3,6 +3,8 @@ name: "spindrel-e2e"
 services:
   postgres:
     image: pgvector/pgvector:pg16
+    ports:
+      - "${E2E_POSTGRES_PORT:-15432}:5432"
     environment:
       POSTGRES_USER: agent
       POSTGRES_PASSWORD: agent
@@ -17,6 +19,8 @@ services:
 
   searxng:
     image: searxng/searxng
+    ports:
+      - "${E2E_SEARXNG_PORT:-18080}:8080"
     volumes:
       - ../../integrations/web_search/config/searxng/settings.yml:/etc/searxng/settings.yml:ro
     environment:

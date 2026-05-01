@@ -17,15 +17,26 @@ This is a repo-dev skill. It is not imported into Spindrel runtime skills.
 
 ## Boundary
 
-- Local repo-dev agents may run pytest and screenshot scripts directly.
-- Harness agents use native Codex/Claude tools for Project-root code work.
+- **Local dev mode** means a repo-dev agent in this source checkout. It may run
+  Python, pytest, screenshot scripts, and the local helper directly. For source
+  iteration, use the helper to start Docker-backed dependencies and run the
+  API/UI yourself from this checkout on unused ports.
+- **Spindrel dev mode** means Codex/Claude running inside a Project-bound
+  channel or Project coding run. It uses native shell/edit tools for
+  Project-root code work only.
 - Harness agents must use task-granted Spindrel tools for e2e, screenshots,
   server/machine actions, Docker/compose, and receipts.
+- Project Dependency Stacks are the normal Docker path for Project coding runs:
+  agents edit source/compose files in the Project root, then use
+  `get_project_dependency_stack` and `manage_project_dependency_stack` to prepare,
+  reload, restart, inspect logs, run service commands, check health, and read
+  dependency connection env. Agents still start app/dev servers themselves.
 - Normal Spindrel bots use runtime skills such as `e2e_testing` and tools such
   as `run_e2e_tests`.
 
-Fresh Project Instances are disposable Project roots, not per-task Docker
-sidecars.
+Fresh Project Instances are disposable Project roots. Dependency Stack instances
+are run-scoped Docker stacks attached to those roots when the Project declares a
+stack spec. Do not use raw Docker from a harness shell.
 
 ## Commands
 
@@ -33,15 +44,20 @@ Prepare a local e2e env:
 
 ```bash
 python scripts/agent_e2e_dev.py write-env
-python scripts/agent_e2e_dev.py prepare
+python scripts/agent_e2e_dev.py prepare-deps
 python scripts/agent_e2e_dev.py doctor
 python scripts/agent_e2e_dev.py commands
 ```
 
 If `doctor` reports `subscription bootstrap: connected`, do not ask the user to
-repeat browser/device-code OAuth. Normal `prepare` preserves the local e2e DB
-and recreates only the Spindrel app container. The explicit DB reset command is
-`python scripts/agent_e2e_dev.py wipe-db --yes`.
+repeat browser/device-code OAuth. Normal `prepare-deps` preserves the local e2e
+DB and only starts shared dependencies. Start the Spindrel app/API/UI from this
+checkout on your own unused ports while iterating. The explicit DB reset
+command is `python scripts/agent_e2e_dev.py wipe-db --yes`.
+
+Use `python scripts/agent_e2e_dev.py prepare` only when you intentionally need
+the older full local Docker e2e stack with an app container, such as harness
+parity setup.
 
 Mount native harness auth into the local e2e container:
 
@@ -56,12 +72,26 @@ Prepare local Codex/Claude harness parity channels:
 python scripts/agent_e2e_dev.py prepare-harness-parity
 ./scripts/run_harness_parity_local.sh --tier core
 ./scripts/run_harness_parity_local.sh --tier skills -k "native_image_input_manifest"
+./scripts/run_harness_parity_local_batch.sh --preset smoke
+./scripts/run_harness_parity_local_batch.sh --preset fast --jobs 3
 ```
 
 Use `--runtime codex` or `--runtime claude-code` on `prepare-harness-parity`
 for one-runtime setup. The command preserves the local e2e database, reuses
 mounted host `~/.codex` / `~/.claude` runtime auth, creates stable local
 harness bots/channels, and writes `scratch/agent-e2e/harness-parity.env`.
+For Claude Code, it also runs a tiny live auth smoke because `claude auth
+status` can report logged-in even when the first SDK turn will 401. If it
+fails, refresh the mounted auth with:
+
+```bash
+docker exec -it -u spindrel spindrel-local-e2e-spindrel-1 claude auth login
+```
+
+Use `run_harness_parity_local_batch.sh` for fast iteration: `smoke` is the
+cheap confidence pass, `fast` covers core/plan/skills/replay, and `deep` is for
+broader pre-deploy scrutiny. Logs are written under
+`scratch/agent-e2e/harness-parity-runs/`.
 
 Prepare screenshots:
 
@@ -119,10 +149,17 @@ and review notes.
   local e2e database.
 - Normal local `prepare` preserves provider/OAuth state. Only
   `wipe-db --yes` should erase the durable local e2e Postgres volume.
+- Prefer `prepare-deps` for normal source-tree development. It starts shared
+  Docker dependencies and prints connection env; each agent owns its own
+  source-run server process and port.
 - `.env.agent-e2e` must keep the generated `ENCRYPTION_KEY` and `JWT_SECRET`
   alongside the durable local Postgres volume. If encrypted provider/OAuth rows
   were written under a lost key, the local app cannot boot until that local DB
   is wiped or the original key is restored.
+- Never delete/regenerate `.env.agent-e2e` secrets as a convenience. If
+  `doctor` reports subscription/provider state is connected, protect that file
+  and use normal `prepare` / `prepare-harness-parity`; only `wipe-db --yes`
+  should intentionally reset provider/OAuth state.
 - Screenshot staging should use deterministic fixtures for documentation
   transcripts. Do not depend on a live model turn to render a docs artifact.
 - Harness parity can now run locally against `localhost:18000` through
@@ -133,6 +170,9 @@ and review notes.
   local app container so the harness modules reload, then creates stable
   parity bots/channels with baseline bridge tools and writes
   `scratch/agent-e2e/harness-parity.env`.
+- Local parity can be parallelized with focused selectors, not full tier
+  sweeps. Prefer `run_harness_parity_local_batch.sh --preset smoke|fast --jobs
+  2` during development; raise jobs only for targeted, independent slices.
 - Durable screenshot fixtures can outlive a regenerated encryption key. Staging
   should repair screenshot secret values through the API instead of clearing
   the stack.
@@ -143,6 +183,10 @@ and review notes.
 - GitHub handoff receipts may return `changed_files` as strings and may omit
   `handoff_type` when the agent only supplies a URL. Assert the durable URL and
   changed path; treat type as optional unless the product contract changes.
+- Project Dependency Stacks separate spec from instance. The Project/Blueprint
+  owns the compose source; coding runs get task-scoped dependency instances so
+  parallel runs do not restart the same database/services. App/dev servers are
+  native per-agent processes outside the dependency stack.
 
 ## Completion Standard
 

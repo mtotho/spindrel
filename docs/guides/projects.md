@@ -36,8 +36,8 @@ channel count, setup readiness, and runtime environment readiness.
 
 Project Blueprints are reusable recipes for creating Projects. A Blueprint can
 declare a default root pattern, Project prompt, starter folders/files, knowledge
-files, repo declarations, setup commands, env defaults, and required secret
-binding slots.
+files, repo declarations, setup commands, a Dependency Stack spec, env defaults,
+and required secret binding slots.
 
 ![Project Blueprint editor with starter files and declarations](../images/project-workspace-blueprint-editor.png)
 
@@ -102,6 +102,32 @@ tools own file edits and repo-local commands inside the Project root, but
 e2e-testing, screenshots, server/machine actions, and Docker/compose control
 must go through task-scoped Spindrel grants. See
 [Agent E2E Development](agent-e2e-development.md) for the full boundary.
+
+## Dependency Stacks
+
+Project Dependency Stacks are Docker-backed database/service stacks declared by
+a Project's applied Blueprint snapshot. They are not raw Docker access. The
+Project declares a compose source such as `docker-compose.project.yml`, exported
+connection env, and named commands. Spindrel reads the compose file from the
+Project work surface, validates Docker red lines, applies it through the
+managed Docker stack service, and returns dependency env, service status, logs,
+health, and command results.
+
+Coding runs use run-scoped stack instances by default. The reusable spec belongs
+to the Project, but the actual Docker Compose project, network, volumes, logs,
+and lifecycle belong to the task/fresh Project Instance. Parallel coding runs
+therefore do not restart or mutate the same database/service stack. Agents run
+their own app/dev server processes from source on assigned or unused ports. A
+manual shared Project dependency stack is available from the Project Setup
+surface for interactive development.
+
+Agents may adjust stack shape during a session by editing the Project compose
+file and calling `manage_project_dependency_stack(action="reload")`. The compose
+file diff is then reviewable in the same PR as the code change. Phase 1 keeps
+the Docker red line at Spindrel: harness shells should not call raw `docker` or
+`docker compose`, and dependency stack validation rejects Docker sockets,
+privileged containers, host networking, dangerous host mounts, and mounts
+outside the Project root or dependency scratch path.
 
 ![Project coding run execution access](../images/project-workspace-execution-access.png)
 

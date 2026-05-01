@@ -1449,6 +1449,7 @@ class ProjectBlueprint(Base):
     knowledge_files: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     repos: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     setup_commands: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    dependency_stack: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     env: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     required_secrets: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     metadata_: Mapped[dict] = mapped_column(
@@ -1632,6 +1633,76 @@ class ProjectRunReceipt(Base):
             "idempotency_key",
             unique=True,
             postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
+    )
+
+
+class ProjectDependencyStackInstance(Base):
+    __tablename__ = "project_dependency_stack_instances"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_instance_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("project_instances.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    docker_stack_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("docker_stacks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    scope: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'task'"))
+    source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'not_prepared'"))
+    env: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    commands: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    last_action: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_result: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    project: Mapped["Project"] = relationship("Project")
+    project_instance: Mapped[Optional["ProjectInstance"]] = relationship("ProjectInstance")
+    task: Mapped[Optional["Task"]] = relationship("Task")
+    docker_stack: Mapped[Optional["DockerStack"]] = relationship("DockerStack")
+
+    __table_args__ = (
+        CheckConstraint("scope in ('project', 'task', 'project_instance')", name="ck_project_dependency_stack_instances_scope"),
+        CheckConstraint("status in ('not_prepared', 'preparing', 'running', 'stopped', 'failed', 'deleted')", name="ck_project_dependency_stack_instances_status"),
+        Index("ix_project_dependency_stack_instances_project_created", "project_id", created_at.desc()),
+        Index(
+            "uq_project_dependency_stack_instances_task",
+            "task_id",
+            unique=True,
+            postgresql_where=text("task_id IS NOT NULL AND deleted_at IS NULL"),
+        ),
+        Index(
+            "uq_project_dependency_stack_instances_project_shared",
+            "project_id",
+            unique=True,
+            postgresql_where=text("scope = 'project' AND deleted_at IS NULL"),
         ),
     )
 

@@ -250,6 +250,41 @@ def test_prepare_builds_recreates_stack_and_waits_for_health(monkeypatch, tmp_pa
     assert "spindrel-local-e2e" in calls[1]
 
 
+def test_prepare_deps_starts_only_dependency_services(monkeypatch, tmp_path, capsys):
+    env_path = tmp_path / ".env.agent-e2e"
+    env_path.write_text(
+        "\n".join([
+            "E2E_API_KEY=test-key",
+            "E2E_POSTGRES_PORT=16432",
+            "E2E_SEARXNG_PORT=19080",
+        ])
+    )
+    monkeypatch.setattr(agent_e2e_dev, "LOCAL_ENV", env_path)
+    monkeypatch.setattr(agent_e2e_dev.shutil, "which", lambda name: "/usr/bin/docker")
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, *, env=None, timeout=600):
+        calls.append(cmd)
+
+    monkeypatch.setattr(agent_e2e_dev, "_run", fake_run)
+
+    assert agent_e2e_dev.cmd_prepare_deps(
+        argparse.Namespace(
+            api_url="http://localhost:19000",
+            api_key="",
+            allow_production=False,
+        )
+    ) == 0
+
+    assert len(calls) == 1
+    assert calls[0][-3:] == ["--remove-orphans", "postgres", "searxng"]
+    assert "spindrel" not in calls[0]
+    out = capsys.readouterr().out
+    assert "DATABASE_URL=postgresql+asyncpg://agent:agent@localhost:16432/agentdb" in out
+    assert "SEARXNG_URL=http://localhost:19080" in out
+    assert "own unused port" in out
+
+
 def test_prepare_project_factory_smoke_enables_runtime_installs_gh_and_seeds_secret(monkeypatch, tmp_path):
     env_path = tmp_path / ".env.agent-e2e"
     override = tmp_path / "compose.auth.override.yml"
@@ -352,6 +387,7 @@ def test_prepare_harness_parity_sets_up_local_runtimes_channels_and_env(monkeypa
             runtime=None,
             project_path="common/projects",
             skip_setup=False,
+            skip_live_auth_check=True,
             no_build=True,
             startup_timeout=1,
             runtime_timeout=1,
@@ -384,6 +420,47 @@ def test_prepare_harness_parity_sets_up_local_runtimes_channels_and_env(monkeypa
     assert "HARNESS_PARITY_CODEX_CHANNEL_ID=channel-1" in body
     assert "HARNESS_PARITY_CLAUDE_CHANNEL_ID=channel-2" in body
     assert "HARNESS_PARITY_AGENT_CONTAINER=spindrel-local-e2e-spindrel-1" in body
+
+
+def test_harness_parity_env_preserves_runtime_ids_when_preparing_subset(monkeypatch, tmp_path):
+    harness_env = tmp_path / "harness-parity.env"
+    harness_env.write_text(
+        "\n".join([
+            "HARNESS_PARITY_CODEX_CHANNEL_ID=existing-codex-channel",
+            "HARNESS_PARITY_CODEX_BOT_ID=harness-parity-codex",
+            "",
+        ])
+    )
+    monkeypatch.setattr(agent_e2e_dev, "HARNESS_PARITY_ENV", harness_env)
+
+    agent_e2e_dev._write_harness_parity_env(
+        api_url="http://localhost:18000",
+        api_key="test-key",
+        channel_ids_by_runtime={"claude-code": "new-claude-channel"},
+        project_path="common/projects",
+    )
+
+    body = harness_env.read_text()
+    assert "HARNESS_PARITY_CODEX_CHANNEL_ID=existing-codex-channel" in body
+    assert "HARNESS_PARITY_CLAUDE_CHANNEL_ID=new-claude-channel" in body
+
+
+def test_claude_live_auth_validation_reports_exact_login_command(monkeypatch):
+    monkeypatch.setattr(agent_e2e_dev.shutil, "which", lambda name: "/usr/bin/docker" if name == "docker" else None)
+
+    class Result:
+        returncode = 1
+        stdout = ""
+        stderr = "Invalid authentication credentials"
+
+    monkeypatch.setattr(agent_e2e_dev.subprocess, "run", lambda *args, **kwargs: Result())
+
+    with pytest.raises(SystemExit) as exc:
+        agent_e2e_dev._validate_claude_live_auth("spindrel-local-e2e-spindrel-1")
+
+    message = str(exc.value)
+    assert "docker exec -it -u spindrel spindrel-local-e2e-spindrel-1 claude auth login" in message
+    assert "Invalid authentication credentials" in message
 
 
 def test_doctor_reports_connected_subscription(monkeypatch, tmp_path, capsys):

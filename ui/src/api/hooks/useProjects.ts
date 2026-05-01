@@ -12,6 +12,7 @@ import type {
   ProjectInstance,
   ProjectRunReceipt,
   ProjectRuntimeEnv,
+  ProjectDependencyStackState,
   ProjectSetup,
   ProjectSetupRun,
   ProjectWrite,
@@ -54,6 +55,29 @@ export function useProjectRuntimeEnv(projectId: string | undefined) {
     queryKey: ["projects", projectId, "runtime-env"],
     queryFn: () => apiFetch<ProjectRuntimeEnv>(`/api/v1/projects/${projectId}/runtime-env`),
     enabled: !!projectId,
+  });
+}
+
+export function useProjectDependencyStack(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["projects", projectId, "dependency-stack"],
+    queryFn: () => apiFetch<ProjectDependencyStackState>(`/api/v1/projects/${projectId}/dependency-stack`),
+    enabled: !!projectId,
+  });
+}
+
+export function useManageProjectDependencyStack(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { action: string; service?: string | null; command?: string | null; command_name?: string | null; tail?: number | null; keep_volumes?: boolean }) =>
+      apiFetch<Record<string, any>>(`/api/v1/projects/${projectId}/dependency-stack`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "dependency-stack"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+    },
   });
 }
 

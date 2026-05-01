@@ -193,6 +193,16 @@ function executionAccessLine(grant?: ProjectCodingRun["task"]["machine_target_gr
   return `${provider}: ${target} · ${capabilities}${grant.allow_agent_tools === false ? " · tools off" : ""}`;
 }
 
+function dependencyStackLine(run: ProjectCodingRun) {
+  const stack = run.dependency_stack;
+  if (!stack?.configured) return null;
+  const instance = stack.instance;
+  if (!instance) return "Dependency stack: not prepared";
+  const target = instance.source_path || instance.id;
+  const envKeys = Object.keys(instance.env ?? {});
+  return `Dependency stack: ${instance.status}${target ? ` · ${target}` : ""}${envKeys.length ? ` · env ${envKeys.length}` : ""}`;
+}
+
 function ExecutionAccessControl({
   value,
   onChange,
@@ -796,6 +806,9 @@ export function ProjectRunsSection({
                       )}
                       {executionAccessLine(run.task.machine_target_grant) && (
                         <span className="truncate text-[11px] text-text-dim">Execution access: {executionAccessLine(run.task.machine_target_grant)}</span>
+                      )}
+                      {dependencyStackLine(run) && (
+                        <span className="truncate text-[11px] text-text-dim">{dependencyStackLine(run)}</span>
                       )}
                       <span className="truncate text-[11px] text-text-dim">
                         {handoffProgressSummary(run) ? `Progress: ${handoffProgressSummary(run)}` : `Activity: ${activitySummary(run)}`}

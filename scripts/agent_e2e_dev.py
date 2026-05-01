@@ -390,6 +390,35 @@ def _prepare_stack(
     raise SystemExit(f"Spindrel e2e stack did not become healthy at {api_url}: {last_detail}")
 
 
+def _prepare_dependencies_only(
+    *,
+    api_url: str,
+    api_key: str,
+    env: dict[str, str],
+) -> None:
+    if not _is_local_url(api_url):
+        raise SystemExit(
+            f"refusing to manage non-local e2e dependencies for {api_url!r}; "
+            "use a local target for dependency bootstrap"
+        )
+    if not shutil.which("docker"):
+        raise SystemExit("docker is required to prepare local Spindrel e2e dependencies")
+
+    compose_env = _compose_env(env, api_url=api_url, api_key=api_key)
+    overrides = _compose_overrides(env)
+    _run(
+        _compose_cmd(overrides, "up", "-d", "--remove-orphans", "postgres", "searxng"),
+        env=compose_env,
+        timeout=180,
+    )
+    postgres_port = compose_env.get("E2E_POSTGRES_PORT", "15432")
+    searxng_port = compose_env.get("E2E_SEARXNG_PORT", "18080")
+    print("Spindrel e2e dependencies are running")
+    print(f"  DATABASE_URL=postgresql+asyncpg://agent:agent@localhost:{postgres_port}/agentdb")
+    print(f"  SEARXNG_URL=http://localhost:{searxng_port}")
+    print("Start the Spindrel app from this source checkout on your own unused port.")
+
+
 def _restart_spindrel_app_container(api_url: str, api_key: str, env: dict[str, str], *, timeout: int) -> None:
     if not _is_local_url(api_url):
         raise SystemExit(
@@ -424,6 +453,18 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         env=env,
         build=not args.no_build,
         startup_timeout=args.startup_timeout,
+    )
+    return 0
+
+
+def cmd_prepare_deps(args: argparse.Namespace) -> int:
+    env = _merged_env()
+    api_url = (args.api_url or _base_url(env)).rstrip("/")
+    _require_non_production(api_url, allow_production=args.allow_production)
+    _prepare_dependencies_only(
+        api_url=api_url,
+        api_key=args.api_key or _api_key(env),
+        env=env,
     )
     return 0
 
@@ -574,6 +615,41 @@ def _wait_for_harness_runtime(api_url: str, api_key: str, runtime: str, *, timeo
     raise SystemExit(f"harness runtime {runtime!r} is registered but not ready: {latest.get('detail')}")
 
 
+def _validate_claude_live_auth(container_name: str) -> None:
+    """Run a tiny noninteractive Claude turn so stale OAuth fails early."""
+    if not shutil.which("docker"):
+        return
+    proc = subprocess.run(
+        [
+            "docker",
+            "exec",
+            "-u",
+            "spindrel",
+            container_name,
+            "claude",
+            "--print",
+            "Reply with exactly: auth-ok",
+            "--max-turns",
+            "1",
+            "--output-format",
+            "json",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    output = (proc.stdout or proc.stderr or "").strip()
+    if proc.returncode == 0 and "authentication_failed" not in output and "Invalid authentication credentials" not in output:
+        print("claude live auth smoke: ok")
+        return
+    detail = output[-1000:] if output else f"claude exited {proc.returncode}"
+    raise SystemExit(
+        "claude live auth smoke failed. Refresh the mounted Claude Code auth, then rerun prepare-harness-parity:\n"
+        f"  docker exec -it -u spindrel {container_name} claude auth login\n"
+        f"Failure detail: {detail}"
+    )
+
+
 def _get_json_or_404(method: str, url: str, *, api_key: str) -> dict | None:
     try:
         return _request_json(method, url, api_key=api_key)
@@ -656,6 +732,7 @@ def _write_harness_parity_env(
     channel_ids_by_runtime: dict[str, str],
     project_path: str,
 ) -> None:
+    existing = _read_env_file(HARNESS_PARITY_ENV)
     parsed = urllib.parse.urlparse(api_url)
     host = parsed.hostname or "localhost"
     port = str(parsed.port or DEFAULT_PORT)
@@ -676,10 +753,14 @@ def _write_harness_parity_env(
         f"SPINDREL_BROWSER_API_URL={api_url}",
         "",
     ]
-    for runtime, channel_id in channel_ids_by_runtime.items():
+    for runtime in HARNESS_PARITY_DEFAULT_RUNTIMES:
         config = HARNESS_PARITY_RUNTIME_CONFIG[runtime]
+        channel_id = channel_ids_by_runtime.get(runtime) or existing.get(str(config["channel_env"]))
+        bot_id = str(config["bot_id"])
+        if not channel_id:
+            continue
         lines.append(f"{config['channel_env']}={channel_id}")
-        lines.append(f"{config['bot_env']}={config['bot_id']}")
+        lines.append(f"{config['bot_env']}={existing.get(str(config['bot_env']), bot_id)}")
     _write_text(HARNESS_PARITY_ENV, "\n".join(lines) + "\n", force=True)
 
 
@@ -731,6 +812,8 @@ def cmd_prepare_harness_parity(args: argparse.Namespace) -> int:
             runtime,
             timeout=args.runtime_timeout,
         )
+        if runtime == "claude-code" and not args.skip_live_auth_check:
+            _validate_claude_live_auth(f"{COMPOSE_PROJECT}-spindrel-1")
         _ensure_harness_parity_bot(
             api_url,
             api_key,
@@ -1053,6 +1136,8 @@ def cmd_commands(args: argparse.Namespace) -> int:
     env = _merged_env()
     subscription = env.get("SPINDREL_AGENT_E2E_PROVIDER") == "subscription"
     print("fresh local e2e:")
+    print("  python scripts/agent_e2e_dev.py prepare-deps")
+    print("  # then start the API/UI from this checkout on unused ports")
     print("  python scripts/agent_e2e_dev.py prepare")
     print(f"  {prefix}{overrides}E2E_KEEP_RUNNING=1 pytest tests/e2e/ -k \"test_health\" -v")
     if subscription:
@@ -1089,6 +1174,12 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--startup-timeout", type=int, default=180)
     prepare.add_argument("--allow-production", action="store_true")
     prepare.set_defaults(func=cmd_prepare)
+
+    prepare_deps = sub.add_parser("prepare-deps")
+    prepare_deps.add_argument("--api-url", default="")
+    prepare_deps.add_argument("--api-key", default="")
+    prepare_deps.add_argument("--allow-production", action="store_true")
+    prepare_deps.set_defaults(func=cmd_prepare_deps)
 
     wipe_db = sub.add_parser("wipe-db")
     wipe_db.add_argument("--api-url", default="")
@@ -1176,6 +1267,7 @@ def build_parser() -> argparse.ArgumentParser:
     harness.add_argument("--project-path", default=HARNESS_PARITY_PROJECT_PATH)
     harness.add_argument("--skip-setup", action="store_true")
     harness.add_argument("--no-build", action="store_true")
+    harness.add_argument("--skip-live-auth-check", action="store_true")
     harness.add_argument("--startup-timeout", type=int, default=180)
     harness.add_argument("--runtime-timeout", type=int, default=180)
     harness.add_argument("--allow-production", action="store_true")

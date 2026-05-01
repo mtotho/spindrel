@@ -188,6 +188,18 @@ def _safe_runtime_target(runtime_payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _safe_dependency_stack_target(project: Project) -> dict[str, Any]:
+    from app.services.project_dependency_stacks import project_dependency_stack_spec
+
+    spec = project_dependency_stack_spec(project)
+    return {
+        "configured": spec.configured,
+        "source_path": spec.source_path,
+        "env_keys": sorted((spec.env or {}).keys()),
+        "commands": sorted((spec.commands or {}).keys()),
+    }
+
+
 def _machine_target_grant_summary(grant: ProjectMachineTargetGrant | None) -> dict[str, Any] | None:
     if grant is None:
         return None
@@ -238,6 +250,12 @@ def _project_coding_run_prompt(
     repo_path = repo.get("path") or "the Project root"
     configured_keys = ", ".join(runtime_target.get("configured_keys") or []) or "none"
     missing_secrets = ", ".join(runtime_target.get("missing_secrets") or []) or "none"
+    dependency_stack = _safe_dependency_stack_target(project)
+    dependency_stack_line = (
+        f"Configured from {dependency_stack.get('source_path') or 'inline spec'}"
+        if dependency_stack.get("configured")
+        else "Not configured"
+    )
     request_text = request.strip() or "Use the Project task request from the run title and Project context."
     continuation_block = ""
     if continuation:
@@ -271,6 +289,11 @@ def _project_coding_run_prompt(
         f"- Work branch: {branch}\n"
         f"- E2E/runtime configured keys: {configured_keys}\n"
         f"- Missing runtime secret bindings: {missing_secrets}\n\n"
+        "Project Dependency Stack:\n"
+        f"- {dependency_stack_line}\n"
+        "- If configured, use get_project_dependency_stack and manage_project_dependency_stack for Docker-backed databases/dependencies, logs, restarts, rebuilds, service exec, and dependency health.\n"
+        "- Start any app/dev server yourself with native bash on your own unused or assigned port; do not restart another agent's server process.\n"
+        "- Do not run raw docker or docker compose in a harness shell; edit the Project compose file and call manage_project_dependency_stack(action=\"reload\") when stack shape changes.\n\n"
         f"{_machine_access_prompt_block(machine_target_grant)}\n"
         "Guided handoff requirements:\n"
         "1. Before editing, inspect git status and update from the base branch when safe.\n"
@@ -374,6 +397,7 @@ def _execution_config_from_preset(
             "base_branch": run_defaults.get("base_branch"),
             "repo": run_defaults.get("repo") or {},
             "runtime_target": runtime_target,
+            "dependency_stack": _safe_dependency_stack_target(project),
             "machine_target_grant": _machine_target_grant_summary(machine_target_grant),
             "source_work_pack_id": str(source_work_pack_id) if source_work_pack_id else None,
             "schedule_task_id": None,
@@ -1159,8 +1183,10 @@ async def _coding_run_row(
     )
     instance = await db.get(ProjectInstance, task.project_instance_id) if task.project_instance_id else None
     from app.services.machine_task_grants import task_machine_grant_payload
+    from app.services.project_dependency_stacks import get_project_dependency_stack
 
     machine_target_grant = await task_machine_grant_payload(db, task)
+    dependency_stack = await get_project_dependency_stack(db, project, task_id=task.id, scope="task")
     cfg = _task_run_config(task)
     lineage = _lineage_config(task, cfg)
     updated_at = (
@@ -1180,6 +1206,7 @@ async def _coding_run_row(
         "base_branch": cfg.get("base_branch"),
         "repo": cfg.get("repo") or {},
         "runtime_target": cfg.get("runtime_target") or {},
+        "dependency_stack": dependency_stack,
         "source_work_pack_id": cfg.get("source_work_pack_id"),
         "parent_task_id": lineage["parent_task_id"],
         "root_task_id": lineage["root_task_id"],
@@ -1734,10 +1761,27 @@ async def cleanup_project_coding_run_instance(db: AsyncSession, project: Project
     result: dict[str, Any] = {"cleaned": False}
     if instance is not None:
         if instance.owner_kind == "task" and instance.owner_id == task.id:
+            from app.db.models import ProjectDependencyStackInstance
+            from app.services.project_dependency_stacks import destroy_project_dependency_stack
+
+            dependency_stack = (await db.execute(
+                select(ProjectDependencyStackInstance).where(
+                    ProjectDependencyStackInstance.task_id == task.id,
+                    ProjectDependencyStackInstance.deleted_at.is_(None),
+                )
+            )).scalar_one_or_none()
+            runtime_result: dict[str, Any] | None = None
+            if dependency_stack is not None:
+                runtime_result = await destroy_project_dependency_stack(db, dependency_stack, keep_volumes=False)
             cleaned = await cleanup_project_instance(db, instance)
             status = "succeeded"
-            summary = "Project coding run fresh instance cleaned up."
-            result = {"cleaned": True, "project_instance_id": str(cleaned.id), "status": cleaned.status}
+            summary = "Project coding run fresh instance and dependency stack cleaned up."
+            result = {
+                "cleaned": True,
+                "project_instance_id": str(cleaned.id),
+                "status": cleaned.status,
+                "dependency_stack": runtime_result,
+            }
         else:
             status = "blocked"
             summary = "Project coding run instance cleanup blocked: instance is not task-owned."

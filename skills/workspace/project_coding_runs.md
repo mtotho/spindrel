@@ -31,13 +31,20 @@ Project coding runs.
    command, test, screenshot, and handoff work.
 2. Before editing, inspect current state and call
    `prepare_project_run_handoff(action="prepare_branch")`.
-3. Make focused changes. Use the `file` tool for file content operations and
-   `exec_command` only for commands.
-4. Run the smallest useful tests first. For UI work, run typecheck and capture
+3. Make focused changes with your native harness file and shell tools inside
+   the Project work surface. Start app/dev servers yourself on an assigned or
+   unused port; do not restart another agent's process.
+4. If the Project declares a Dependency Stack, call `get_project_dependency_stack`
+   before Docker-backed work. Use `manage_project_dependency_stack` to prepare,
+   reload, restart, rebuild, inspect logs, run service commands, and check
+   health for Docker-backed databases and dependencies. Do not call raw
+   `docker` or `docker compose`; edit the Project compose file and reload
+   through the tool when stack shape changes.
+5. Run the smallest useful tests first. For UI work, run typecheck and capture
    screenshots against the configured e2e target when available.
-5. Near handoff, call `prepare_project_run_handoff(action="open_pr")` when
+6. Near handoff, call `prepare_project_run_handoff(action="open_pr")` when
    GitHub credentials and `gh` are available. If not, record the exact blocker.
-6. Finish with `publish_project_run_receipt` including branch, changed files,
+7. Finish with `publish_project_run_receipt` including branch, changed files,
    tests, screenshots, handoff URL, and any blockers.
 
 ## Review Sessions
@@ -62,6 +69,9 @@ Project coding runs.
 - Handoff evidence should include the branch and PR URL when available.
 - If e2e or screenshot capture is unavailable, record the blocker instead of
   claiming visual verification.
+- Dependency Stack evidence should include health, service command results,
+  exported env keys, and any reload/restart blockers. App server URLs and
+  screenshots belong to the native server process you started for the run.
 
 ## Boundaries
 
@@ -70,3 +80,5 @@ Project coding runs.
 - Do not write secrets or paste secret values into receipts.
 - Do not create replacement PRs for continuation runs unless the handoff tool
   reports reuse is impossible.
+- Do not rely on ambient Docker access from a harness shell. Dependency Stack
+  Docker control must go through Spindrel tools.

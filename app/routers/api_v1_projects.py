@@ -39,6 +39,18 @@ from app.services.project_coding_runs import (
     update_project_coding_run_schedule,
 )
 from app.services.project_run_receipts import create_project_run_receipt, list_project_run_receipts, serialize_project_run_receipt
+from app.services.project_dependency_stacks import (
+    destroy_project_dependency_stack,
+    ensure_project_dependency_stack_instance,
+    exec_project_dependency_stack_command,
+    get_project_dependency_stack,
+    health_project_dependency_stack,
+    prepare_project_dependency_stack,
+    project_dependency_stack_logs,
+    project_dependency_stack_status,
+    restart_project_dependency_stack,
+    stop_project_dependency_stack,
+)
 from app.services.project_setup import list_project_setup_runs, load_project_setup_plan, run_project_setup
 from app.services.project_runtime import load_project_runtime_environment
 from app.services.projects import (
@@ -105,6 +117,7 @@ class ProjectBlueprintOut(ProjectBlueprintSummaryOut):
     knowledge_files: dict = Field(default_factory=dict)
     repos: list = Field(default_factory=list)
     setup_commands: list = Field(default_factory=list)
+    dependency_stack: dict = Field(default_factory=dict)
     env: dict = Field(default_factory=dict)
     required_secrets: list[str] = Field(default_factory=list)
     metadata_: dict = Field(default_factory=dict)
@@ -125,6 +138,7 @@ class ProjectBlueprintWrite(BaseModel):
     knowledge_files: dict[str, str] | None = None
     repos: list[dict] | None = None
     setup_commands: list[dict] | None = None
+    dependency_stack: dict | None = None
     env: dict[str, str] | None = None
     required_secrets: list[str] | None = None
     metadata_: dict | None = None
@@ -351,6 +365,7 @@ class ProjectCodingRunOut(BaseModel):
     base_branch: str | None = None
     repo: dict = Field(default_factory=dict)
     runtime_target: dict = Field(default_factory=dict)
+    dependency_stack: dict = Field(default_factory=dict)
     source_work_pack_id: uuid.UUID | None = None
     parent_task_id: uuid.UUID | None = None
     root_task_id: uuid.UUID | None = None
@@ -375,6 +390,15 @@ class ProjectFromBlueprintWrite(BaseModel):
     description: str | None = None
     root_path: str | None = None
     secret_bindings: dict[str, uuid.UUID | None] = Field(default_factory=dict)
+
+
+class ProjectDependencyStackActionWrite(BaseModel):
+    action: str = "status"
+    service: str | None = None
+    command: str | None = None
+    command_name: str | None = None
+    tail: int | None = None
+    keep_volumes: bool = False
 
 
 ProjectOut.model_rebuild()
@@ -526,6 +550,8 @@ def _apply_blueprint_write(blueprint: ProjectBlueprint, body: ProjectBlueprintWr
         blueprint.repos = body.repos or []
     if "setup_commands" in fields:
         blueprint.setup_commands = body.setup_commands or []
+    if "dependency_stack" in fields:
+        blueprint.dependency_stack = body.dependency_stack or {}
     if "env" in fields:
         blueprint.env = body.env or {}
     if "required_secrets" in fields:
@@ -566,6 +592,7 @@ async def create_project_blueprint(
         knowledge_files=body.knowledge_files or {},
         repos=body.repos or [],
         setup_commands=body.setup_commands or [],
+        dependency_stack=body.dependency_stack or {},
         env=body.env or {},
         required_secrets=body.required_secrets or [],
         metadata_=body.metadata_ or {},
@@ -857,7 +884,7 @@ async def get_project_setup(
 
 
 @router.get("/{project_id}/runtime-env", response_model=ProjectRuntimeEnvOut)
-async def get_project_runtime_env(
+async def get_project_dependencies_env(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("admin")),
@@ -867,6 +894,63 @@ async def get_project_runtime_env(
         raise HTTPException(status_code=404, detail="project not found")
     runtime_env = await load_project_runtime_environment(db, project)
     return ProjectRuntimeEnvOut(**runtime_env.safe_payload())
+
+
+@router.get("/{project_id}/dependency-stack")
+async def get_project_dependency_stack_endpoint(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return await get_project_dependency_stack(db, project, scope="project")
+
+
+@router.post("/{project_id}/dependency-stack")
+async def manage_project_dependency_stack_endpoint(
+    project_id: uuid.UUID,
+    body: ProjectDependencyStackActionWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    runtime = await ensure_project_dependency_stack_instance(db, project, scope="project")
+    action = body.action
+    try:
+        if action in {"prepare", "reload", "rebuild"}:
+            return {"ok": True, "dependency_stack": await prepare_project_dependency_stack(db, project, runtime=runtime, force_recreate=action == "rebuild")}
+        if action == "restart":
+            return {"ok": True, "dependency_stack": await restart_project_dependency_stack(db, runtime)}
+        if action == "stop":
+            return {"ok": True, "dependency_stack": await stop_project_dependency_stack(db, runtime)}
+        if action == "status":
+            return {"ok": True, "dependency_stack": await project_dependency_stack_status(db, runtime)}
+        if action == "logs":
+            return await project_dependency_stack_logs(db, runtime, service=body.service, tail=body.tail)
+        if action == "health":
+            return await health_project_dependency_stack(db, runtime)
+        if action == "destroy":
+            return {"ok": True, "dependency_stack": await destroy_project_dependency_stack(db, runtime, keep_volumes=body.keep_volumes)}
+        if action == "exec":
+            named_commands = runtime.commands if isinstance(runtime.commands, dict) else {}
+            command = body.command or (named_commands.get(body.command_name or "") if body.command_name else None)
+            if not command:
+                raise HTTPException(status_code=422, detail="command or command_name is required for exec")
+            service = body.service
+            if not service:
+                raise HTTPException(status_code=422, detail="service is required for dependency stack exec")
+            return await exec_project_dependency_stack_command(db, runtime, service=service, command=command)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    raise HTTPException(status_code=422, detail=f"unknown dependency stack action: {action}")
 
 
 @router.get("/{project_id}/instances", response_model=list[ProjectInstanceOut])

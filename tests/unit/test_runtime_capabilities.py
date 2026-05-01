@@ -210,6 +210,43 @@ def test_claude_native_management_command_defaults_to_safe_list_forms():
     assert _claude_management_command("doctor", ("--json",)) == ["claude", "doctor", "--json"]
 
 
+def test_claude_cli_path_prefers_container_visible_installed_binary(monkeypatch, tmp_path):
+    pytest.importorskip("claude_agent_sdk")
+    from integrations.claude_code import harness as claude_harness
+
+    explicit = tmp_path / "claude"
+    explicit.write_text("#!/bin/sh\nexit 0\n")
+    explicit.chmod(0o755)
+    monkeypatch.setenv("CLAUDE_CODE_CLI_PATH", str(explicit))
+    monkeypatch.setattr(claude_harness.shutil, "which", lambda _name: "/usr/bin/claude")
+
+    assert claude_harness._resolve_claude_cli_path() == str(explicit)
+    assert claude_harness._claude_cli_command("--version") == [str(explicit), "--version"]
+
+
+def test_claude_auth_status_uses_native_auth_probe(monkeypatch, tmp_path):
+    pytest.importorskip("claude_agent_sdk")
+    from integrations.claude_code import harness as claude_harness
+    from integrations.claude_code.harness import ClaudeCodeRuntime
+
+    cred_dir = tmp_path / ".claude"
+    cred_dir.mkdir()
+    (cred_dir / ".credentials.json").write_text("{}")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cred_dir))
+    monkeypatch.setattr(claude_harness, "_resolve_claude_cli_path", lambda: "/usr/bin/claude")
+    monkeypatch.setattr(
+        claude_harness,
+        "_probe_claude_auth_status",
+        lambda cli_path: (True, "Claude Code reports logged in via claude.ai."),
+    )
+
+    status = ClaudeCodeRuntime().auth_status()
+
+    assert status.ok is True
+    assert "CLI: /usr/bin/claude" in status.detail
+    assert "Credentials:" in status.detail
+
+
 @pytest.mark.asyncio
 async def test_claude_native_management_timeout_returns_terminal_handoff(monkeypatch):
     pytest.importorskip("claude_agent_sdk")

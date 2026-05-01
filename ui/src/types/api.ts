@@ -1426,6 +1426,7 @@ export interface ProjectBlueprint extends ProjectBlueprintSummary {
   knowledge_files?: Record<string, string>;
   repos?: Array<Record<string, any>>;
   setup_commands?: Array<Record<string, any>>;
+  dependency_stack?: Record<string, any>;
   env?: Record<string, string>;
   required_secrets?: string[];
   metadata_?: Record<string, any>;
@@ -1545,6 +1546,7 @@ export interface ProjectCodingRun {
   base_branch?: string | null;
   repo?: Record<string, any>;
   runtime_target?: Record<string, any>;
+  dependency_stack?: ProjectDependencyStackState;
   source_work_pack_id?: string | null;
   parent_task_id?: string | null;
   root_task_id?: string | null;
@@ -1678,6 +1680,32 @@ export interface ProjectRuntimeEnv {
   reserved_env_keys?: string[];
 }
 
+export interface ProjectDependencyStackState {
+  configured?: boolean;
+  spec?: Record<string, any>;
+  instance?: ProjectDependencyStackInstance | null;
+}
+
+export interface ProjectDependencyStackInstance {
+  id: string;
+  project_id: string;
+  project_instance_id?: string | null;
+  task_id?: string | null;
+  docker_stack_id?: string | null;
+  scope: "project" | "task" | "project_instance" | string;
+  source_path?: string | null;
+  status: string;
+  env?: Record<string, string>;
+  commands?: Record<string, string>;
+  last_action?: string | null;
+  last_result?: Record<string, any>;
+  error_message?: string | null;
+  stack?: Record<string, any>;
+  services?: Array<Record<string, any>>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface ProjectWrite {
   workspace_id?: string | null;
   name?: string | null;
@@ -1702,6 +1730,7 @@ export interface ProjectBlueprintWrite {
   knowledge_files?: Record<string, string> | null;
   repos?: Array<Record<string, any>> | null;
   setup_commands?: Array<Record<string, any>> | null;
+  dependency_stack?: Record<string, any> | null;
   env?: Record<string, string> | null;
   required_secrets?: string[] | null;
   metadata_?: Record<string, any> | null;

@@ -300,6 +300,8 @@ def test_project_coding_run_payload_includes_review_tools(monkeypatch):
     monkeypatch.setattr(agent_capabilities, "_local_tools", {
         "file": {},
         "exec_command": {},
+        "get_project_dependency_stack": {},
+        "manage_project_dependency_stack": {},
         "run_e2e_tests": {},
         "prepare_project_run_handoff": {},
         "schedule_project_coding_run": {},
