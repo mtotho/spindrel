@@ -457,6 +457,18 @@ test("Tiptap slash picker re-runs when the server command catalog hydrates", () 
   assert.match(tiptapInput, /\}, \[editor, detectSlashCommand\]\);/);
 });
 
+test("channel file editor keeps textarea and highlight font metrics aligned", () => {
+  const codeEditor = readFileSync(
+    resolve(process.cwd(), "app/(app)/channels/[channelId]/CodeEditor.tsx"),
+    "utf8",
+  );
+
+  assert.match(codeEditor, /const EDITOR_FONT_SIZE = 16;/);
+  assert.match(codeEditor, /Global CSS forces textarea \{ font-size: 16px !important \}/);
+  assert.doesNotMatch(codeEditor, /fontSize:\s*13/);
+  assert.doesNotMatch(codeEditor, /fontSize:\s*12/);
+});
+
 test("session composers use the parent channel for tool discovery menus", () => {
   const messageInput = readChatFile("MessageInput.tsx");
   const fixedSession = readChatFile("ChatSessionFixed.tsx");
