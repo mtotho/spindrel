@@ -91,6 +91,7 @@ def _apply_receipt_values(
     changed_files: Any,
     tests: Any,
     screenshots: Any,
+    dev_targets: Any,
     metadata: Any,
 ) -> None:
     receipt.project_instance_id = project_instance_id
@@ -107,10 +108,14 @@ def _apply_receipt_values(
     receipt.changed_files = _normalize_list(changed_files)
     receipt.tests = _normalize_list(tests)
     receipt.screenshots = _normalize_list(screenshots)
-    receipt.metadata_ = _normalize_dict(metadata)
+    normalized_metadata = _normalize_dict(metadata)
+    if dev_targets is not None:
+        normalized_metadata["dev_targets"] = _normalize_list(dev_targets, max_items=20)
+    receipt.metadata_ = normalized_metadata
 
 
 def serialize_project_run_receipt(receipt: ProjectRunReceipt) -> dict[str, Any]:
+    metadata = dict(receipt.metadata_ or {})
     return {
         "id": str(receipt.id),
         "project_id": str(receipt.project_id),
@@ -129,7 +134,8 @@ def serialize_project_run_receipt(receipt: ProjectRunReceipt) -> dict[str, Any]:
         "changed_files": list(receipt.changed_files or []),
         "tests": list(receipt.tests or []),
         "screenshots": list(receipt.screenshots or []),
-        "metadata": dict(receipt.metadata_ or {}),
+        "dev_targets": list(metadata.get("dev_targets") or []),
+        "metadata": metadata,
         "created_at": receipt.created_at.isoformat() if receipt.created_at else None,
     }
 
@@ -170,6 +176,7 @@ async def create_project_run_receipt(
     changed_files: Any = None,
     tests: Any = None,
     screenshots: Any = None,
+    dev_targets: Any = None,
     metadata: Any = None,
     idempotency_key: str | None = None,
 ) -> ProjectRunReceipt:
@@ -242,6 +249,7 @@ async def create_project_run_receipt(
         changed_files=changed_files,
         tests=tests,
         screenshots=screenshots,
+        dev_targets=dev_targets,
         metadata=metadata,
     )
     db.add(receipt)

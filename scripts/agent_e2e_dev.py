@@ -10,6 +10,8 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
+import socket
 import subprocess
 import sys
 import time
@@ -23,6 +25,9 @@ LOCAL_ENV = REPO_ROOT / ".env.agent-e2e"
 SCRATCH_DIR = REPO_ROOT / "scratch" / "agent-e2e"
 AUTH_OVERRIDE = SCRATCH_DIR / "compose.auth.override.yml"
 HARNESS_PARITY_ENV = SCRATCH_DIR / "harness-parity.env"
+NATIVE_API_ENV = SCRATCH_DIR / "native-api.env"
+NATIVE_API_PID = SCRATCH_DIR / "native-api.pid"
+NATIVE_API_LOG = SCRATCH_DIR / "native-api.log"
 SCREENSHOT_ENV = REPO_ROOT / "scripts" / "screenshots" / ".env"
 DEFAULT_API_KEY = "e2e-test-key-12345"
 DEFAULT_PORT = 18000

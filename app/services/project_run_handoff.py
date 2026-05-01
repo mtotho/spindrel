@@ -290,7 +290,7 @@ async def prepare_project_run_handoff(
         surface = work_surface_from_project_directory(project_directory_from_project(project))
 
     cwd = _resolve_repo_cwd(surface.root_host_path, resolved_repo_path)
-    runtime = await load_project_runtime_environment_for_id(db, project_uuid)
+    runtime = await load_project_runtime_environment_for_id(db, project_uuid, task_id=task_uuid)
     env = os.environ.copy()
     if runtime is not None:
         env.update({str(key): str(value) for key, value in runtime.env.items()})

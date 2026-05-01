@@ -95,7 +95,13 @@ async def exec_command(command: str, working_dir: str = "") -> str:
                         working_dir = resolve_work_surface_host_path(surface, working_dir)
                         effective_working_dir = working_dir
                         if surface.project_id:
-                            runtime_env = await load_project_runtime_environment_for_id(db, surface.project_id)
+                            from app.agent.context import current_task_id
+
+                            runtime_env = await load_project_runtime_environment_for_id(
+                                db,
+                                surface.project_id,
+                                task_id=current_task_id.get(),
+                            )
             except Exception as exc:
                 logger.debug("Could not resolve project runtime for exec_command", exc_info=True)
                 return json.dumps({"error": "workspace_error", "message": str(exc)}, ensure_ascii=False)

@@ -1,6 +1,6 @@
 """project dependency stacks
 
-Revision ID: 284_project_dependency_stacks
+Revision ID: 284_project_runtime_stacks
 Revises: 283_spatial_project_nodes
 Create Date: 2026-04-30
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = "284_project_dependency_stacks"
+revision = "284_project_runtime_stacks"
 down_revision = "283_spatial_project_nodes"
 branch_labels = None
 depends_on = None

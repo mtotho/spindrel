@@ -31,6 +31,9 @@ This is a repo-dev skill. It is not imported into Spindrel runtime skills.
   `get_project_dependency_stack` and `manage_project_dependency_stack` to prepare,
   reload, restart, inspect logs, run service commands, check health, and read
   dependency connection env. Agents still start app/dev servers themselves.
+- Project coding runs may include assigned dev targets such as
+  `SPINDREL_DEV_API_PORT` / `SPINDREL_DEV_API_URL`. Use those for source-run
+  servers and report their status in `publish_project_run_receipt`.
 - Normal Spindrel bots use runtime skills such as `e2e_testing` and tools such
   as `run_e2e_tests`.
 

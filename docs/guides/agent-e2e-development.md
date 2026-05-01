@@ -17,7 +17,7 @@ short names when discussing development execution:
 | Context | Uses | E2E path |
 |---|---|---|
 | Local dev mode | Shell in this checkout, repo `.agents/skills` | Run Python/pytest/screenshot scripts directly; use the helper for Docker-backed dependencies, then start API/UI/dev servers from this checkout on unused ports. |
-| Spindrel dev mode | Native Codex/Claude shell/edit tools in the Project work surface | Edit files and run repo-local commands natively; start app/dev servers yourself on assigned or unused ports; use Project Dependency Stack tools for Docker-backed databases/services; use Spindrel tools for e2e, screenshots, server/machine, and receipts. |
+| Spindrel dev mode | Native Codex/Claude shell/edit tools in the Project work surface | Edit files and run repo-local commands natively; start app/dev servers yourself on assigned dev target ports when present; use Project Dependency Stack tools for Docker-backed databases/services; use Spindrel tools for e2e, screenshots, server/machine, and receipts. |
 | Normal Spindrel bot | Runtime tools and runtime `skills/` | Load `e2e_testing`, then call `run_e2e_tests` or granted machine tools. |
 
 Harness agents may have native shell access, but infrastructure control is not
@@ -280,11 +280,14 @@ Project coding-run and review agents should:
    restarts, rebuilds, service commands, health checks, and connection env. If
    stack shape changes, edit the Project compose file and call
    `manage_project_dependency_stack(action="reload")`.
-5. Start app/dev servers yourself from source on an assigned or unused port.
-   Do not restart another agent's process.
+5. Start app/dev servers yourself from source on assigned dev target ports
+   (`SPINDREL_DEV_*_PORT` / `SPINDREL_DEV_*_URL`) when present. If no dev
+   target is assigned, choose an unused port. Do not restart another agent's
+   process.
 6. Use `run_e2e_tests(status)` before e2e checks to confirm the target.
 7. Use task-granted Spindrel tools for e2e, screenshots, server/machine, and Docker/compose actions.
-8. Publish receipts with tests, screenshots, dependency stack evidence, branch/PR handoff, and any blocked infrastructure grants.
+8. Publish receipts with tests, screenshots, dev target URL/status evidence,
+   dependency stack evidence, branch/PR handoff, and any blocked infrastructure grants.
 
 If a task does not have the needed grant, report the missing grant instead of
 attempting ambient infrastructure access.

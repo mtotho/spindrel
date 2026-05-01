@@ -11,6 +11,7 @@ from app.services.project_coding_runs import (
     ProjectCodingRunCreate,
     ProjectCodingRunReviewFinalize,
     ProjectMachineTargetGrant,
+    allocate_project_run_dev_targets,
     _review_summary,
     create_project_coding_run,
     create_project_coding_run_schedule,
@@ -22,6 +23,7 @@ from app.services.project_coding_runs import (
     project_coding_run_defaults,
     ProjectCodingRunScheduleCreate,
 )
+from app.services.project_runtime import load_project_runtime_environment_for_id
 from app.services.project_run_handoff import CommandResult
 
 
@@ -140,6 +142,110 @@ async def test_create_project_coding_run_attaches_task_scoped_machine_grant(db_s
     assert run_cfg["source_work_pack_id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     assert "Task-scoped grant: ssh/e2e-8000" in task.prompt
     assert "machine_status, machine_inspect_command, and machine_exec_command" in task.prompt
+
+
+@pytest.mark.asyncio
+async def test_project_coding_run_allocates_dev_targets_and_runtime_env(db_session, monkeypatch):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects/spindrel",
+        metadata_={
+            "blueprint_snapshot": {
+                "dev_targets": [
+                    {
+                        "key": "api",
+                        "label": "API",
+                        "port_env": "SPINDREL_DEV_API_PORT",
+                        "url_env": "SPINDREL_DEV_API_URL",
+                        "port_range": [31100, 31102],
+                    }
+                ]
+            }
+        },
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+    monkeypatch.setattr("app.services.project_coding_runs._is_port_listening", lambda port, host="127.0.0.1": port == 31100)
+
+    task = await create_project_coding_run(
+        db_session,
+        project,
+        ProjectCodingRunCreate(channel_id=channel_id, request="Run the local API."),
+    )
+
+    targets = task.execution_config["project_coding_run"]["dev_targets"]
+    assert targets == [{
+        "key": "api",
+        "label": "API",
+        "port": 31101,
+        "port_env": "SPINDREL_DEV_API_PORT",
+        "url": "http://127.0.0.1:31101",
+        "url_env": "SPINDREL_DEV_API_URL",
+    }]
+    assert "API: http://127.0.0.1:31101" in task.prompt
+    runtime = await load_project_runtime_environment_for_id(db_session, project_id, task_id=task.id)
+    assert runtime is not None
+    assert runtime.env["SPINDREL_DEV_API_PORT"] == "31101"
+    assert runtime.env["SPINDREL_DEV_API_URL"] == "http://127.0.0.1:31101"
+
+
+@pytest.mark.asyncio
+async def test_project_run_dev_target_allocation_avoids_active_run_ports(db_session, monkeypatch):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects/spindrel",
+        metadata_={"dev_targets": [{"key": "ui", "port_range": [31200, 31202]}]},
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    active = Task(
+        id=uuid.uuid4(),
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        status="running",
+        title="Active",
+        execution_config={
+            "run_preset_id": "project_coding_run",
+            "project_coding_run": {
+                "project_id": str(project_id),
+                "dev_targets": [{"key": "ui", "port": 31200}],
+            },
+        },
+    )
+    db_session.add_all([project, channel, active])
+    await db_session.commit()
+    monkeypatch.setattr("app.services.project_coding_runs._is_port_listening", lambda port, host="127.0.0.1": False)
+
+    targets = await allocate_project_run_dev_targets(db_session, project, task_id=uuid.uuid4())
+
+    assert targets[0]["port"] == 31201
 
 
 @pytest.mark.asyncio
@@ -287,8 +393,10 @@ def test_project_coding_run_review_summary_uses_receipt_and_handoff_activity():
         "changed_files_count": 1,
         "tests_count": 1,
         "screenshots_count": 1,
+        "dev_targets_count": 0,
         "has_tests": True,
         "has_screenshots": True,
+        "has_dev_targets": False,
     }
     assert review["actions"]["can_mark_reviewed"] is True
 

@@ -32,8 +32,9 @@ Project coding runs.
 2. Before editing, inspect current state and call
    `prepare_project_run_handoff(action="prepare_branch")`.
 3. Make focused changes with your native harness file and shell tools inside
-   the Project work surface. Start app/dev servers yourself on an assigned or
-   unused port; do not restart another agent's process.
+   the Project work surface. Start app/dev servers yourself on the assigned dev
+   target ports when present; otherwise choose an unused port. Do not restart
+   another agent's process.
 4. If the Project declares a Dependency Stack, call `get_project_dependency_stack`
    before Docker-backed work. Use `manage_project_dependency_stack` to prepare,
    reload, restart, rebuild, inspect logs, run service commands, and check
@@ -45,7 +46,7 @@ Project coding runs.
 6. Near handoff, call `prepare_project_run_handoff(action="open_pr")` when
    GitHub credentials and `gh` are available. If not, record the exact blocker.
 7. Finish with `publish_project_run_receipt` including branch, changed files,
-   tests, screenshots, handoff URL, and any blockers.
+   tests, screenshots, dev target URLs/status, handoff URL, and any blockers.
 
 ## Review Sessions
 
@@ -72,6 +73,8 @@ Project coding runs.
 - Dependency Stack evidence should include health, service command results,
   exported env keys, and any reload/restart blockers. App server URLs and
   screenshots belong to the native server process you started for the run.
+- Dev target evidence should include each assigned key, URL, port, and whether
+  the source-run server was started, checked, blocked, or stopped.
 
 ## Boundaries
 

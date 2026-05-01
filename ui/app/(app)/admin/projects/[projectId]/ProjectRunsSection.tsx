@@ -149,10 +149,10 @@ function handoffProgressSummary(run: ProjectCodingRun) {
 function evidenceSummary(run: ProjectCodingRun) {
   const evidence = run.review?.evidence;
   if (evidence) {
-    return `${evidence.tests_count ?? 0} tests · ${evidence.screenshots_count ?? 0} screenshots · ${evidence.changed_files_count ?? 0} files`;
+    return `${evidence.tests_count ?? 0} tests · ${evidence.screenshots_count ?? 0} screenshots · ${evidence.changed_files_count ?? 0} files · ${evidence.dev_targets_count ?? 0} dev targets`;
   }
   if (!run.receipt) return "No evidence receipt yet";
-  return `${run.receipt.tests?.length ?? 0} tests · ${run.receipt.screenshots?.length ?? 0} screenshots · ${run.receipt.changed_files?.length ?? 0} files`;
+  return `${run.receipt.tests?.length ?? 0} tests · ${run.receipt.screenshots?.length ?? 0} screenshots · ${run.receipt.changed_files?.length ?? 0} files · ${run.receipt.dev_targets?.length ?? 0} dev targets`;
 }
 
 function reviewStatusLabel(run: ProjectCodingRun) {
@@ -201,6 +201,21 @@ function dependencyStackLine(run: ProjectCodingRun) {
   const target = instance.source_path || instance.id;
   const envKeys = Object.keys(instance.env ?? {});
   return `Dependency stack: ${instance.status}${target ? ` · ${target}` : ""}${envKeys.length ? ` · env ${envKeys.length}` : ""}`;
+}
+
+function devTargetsLine(targets?: Array<Record<string, any> | string>) {
+  const rows = (targets ?? []).filter(Boolean);
+  if (rows.length === 0) return null;
+  return rows
+    .slice(0, 2)
+    .map((target) => {
+      if (typeof target === "string") return target;
+      const label = target.label || target.key || "dev";
+      const url = target.url || target[target.url_env] || "";
+      const port = target.port || target[target.port_env] || "";
+      return `${label}${url ? ` ${url}` : port ? ` :${port}` : ""}`;
+    })
+    .join(" · ");
 }
 
 function ExecutionAccessControl({
@@ -810,6 +825,9 @@ export function ProjectRunsSection({
                       {dependencyStackLine(run) && (
                         <span className="truncate text-[11px] text-text-dim">{dependencyStackLine(run)}</span>
                       )}
+                      {devTargetsLine(run.dev_targets) && (
+                        <span className="truncate text-[11px] text-text-dim">Dev targets: {devTargetsLine(run.dev_targets)}</span>
+                      )}
                       <span className="truncate text-[11px] text-text-dim">
                         {handoffProgressSummary(run) ? `Progress: ${handoffProgressSummary(run)}` : `Activity: ${activitySummary(run)}`}
                       </span>
@@ -884,6 +902,7 @@ export function ProjectRunsSection({
                     <span className="truncate font-mono text-[11px] text-text-dim">Files: {compactEvidence(receipt.changed_files)}</span>
                     <span className="truncate text-[11px] text-text-dim">Tests: {compactEvidence(receipt.tests)}</span>
                     <span className="truncate text-[11px] text-text-dim">Screenshots: {compactEvidence(receipt.screenshots)}</span>
+                    <span className="truncate text-[11px] text-text-dim">Dev targets: {devTargetsLine(receipt.dev_targets) || "none reported"}</span>
                   </span>
                 }
                 meta={<StatusBadge label={receipt.status} variant={statusTone(receipt.status)} />}

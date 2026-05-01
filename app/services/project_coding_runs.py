@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+import socket
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -25,6 +26,7 @@ PROJECT_CODING_RUN_PRESET_ID = "project_coding_run"
 PROJECT_CODING_RUN_REVIEW_PRESET_ID = "project_coding_run_review"
 PROJECT_CODING_RUN_SCHEDULE_PRESET_ID = "project_coding_run_schedule"
 PROJECT_REVIEW_TEMPLATE_MARKER = "\u001fSPINDREL_REVIEW_CMD_"
+DEFAULT_DEV_TARGET_PORT_RANGE = (31_000, 32_999)
 
 
 @dataclass(frozen=True)
@@ -200,6 +202,117 @@ def _safe_dependency_stack_target(project: Project) -> dict[str, Any]:
     }
 
 
+def _dev_target_specs(project: Project) -> list[dict[str, Any]]:
+    metadata = project.metadata_ if isinstance(project.metadata_, dict) else {}
+    raw = metadata.get("dev_targets")
+    snapshot = project_snapshot(project)
+    if not isinstance(raw, list):
+        raw = snapshot.get("dev_targets")
+    if not isinstance(raw, list) and isinstance(snapshot.get("metadata"), dict):
+        raw = snapshot["metadata"].get("dev_targets")
+    if not isinstance(raw, list):
+        return []
+    specs: list[dict[str, Any]] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            continue
+        key = _slug(str(item.get("key") or item.get("name") or f"target-{index + 1}"), fallback=f"target-{index + 1}", max_len=32)
+        env_segment = re.sub(r"[^A-Za-z0-9]+", "_", key).strip("_").upper() or f"TARGET_{index + 1}"
+        range_value = item.get("port_range")
+        port_range = DEFAULT_DEV_TARGET_PORT_RANGE
+        if isinstance(range_value, str) and "-" in range_value:
+            start, end = range_value.split("-", 1)
+            try:
+                port_range = (int(start), int(end))
+            except ValueError:
+                port_range = DEFAULT_DEV_TARGET_PORT_RANGE
+        elif isinstance(range_value, list) and len(range_value) == 2:
+            try:
+                port_range = (int(range_value[0]), int(range_value[1]))
+            except (TypeError, ValueError):
+                port_range = DEFAULT_DEV_TARGET_PORT_RANGE
+        if port_range[0] <= 0 or port_range[1] > 65_535 or port_range[0] > port_range[1]:
+            port_range = DEFAULT_DEV_TARGET_PORT_RANGE
+        specs.append({
+            "key": key,
+            "label": str(item.get("label") or item.get("name") or key),
+            "port_env": str(item.get("port_env") or f"SPINDREL_DEV_{env_segment}_PORT"),
+            "url_env": str(item.get("url_env") or f"SPINDREL_DEV_{env_segment}_URL"),
+            "url_template": str(item.get("url_template") or "http://127.0.0.1:{port}"),
+            "port_range": port_range,
+        })
+    return specs
+
+
+def _is_port_listening(port: int, host: str = "127.0.0.1") -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.05)
+        return sock.connect_ex((host, port)) == 0
+
+
+def _dev_target_env(dev_targets: list[dict[str, Any]]) -> dict[str, str]:
+    env: dict[str, str] = {}
+    for target in dev_targets:
+        port_env = str(target.get("port_env") or "").strip()
+        url_env = str(target.get("url_env") or "").strip()
+        if port_env and target.get("port") is not None:
+            env[port_env] = str(target["port"])
+        if url_env and target.get("url"):
+            env[url_env] = str(target["url"])
+    return env
+
+
+async def allocate_project_run_dev_targets(
+    db: AsyncSession,
+    project: Project,
+    *,
+    task_id: uuid.UUID,
+) -> list[dict[str, Any]]:
+    specs = _dev_target_specs(project)
+    if not specs:
+        return []
+    channel_ids = list((await db.execute(
+        select(Channel.id).where(Channel.project_id == project.id)
+    )).scalars().all())
+    assigned_ports: set[int] = set()
+    if channel_ids:
+        tasks = list((await db.execute(
+            select(Task).where(Task.channel_id.in_(channel_ids), Task.id != task_id)
+        )).scalars().all())
+        for task in tasks:
+            if task.status in {"complete", "completed", "failed", "cancelled"}:
+                continue
+            cfg = _task_run_config(task)
+            for target in cfg.get("dev_targets") or []:
+                if isinstance(target, dict):
+                    try:
+                        assigned_ports.add(int(target.get("port")))
+                    except (TypeError, ValueError):
+                        continue
+    allocated: list[dict[str, Any]] = []
+    for spec in specs:
+        start, end = spec["port_range"]
+        port = None
+        for candidate in range(start, end + 1):
+            if candidate in assigned_ports or _is_port_listening(candidate):
+                continue
+            port = candidate
+            assigned_ports.add(candidate)
+            break
+        if port is None:
+            raise ValueError(f"no available dev target port for {spec['key']} in {start}-{end}")
+        url = spec["url_template"].replace("{host}", "127.0.0.1").replace("{port}", str(port))
+        allocated.append({
+            "key": spec["key"],
+            "label": spec["label"],
+            "port": port,
+            "port_env": spec["port_env"],
+            "url": url,
+            "url_env": spec["url_env"],
+        })
+    return allocated
+
+
 def _machine_target_grant_summary(grant: ProjectMachineTargetGrant | None) -> dict[str, Any] | None:
     if grant is None:
         return None
@@ -241,6 +354,7 @@ def _project_coding_run_prompt(
     request: str,
     defaults: dict[str, Any],
     runtime_target: dict[str, Any],
+    dev_targets: list[dict[str, Any]] | None = None,
     machine_target_grant: ProjectMachineTargetGrant | None = None,
     continuation: dict[str, Any] | None = None,
 ) -> str:
@@ -255,6 +369,17 @@ def _project_coding_run_prompt(
         f"Configured from {dependency_stack.get('source_path') or 'inline spec'}"
         if dependency_stack.get("configured")
         else "Not configured"
+    )
+    dev_target_lines = []
+    for target in dev_targets or []:
+        dev_target_lines.append(
+            f"- {target.get('label') or target.get('key')}: {target.get('url')} "
+            f"({target.get('port_env')}={target.get('port')}, {target.get('url_env')}={target.get('url')})"
+        )
+    dev_target_block = (
+        "Assigned dev targets:\n"
+        + ("\n".join(dev_target_lines) if dev_target_lines else "- No assigned dev targets; choose an unused port and report it in the run receipt.")
+        + "\n"
     )
     request_text = request.strip() or "Use the Project task request from the run title and Project context."
     continuation_block = ""
@@ -294,6 +419,7 @@ def _project_coding_run_prompt(
         "- If configured, use get_project_dependency_stack and manage_project_dependency_stack for Docker-backed databases/dependencies, logs, restarts, rebuilds, service exec, and dependency health.\n"
         "- Start any app/dev server yourself with native bash on your own unused or assigned port; do not restart another agent's server process.\n"
         "- Do not run raw docker or docker compose in a harness shell; edit the Project compose file and call manage_project_dependency_stack(action=\"reload\") when stack shape changes.\n\n"
+        f"{dev_target_block}\n"
         f"{_machine_access_prompt_block(machine_target_grant)}\n"
         "Guided handoff requirements:\n"
         "1. Before editing, inspect git status and update from the base branch when safe.\n"
@@ -301,7 +427,7 @@ def _project_coding_run_prompt(
         "3. Use the Project runtime env and run_e2e_tests(status) before UI/e2e work.\n"
         "4. If GitHub credentials and gh are available, push the branch and open a draft PR. "
         "If not, publish a blocked or needs_review receipt with the exact blocker.\n"
-        "5. publish_project_run_receipt must include branch, base_branch, changed files, tests, screenshots, and handoff URL when available.\n\n"
+        "5. publish_project_run_receipt must include branch, base_branch, changed files, tests, screenshots, dev target status, and handoff URL when available.\n\n"
         f"Project task request:\n{request_text}"
         f"{continuation_block}"
     )
@@ -371,9 +497,11 @@ def _normal_review_outcome(value: str | None) -> str:
 def _execution_config_from_preset(
     defaults: Any,
     *,
+    project: Project,
     project_id: uuid.UUID,
     run_defaults: dict[str, Any],
     runtime_target: dict[str, Any],
+    dev_targets: list[dict[str, Any]],
     request: str,
     machine_target_grant: ProjectMachineTargetGrant | None = None,
     source_work_pack_id: uuid.UUID | None = None,
@@ -397,6 +525,8 @@ def _execution_config_from_preset(
             "base_branch": run_defaults.get("base_branch"),
             "repo": run_defaults.get("repo") or {},
             "runtime_target": runtime_target,
+            "dev_targets": dev_targets,
+            "dev_target_env": _dev_target_env(dev_targets),
             "dependency_stack": _safe_dependency_stack_target(project),
             "machine_target_grant": _machine_target_grant_summary(machine_target_grant),
             "source_work_pack_id": str(source_work_pack_id) if source_work_pack_id else None,
@@ -448,19 +578,23 @@ async def create_project_coding_run(
     run_defaults = project_coding_run_defaults(project, request=body.request, task_id=task_id)
     runtime = await load_project_runtime_environment(db, project)
     runtime_target = _safe_runtime_target(runtime.safe_payload())
+    dev_targets = await allocate_project_run_dev_targets(db, project, task_id=task_id)
     prompt = _project_coding_run_prompt(
         base_prompt=preset.task_defaults.prompt,
         project=project,
         request=body.request,
         defaults=run_defaults,
         runtime_target=runtime_target,
+        dev_targets=dev_targets,
         machine_target_grant=body.machine_target_grant,
     )
     ecfg = _execution_config_from_preset(
         preset.task_defaults,
+        project=project,
         project_id=project.id,
         run_defaults=run_defaults,
         runtime_target=runtime_target,
+        dev_targets=dev_targets,
         request=body.request,
         machine_target_grant=body.machine_target_grant,
         source_work_pack_id=body.source_work_pack_id,
@@ -862,6 +996,9 @@ async def continue_project_coding_run(
     if not runtime_target:
         runtime = await load_project_runtime_environment(db, project)
         runtime_target = _safe_runtime_target(runtime.safe_payload())
+    dev_targets = list(parent_cfg.get("dev_targets") or [])
+    if not dev_targets:
+        dev_targets = await allocate_project_run_dev_targets(db, project, task_id=new_task_id)
     feedback = body.feedback.strip()
     continuation_context = {
         "feedback": feedback,
@@ -876,14 +1013,17 @@ async def continue_project_coding_run(
         request=str(parent_cfg.get("request") or ""),
         defaults=run_defaults,
         runtime_target=runtime_target,
+        dev_targets=dev_targets,
         machine_target_grant=None,
         continuation=continuation_context,
     )
     ecfg = _execution_config_from_preset(
         preset.task_defaults,
+        project=project,
         project_id=project.id,
         run_defaults=run_defaults,
         runtime_target=runtime_target,
+        dev_targets=dev_targets,
         request=str(parent_cfg.get("request") or ""),
         machine_target_grant=None,
     )
@@ -1004,12 +1144,16 @@ def _evidence_summary(receipt: ProjectRunReceipt | None) -> dict[str, Any]:
     changed_files = list(receipt.changed_files or []) if receipt is not None else []
     tests = list(receipt.tests or []) if receipt is not None else []
     screenshots = list(receipt.screenshots or []) if receipt is not None else []
+    metadata = dict(receipt.metadata_ or {}) if receipt is not None and isinstance(receipt.metadata_, dict) else {}
+    dev_targets = metadata.get("dev_targets") if isinstance(metadata.get("dev_targets"), list) else []
     return {
         "changed_files_count": len(changed_files),
         "tests_count": len(tests),
         "screenshots_count": len(screenshots),
+        "dev_targets_count": len(dev_targets),
         "has_tests": bool(tests),
         "has_screenshots": bool(screenshots),
+        "has_dev_targets": bool(dev_targets),
     }
 
 
@@ -1206,6 +1350,7 @@ async def _coding_run_row(
         "base_branch": cfg.get("base_branch"),
         "repo": cfg.get("repo") or {},
         "runtime_target": cfg.get("runtime_target") or {},
+        "dev_targets": cfg.get("dev_targets") or [],
         "dependency_stack": dependency_stack,
         "source_work_pack_id": cfg.get("source_work_pack_id"),
         "parent_task_id": lineage["parent_task_id"],
@@ -1278,12 +1423,14 @@ def _evidence_summary_for_prompt(review: dict[str, Any], receipt: dict[str, Any]
         return (
             f"{evidence.get('tests_count', 0)} tests, "
             f"{evidence.get('screenshots_count', 0)} screenshots, "
-            f"{evidence.get('changed_files_count', 0)} files"
+            f"{evidence.get('changed_files_count', 0)} files, "
+            f"{evidence.get('dev_targets_count', 0)} dev targets"
         )
     return (
         f"{len(receipt.get('tests') or [])} tests, "
         f"{len(receipt.get('screenshots') or [])} screenshots, "
-        f"{len(receipt.get('changed_files') or [])} files"
+        f"{len(receipt.get('changed_files') or [])} files, "
+        f"{len((receipt.get('metadata') or {}).get('dev_targets') or [])} dev targets"
     )
 
 
@@ -1301,6 +1448,7 @@ def _review_context_row(row: dict[str, Any]) -> dict[str, Any]:
         "branch": row.get("branch"),
         "base_branch": row.get("base_branch"),
         "repo": row.get("repo") or {},
+        "dev_targets": row.get("dev_targets") or [],
         "handoff_url": review.get("handoff_url") or receipt.get("handoff_url"),
         "review": {
             "reviewed": bool(review.get("reviewed")),
@@ -1324,6 +1472,7 @@ def _review_context_row(row: dict[str, Any]) -> dict[str, Any]:
             "changed_files": receipt.get("changed_files") or [],
             "tests": receipt.get("tests") or [],
             "screenshots": receipt.get("screenshots") or [],
+            "dev_targets": (receipt.get("metadata") or {}).get("dev_targets") or [],
         } if receipt else None,
     }
 

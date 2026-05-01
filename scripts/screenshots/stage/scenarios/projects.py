@@ -93,6 +93,28 @@ def stage_project_workspace(
         prompt="Use this Project as the default working root for files, terminal, search, and harness turns.",
     )
     project_id = str(project["id"])
+    project = client.update_project(
+        project_id,
+        metadata_={
+            **(project.get("metadata_") or {}),
+            "dev_targets": [
+                {
+                    "key": "api",
+                    "label": "API",
+                    "port_env": "SPINDREL_DEV_API_PORT",
+                    "url_env": "SPINDREL_DEV_API_URL",
+                    "port_range": [31100, 31199],
+                },
+                {
+                    "key": "ui",
+                    "label": "UI",
+                    "port_env": "SPINDREL_DEV_UI_PORT",
+                    "url_env": "SPINDREL_DEV_UI_URL",
+                    "port_range": [31200, 31299],
+                },
+            ],
+        },
+    )
     state.dashboards["project_workspace_project"] = project_id
 
     existing_secret = next((s for s in client.list_secret_values() if s.get("name") == BOUND_SECRET_NAME), None)
@@ -296,6 +318,10 @@ def stage_project_workspace(
             ],
             "screenshots": [
                 {"path": "docs/images/project-workspace-runs.png", "status": "captured"},
+            ],
+            "dev_targets": [
+                {"key": "api", "label": "API", "url": "http://127.0.0.1:31100", "port": 31100, "status": "running"},
+                {"key": "ui", "label": "UI", "url": "http://127.0.0.1:31200", "port": 31200, "status": "running"},
             ],
             "handoff_type": "branch",
             "handoff_url": "https://example.invalid/spindrel/project-run",

@@ -287,9 +287,12 @@ async def run_harness_turn(
         from app.services.projects import is_project_like_surface
 
         if is_project_like_surface(work_surface) and work_surface.project_id:
+            from app.agent.context import current_task_id
+
             runtime_env = await load_project_runtime_environment_for_id(
                 db,
                 work_surface.project_id,
+                task_id=current_task_id.get(),
             )
         session_permission_mode = await load_session_mode(db, session_id)
         permission_mode = harness_permission_mode_override or session_permission_mode

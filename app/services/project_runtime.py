@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Project, ProjectSecretBinding, SecretValue
+from app.db.models import Project, ProjectSecretBinding, SecretValue, Task
 from app.services.encryption import decrypt
 from app.services.secret_registry import redact
 
@@ -171,6 +171,47 @@ def build_project_runtime_environment(
     )
 
 
+def _with_extra_env(
+    runtime: ProjectRuntimeEnvironment,
+    extra_env: Mapping[str, str],
+    *,
+    extra_keys: tuple[str, ...] = (),
+) -> ProjectRuntimeEnvironment:
+    if not extra_env:
+        return runtime
+    env = dict(runtime.env)
+    env.update({str(key): str(value) for key, value in extra_env.items()})
+    return ProjectRuntimeEnvironment(
+        project_id=runtime.project_id,
+        env=env,
+        env_default_keys=tuple(sorted(set(runtime.env_default_keys) | set(extra_keys or extra_env.keys()))),
+        secret_keys=runtime.secret_keys,
+        missing_secrets=runtime.missing_secrets,
+        invalid_env_keys=runtime.invalid_env_keys,
+        reserved_env_keys=runtime.reserved_env_keys,
+    )
+
+
+def _task_dev_target_env(task: Task | None) -> dict[str, str]:
+    if task is None or not isinstance(task.execution_config, dict):
+        return {}
+    cfg = task.execution_config.get("project_coding_run")
+    if not isinstance(cfg, dict):
+        return {}
+    env = cfg.get("dev_target_env")
+    if isinstance(env, dict):
+        return {str(key): str(value) for key, value in env.items()}
+    values: dict[str, str] = {}
+    for target in cfg.get("dev_targets") or []:
+        if not isinstance(target, dict):
+            continue
+        if target.get("port_env") and target.get("port") is not None:
+            values[str(target["port_env"])] = str(target["port"])
+        if target.get("url_env") and target.get("url"):
+            values[str(target["url_env"])] = str(target["url"])
+    return values
+
+
 async def load_project_runtime_environment(
     db: AsyncSession,
     project: Project,
@@ -187,6 +228,8 @@ async def load_project_runtime_environment(
 async def load_project_runtime_environment_for_id(
     db: AsyncSession,
     project_id: uuid.UUID | str | None,
+    *,
+    task_id: uuid.UUID | str | None = None,
 ) -> ProjectRuntimeEnvironment | None:
     if project_id is None:
         return None
@@ -197,7 +240,16 @@ async def load_project_runtime_environment_for_id(
     project = await db.get(Project, project_uuid)
     if project is None:
         return None
-    return await load_project_runtime_environment(db, project)
+    runtime = await load_project_runtime_environment(db, project)
+    if task_id is None:
+        return runtime
+    try:
+        task_uuid = uuid.UUID(str(task_id))
+    except ValueError:
+        return runtime
+    task = await db.get(Task, task_uuid)
+    dev_env = _task_dev_target_env(task)
+    return _with_extra_env(runtime, dev_env, extra_keys=tuple(sorted(dev_env)))
 
 
 def redact_known_values(text: str, values: Mapping[str, str]) -> str:

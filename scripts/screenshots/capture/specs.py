@@ -3023,6 +3023,10 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
         const finalizedReview = window.__PROJECT_REVIEW_FINALIZED__ === true;
         const enrichRun = (run, projectId) => ({
           ...run,
+          dev_targets: run.dev_targets || [
+            { key: "api", label: "API", port: 31100, port_env: "SPINDREL_DEV_API_PORT", url: "http://127.0.0.1:31100", url_env: "SPINDREL_DEV_API_URL" },
+            { key: "ui", label: "UI", port: 31200, port_env: "SPINDREL_DEV_UI_PORT", url: "http://127.0.0.1:31200", url_env: "SPINDREL_DEV_UI_URL" }
+          ],
           root_task_id: run.root_task_id || run.task?.id || run.id,
           parent_task_id: run.parent_task_id || null,
           continuation_index: run.continuation_index || 0,
@@ -3072,8 +3076,10 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
               changed_files_count: run.receipt?.changed_files?.length || 2,
               tests_count: run.receipt?.tests?.length || 2,
               screenshots_count: run.receipt?.screenshots?.length || 1,
+              dev_targets_count: run.receipt?.dev_targets?.length || 2,
               has_tests: true,
-              has_screenshots: true
+              has_screenshots: true,
+              has_dev_targets: true
             },
             instance: { id: "screenshot-project-instance", status: "ready", root_path: "common/project-instances/screenshot/project-run" },
             actions: { can_refresh: true, can_mark_reviewed: false, can_cleanup_instance: true, can_request_changes: false }
@@ -3106,8 +3112,10 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
               changed_files_count: run.receipt?.changed_files?.length || 2,
               tests_count: run.receipt?.tests?.length || 2,
               screenshots_count: run.receipt?.screenshots?.length || 1,
+              dev_targets_count: run.receipt?.dev_targets?.length || 2,
               has_tests: true,
-              has_screenshots: true
+              has_screenshots: true,
+              has_dev_targets: true
             },
             instance: { id: "screenshot-project-instance", status: "ready", root_path: "common/project-instances/screenshot/project-run" },
             actions: { can_refresh: true, can_mark_reviewed: true, can_cleanup_instance: true, can_request_changes: true }
@@ -3136,6 +3144,10 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
           base_branch: "development",
           repo: { name: "spindrel", path: "spindrel", url: "https://github.com/mtotho/spindrel.git" },
           runtime_target: { ready: true, configured_keys: ["SPINDREL_E2E_URL", "GITHUB_TOKEN"], missing_secrets: [] },
+          dev_targets: [
+            { key: "api", label: "API", port: 31100, port_env: "SPINDREL_DEV_API_PORT", url: "http://127.0.0.1:31100", url_env: "SPINDREL_DEV_API_URL" },
+            { key: "ui", label: "UI", port: 31200, port_env: "SPINDREL_DEV_UI_PORT", url: "http://127.0.0.1:31200", url_env: "SPINDREL_DEV_UI_URL" }
+          ],
           parent_task_id: null,
           root_task_id: "screenshot-project-coding-run-task",
           continuation_index: 0,
@@ -3207,7 +3219,16 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
               { command: "cd ui && npx tsc --noEmit", status: "passed" }
             ],
             screenshots: [{ path: "docs/images/project-workspace-runs.png", status: "captured" }],
-            metadata: {},
+            dev_targets: [
+              { key: "api", label: "API", url: "http://127.0.0.1:31100", port: 31100, status: "running" },
+              { key: "ui", label: "UI", url: "http://127.0.0.1:31200", port: 31200, status: "running" }
+            ],
+            metadata: {
+              dev_targets: [
+                { key: "api", label: "API", url: "http://127.0.0.1:31100", port: 31100, status: "running" },
+                { key: "ui", label: "UI", url: "http://127.0.0.1:31200", port: 31200, status: "running" }
+              ]
+            },
             created_at: new Date().toISOString()
           },
           activity: [
@@ -3480,6 +3501,8 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "&& text.includes('Prepare the Project workspace screenshot receipt') "
             "&& text.includes('Review:') "
             "&& text.includes('Evidence:') "
+            "&& text.includes('Dev targets:') "
+            "&& text.includes('API http://127.0.0.1:31100') "
             "&& text.includes('Request changes') "
             "&& text.includes('Continuation:') "
             "&& text.includes('PR linked') "
@@ -3487,6 +3510,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "&& text.includes('Run Receipts') "
             "&& text.includes('Screenshot Project coding run receipt') "
             "&& text.includes('project-workspace-runs.png') "
+            "&& text.includes('UI http://127.0.0.1:31200') "
             "&& text.includes('pytest tests/unit/test_projects_service.py'), "
             "detail: 'Project Runs tab did not expose the coding run launcher and receipt evidence' };"
         ),

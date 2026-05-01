@@ -103,6 +103,16 @@ e2e-testing, screenshots, server/machine actions, and Docker/compose control
 must go through task-scoped Spindrel grants. See
 [Agent E2E Development](agent-e2e-development.md) for the full boundary.
 
+## Dev Targets
+
+Projects can declare source-run dev targets in Project metadata or Blueprint
+snapshot metadata under `dev_targets`. Each target can name a `key`, `label`,
+`port_env`, `url_env`, and `port_range`. Project coding runs allocate concrete
+ports from those ranges, inject the resulting `SPINDREL_DEV_*_PORT` and
+`SPINDREL_DEV_*_URL` values into the task runtime environment, and show the
+assigned URLs in Project Runs. Agents start the app/dev server processes
+themselves; Spindrel only assigns non-colliding targets and records evidence.
+
 ## Dependency Stacks
 
 Project Dependency Stacks are Docker-backed database/service stacks declared by

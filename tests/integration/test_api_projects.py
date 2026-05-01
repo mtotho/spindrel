@@ -73,6 +73,7 @@ class TestProjectsApi:
                 "changed_files": ["app/services/project_run_receipts.py"],
                 "tests": [{"command": "pytest tests/unit/test_run_presets.py", "status": "passed"}],
                 "screenshots": [{"path": "docs/images/project-workspace-runs.png"}],
+                "dev_targets": [{"key": "api", "url": "http://127.0.0.1:31101", "status": "running"}],
                 "handoff_type": "branch",
                 "handoff_url": "https://example.invalid/review",
             },
@@ -85,6 +86,8 @@ class TestProjectsApi:
         assert receipt_body["idempotency_key"] == "handoff:https://example.invalid/review"
         assert receipt_body["changed_files"] == ["app/services/project_run_receipts.py"]
         assert receipt_body["tests"][0]["status"] == "passed"
+        assert receipt_body["dev_targets"][0]["url"] == "http://127.0.0.1:31101"
+        assert receipt_body["metadata"]["dev_targets"][0]["status"] == "running"
 
         listed = await client.get(f"/api/v1/projects/{project_id}/run-receipts", headers=AUTH_HEADERS)
         assert listed.status_code == 200

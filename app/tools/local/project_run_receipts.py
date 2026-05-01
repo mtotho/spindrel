@@ -83,6 +83,7 @@ def _handoff_value(handoff: dict[str, Any] | None, *keys: str) -> str | None:
                 "changed_files": {"type": "array", "items": {"type": "string"}, "description": "Repository-relative changed paths."},
                 "tests": {"type": "array", "items": {}, "description": "Commands or structured test results."},
                 "screenshots": {"type": "array", "items": {}, "description": "Screenshot paths or structured screenshot records."},
+                "dev_targets": {"type": "array", "items": {}, "description": "Assigned dev target URLs/ports and current status."},
                 "handoff": {
                     "type": "object",
                     "description": "Optional review handoff such as pull request URL, branch, base branch, or commit SHA.",
@@ -106,6 +107,7 @@ async def publish_project_run_receipt(
     changed_files: list[str] | None = None,
     tests: list[Any] | None = None,
     screenshots: list[Any] | None = None,
+    dev_targets: list[Any] | None = None,
     handoff: dict[str, Any] | None = None,
     idempotency_key: str | None = None,
     metadata: dict[str, Any] | None = None,
@@ -133,6 +135,7 @@ async def publish_project_run_receipt(
                 changed_files=changed_files or [],
                 tests=tests or [],
                 screenshots=screenshots or [],
+                dev_targets=dev_targets or None,
                 metadata=metadata or {},
                 idempotency_key=idempotency_key,
             )

@@ -239,6 +239,7 @@ class ProjectRunReceiptOut(BaseModel):
     changed_files: list = Field(default_factory=list)
     tests: list = Field(default_factory=list)
     screenshots: list = Field(default_factory=list)
+    dev_targets: list = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
     created_at: datetime
 
@@ -259,6 +260,7 @@ class ProjectRunReceiptWrite(BaseModel):
     changed_files: list = Field(default_factory=list)
     tests: list = Field(default_factory=list)
     screenshots: list = Field(default_factory=list)
+    dev_targets: list = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
 
 
@@ -1031,6 +1033,7 @@ async def create_project_run_receipt_endpoint(
             changed_files=body.changed_files,
             tests=body.tests,
             screenshots=body.screenshots,
+            dev_targets=body.dev_targets,
             metadata=body.metadata,
             idempotency_key=body.idempotency_key,
         )

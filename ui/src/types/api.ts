@@ -1505,6 +1505,7 @@ export interface ProjectRunReceipt {
   changed_files?: string[];
   tests?: Array<Record<string, any> | string>;
   screenshots?: Array<Record<string, any> | string>;
+  dev_targets?: Array<Record<string, any> | string>;
   metadata?: Record<string, any>;
   created_at: string;
 }
@@ -1546,6 +1547,7 @@ export interface ProjectCodingRun {
   base_branch?: string | null;
   repo?: Record<string, any>;
   runtime_target?: Record<string, any>;
+  dev_targets?: Array<Record<string, any>>;
   dependency_stack?: ProjectDependencyStackState;
   source_work_pack_id?: string | null;
   parent_task_id?: string | null;
@@ -1585,8 +1587,10 @@ export interface ProjectCodingRun {
       changed_files_count?: number;
       tests_count?: number;
       screenshots_count?: number;
+      dev_targets_count?: number;
       has_tests?: boolean;
       has_screenshots?: boolean;
+      has_dev_targets?: boolean;
     };
     instance?: {
       id?: string;
