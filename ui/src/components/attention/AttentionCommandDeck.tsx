@@ -258,6 +258,7 @@ export function AttentionCommandDeck({
   const [staleAutofixIds, setStaleAutofixIds] = useState<string[]>([]);
   const [runModePinned, setRunModePinned] = useState(false);
   const [sweepStarting, setSweepStarting] = useState(false);
+  const [localSelectedRunId, setLocalSelectedRunId] = useState<string | null>(null);
   const detailRef = useRef<HTMLElement | null>(null);
   const buckets = useMemo(() => bucketAttentionItems(items), [items]);
   const sweepable = useMemo(() => sweepCandidateItems(items), [items]);
@@ -284,6 +285,8 @@ export function AttentionCommandDeck({
   const activeList = useMemo(() => sortDeckItems(mode, modeItems(mode, buckets)), [buckets, mode]);
   const firstReview = useMemo(() => sortAttention(buckets.review)[0] ?? null, [buckets.review]);
   const displayItem = selected ?? activeList[0] ?? null;
+  const activeRunId = selectedRunId ?? localSelectedRunId ?? runs[0]?.task_id ?? null;
+  const selectedRun = activeRunId ? runs.find((run) => run.task_id === activeRunId) ?? null : null;
 
   const setDeckMode = (next: DeckMode, notify = true) => {
     setRunModePinned(next === "runs");
@@ -339,6 +342,7 @@ export function AttentionCommandDeck({
     setSweepStarting(true);
     startTriage.mutate({}, {
       onSuccess: (run) => {
+        setLocalSelectedRunId(run.task_id);
         onRunSelect?.(run.task_id);
         setNotice("Operator sweep started. Stay on the sweep history while findings arrive.");
       },
@@ -528,6 +532,13 @@ export function AttentionCommandDeck({
       onClick: () => setDeckMode("cleared"),
     };
   })();
+  const detailOwnsFocus = mode === "issues" || mode === "runs" || mode === "cleared" || Boolean(displayItem);
+  const showWhatNow = !detailOwnsFocus;
+  const visibleBrief = !detailOwnsFocus ? brief : null;
+  const selectRunFromQueue = (runId: string | null) => {
+    setLocalSelectedRunId(runId);
+    onRunSelect?.(runId);
+  };
 
   if (loading && !items.length) {
     return <AttentionCommandDeckSkeleton />;
@@ -581,28 +592,30 @@ export function AttentionCommandDeck({
             {notice}
           </div>
         )}
-        <div className="mt-3 rounded-md bg-surface-overlay/35 px-3 py-3" data-testid="attention-command-deck-what-now">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">{whatNow.eyebrow}</div>
-              <div className="mt-1 text-sm font-medium text-text">{whatNow.title}</div>
-              <div className="mt-1 text-xs leading-5 text-text-muted">{whatNow.detail}</div>
+        {showWhatNow && (
+          <div className="mt-3 rounded-md bg-surface-overlay/35 px-3 py-3" data-testid="attention-command-deck-what-now">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">{whatNow.eyebrow}</div>
+                <div className="mt-1 text-sm font-medium text-text">{whatNow.title}</div>
+                <div className="mt-1 text-xs leading-5 text-text-muted">{whatNow.detail}</div>
+              </div>
+              {whatNow.action ? (
+                <button
+                  type="button"
+                  className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-accent/[0.08] px-3 text-sm font-medium text-accent hover:bg-accent/[0.12]"
+                  onClick={whatNow.onClick}
+                >
+                  {whatNow.icon}
+                  {whatNow.action}
+                </button>
+              ) : null}
             </div>
-            {whatNow.action ? (
-              <button
-                type="button"
-                className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-accent/[0.08] px-3 text-sm font-medium text-accent hover:bg-accent/[0.12]"
-                onClick={whatNow.onClick}
-              >
-                {whatNow.icon}
-                {whatNow.action}
-              </button>
-            ) : null}
           </div>
-        </div>
-        {brief && (
+        )}
+        {visibleBrief && (
           <BriefSummary
-            brief={brief}
+            brief={visibleBrief}
             onOpenItem={selectBriefItem}
             onCopyFixPrompt={copyFixPrompt}
             onApplyAutofix={applyAutofixRequest}
@@ -619,6 +632,8 @@ export function AttentionCommandDeck({
           mode={mode}
           counts={counts}
           runCount={runs.length}
+          runs={runs}
+          selectedRunId={activeRunId}
           items={activeList}
           selectedId={displayItem?.id ?? null}
           onModeChange={(next) => {
@@ -626,12 +641,13 @@ export function AttentionCommandDeck({
             onSelect(null);
           }}
           onSelect={onSelect}
+          onRunSelect={selectRunFromQueue}
         />
         <main ref={detailRef} tabIndex={-1} className="min-h-0 overflow-y-auto rounded-md bg-surface-overlay/20 px-4 py-4 outline-none">
           {mode === "issues" ? (
             <IssueIntakeWorkspace items={issueCandidates} />
           ) : mode === "runs" ? (
-            <RunLogWorkspace pending={sweepBusy} runs={runs} selectedRunId={selectedRunId} onRunSelect={onRunSelect} />
+            <RunLogWorkspace pending={sweepBusy} selectedRun={selectedRun} activeRunId={activeRunId} />
           ) : displayItem ? (
             <DeckItemDetail item={displayItem} onReply={onReply} />
           ) : (
@@ -647,28 +663,40 @@ function DeckQueue({
   mode,
   counts,
   runCount,
+  runs,
+  selectedRunId,
   items,
   selectedId,
   onModeChange,
   onSelect,
+  onRunSelect,
 }: {
   mode: DeckMode;
   counts: { review: number; botReports: number; issues: number; inbox: number; running: number; cleared: number; closed: number };
   runCount: number;
+  runs: AttentionTriageRunResponse[];
+  selectedRunId: string | null;
   items: WorkspaceAttentionItem[];
   selectedId: string | null;
   onModeChange: (mode: DeckMode) => void;
   onSelect: (item: WorkspaceAttentionItem | null) => void;
+  onRunSelect: (runId: string | null) => void;
 }) {
   const title = mode === "issues" ? "Issue intake" : mode === "inbox" ? "Unreviewed" : mode === "review" ? "Findings" : mode === "cleared" ? "Cleared" : "Sweep history";
   return (
     <aside className="min-h-0 overflow-y-auto rounded-md bg-surface-overlay/20 px-3 py-3">
-      <div className="grid grid-cols-2 gap-1.5">
-        <ModeButton active={mode === "review"} icon={<Sparkles size={14} />} label="Findings" count={counts.review} onClick={() => onModeChange("review")} />
-        <ModeButton active={mode === "issues"} icon={<MessageSquare size={14} />} label="Issues" count={counts.issues} onClick={() => onModeChange("issues")} />
-        <ModeButton active={mode === "inbox"} icon={<Inbox size={14} />} label="Unreviewed" count={counts.inbox} onClick={() => onModeChange("inbox")} />
-        <ModeButton active={mode === "runs"} icon={<Clock size={14} />} label="Sweeps" count={runCount || counts.running} onClick={() => onModeChange("runs")} />
-        <ModeButton active={mode === "cleared"} icon={<Archive size={14} />} label="Cleared" count={counts.cleared + counts.closed} onClick={() => onModeChange("cleared")} />
+      <div>
+        <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Needs action</div>
+        <div className="space-y-1">
+          <ModeButton active={mode === "review"} icon={<Sparkles size={14} />} label="Findings" count={counts.review} onClick={() => onModeChange("review")} />
+          <ModeButton active={mode === "issues"} icon={<MessageSquare size={14} />} label="Issues" count={counts.issues} onClick={() => onModeChange("issues")} />
+          <ModeButton active={mode === "inbox"} icon={<Inbox size={14} />} label="Unreviewed" count={counts.inbox} onClick={() => onModeChange("inbox")} />
+        </div>
+        <div className="mb-1 mt-4 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Review history</div>
+        <div className="space-y-1">
+          <ModeButton active={mode === "runs"} icon={<Clock size={14} />} label="Sweeps" count={runCount || counts.running} onClick={() => onModeChange("runs")} />
+          <ModeButton active={mode === "cleared"} icon={<Archive size={14} />} label="Cleared" count={counts.cleared + counts.closed} onClick={() => onModeChange("cleared")} />
+        </div>
       </div>
 
       <div className="mt-4">
@@ -677,9 +705,26 @@ function DeckQueue({
           <span>{mode === "runs" ? runCount : items.length}</span>
         </div>
         <div className="space-y-1">
-          {mode === "runs" ? (
-            <div className="rounded-md bg-surface-raised/35 px-3 py-3 text-xs leading-5 text-text-muted">
-              Pick a sweep in the detail panel. Receipts explain which items became findings, which were cleared, and where the transcript evidence lives.
+          {mode === "runs" ? runs.length ? runs.map((run) => (
+            <button
+              key={run.task_id}
+              type="button"
+              className={`block w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                selectedRunId === run.task_id ? "bg-accent/[0.08] text-text" : "text-text-muted hover:bg-surface-overlay/55 hover:text-text"
+              }`}
+              onClick={() => onRunSelect(run.task_id)}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-medium">{formatRunTime(run.created_at)}</span>
+                <span className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-text-dim">{runStatusLabel(run)}</span>
+              </div>
+              <div className="mt-1 truncate text-xs text-text-dim">
+                {run.item_count} items · {run.counts?.ready_for_review ?? 0} review · {run.counts?.processed ?? 0} cleared
+              </div>
+            </button>
+          )) : (
+            <div className="rounded-md border border-dashed border-surface-border bg-surface-raised/35 px-3 py-6 text-center text-xs text-text-dim">
+              No Operator sweeps yet.
             </div>
           ) : items.length ? items.map((item) => (
             <button
@@ -713,7 +758,7 @@ function ModeButton({ active, icon, label, count, onClick }: { active: boolean; 
   return (
     <button
       type="button"
-      className={`flex min-h-10 items-center justify-between gap-2 rounded-md px-2.5 text-left text-xs transition-colors ${
+      className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-md px-2.5 text-left text-xs transition-colors ${
         active ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/55 hover:text-text"
       }`}
       onClick={onClick}
@@ -1597,36 +1642,19 @@ function SendToBotDisclosure({ item }: { item: WorkspaceAttentionItem }) {
 
 function RunLogWorkspace({
   pending,
-  runs,
-  selectedRunId,
-  onRunSelect,
+  selectedRun,
+  activeRunId,
 }: {
   pending: boolean;
-  runs: AttentionTriageRunResponse[];
-  selectedRunId?: string | null;
-  onRunSelect?: (runId: string | null) => void;
+  selectedRun: AttentionTriageRunResponse | null;
+  activeRunId: string | null;
 }) {
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const activeRunId = selectedRunId ?? selectedTaskId;
-  const selectedRun = activeRunId ? runs.find((run) => run.task_id === activeRunId) ?? null : runs[0] ?? null;
   const waitingForSelectedRun = Boolean(pending && activeRunId && !selectedRun);
-  const selectRun = (taskId: string) => {
-    setSelectedTaskId(taskId);
-    onRunSelect?.(taskId);
-  };
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <div className="mb-4">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Operator sweeps</div>
-        <h2 className="mt-1 text-2xl font-semibold text-text">Sweep history</h2>
-        <p className="mt-1 text-sm text-text-muted">
-          Sweep receipts show which unreviewed items became findings and which were cleared.
-        </p>
-      </div>
-
+    <div className="mx-auto max-w-5xl" data-testid="attention-run-workspace">
       {pending && (
-        <section className="mb-4 rounded-md bg-accent/[0.08] px-4 py-3 text-sm text-accent">
+        <section className="mb-3 rounded-md bg-accent/[0.08] px-4 py-3 text-sm text-accent">
           <span className="inline-flex items-center gap-2">
             <Loader2 size={15} className="animate-spin" />
             Starting Operator sweep
@@ -1634,56 +1662,28 @@ function RunLogWorkspace({
         </section>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)]">
-        <aside className="space-y-1">
-          {runs.length ? runs.map((run) => (
-            <button
-              key={run.task_id}
-              type="button"
-              className={`block w-full rounded-md px-3 py-2 text-left text-sm ${
-                selectedRun?.task_id === run.task_id ? "bg-accent/[0.08] text-text" : "text-text-muted hover:bg-surface-overlay/55 hover:text-text"
-              }`}
-              onClick={() => selectRun(run.task_id)}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate font-medium">{formatRunTime(run.created_at)}</span>
-                <span className="text-[10px] uppercase tracking-[0.08em] text-text-dim">{runStatusLabel(run)}</span>
-              </div>
-              <div className="mt-1 text-xs text-text-dim">
-                {run.item_count} items · {run.counts?.ready_for_review ?? 0} review · {run.counts?.processed ?? 0} cleared
-              </div>
-            </button>
-          )) : (
-            <div className="rounded-md border border-dashed border-surface-border bg-surface-raised/35 px-3 py-6 text-center text-xs text-text-dim">
-              No Operator sweeps yet.
-            </div>
-          )}
-        </aside>
-
-        <section className="min-w-0">
-          {waitingForSelectedRun ? (
-            <StartingSweepReceipt taskId={activeRunId} />
-          ) : selectedRun ? (
-            <RunReceipt run={selectedRun} />
-          ) : pending ? (
-            <StartingSweepReceipt />
-          ) : (
-            <div className="rounded-md bg-surface-raised/35 px-4 py-8 text-center text-sm text-text-dim">
-              Start a sweep to create a receipt.
-            </div>
-          )}
-        </section>
-      </div>
+      {waitingForSelectedRun ? (
+        <StartingSweepReceipt taskId={activeRunId} />
+      ) : selectedRun ? (
+        <RunReceipt run={selectedRun} />
+      ) : pending ? (
+        <StartingSweepReceipt />
+      ) : (
+        <div className="rounded-md bg-surface-raised/45 px-4 py-10 text-center text-sm text-text-dim">
+          Start a sweep to create a receipt.
+        </div>
+      )}
     </div>
   );
 }
 
 function StartingSweepReceipt({ taskId }: { taskId?: string | null }) {
   return (
-    <section className="space-y-4 rounded-md bg-surface-overlay/25 px-4 py-4" data-testid="attention-run-starting">
+    <section className="relative space-y-4 rounded-md bg-surface-raised/75 px-4 py-4 before:absolute before:left-4 before:top-0 before:h-[2px] before:w-10 before:rounded-full before:bg-emphasis/70" data-testid="attention-run-starting">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="inline-flex items-center gap-2 text-sm font-medium text-accent">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Operator sweep</div>
+          <div className="mt-1 inline-flex items-center gap-2 text-lg font-semibold text-text">
             <Loader2 size={15} className="animate-spin" />
             Starting Operator sweep
           </div>
@@ -1700,7 +1700,7 @@ function StartingSweepReceipt({ taskId }: { taskId?: string | null }) {
       </div>
       <section className="min-h-[260px] rounded-md bg-surface-raised/35 px-4 py-6">
         <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Operator feed</div>
-        <div className="mt-12 text-center text-sm text-text-dim">Waiting for the first run event...</div>
+        <div className="mt-6 rounded-md bg-surface-overlay/25 px-3 py-4 text-center text-sm text-text-dim">Waiting for the first run event...</div>
       </section>
     </section>
   );
@@ -1725,15 +1725,18 @@ function RunReceipt({ run }: { run: AttentionTriageRunResponse }) {
   const clearedCount = run.counts?.processed ?? runItems.cleared.length;
   const runningCount = run.counts?.running ?? runItems.running.length;
   return (
-    <div className="space-y-4" data-testid="attention-run-receipt">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-surface-overlay/35 px-4 py-3">
+    <div className="relative space-y-4 rounded-md bg-surface-raised/75 px-4 py-4 before:absolute before:left-4 before:top-0 before:h-[2px] before:w-10 before:rounded-full before:bg-emphasis/70" data-testid="attention-run-receipt">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-text">Operator sweep</div>
-          <div className="mt-1 text-xs text-text-muted">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Sweep receipt</div>
+          <h2 className="mt-1 text-2xl font-semibold text-text">Operator sweep</h2>
+          <div className="mt-1 text-sm text-text-muted">
             {run.item_count} items · {run.effective_model || run.model_override || "default model"} · {formatRunTime(run.created_at)}
           </div>
         </div>
-        <span className="rounded-full bg-surface-raised px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-text-muted">{status}</span>
+        <span className={`rounded-full px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.08em] ${
+          status === "failed" ? "bg-danger/10 text-danger-muted" : status === "running" || status === "queued" ? "bg-accent/[0.08] text-accent" : "bg-surface-overlay text-text-muted"
+        }`}>{status}</span>
       </div>
 
       <div className="grid grid-cols-3 gap-2 text-sm">
@@ -1744,7 +1747,8 @@ function RunReceipt({ run }: { run: AttentionTriageRunResponse }) {
 
       {run.error && (
         <div className="rounded-md bg-danger/10 px-4 py-3 text-sm text-danger-muted">
-          {run.error}
+          <div className="text-[10px] font-semibold uppercase tracking-[0.08em]">Failed</div>
+          <div className="mt-1">{run.error}</div>
         </div>
       )}
 
@@ -1776,8 +1780,8 @@ function OperatorRunFeed({ run, status }: { run: AttentionTriageRunResponse; sta
         </div>
         <span className="rounded-full bg-surface-raised px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text-muted">{status}</span>
       </div>
-      <div className="mt-3 overflow-hidden rounded-md bg-surface-raised/35" style={{ contain: "paint" }}>
-        {hasTranscript ? (
+      {hasTranscript ? (
+        <div className="mt-3 overflow-hidden rounded-md bg-surface-raised/35" style={{ contain: "paint" }}>
           <div className="relative h-[min(62vh,680px)] min-h-[420px]">
             <SessionChatView
               sessionId={run.session_id!}
@@ -1788,15 +1792,15 @@ function OperatorRunFeed({ run, status }: { run: AttentionTriageRunResponse; sta
               emptyStateComponent={<div className="px-4 py-8 text-sm text-text-dim">Waiting for Operator feed...</div>}
             />
           </div>
-        ) : (
-          <div className="flex min-h-[220px] items-center justify-center px-4 py-8 text-center text-sm text-text-dim">
+        </div>
+      ) : (
+        <div className="mt-3 rounded-md bg-surface-raised/25 px-3 py-4 text-sm text-text-dim">
             <span className="inline-flex items-center gap-2">
               {stillRunning ? <Loader2 size={15} className="animate-spin" /> : null}
               {stillRunning ? "Waiting for Operator feed..." : "No Operator feed is available for this run."}
             </span>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </section>
   );
 }

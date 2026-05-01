@@ -573,6 +573,8 @@ async def test_batch_launch_issue_work_packs_creates_runs_with_shared_batch_id(d
         task = await db_session.get(Task, pack.launched_task_id)
         assert task is not None
         assert task.execution_config["project_coding_run"]["source_work_pack_id"] == str(pack.id)
+        assert task.execution_config["project_coding_run"]["launch_batch_id"] == result["launch_batch_id"]
+    assert {run["launch_batch_id"] for run in result["runs"]} == {result["launch_batch_id"]}
 
 
 @pytest.mark.asyncio

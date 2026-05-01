@@ -2078,6 +2078,12 @@ async def launch_issue_work_packs_project_runs(
             ),
             commit=False,
         )
+        task_cfg = dict(task.execution_config or {})
+        run_cfg = dict(task_cfg.get("project_coding_run") or {})
+        run_cfg["launch_batch_id"] = launch_batch_id
+        task_cfg["project_coding_run"] = run_cfg
+        task.execution_config = task_cfg
+        flag_modified(task, "execution_config")
         _mark_issue_work_pack_launched(
             pack,
             project_id=project.id,

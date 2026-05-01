@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from app.db.models import Channel, ExecutionReceipt, Project, ProjectDependencyStackInstance, ProjectRunReceipt, Task, TaskMachineGrant
+from app.db.models import Channel, ExecutionReceipt, IssueWorkPack, Project, ProjectDependencyStackInstance, ProjectRunReceipt, Task, TaskMachineGrant
 from app.services.project_coding_runs import (
     ProjectCodingRunCreate,
     ProjectCodingRunReviewFinalize,
@@ -588,6 +588,109 @@ async def test_finalize_project_coding_run_review_marks_only_accepted_selected_r
         (rejected_task_id, "review.result", "needs_review"),
     ]
     assert receipts[0].result["review_task_id"] == str(review_task_id)
+
+
+@pytest.mark.asyncio
+async def test_finalize_project_coding_run_review_records_source_work_pack_review_provenance(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    pack_id = uuid.uuid4()
+    run_task_id = uuid.uuid4()
+    review_task_id = uuid.uuid4()
+    launch_batch_id = f"issue-work-pack-batch:{uuid.uuid4()}"
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel-work-pack-review",
+        root_path="common/projects/spindrel",
+        metadata_={},
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    pack = IssueWorkPack(
+        id=pack_id,
+        title="Fix overnight bug",
+        summary="A launched work pack.",
+        category="code_bug",
+        confidence="high",
+        status="launched",
+        project_id=project_id,
+        channel_id=channel_id,
+        launched_task_id=run_task_id,
+        metadata_={"launch_batch_id": launch_batch_id, "review_actions": []},
+    )
+    now = datetime.now(timezone.utc)
+    run_task = Task(
+        id=run_task_id,
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        title="Project Coding Run",
+        prompt="Do the work",
+        status="complete",
+        task_type="agent",
+        created_at=now,
+        execution_config={
+            "run_preset_id": "project_coding_run",
+            "project_coding_run": {
+                "project_id": str(project_id),
+                "branch": "spindrel/work-pack",
+                "repo": {},
+                "source_work_pack_id": str(pack_id),
+                "launch_batch_id": launch_batch_id,
+            },
+        },
+    )
+    review_task = Task(
+        id=review_task_id,
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        title="Review Runs",
+        prompt="Review",
+        status="running",
+        task_type="agent",
+        created_at=now,
+        execution_config={
+            "run_preset_id": "project_coding_run_review",
+            "project_coding_run_review": {
+                "project_id": str(project_id),
+                "selected_task_ids": [str(run_task_id)],
+                "merge_method": "squash",
+            },
+        },
+    )
+    db_session.add_all([project, channel, pack, run_task, review_task])
+    await db_session.commit()
+
+    result = await finalize_project_coding_run_review(
+        db_session,
+        project,
+        ProjectCodingRunReviewFinalize(
+            review_task_id=review_task_id,
+            run_task_id=run_task_id,
+            outcome="accepted",
+            summary="Accepted from batch review.",
+            details={"checks": "passed"},
+        ),
+    )
+
+    assert result["status"] == "reviewed"
+    refreshed = await db_session.get(IssueWorkPack, pack_id)
+    assert refreshed is not None
+    latest = refreshed.metadata_["latest_review_action"]
+    assert latest["action"] == "reviewed"
+    assert latest["review_task_id"] == str(review_task_id)
+    assert latest["launch_batch_id"] == launch_batch_id
+    assert refreshed.metadata_["review_summary"] == "Accepted from batch review."
 
 
 @pytest.mark.asyncio

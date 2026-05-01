@@ -3,7 +3,7 @@ title: Track - Projects
 summary: First-class Project roots inside the singleton Workspace plus the Project Factory Vision — Blueprints, fresh instances, dev targets, dependency stacks, coding runs, review sessions, and the canonical execution context Module.
 tags: [spindrel, track, projects]
 status: active
-updated: 2026-05-01 (work-pack batch launch)
+updated: 2026-05-01 (launch-batch review loop)
 ---
 
 # Track - Projects
@@ -87,6 +87,7 @@ Locked next-phase ladder:
 - [x] **Phase 4AD - Work Pack review cockpit** — Issue Work Packs now have a review cockpit inside Mission Control Issue Intake instead of jumping straight from generated pack to launch. Reviewers can edit title, summary, category, confidence, launch prompt, Project/channel target, and source items; dismiss, mark needs-info, or reopen packs; and every action records durable `metadata.review_actions` / `latest_review_action` provenance. Launched packs become immutable, launch records a review action, the Project Factory contract e2e covers edit/dismiss/reopen/needs-info/launch/review flow, and the issue-intake screenshot fixture opens the review editor with controls/provenance visible.
 - [x] **Phase 4AE - Agentic work-pack activation** — Project-bound planning sessions now recommend the existing `workspace/issue_intake` runtime skill through Agent Capabilities. This keeps the next Project Factory step LLM-led instead of adding another subsystem: ordinary Codex/Claude agents load the skill, group a planning conversation or rough issue list into discrete proposed work packs, mark vague/planning/future items as `needs_info` or `not_code_work`, include verification expectations in `launch_prompt`, and call the existing `create_issue_work_packs` tool without launching coding runs.
 - [x] **Phase 4AF - Work Pack batch launch** — Mission Control Issue Intake can select multiple proposed Work Packs and launch them into Project coding runs in one all-or-nothing operation. The service validates every selected pack, Project, channel, and launch prompt before creating any tasks; successful runs share a durable `launch_batch_id` on the Work Pack metadata and review actions so overnight packs can be audited and reviewed together. The Project Factory contract e2e now covers two packs launched in one batch, and `spatial-check-issue-intake-work-packs.png` shows selected launchable packs plus the batch action.
+- [x] **Phase 4AG - Launch-batch review loop** — Project coding runs now expose `launch_batch_id` from Issue Work Pack batch launches. The Runs cockpit groups runs launched together, lets an operator select or start a review session for the whole batch, and carries batch provenance into the review context manifest. Accepted review finalization records a `reviewed` action back onto the source Work Pack metadata with review task/session ids, summary, outcome, merge settings, and launch batch id, so morning review can trace from rough note to batch launch to reviewed PR.
 
 ## Queued Follow-Ups
 

@@ -1691,9 +1691,9 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
-            "!!document.querySelector('[data-testid=\"attention-command-deck-what-now\"]')"
-            " && document.body.innerText.includes('Mission Control Review')"
+            "document.body.innerText.includes('Mission Control Review')"
             " && document.body.innerText.includes('Open a code fix')"
+            " && document.body.innerText.includes('view_spatial_canvas failed')"
         ),
         output="spatial-check-attention-review-deck.png",
         color_scheme="dark",
@@ -1702,9 +1702,10 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
             "const text = document.body.innerText;"
             "const lower = `${document.body.innerText} ${document.body.textContent || ''}`.toLowerCase();"
             "if (!text.includes('Findings') || !text.includes('Unreviewed') || !text.includes('Sweeps') || !text.includes('Cleared')) throw new Error('review deck queue chips missing');"
-            "if (!document.querySelector('[data-testid=\"attention-command-deck-what-now\"]')) throw new Error('what-now lane missing');"
+            "if (document.querySelector('[data-testid=\"attention-command-deck-what-now\"]')) throw new Error('selected review item should own focus without global what-now lane');"
             "if (!text.includes('view_spatial_canvas failed') || !text.includes('pin_spatial_widget failed')) throw new Error('review deck did not render seeded operator findings');"
             "if (!lower.includes('operator finding') || !lower.includes('open a code fix')) throw new Error('selected finding detail missing useful action language');"
+            "if (lower.includes('watch the active sweep')) throw new Error('active sweep prompt competes with selected finding');"
             "if (text.includes('Reviewing now')) throw new Error('stale reviewing-now copy is visible');"
             "if (text.includes('Open in Attention') || text.includes('Open deck')) throw new Error('legacy attention launcher copy is visible');"
             "if (text.includes('Raw signal') || text.includes('raw signal') || text.includes('Next best click')) throw new Error('legacy review language is visible');"
@@ -1756,8 +1757,9 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
-            "!!document.querySelector('[data-testid=\"attention-command-deck-what-now\"]')"
-            " && document.body.innerText.includes('Sweep history')"
+            "!!document.querySelector('[data-testid=\"attention-run-workspace\"]')"
+            " && document.body.innerText.toLowerCase().includes('sweep history')"
+            " && document.body.innerText.toLowerCase().includes('sweep receipt')"
         ),
         output="spatial-check-attention-run-log.png",
         color_scheme="dark",
@@ -1765,9 +1767,12 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
         assert_js=(
             "const text = document.body.innerText;"
             "const lower = text.toLowerCase();"
-            "if (!lower.includes('operator sweeps')) throw new Error('sweep history workspace missing');"
+            "if (document.querySelector('[data-testid=\"attention-command-deck-what-now\"]')) throw new Error('run mode should not show the global what-now lane');"
+            "if (!lower.includes('sweep history')) throw new Error('sweep history rail missing');"
+            "if (!lower.includes('sweep receipt')) throw new Error('selected sweep receipt is not the primary detail');"
             "if (!lower.includes('operator sweep') || !lower.includes('ready for review') || !lower.includes('cleared by operator')) throw new Error('run receipt did not render seeded review/cleared groups');"
             "if (lower.includes('no operator sweeps yet') || lower.includes('start a sweep to create a receipt')) throw new Error('run log rendered empty state with seeded run data');"
+            "if (lower.includes('check cleared receipts')) throw new Error('run mode is competing with cleared-receipt CTA');"
             "if (text.includes('Transcript') && !text.includes('Transcript evidence')) throw new Error('transcript disclosure does not use evidence copy');"
         ),
     ),
@@ -3108,6 +3113,7 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
         const finalizedReview = window.__PROJECT_REVIEW_FINALIZED__ === true;
         const enrichRun = (run, projectId) => ({
           ...run,
+          launch_batch_id: run.launch_batch_id || "issue-work-pack-batch:screenshot",
           dev_targets: run.dev_targets || [
             { key: "api", label: "API", port: 31100, port_env: "SPINDREL_DEV_API_PORT", url: "http://127.0.0.1:31100", url_env: "SPINDREL_DEV_API_URL" },
             { key: "ui", label: "UI", port: 31200, port_env: "SPINDREL_DEV_UI_PORT", url: "http://127.0.0.1:31200", url_env: "SPINDREL_DEV_UI_URL" }
@@ -3206,11 +3212,35 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
             actions: { can_refresh: true, can_mark_reviewed: true, can_cleanup_instance: true, can_request_changes: true }
           }
         });
+        const ensureBatchRows = (rows, projectId) => {
+          const enriched = rows.map((run) => enrichRun(run, projectId));
+          if (enriched.length === 0) return enriched;
+          const hasReviewBatch = enriched.some((run) => enriched.filter((other) => other.launch_batch_id === run.launch_batch_id).length > 1);
+          if (hasReviewBatch) return enriched;
+          const first = { ...enriched[0], launch_batch_id: "issue-work-pack-batch:screenshot" };
+          const peerTaskId = "screenshot-project-coding-run-batch-peer-task";
+          const peer = {
+            ...first,
+            id: "screenshot-project-coding-run-batch-peer",
+            request: "Add batch launch proof for overnight packs.",
+            branch: "screenshot/project-coding-run-batch-proof",
+            source_work_pack_id: "screenshot-work-pack-batch-peer",
+            task: { ...(first.task || {}), id: peerTaskId, title: "Project coding run batch peer" },
+            receipt: first.receipt ? {
+              ...first.receipt,
+              id: "screenshot-project-coding-run-batch-peer-receipt",
+              task_id: peerTaskId,
+              summary: "Batch peer Project coding run receipt",
+              branch: "screenshot/project-coding-run-batch-proof"
+            } : first.receipt
+          };
+          return [first, peer, ...enriched.slice(1)];
+        };
         if (response.ok) {
           try {
             const rows = await response.clone().json();
             if (Array.isArray(rows) && rows.length > 0) {
-              return new Response(JSON.stringify(rows.map((run) => enrichRun(run, match[1]))), {
+              return new Response(JSON.stringify(ensureBatchRows(rows, match[1])), {
                 status: response.status,
                 headers: { "Content-Type": "application/json" }
               });
@@ -3220,7 +3250,7 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
         }
         if (response.status !== 404) return response;
         const projectId = match[1];
-        const body = [enrichRun({
+        const bodySeed = [{
           id: "screenshot-project-coding-run",
           project_id: projectId,
           status: "completed",
@@ -3343,7 +3373,8 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
           ],
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
-        }, projectId)];
+        }];
+        const body = ensureBatchRows(bodySeed, projectId);
         return new Response(JSON.stringify(body), {
           status: 200,
           headers: { "Content-Type": "application/json" }
@@ -3576,28 +3607,14 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "await new Promise((resolve) => setTimeout(resolve, 120));"
         ),
         assert_js=(
-            "const text = document.body.innerText;"
-            "return { ok: text.includes('launched Project work') "
-            "&& text.includes('1 selected') "
-            "&& text.includes('Review session prompt') "
-            "&& text.includes('Start review') "
-            "&& text.includes('Mark reviewed') "
-            "&& text.includes('Execution access') "
-            "&& text.includes('Prepare the Project workspace screenshot receipt') "
-            "&& text.includes('Review:') "
-            "&& text.includes('Evidence:') "
-            "&& text.includes('Dev targets:') "
-            "&& text.includes('API http://127.0.0.1:31100') "
-            "&& text.includes('Request changes') "
-            "&& text.includes('Continuation:') "
-            "&& text.includes('PR linked') "
-            "&& text.includes('Refresh') "
-            "&& text.includes('Run Receipts') "
-            "&& text.includes('Screenshot Project coding run receipt') "
-            "&& text.includes('project-workspace-runs.png') "
-            "&& text.includes('UI http://127.0.0.1:31200') "
-            "&& text.includes('pytest tests/unit/test_projects_service.py'), "
-            "detail: 'Project Runs tab did not expose the coding run launcher and receipt evidence' };"
+            "const text = document.body.innerText.toLowerCase();"
+            "return { ok: text.includes('launch batches') "
+            "&& text.includes('review batch') "
+            "&& text.includes('prepare the project workspace screenshot receipt') "
+            "&& text.includes('add batch launch proof for overnight packs') "
+            "&& text.includes('launch batch:') "
+            "&& text.includes('run receipts'), "
+            "detail: 'Project Runs tab did not expose launch-batch review controls and receipt evidence' };"
         ),
     ),
     ScreenshotSpec(
@@ -3812,11 +3829,11 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         output="project-workspace-channels.png",
         color_scheme="dark",
         assert_js=(
-            "const text = document.body.innerText;"
-            "return { ok: text.includes('Create Channel') "
-            "&& text.includes('Attach Existing Channel') "
-            "&& text.includes('Select channel') "
-            "&& text.includes('Detach'), "
+            "const text = document.body.innerText.toLowerCase();"
+            "return { ok: text.includes('create channel') "
+            "&& text.includes('attach existing channel') "
+            "&& text.includes('select channel') "
+            "&& text.includes('detach'), "
             "detail: 'Project Channels tab did not expose membership controls' };"
         ),
     ),

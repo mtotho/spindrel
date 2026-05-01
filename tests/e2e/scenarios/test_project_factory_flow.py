@@ -167,6 +167,7 @@ async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClie
     assert {pack["id"] for pack in launched["work_packs"]} == {code_pack["id"], second_code_pack["id"]}
     assert {pack["metadata"]["launch_batch_id"] for pack in launched["work_packs"]} == {launched["launch_batch_id"]}
     assert all(pack["status"] == "launched" for pack in launched["work_packs"])
+    assert {run["launch_batch_id"] for run in launched["runs"]} == {launched["launch_batch_id"]}
     run = next(run for run in launched["runs"] if run["source_work_pack_id"] == code_pack["id"])
     task_id = run["task"]["id"]
     assert run["source_work_pack_id"] == code_pack["id"]
@@ -200,6 +201,7 @@ async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClie
     assert review_context["ok"] is True
     assert review_context["readiness"]["ready"] is True
     assert review_context["selected_task_ids"] == [task_id]
+    assert review_context["selected_runs"][0]["launch_batch_id"] == launched["launch_batch_id"]
     assert review_context["selected_runs"][0]["receipt"]["id"] == receipt["id"]
 
     finalized = await client.finalize_project_review(project["id"], {
@@ -216,6 +218,11 @@ async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClie
     assert finalized["run"]["review"]["status"] == "reviewed"
     assert finalized["run"]["review"]["review_task_id"] == review["id"]
     assert finalized["run"]["review"]["reviewed_by"] == "agent"
+    reviewed_packs = await client.list_issue_work_packs(status="launched")
+    reviewed_code_pack = next(pack for pack in reviewed_packs if pack["id"] == code_pack["id"])
+    assert reviewed_code_pack["latest_review_action"]["action"] == "reviewed"
+    assert reviewed_code_pack["latest_review_action"]["review_task_id"] == review["id"]
+    assert reviewed_code_pack["latest_review_action"]["launch_batch_id"] == launched["launch_batch_id"]
 
     remaining_needs_info = await client.list_issue_work_packs(status="needs_info")
     assert any(pack["id"] == needs_info_pack["id"] and pack["launched_task_id"] is None for pack in remaining_needs_info)

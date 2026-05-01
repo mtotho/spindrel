@@ -1551,6 +1551,7 @@ export interface ProjectCodingRun {
   dependency_stack?: ProjectDependencyStackState;
   readiness?: Record<string, any>;
   source_work_pack_id?: string | null;
+  launch_batch_id?: string | null;
   parent_task_id?: string | null;
   root_task_id?: string | null;
   continuation_index?: number;

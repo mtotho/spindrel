@@ -211,6 +211,14 @@ Successful batches store the same `launch_batch_id` on each Work Pack and its
 launch review action, so later review sessions can group the overnight runs
 back to the human-approved launch set.
 
+Project Runs exposes that launch batch on each coding run and shows grouped
+batch actions when two or more runs share the same id. Review batch starts the
+normal `project_coding_run_review` task with every run from the launch batch
+selected; it is not a separate review system. When the review agent accepts a
+run, finalization marks the run reviewed and appends a `reviewed` action back
+to the source Work Pack metadata with the review task/session ids, outcome,
+summary, merge method, and `launch_batch_id`.
+
 ![Project review session launched from selected coding runs](../images/project-workspace-review-launched.png)
 
 Launching a review session creates a normal task from the
@@ -251,7 +259,7 @@ artifacts, not ad hoc local captures:
 
 | Artifact | What it proves |
 |---|---|
-| [Project Runs cockpit](../images/project-workspace-runs.png) | Coding-run launch, selected-run review prompt, batch mark-reviewed/review-session controls, branch/PR progress, continuation action, handoff links, and receipt evidence. |
+| [Project Runs cockpit](../images/project-workspace-runs.png) | Coding-run launch, launch-batch grouping/review controls, selected-run review prompt, batch mark-reviewed/review-session controls, branch/PR progress, continuation action, handoff links, and receipt evidence. |
 | [Coding-run execution access](../images/project-workspace-execution-access.png) | Launching a coding run can grant one existing e2e/machine target with explicit inspect/exec and agent-tool controls. |
 | [Review session launched](../images/project-workspace-review-launched.png) | Clicking Start review on a selected run returns a review task and surfaces the task link in the cockpit. |
 | [Review execution access](../images/project-workspace-review-execution-access.png) | Launching a review session can carry the same task-scoped e2e/machine grant for tests, screenshots, and merge verification. |

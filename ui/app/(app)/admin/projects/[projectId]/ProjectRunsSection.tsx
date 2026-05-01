@@ -203,6 +203,12 @@ function dependencyStackLine(run: ProjectCodingRun) {
   return `Dependency stack: ${instance.status}${target ? ` · ${target}` : ""}${envKeys.length ? ` · env ${envKeys.length}` : ""}`;
 }
 
+function shortBatchId(value?: string | null) {
+  if (!value) return "";
+  const parts = value.split(":");
+  return (parts[1] || value).slice(0, 8);
+}
+
 function devTargetsLine(targets?: Array<Record<string, any> | string>) {
   const rows = (targets ?? []).filter(Boolean);
   if (rows.length === 0) return null;
@@ -468,6 +474,19 @@ export function ProjectRunsSection({
   const changeRun = runs.find((run) => run.id === changeRunId);
   const selectedRuns = runs.filter((run) => selectedRunIds.includes(run.id));
   const selectedTaskIds = selectedRuns.map((run) => run.task.id);
+  const launchBatchGroups = useMemo(() => {
+    const groups = new Map<string, ProjectCodingRun[]>();
+    for (const run of runs) {
+      if (!run.launch_batch_id) continue;
+      const current = groups.get(run.launch_batch_id) ?? [];
+      current.push(run);
+      groups.set(run.launch_batch_id, current);
+    }
+    return Array.from(groups.entries())
+      .map(([id, batchRuns]) => ({ id, runs: batchRuns }))
+      .filter((group) => group.runs.length > 1)
+      .sort((a, b) => String(b.runs[0]?.created_at || "").localeCompare(String(a.runs[0]?.created_at || "")));
+  }, [runs]);
   const batchBusy = markReviewedBatch.isPending || createReviewSession.isPending;
   const scheduleBusy = createSchedule.isPending || runScheduleNow.isPending || disableSchedule.isPending;
   const toggleRun = (runId: string) => {
@@ -530,6 +549,26 @@ export function ProjectRunsSection({
         channel_id: selectedChannel.id,
         task_ids: selectedTaskIds,
         prompt: reviewPrompt.trim(),
+        merge_method: "squash",
+        machine_target_grant: reviewMachineTargetGrant,
+      },
+      {
+        onSuccess: (task) => {
+          setReviewTaskId(task.id);
+        },
+      },
+    );
+  };
+  const launchReviewForBatch = (batchRuns: ProjectCodingRun[]) => {
+    if (!selectedChannel || batchRuns.length === 0 || batchBusy) return;
+    const taskIds = batchRuns.map((run) => run.task.id);
+    const batchId = batchRuns[0]?.launch_batch_id;
+    setSelectedRunIds(batchRuns.map((run) => run.id));
+    createReviewSession.mutate(
+      {
+        channel_id: selectedChannel.id,
+        task_ids: taskIds,
+        prompt: `${reviewPrompt.trim()}\n\nReview launch batch ${batchId}. Keep finalization provenance linked to this batch.`,
         merge_method: "squash",
         machine_target_grant: reviewMachineTargetGrant,
       },
@@ -762,6 +801,35 @@ export function ProjectRunsSection({
                   Review session started: <Link className="font-mono text-accent" to={`/admin/tasks/${reviewTaskId}`}>{reviewTaskId.slice(0, 8)}</Link>
                 </span>
               )}
+              {launchBatchGroups.length > 0 && (
+                <div className="flex flex-col gap-1 pt-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">Launch batches</span>
+                  {launchBatchGroups.slice(0, 4).map((group) => (
+                    <div key={group.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-raised/40 px-2.5 py-2">
+                      <span className="min-w-0 truncate text-[12px] text-text-muted">
+                        Batch {shortBatchId(group.id)} · {group.runs.length} run{group.runs.length === 1 ? "" : "s"}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <ActionButton
+                          label="Select"
+                          size="small"
+                          variant="ghost"
+                          disabled={batchBusy}
+                          onPress={() => setSelectedRunIds(group.runs.map((run) => run.id))}
+                        />
+                        <ActionButton
+                          label={createReviewSession.isPending ? "Starting" : "Review batch"}
+                          icon={<GitMerge size={13} />}
+                          size="small"
+                          variant="secondary"
+                          disabled={!selectedChannel || batchBusy}
+                          onPress={() => launchReviewForBatch(group.runs)}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="flex items-start justify-end gap-1">
               <ActionButton
@@ -813,6 +881,9 @@ export function ProjectRunsSection({
                       <span className="truncate text-[11px] text-text-dim">
                         Review: {reviewStatusLabel(run)} · Evidence: {evidenceSummary(run)}
                       </span>
+                      {run.launch_batch_id && (
+                        <span className="truncate text-[11px] text-text-dim">Launch batch: {shortBatchId(run.launch_batch_id)}</span>
+                      )}
                       {lineageLine(run) && (
                         <span className="truncate text-[11px] text-text-dim">Continuation: {lineageLine(run)}</span>
                       )}

@@ -724,6 +724,7 @@ async def _coding_run_row(
         "dependency_stack_preflight": cfg.get("dependency_stack_preflight") or {},
         "readiness": ctx.readiness_summary(dependency_stack_status=dependency_stack),
         "source_work_pack_id": ctx.source_work_pack_id,
+        "launch_batch_id": cfg.get("launch_batch_id"),
         "parent_task_id": ctx.lineage.parent_task_id,
         "root_task_id": ctx.lineage.root_task_id,
         "continuation_index": ctx.lineage.continuation_index,
