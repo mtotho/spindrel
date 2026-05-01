@@ -514,6 +514,7 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 
 ## Small copy fixes (2026-04-24)
 
+- [x] Fixed channel settings escape routes (2026-05-01): the settings header back arrow now targets the owning channel directly instead of browser history, except dashboard-origin settings still return to the channel dashboard. The header also exposes an explicit `Open channel` link for accidental settings-page navigation from search/palette flows.
 - [x] Fixed channel-settings autosave textarea clobbering (2026-04-26): heartbeat and parent channel settings now keep a local dirty draft through save/refetch races, and a completed save only clears dirty state if the saved snapshot still matches what the user is currently editing. This preserves Heartbeat Prompt and other textarea edits while autosave remains enabled.
 - [x] `/settings` Chat History `Compaction Model` description is provider-neutral now: "Model used for context compaction." The old "LiteLLM model alias" wording was misleading because the shared picker spans all LLM providers.
 - [x] Fixed stale post-compaction typing indicators: channel-state rehydration now treats lifecycle-only `turn_started` / `skill_index` trace rows as active only while the session lock is active, so reopening a compacted idle thread does not show a phantom bot thinking until the 10-minute TTL expires.
