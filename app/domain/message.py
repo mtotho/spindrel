@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from app.services.tool_result_envelopes import normalize_tool_result_envelope_ids
+
 from app.domain.actor import ActorRef
 
 if TYPE_CHECKING:
@@ -103,7 +105,12 @@ class Message:
         (matches MessageOut.from_orm semantics — see _attachments_if_loaded
         in app/schemas/messages.py).
         """
-        meta = msg.metadata_ or {}
+        meta = dict(msg.metadata_ or {})
+        if isinstance(meta.get("tool_results"), list):
+            meta["tool_results"] = normalize_tool_result_envelope_ids(
+                msg.tool_calls,
+                meta["tool_results"],
+            )
         actor = _derive_actor(msg.role, meta)
         attachments = tuple(
             AttachmentBrief.from_orm(a) for a in _attachments_if_loaded(msg)
@@ -117,7 +124,7 @@ class Message:
             tool_call_id=msg.tool_call_id,
             correlation_id=msg.correlation_id,
             created_at=msg.created_at,
-            metadata=dict(meta),
+            metadata=meta,
             attachments=attachments,
             actor=actor,
             channel_id=channel_id,

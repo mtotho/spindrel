@@ -281,3 +281,42 @@ async def test_persist_turn_repairs_redacted_tool_result_ids_from_tool_calls(db_
 
     assert row.tool_calls[0]["id"] == raw_id
     assert row.metadata_["tool_results"][0]["tool_call_id"] == raw_id
+
+
+def test_message_out_repairs_redacted_tool_result_ids_from_tool_calls():
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from app.schemas.messages import MessageOut
+
+    raw_id = "toolu_0132CKeCpSjTvXEDHroN1cBq"
+    msg = SimpleNamespace(
+        id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        role="assistant",
+        content="Done.",
+        tool_calls=[
+            {
+                "id": raw_id,
+                "name": "mcp__spindrel__list_channels",
+                "function": {"name": "mcp__spindrel__list_channels"},
+            }
+        ],
+        tool_call_id=None,
+        correlation_id=None,
+        created_at=datetime.now(timezone.utc),
+        metadata_={
+            "tool_results": [
+                {
+                    "tool_call_id": "toolu_0[REDACTED]32CKeCpSjTvXEDHroN[REDACTED]cBq",
+                    "content_type": "application/json",
+                    "body": "{}",
+                }
+            ]
+        },
+        attachments=[],
+    )
+
+    out = MessageOut.from_orm(msg)
+
+    assert out.metadata["tool_results"][0]["tool_call_id"] == raw_id

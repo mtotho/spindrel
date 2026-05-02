@@ -12,6 +12,8 @@ from typing import Optional, TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from app.services.tool_result_envelopes import normalize_tool_result_envelope_ids
+
 if TYPE_CHECKING:
     from app.db.models import Attachment, Message
     from app.domain.message import Message as DomainMessage
@@ -78,6 +80,12 @@ class MessageOut(BaseModel):
 
     @classmethod
     def from_orm(cls, msg: "Message") -> "MessageOut":
+        metadata = dict(msg.metadata_ or {})
+        if isinstance(metadata.get("tool_results"), list):
+            metadata["tool_results"] = normalize_tool_result_envelope_ids(
+                msg.tool_calls,
+                metadata["tool_results"],
+            )
         return cls(
             id=msg.id,
             session_id=msg.session_id,
@@ -87,7 +95,7 @@ class MessageOut(BaseModel):
             tool_call_id=msg.tool_call_id,
             correlation_id=msg.correlation_id,
             created_at=msg.created_at,
-            metadata=msg.metadata_ or {},
+            metadata=metadata,
             attachments=[AttachmentBrief.from_orm(a) for a in _attachments_if_loaded(msg)],
         )
 
