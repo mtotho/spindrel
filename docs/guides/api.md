@@ -14,6 +14,24 @@ Spindrel auto-generates OpenAPI docs from its route definitions:
 
 All endpoints are visible, including admin routes. Authentication is still enforced — the docs just show what's available.
 
+### UI type generation
+
+The Spindrel web UI consumes this schema as static TS types. `scripts/generate-api-types.sh` dumps the schema offline (no running server needed) and runs `openapi-typescript` to write `ui/src/types/api.generated.ts`. Both the schema snapshot (`ui/openapi.json`) and the generated types are committed; the `api-type-drift` CI job regenerates them on every PR and fails if the result differs, so backend response-model changes ship with their TS counterpart in the same commit.
+
+Run after changing any Pydantic response model:
+
+```bash
+bash scripts/generate-api-types.sh
+```
+
+Import generated types via the convenience shim:
+
+```ts
+import type { ChannelOut, ProjectCodingRunOut } from "@/types/apiSchema";
+```
+
+Add new aliases to `ui/src/types/apiSchema.ts` as feature-by-feature migrations adopt generated types away from the legacy hand-written `ui/src/types/api.ts`.
+
 ## Agent Entry Points
 
 Agents that are discovering Spindrel from a running server should start with:

@@ -264,6 +264,12 @@ async def build_admin_channel_settings_out(
     out.layout_mode = cfg.get("layout_mode") or "full"
     out.chat_mode = cfg.get("chat_mode") or "default"
     out.native_context_policy = cfg.get("native_context_policy") or "default"
+    try:
+        from app.agent.context_profiles import resolve_native_context_policy
+
+        out.effective_native_context_policy = resolve_native_context_policy(channel=channel)
+    except Exception:
+        out.effective_native_context_policy = "lean"
     out.header_backdrop_mode = cfg.get("header_backdrop_mode") or "glass"
     out.plan_mode_control = cfg.get("plan_mode_control") or "auto"
     out.widget_theme_ref = cfg.get("widget_theme_ref")

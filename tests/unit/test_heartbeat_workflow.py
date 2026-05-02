@@ -122,6 +122,11 @@ class TestFireHeartbeatDelegatesToWorkflow:
         assert cfg["system_preamble"] == "heartbeat preamble"
         assert cfg["model_override"] == "gpt-test"
         assert cfg["model_provider_id_override"] == "provider-test"
+        assert cfg["run_control_policy"]["tool_surface"] == "focused_escape"
+        assert cfg["run_control_policy"]["required_tools"] == [
+            "sonarr_calendar",
+            "qbit_torrents",
+        ]
         assert cfg["additional_tool_schemas"][0]["function"]["name"] == "report_issue"
         assert cfg["heartbeat"]["heartbeat_run_id"] == str(prepared.run_id)
 

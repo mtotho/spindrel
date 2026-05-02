@@ -36,6 +36,38 @@ jobs:
         working-directory: ui
         run: npx tsc --noEmit
 
+  api-type-drift:
+    # Regenerate ui/openapi.json + ui/src/types/api.generated.ts from the
+    # live FastAPI route table and fail if the result differs from what's
+    # committed. Forces backend response-model changes to ship with their
+    # generated TS counterpart in the same PR.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: '3.12'
+      - name: Install Python dependencies
+        run: pip install -r requirements.lock
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci
+      - name: Regenerate API types
+        env:
+          PYTHON_BIN: python
+        run: bash scripts/generate-api-types.sh
+      - name: Fail on drift
+        run: |
+          if ! git diff --exit-code -- ui/openapi.json ui/src/types/api.generated.ts; then
+            echo "::error::OpenAPI schema or generated TS types are out of date. Run scripts/generate-api-types.sh and commit the result."
+            exit 1
+          fi
+
   dep-audit:
     runs-on: ubuntu-latest
     # Surfaces known CVEs in pinned dependencies. Non-blocking: advisories

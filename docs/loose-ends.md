@@ -1,13 +1,16 @@
 ---
 tags: [spindrel, loose-ends, todo]
 status: active
-updated: 2026-05-01 (Logged run_script auto-import gap + list_tool_signatures default-limit problem from heartbeat token-cost trace)
+updated: 2026-05-02 (Logged ui/src/types/api.ts migration backlog after OpenAPI codegen landed)
 ---
 # Loose Ends
 
 Active items only. Resolved bugs → [[fix-log]]. Architectural decisions → [[architecture-decisions]]. Track-specific work → `Track - *.md`. Untriaged review findings → [[open-issues]].
 
 ## Bugs — Open
+
+### Migrate UI imports from `ui/src/types/api.ts` to generated types (2026-05-02)
+**Surfaced**: OpenAPI codegen + drift gate landed (see [[architecture-decisions]] "UI API types are generated from OpenAPI"). `ui/src/types/api.generated.ts` (auto-generated, 48K lines) and the `ui/src/types/apiSchema.ts` shim are now canonical. The legacy hand-written `ui/src/types/api.ts` (~2,347 lines) is still imported by most UI modules. Per-feature follow-up: flip imports from `./types/api` to `./types/apiSchema`, add the relevant alias in `apiSchema.ts`, delete the corresponding interface from `api.ts`. When nothing imports `api.ts`, delete it. Suggested order by churn: `ProjectCodingRun*` → `Channel*`/`ChannelBotMember*`/`IntegrationBinding*` → widget/dashboard schemas → notifications/tasks/sessions → everything else. Pure mechanical cleanup; no behavior change. Until then both files coexist (intended); CI typecheck passes.
 
 ### `_save_backup` retention prunes too few versions (2026-05-01)
 **Surfaced**: `tests/unit/test_file_ops.py::TestBackupsAndHiding::test_backup_prunes_old_versions` and `::TestBackupRetention::test_data_file_retention_applied` fail consistently — pruning leaves 8 backups when test expects `MAX_BACKUP_VERSIONS=5`, and 23 when test expects `MAX_BACKUP_VERSIONS_DATA=20`. Verified pre-existing (reproduces against unmodified `app/tools/local/file_ops.py`) and unrelated to the 2026-05-01 untrusted-data wrapping change. Pruning logic in `_save_backup` looks correct on inspection; suspect a list/sort race on identical-mtime backups (`time.sleep(0.01)` between writes may not produce distinct mtimes on systems with low-resolution timers). Fix path: switch retention to count-based "delete oldest by sorted name" instead of mtime, OR bump the sleep in tests, OR seed monotonic suffixes that already encode the order.

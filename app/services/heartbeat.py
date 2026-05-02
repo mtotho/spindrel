@@ -819,7 +819,22 @@ def _heartbeat_task_execution_config(
     cfg["model_override"] = prepared.model_override
     cfg["model_provider_id_override"] = prepared.provider_id_override
     cfg["fallback_models"] = prepared.fallback_models
-    cfg["run_control_policy"] = prepared.execution_policy
+    run_control_policy = dict(prepared.execution_policy or {})
+    configured_tools = [
+        str(value).strip()
+        for value in (cfg.get("tools") or [])
+        if str(value).strip()
+    ]
+    if configured_tools:
+        existing_required = [
+            str(value).strip()
+            for value in (run_control_policy.get("required_tools") or [])
+            if str(value).strip()
+        ]
+        run_control_policy["required_tools"] = list(
+            dict.fromkeys([*existing_required, *configured_tools])
+        )
+    cfg["run_control_policy"] = run_control_policy
     if getattr(hb, "harness_effort", None):
         cfg["harness_effort"] = hb.harness_effort
     if prepared.injected_tools:

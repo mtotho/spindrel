@@ -211,9 +211,15 @@ export interface AttentionTriageRunResponse {
   created_at?: string | null;
   completed_at?: string | null;
   error?: string | null;
+  links?: {
+    session?: string | null;
+    channel?: string | null;
+  };
 }
 
 export interface AttentionTriageRunInput {
+  channel_id?: string | null;
+  item_ids?: string[];
   model_override?: string | null;
   model_provider_id_override?: string | null;
 }

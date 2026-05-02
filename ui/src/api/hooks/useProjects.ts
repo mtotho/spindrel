@@ -116,6 +116,7 @@ export function useProjectCodingRuns(projectId: string | undefined) {
     queryKey: ["projects", projectId, "coding-runs"],
     queryFn: () => apiFetch<ProjectCodingRun[]>(`/api/v1/projects/${projectId}/coding-runs`),
     enabled: !!projectId,
+    refetchInterval: 10_000,
   });
 }
 

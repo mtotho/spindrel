@@ -358,6 +358,36 @@ def _read_new_records(
         return handle.tell(), records
 
 
+def _native_session_id_from_transcript(path: Path, *, runtime_name: str) -> str | None:
+    """Best-effort native session id discovery from a CLI transcript file."""
+
+    if runtime_name == "claude-code":
+        stem = path.stem.strip()
+        return stem or None
+
+    if runtime_name != "codex":
+        return None
+
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for _, line in zip(range(20), handle):
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if payload.get("type") != "session_meta":
+                    continue
+                meta = payload.get("payload")
+                if not isinstance(meta, dict):
+                    continue
+                session_id = meta.get("id")
+                if isinstance(session_id, str) and session_id.strip():
+                    return session_id.strip()
+    except OSError:
+        return None
+    return None
+
+
 def _parse_codex_jsonl_record(payload: dict) -> Iterable[NativeCliMirrorRecord]:
     if payload.get("type") != "response_item":
         return ()
@@ -426,10 +456,14 @@ async def _persist_mirrored_record(
     transcript_path: Path,
     record: NativeCliMirrorRecord,
 ) -> None:
+    effective_native_session_id = native_session_id or _native_session_id_from_transcript(
+        transcript_path,
+        runtime_name=runtime_name,
+    )
     metadata = {
         "harness_native_cli": {
             "runtime": runtime_name,
-            "native_session_id": native_session_id,
+            "native_session_id": effective_native_session_id,
             "record_key": record.key,
             "transcript_path": str(transcript_path),
         },
@@ -437,7 +471,12 @@ async def _persist_mirrored_record(
         "include_in_memory": True,
         "trigger_rag": False,
     }
-    if record.role == "assistant":
+    if record.role == "assistant" and effective_native_session_id:
+        metadata["harness"] = {
+            "runtime": runtime_name,
+            "session_id": effective_native_session_id,
+            "source": "harness_native_cli",
+        }
         try:
             bot = get_bot(bot_id)
             display = bot.display_name or bot.name or bot_id

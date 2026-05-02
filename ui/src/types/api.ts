@@ -360,6 +360,8 @@ export interface Channel {
     chat_mode?: "default" | "terminal";
     /** Native Spindrel context diet. Harness runtimes use separate harness context settings. */
     native_context_policy?: "default" | "lean" | "standard" | "rich";
+    /** Resolved native context diet after channel/global defaults. */
+    effective_native_context_policy?: "lean" | "standard" | "rich";
     /** Top-center header strip shell treatment for header-zone widgets. */
     header_backdrop_mode?: "default" | "glass" | "clear";
     /** Composer plan-control visibility. "auto" is the absent/default state. */
@@ -887,6 +889,8 @@ export interface ChannelSettings {
   chat_mode?: "default" | "terminal";
   /** Native Spindrel context diet. "default" inherits the server default. Harness agents use separate harness context. */
   native_context_policy?: "default" | "lean" | "standard" | "rich";
+  /** Resolved native context diet after channel/global defaults. */
+  effective_native_context_policy?: "lean" | "standard" | "rich";
   /** Top-center chat header strip shell treatment. Stored in `channel.config`. */
   header_backdrop_mode?: "default" | "glass" | "clear";
   /** Composer plan-control visibility. "auto" hides dormant control on non-harness channels and shows it for harness channels. Stored in `channel.config`. */
@@ -1592,6 +1596,18 @@ export interface ProjectCodingRun {
     blocker?: string | null;
   };
   source_work_pack_id?: string | null;
+  source_work_pack?: {
+    id: string;
+    title: string;
+    summary?: string;
+    category?: string;
+    confidence?: string;
+    status?: string;
+    source_item_ids?: string[];
+    launch_prompt?: string;
+    created_at?: string | null;
+    updated_at?: string | null;
+  } | null;
   launch_batch_id?: string | null;
   parent_task_id?: string | null;
   root_task_id?: string | null;

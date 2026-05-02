@@ -102,7 +102,8 @@ ISSUE_TRIAGE_ALLOWED_TOOLS = {
     "get_memory_file",
     "list_tasks",
     "get_trace",
-    ISSUE_WORK_PACK_TOOL_NAME,
+    "list_issue_intake",
+    CONVERSATIONAL_ISSUE_WORK_PACK_TOOL_NAME,
 }
 ISSUE_INTAKE_CATEGORIES = {
     "bug",
@@ -1248,15 +1249,16 @@ def _issue_intake_triage_prompt(items: list[WorkspaceAttentionItem], channel_nam
         for item in items
     ]
     return (
-        "You are the workspace operator triaging raw issue intake into implementation-ready work packs.\n"
+        "You are running a visible issue-triage conversation for this channel.\n"
         "Inputs may include conversational issue dumps from users and autonomous agent blocker reports.\n\n"
         "Rules:\n"
+        "- Stay conversational: explain your grouping and ask clarifying questions if needed.\n"
         "- Group related items into the smallest useful work packs.\n"
         "- Create code work packs only when the evidence points to concrete implementation work.\n"
         "- Put config/setup/environment/user-decision/non-code items into non-code categories instead of forcing them into Project runs.\n"
         "- If an item is too vague, mark it needs_info and say what is missing.\n"
-        "- Use report_issue_work_packs before your final response, including a triage_receipt with the grouping rationale, launch readiness, follow-up questions, and excluded/not-code items.\n"
-        "- Do not launch Project coding runs. Humans approve launches later.\n\n"
+        "- When the grouping is ready, use create_issue_work_packs with a triage_receipt that explains grouping rationale, launch readiness, follow-up questions, and excluded/not-code items.\n"
+        "- Do not launch Project coding runs unless the user explicitly asks in this conversation.\n\n"
         "Work pack categories: code_bug, test_failure, config_issue, environment_issue, user_decision, not_code_work, needs_info, other.\n"
         "Confidence: low, medium, high.\n\n"
         "Raw intake:\n"
@@ -1269,32 +1271,34 @@ async def create_issue_intake_triage_run(
     *,
     auth: Any,
     actor: str | None,
+    channel_id: uuid.UUID | None = None,
+    item_ids: list[uuid.UUID] | None = None,
     model_override: str | None = None,
     model_provider_id_override: str | None = None,
 ) -> dict[str, Any]:
     items = await list_attention_items(db, auth=auth, include_resolved=False)
     active = [item for item in items if _is_issue_intake_candidate(item)]
+    selected_ids = {item_id for item_id in (item_ids or [])}
+    if selected_ids:
+        active = [item for item in active if item.id in selected_ids]
     if not active:
         raise ValidationError("No raw issue intake is ready to triage.")
+    if channel_id is None:
+        raise ValidationError("Choose a channel before starting issue triage.")
     try:
         from app.agent.bots import get_bot
-        operator_bot = get_bot(OPERATOR_TRIAGE_BOT_ID)
+        channel = await db.get(Channel, channel_id)
+        if channel is None:
+            raise ValidationError("Channel not found.")
+        triage_bot = get_bot(channel.bot_id)
     except Exception as exc:  # noqa: BLE001
-        raise ValidationError("Operator bot is unavailable.") from exc
+        raise ValidationError("Triage channel or bot is unavailable.") from exc
 
-    operator_channel = await _operator_channel(db)
-    from app.services.sub_sessions import spawn_ephemeral_session
-    session = await spawn_ephemeral_session(
-        db,
-        bot_id=OPERATOR_TRIAGE_BOT_ID,
-        parent_channel_id=operator_channel.id,
-        context={
-            "page_name": "Issue intake triage",
-            "tags": ["attention", "issue-intake", "work-packs"],
-            "payload": {"item_count": len(active), "actor": actor},
-            "tool_hints": ["read_conversation_history", "search_history", ISSUE_WORK_PACK_TOOL_NAME],
-        },
-    )
+    from app.services.channels import create_detached_channel_session
+    session_id = await create_detached_channel_session(db, channel)
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise ValidationError("Could not create triage session.")
 
     channel_ids = {item.channel_id for item in active if item.channel_id}
     channel_names: dict[uuid.UUID, str] = {}
@@ -1307,17 +1311,41 @@ async def create_issue_intake_triage_run(
     if not clean_model_override:
         clean_provider_id_override = None
 
+    prompt = _issue_intake_triage_prompt(active, channel_names)
+    from app.db.models import Message
+    from app.services.sessions import store_passive_message
+    await store_passive_message(
+        db,
+        session.id,
+        prompt,
+        {
+            "source": "issue_triage",
+            "issue_triage": {
+                "item_ids": [str(item.id) for item in active],
+                "started_by": actor,
+            },
+        },
+        channel_id=channel.id,
+        role="user",
+    )
+    msg = (await db.execute(
+        select(Message)
+        .where(Message.session_id == session.id)
+        .order_by(Message.created_at.desc())
+        .limit(1)
+    )).scalar_one()
+
     task = Task(
-        bot_id=OPERATOR_TRIAGE_BOT_ID,
-        client_id=operator_channel.client_id,
+        bot_id=channel.bot_id,
+        client_id=channel.client_id,
         session_id=session.id,
-        channel_id=operator_channel.id,
-        prompt=_issue_intake_triage_prompt(active, channel_names),
+        channel_id=channel.id,
+        prompt=prompt,
         title=f"Issue intake triage: {len(active)} items",
         status="pending",
         task_type="issue_intake_triage",
-        dispatch_type="none",
-        dispatch_config={},
+        dispatch_type=channel.integration or "none",
+        dispatch_config=channel.dispatch_config or {},
         callback_config={
             "issue_intake_triage": True,
             "attention_item_ids": [str(item.id) for item in active],
@@ -1325,21 +1353,22 @@ async def create_issue_intake_triage_run(
         execution_config={
             "session_scoped": True,
             "external_delivery": "none",
+            "pre_user_msg_id": str(msg.id),
             "history_mode": "none",
             "tools": sorted(ISSUE_TRIAGE_ALLOWED_TOOLS),
             "exclude_tools": [
                 tool_name
-                for tool_name in (operator_bot.local_tools or [])
+                for tool_name in (triage_bot.local_tools or [])
                 if tool_name not in ISSUE_TRIAGE_ALLOWED_TOOLS
             ],
             "system_preamble": (
-                "You are running a read-only issue-intake triage pass. "
-                "Group, classify, and report work packs only. Do not mutate workspace state "
-                "except by calling report_issue_work_packs."
+                "You are running a visible issue-intake triage conversation. "
+                "Group, classify, and discuss the selected intake items. Mutate only by "
+                "calling create_issue_work_packs when the work-pack proposal is ready."
             ),
             "model_override": clean_model_override,
             "model_provider_id_override": clean_provider_id_override,
-            "effective_model": clean_model_override or operator_bot.model,
+            "effective_model": clean_model_override or triage_bot.model,
         },
         created_at=_now(),
     )
@@ -1363,14 +1392,14 @@ async def create_issue_intake_triage_run(
             "state": "running",
             "task_id": str(task.id),
             "session_id": str(session.id),
-            "parent_channel_id": str(operator_channel.id),
-            "operator_bot_id": OPERATOR_TRIAGE_BOT_ID,
+            "parent_channel_id": str(channel.id),
+            "operator_bot_id": channel.bot_id,
             "started_by": actor,
             "started_at": now.isoformat(),
         })
         evidence["issue_triage"] = triage
         item.evidence = evidence
-        item.assigned_bot_id = OPERATOR_TRIAGE_BOT_ID
+        item.assigned_bot_id = channel.bot_id
         item.assignment_mode = "run_now"
         item.assignment_status = "running"
         item.assignment_task_id = task.id
@@ -1384,16 +1413,20 @@ async def create_issue_intake_triage_run(
     return {
         "task_id": str(task.id),
         "session_id": str(session.id),
-        "parent_channel_id": str(operator_channel.id),
-        "bot_id": OPERATOR_TRIAGE_BOT_ID,
+        "parent_channel_id": str(channel.id),
+        "bot_id": channel.bot_id,
         "status": task.status,
         "item_count": len(active),
         "model_override": clean_model_override,
         "model_provider_id_override": clean_provider_id_override,
-        "effective_model": clean_model_override or operator_bot.model,
+        "effective_model": clean_model_override or triage_bot.model,
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "completed_at": task.completed_at.isoformat() if task.completed_at else None,
         "error": task.error,
+        "links": {
+            "session": f"/channels/{channel.id}/session/{session.id}",
+            "channel": f"/channels/{channel.id}",
+        },
     }
 
 

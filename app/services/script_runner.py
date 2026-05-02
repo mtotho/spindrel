@@ -26,6 +26,7 @@ SCRATCH_PARENT = ".run_script"
 
 HELPER_FILENAME = "spindrel.py"
 SCRIPT_FILENAME = "script.py"
+EGRESS_GUARD_FILENAME = "sitecustomize.py"
 
 
 def _helper_source() -> str:
@@ -127,6 +128,88 @@ def _helper_source() -> str:
     ''')
 
 
+def _egress_guard_source() -> str:
+    """Return the source of the ``sitecustomize.py`` egress guard.
+
+    Python imports ``sitecustomize`` from sys.path at startup (before any user
+    code runs). When running ``python script.py`` with cwd set to the scratch
+    dir, the scratch dir is sys.path[0], so this file gets imported automatically.
+
+    The guard patches ``socket.socket.connect`` (the chokepoint underneath
+    urllib / requests / http.client / asyncio) and only allows connections to
+    the spindrel server (``AGENT_SERVER_URL``). Mode is read from
+    ``SPINDREL_SCRIPT_EGRESS_MODE`` env: ``off`` / ``audit`` (default) / ``enforce``.
+
+    Bypasses NOT covered (Phase 2 = OS-level netns):
+      - Subprocess to a native binary that opens its own sockets
+      - ``ctypes`` raw syscalls
+      - Filesystem-level data exfil through synced workspace dirs
+    """
+    return textwrap.dedent('''\
+        """Spindrel egress guard. Auto-imported via sitecustomize."""
+        from __future__ import annotations
+        import os
+        import socket
+        import sys
+        import urllib.parse
+
+        _MODE = os.environ.get("SPINDREL_SCRIPT_EGRESS_MODE", "audit").lower()
+
+        if _MODE in ("audit", "enforce"):
+            _allowed: set = set()
+            _server = os.environ.get("AGENT_SERVER_URL", "")
+            if _server:
+                _parsed = urllib.parse.urlparse(_server)
+                _host = (_parsed.hostname or "").lower()
+                _port = _parsed.port or (443 if _parsed.scheme == "https" else 80)
+                if _host:
+                    _allowed.add((_host, _port))
+                    # Loopback hostname forms — collapse them all together.
+                    if _host in ("localhost", "127.0.0.1", "::1"):
+                        _allowed.add(("127.0.0.1", _port))
+                        _allowed.add(("::1", _port))
+                        _allowed.add(("localhost", _port))
+                    else:
+                        # Pre-resolve so connections by IP literal still match.
+                        try:
+                            for info in socket.getaddrinfo(_host, _port, proto=socket.IPPROTO_TCP):
+                                ip = info[4][0]
+                                _allowed.add((ip.lower(), _port))
+                        except Exception:
+                            pass
+
+            _orig_connect = socket.socket.connect
+
+            def _addr_allowed(address) -> bool:
+                if not isinstance(address, tuple) or len(address) < 2:
+                    # AF_UNIX / AF_BLUETOOTH etc. — Phase 1 only guards INET; allow.
+                    return True
+                host = str(address[0]).lower()
+                try:
+                    port = int(address[1])
+                except (TypeError, ValueError):
+                    return False
+                for ah, ap in _allowed:
+                    if host == ah and port == ap:
+                        return True
+                return False
+
+            def _guarded_connect(self, address):
+                family = getattr(self, "family", None)
+                if family in (socket.AF_INET, socket.AF_INET6) and not _addr_allowed(address):
+                    msg = (
+                        f"spindrel-egress: blocked connect to {address!r} "
+                        f"(allowlist={sorted(_allowed)!r}, mode={_MODE})"
+                    )
+                    sys.stderr.write(msg + "\\n")
+                    if _MODE == "enforce":
+                        raise PermissionError(msg)
+                return _orig_connect(self, address)
+
+            socket.socket.connect = _guarded_connect  # type: ignore[assignment]
+    ''')
+
+
 def prepare_scratch_dir(workspace_root: str, parent_correlation_id: str | None) -> Path:
     """Create a per-run scratch dir under ``<workspace_root>/.run_script/<uuid>/``.
 
@@ -148,10 +231,17 @@ def prepare_scratch_dir(workspace_root: str, parent_correlation_id: str | None) 
 def write_script_files(scratch_dir: Path, user_script: str) -> tuple[Path, Path]:
     """Write the user's script + the helper module into ``scratch_dir``.
 
+    Also drops a ``sitecustomize.py`` next to them — Python auto-imports it at
+    startup from sys.path[0] (the scratch dir) and it installs a socket-level
+    egress allowlist so the bot's script can only reach the spindrel server.
+
     Returns ``(script_path, helper_path)``.
     """
     helper_path = scratch_dir / HELPER_FILENAME
     helper_path.write_text(_helper_source(), encoding="utf-8")
+
+    guard_path = scratch_dir / EGRESS_GUARD_FILENAME
+    guard_path.write_text(_egress_guard_source(), encoding="utf-8")
 
     script_path = scratch_dir / SCRIPT_FILENAME
     script_path.write_text(user_script, encoding="utf-8")

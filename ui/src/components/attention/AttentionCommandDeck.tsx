@@ -31,7 +31,6 @@ import {
   useIssueWorkPackAction,
   useBatchLaunchIssueWorkPacksProjectRuns,
   useLaunchIssueWorkPackProjectRun,
-  useIssueTriageRuns,
   useStartAttentionTriageRun,
   useStartIssueTriageRun,
   useSubmitAttentionTriageFeedback,
@@ -807,13 +806,14 @@ function ModeButton({ active, icon, label, count, onClick }: { active: boolean; 
 }
 
 function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
+  const navigate = useNavigate();
   const startIssueTriage = useStartIssueTriageRun();
   const { data: workPacks = [] } = useIssueWorkPacks();
-  const { data: issueTriageRuns = [] } = useIssueTriageRuns({ limit: 6 });
   const { data: projects = [] } = useProjects();
   const [selectedProjectId, setSelectedProjectId] = useState(() => localStorage.getItem("spindrel.issueFactory.projectId") || "");
   const [selectedChannelId, setSelectedChannelId] = useState(() => localStorage.getItem("spindrel.issueFactory.channelId") || "");
   const [reviewPackId, setReviewPackId] = useState<string | null>(null);
+  const [selectedIssueIds, setSelectedIssueIds] = useState<string[]>([]);
   const { data: projectChannels = [] } = useProjectChannels(selectedProjectId || undefined);
   const launchPack = useLaunchIssueWorkPackProjectRun();
   const batchLaunchPacks = useBatchLaunchIssueWorkPacksProjectRuns();
@@ -882,6 +882,36 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
       { onSuccess: () => setSelectedPackIds([]) },
     );
   };
+  const selectableIssueIds = items.slice(0, 24).map((item) => item.id);
+  const selectedTriageIssueIds = selectedIssueIds.filter((id) => selectableIssueIds.includes(id));
+  const triageDisabled = !selectedChannelId || selectedTriageIssueIds.length === 0 || startIssueTriage.isPending;
+  const toggleIssueSelection = (itemId: string) => {
+    setSelectedIssueIds((current) => current.includes(itemId) ? current.filter((id) => id !== itemId) : [...current, itemId]);
+  };
+  const toggleAllIssues = () => {
+    setSelectedIssueIds((current) => {
+      const selected = current.filter((id) => selectableIssueIds.includes(id));
+      return selected.length === selectableIssueIds.length
+        ? current.filter((id) => !selectableIssueIds.includes(id))
+        : Array.from(new Set([...current, ...selectableIssueIds]));
+    });
+  };
+  const startVisibleTriage = () => {
+    if (triageDisabled) return;
+    startIssueTriage.mutate(
+      { channel_id: selectedChannelId, item_ids: selectedTriageIssueIds },
+      {
+        onSuccess: (run) => {
+          setSelectedIssueIds([]);
+          const href = run.links?.session || (run.parent_channel_id && run.session_id ? `/channels/${run.parent_channel_id}/session/${run.session_id}` : null);
+          if (href) navigate(href);
+        },
+      },
+    );
+  };
+  const openLaunchedPack = (pack: IssueWorkPack) => {
+    if (pack.project_id && pack.launched_task_id) navigate(`/admin/projects/${pack.project_id}/runs/${pack.launched_task_id}`);
+  };
 
   return (
     <div className="space-y-5" data-testid="issue-intake-workspace">
@@ -889,18 +919,37 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Issue intake</div>
-            <div className="mt-1 text-sm font-medium text-text">Group raw issue notes into work packs</div>
-            <div className="mt-1 text-xs leading-5 text-text-muted">Conversational captures and autonomous blocker reports are triaged here before any Project coding run starts.</div>
+            <div className="mt-1 text-sm font-medium text-text">Start a visible triage conversation</div>
+            <div className="mt-1 text-xs leading-5 text-text-muted">Select issue notes, choose a channel, and let that channel's bot group them into work packs in a normal transcript.</div>
           </div>
-          <button
-            type="button"
-            disabled={!items.length || startIssueTriage.isPending}
-            className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-accent/[0.08] px-3 text-sm font-medium text-accent hover:bg-accent/[0.12] disabled:opacity-50"
-            onClick={() => startIssueTriage.mutate({})}
-          >
-            {startIssueTriage.isPending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-            {startIssueTriage.isPending ? "Starting triage" : "Start issue triage"}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <select className="min-h-8 rounded-md border border-input-border bg-input px-2 text-xs text-text" value={selectedProjectId} onChange={(event) => updateProject(event.target.value)}>
+              <option value="">Project...</option>
+              {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+            </select>
+            <select className="min-h-8 rounded-md border border-input-border bg-input px-2 text-xs text-text" value={selectedChannelId} onChange={(event) => updateChannel(event.target.value)}>
+              <option value="">Triage channel...</option>
+              {projectChannels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}
+            </select>
+            <button
+              type="button"
+              disabled={!selectableIssueIds.length}
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-surface-overlay/50 px-3 text-xs font-medium text-text hover:bg-surface-overlay disabled:opacity-50"
+              onClick={toggleAllIssues}
+            >
+              <Check size={14} />
+              {selectedTriageIssueIds.length === selectableIssueIds.length && selectableIssueIds.length ? "Clear" : "Select"} issues
+            </button>
+            <button
+              type="button"
+              disabled={triageDisabled}
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-accent/[0.08] px-3 text-sm font-medium text-accent hover:bg-accent/[0.12] disabled:opacity-50"
+              onClick={startVisibleTriage}
+            >
+              {startIssueTriage.isPending ? <Loader2 size={14} className="animate-spin" /> : <MessageSquare size={14} />}
+              {startIssueTriage.isPending ? "Starting" : `Start triage${selectedTriageIssueIds.length ? ` (${selectedTriageIssueIds.length})` : ""}`}
+            </button>
+          </div>
         </div>
         {startIssueTriage.error && (
           <div className="mt-3 rounded-md bg-danger/10 px-3 py-2 text-xs text-danger-muted">
@@ -909,19 +958,23 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
         )}
       </section>
 
-      <IssueTriageRunsPanel runs={issueTriageRuns} />
-
       <section>
-        <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Raw intake</div>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Raw intake</div>
+          <div className="text-[11px] text-text-dim">{selectedTriageIssueIds.length} selected</div>
+        </div>
         <div className="space-y-2">
-          {items.slice(0, 8).map((item) => (
-            <div key={item.id} className="rounded-md bg-surface-overlay/25 px-3 py-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="min-w-0 truncate text-sm font-medium text-text">{item.title}</div>
-                <div className="text-[10px] uppercase tracking-[0.08em] text-text-dim">{getIssueIntake(item) ? "conversation" : "agent report"}</div>
+          {items.slice(0, 24).map((item) => (
+            <label key={item.id} className={`flex cursor-pointer items-start gap-3 rounded-md px-3 py-2 ${selectedIssueIds.includes(item.id) ? "bg-accent/[0.08]" : "bg-surface-overlay/25 hover:bg-surface-overlay/40"}`}>
+              <input type="checkbox" className="mt-1" checked={selectedIssueIds.includes(item.id)} onChange={() => toggleIssueSelection(item.id)} />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0 text-sm font-medium text-text">{item.title}</div>
+                  <div className="text-[10px] uppercase tracking-[0.08em] text-text-dim">{getIssueIntake(item) ? "conversation" : "agent report"}</div>
+                </div>
+                <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-muted">{item.message}</p>
               </div>
-              <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-muted">{item.message}</p>
-            </div>
+            </label>
           ))}
           {!items.length && <div className="rounded-md bg-surface-overlay/25 px-3 py-8 text-center text-sm text-text-muted">No raw issue intake is waiting.</div>}
         </div>
@@ -949,14 +1002,6 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
               {batchLaunchPacks.isPending ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
               Launch selected{selectedLaunchablePackIds.length ? ` (${selectedLaunchablePackIds.length})` : ""}
             </button>
-            <select className="min-h-8 rounded-md border border-input-border bg-input px-2 text-xs text-text" value={selectedProjectId} onChange={(event) => updateProject(event.target.value)}>
-              <option value="">Project...</option>
-              {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-            </select>
-            <select className="min-h-8 rounded-md border border-input-border bg-input px-2 text-xs text-text" value={selectedChannelId} onChange={(event) => updateChannel(event.target.value)}>
-              <option value="">Run channel...</option>
-              {projectChannels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}
-            </select>
           </div>
         </div>
         {!!triageReceipts.length && (
@@ -1028,7 +1073,7 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
           <div className="mt-4 space-y-2">
             <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Launched</div>
             {launchedPacks.slice(0, 4).map((pack) => (
-              <WorkPackRow key={pack.id} pack={pack} selected={false} launchDisabled launchPending={false} onReview={() => setReviewPackId(pack.id)} onLaunch={() => {}} />
+              <WorkPackRow key={pack.id} pack={pack} selected={false} launchDisabled={!pack.project_id || !pack.launched_task_id} launchPending={false} onReview={() => openLaunchedPack(pack)} onLaunch={() => openLaunchedPack(pack)} />
             ))}
           </div>
         )}
@@ -1052,38 +1097,6 @@ function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
         )}
       </section>
     </div>
-  );
-}
-
-function IssueTriageRunsPanel({ runs }: { runs: AttentionTriageRunResponse[] }) {
-  if (!runs.length) return null;
-  return (
-    <section data-testid="issue-triage-runs-panel">
-      <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Triage runs</div>
-      <div className="space-y-2">
-        {runs.map((run) => {
-          const status = runStatusLabel(run);
-          const statusClass = status === "failed" ? "text-danger" : status === "running" ? "text-accent" : status === "queued" ? "text-warning" : "text-success";
-          return (
-            <div key={run.task_id} className="rounded-md bg-surface-overlay/25 px-3 py-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="inline-flex min-w-0 items-center gap-2 text-sm font-medium text-text">
-                  {status === "running" ? <Loader2 size={14} className="shrink-0 animate-spin text-accent" /> : <Clock size={14} className="shrink-0 text-text-dim" />}
-                  <span className="truncate">Issue triage</span>
-                </div>
-                <div className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${statusClass}`}>{status}</div>
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
-                <span>{run.item_count} intake item{run.item_count === 1 ? "" : "s"}</span>
-                <span>{run.work_pack_count ?? 0} work pack{(run.work_pack_count ?? 0) === 1 ? "" : "s"}</span>
-                <span>{formatRunTime(run.completed_at ?? run.created_at)}</span>
-              </div>
-              {run.error && <div className="mt-1 text-xs text-danger-muted">{run.error}</div>}
-            </div>
-          );
-        })}
-      </div>
-    </section>
   );
 }
 
@@ -1111,6 +1124,7 @@ function WorkPackRow({
   const statusTone = pack.status === "proposed" ? "text-success" : pack.status === "needs_info" ? "text-warning" : pack.status === "dismissed" ? "text-text-dim" : "text-accent";
   const action = pack.latest_review_action;
   const actionLabel = typeof action?.action === "string" ? action.action.replaceAll("_", " ") : null;
+  const isLaunched = pack.status === "launched";
   return (
     <div className={`rounded-md px-3 py-3 ${selected ? "bg-accent/[0.08]" : "bg-surface-overlay/25"}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1141,18 +1155,20 @@ function WorkPackRow({
             className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-surface-overlay/50 px-3 text-xs font-medium text-text hover:bg-surface-overlay"
             onClick={onReview}
           >
-            <Pencil size={14} />
-            Review
+            {isLaunched ? <ExternalLink size={14} /> : <Pencil size={14} />}
+            {isLaunched ? "Open run" : "Review"}
           </button>
-          <button
-            type="button"
-            disabled={launchDisabled}
-            className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-accent/[0.08] px-3 text-xs font-medium text-accent hover:bg-accent/[0.12] disabled:opacity-50"
-            onClick={onLaunch}
-          >
-            {launchPending ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
-            Launch
-          </button>
+          {pack.status === "proposed" && (
+            <button
+              type="button"
+              disabled={launchDisabled}
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-accent/[0.08] px-3 text-xs font-medium text-accent hover:bg-accent/[0.12] disabled:opacity-50"
+              onClick={onLaunch}
+            >
+              {launchPending ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
+              Launch
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -118,6 +118,7 @@ function buildChannelSettingsForm(settings: ChannelSettings): Partial<ChannelSet
     category: settings.category ?? null,
     chat_mode: settings.chat_mode ?? "default",
     native_context_policy: settings.native_context_policy ?? "default",
+    effective_native_context_policy: settings.effective_native_context_policy ?? "lean",
     header_backdrop_mode: settings.header_backdrop_mode ?? "glass",
     plan_mode_control: settings.plan_mode_control ?? "auto",
     layout_mode: settings.layout_mode,
@@ -269,8 +270,9 @@ export default function ChannelSettingsScreen() {
 
   const saveChannelSettingsOnly = useCallback(async () => {
     const draft = formRef.current;
+    const { effective_native_context_policy: _effectiveNativeContextPolicy, ...writableDraft } = draft;
     try {
-      await updateMutation.mutateAsync(draft);
+      await updateMutation.mutateAsync(writableDraft);
       if (saveMatchesCurrentDraft({ savedDraft: draft, currentDraft: formRef.current })) {
         channelDirtyRef.current = false;
         setChannelDirty(false);

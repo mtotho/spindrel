@@ -309,6 +309,7 @@ class TestPublicContextBreakdown:
         assert public == admin_without_effective
         assert public["session_id"] == str(scratch_session_id)
         assert public["compaction"]["messages_since_watermark"] == 3
+        assert public["compaction"]["user_turns_since_watermark"] == 2
         assert public["compaction"]["total_messages"] == 4
         assert public["compaction"]["turns_until_next"] == 8
 

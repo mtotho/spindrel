@@ -81,6 +81,8 @@ class AttentionBulkAcknowledgeRequest(BaseModel):
 
 class AttentionTriageRunRequest(BaseModel):
     scope: str = "all_active"
+    channel_id: uuid.UUID | None = None
+    item_ids: list[uuid.UUID] = Field(default_factory=list)
     model_override: str | None = None
     model_provider_id_override: str | None = None
 
@@ -283,6 +285,8 @@ async def create_issue_triage_run_route(
             db,
             auth=auth,
             actor=actor_label(auth),
+            channel_id=body.channel_id,
+            item_ids=body.item_ids,
             model_override=body.model_override,
             model_provider_id_override=body.model_provider_id_override,
         )

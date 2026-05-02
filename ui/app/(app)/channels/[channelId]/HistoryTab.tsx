@@ -6,7 +6,7 @@ import {
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
-import { InfoBanner, SettingsSegmentedControl } from "@/src/components/shared/SettingsControls";
+import { InfoBanner, QuietPill, SettingsSegmentedControl } from "@/src/components/shared/SettingsControls";
 import { AlertTriangle } from "lucide-react";
 import { DocsMarkdownModal } from "@/src/components/shared/DocsMarkdownModal";
 import type { ChannelSettings } from "@/src/types/api";
@@ -22,6 +22,15 @@ import { SectionSearch } from "./history/SectionSearch";
 // Re-export sub-components for convenience
 export { HistoryModeSection, BackfillButton, SectionsViewer, SectionIndexSettings, CompactionActivity, SectionSearch };
 export type SectionScope = "current" | "all";
+
+type NativeContextPolicy = NonNullable<ChannelSettings["effective_native_context_policy"]>;
+
+function resolvedNativeContextPolicy(form: Partial<ChannelSettings>): NativeContextPolicy {
+  if (form.native_context_policy && form.native_context_policy !== "default") {
+    return form.native_context_policy;
+  }
+  return form.effective_native_context_policy ?? "lean";
+}
 
 // ---------------------------------------------------------------------------
 // History Tab — orchestrator
@@ -39,6 +48,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
   const [sectionScope, setSectionScope] = useState<SectionScope>("current");
   const effectiveMode = form.history_mode || botHistoryMode || "file";
   const isFileOrStructured = effectiveMode === "file" || effectiveMode === "structured";
+  const activeContextPolicy = resolvedNativeContextPolicy(form);
 
   return (
     <>
@@ -47,12 +57,13 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
 
       <Section
         title="Native Context Policy"
-        description="Controls the prompt diet for normal Spindrel chat turns in this channel. Scheduled tasks, heartbeats, and harness agents use their own context policies."
+        description="Controls the prompt diet for normal Spindrel chat turns in this channel. Storage, archival, and harness settings are separate."
         noDivider
+        action={<QuietPill label={`effective: ${activeContextPolicy}`} />}
       >
         <FormRow
           label="Context policy"
-          description="Lean is the default low-context path: 4 live turns plus section index. Rich restores the older broad preload behavior."
+          description="This decides how much existing context is preloaded into the model. The controls below either store history or override one specific preload component."
         >
           <SelectInput
             value={(form.native_context_policy ?? "default") as string}
@@ -65,6 +76,9 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
             ]}
           />
         </FormRow>
+        <InfoBanner variant="info">
+          <strong className="text-text">How to read this page:</strong> Context policy controls prompt assembly. Archival settings control how history is saved into sections. Section Index controls the compact history index that can still be shown when live turns are low.
+        </InfoBanner>
       </Section>
 
       {/* 2. Compaction settings — conditional on mode */}
@@ -184,7 +198,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
           )}
         </Section>
 
-        <Section title="Section Index" description="Injects a lightweight section index into context each turn.">
+        <Section title="Section Index" description="Overrides the section-index part of the native context policy. This is why a lean 4-turn policy can still remember older topics without replaying the chat.">
           <SectionIndexSettings form={form} patch={patch} channelId={channelId} />
         </Section>
 

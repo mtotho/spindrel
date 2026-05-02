@@ -72,6 +72,11 @@ PYTHONPATH=. pytest tests/ integrations/ -v
 # UI typecheck (REQUIRED after UI changes — also enforced by hook)
 cd ui && npx tsc --noEmit
 
+# Regenerate UI API types after changing any FastAPI response model
+# (CI's api-type-drift job fails if ui/openapi.json or
+# ui/src/types/api.generated.ts is out of date)
+bash scripts/generate-api-types.sh
+
 # Dev
 docker compose up                       # all services
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000

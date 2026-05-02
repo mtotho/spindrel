@@ -19,9 +19,11 @@ from app.services.agent_harnesses.native_cli_mirror import (
     _read_new_records,
     _sync_native_cli_settings,
     _native_cli_settings_patch,
+    _native_session_id_from_transcript,
     _NativeCliInputSyncer,
     NativeCliMirrorRecord,
 )
+from app.services.agent_harnesses.session_state import load_latest_harness_metadata
 from app.services.agent_harnesses.settings import load_session_settings
 from tests.factories import build_bot, build_channel
 
@@ -191,6 +193,28 @@ def test_native_transcript_lookup_without_session_id_requires_recent_matching_cw
     assert _find_codex_transcript(None, cwd="/missing", started_after=0) is None
 
 
+def test_native_session_id_from_transcript_discovers_claude_and_codex_ids(tmp_path: Path):
+    claude_path = tmp_path / "claude-session-123.jsonl"
+    claude_path.write_text("{}\n", encoding="utf-8")
+    codex_path = tmp_path / "rollout.jsonl"
+    codex_path.write_text(
+        json.dumps(
+            {
+                "type": "session_meta",
+                "payload": {
+                    "id": "codex-thread-123",
+                    "cwd": "/work/repo",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert _native_session_id_from_transcript(claude_path, runtime_name="claude-code") == "claude-session-123"
+    assert _native_session_id_from_transcript(codex_path, runtime_name="codex") == "codex-thread-123"
+
+
 def test_native_cli_terminal_input_syncer_extracts_submitted_setting_lines():
     syncer = _NativeCliInputSyncer(
         spindrel_session_id=uuid.uuid4(),
@@ -324,6 +348,44 @@ async def test_persist_mirrored_record_skips_duplicate_record_keys(db_session, t
         )
     ).all()
     assert [row.content for row in rows] == ["First result"]
+
+
+@pytest.mark.asyncio
+async def test_persist_mirrored_assistant_promotes_discovered_native_session_id(
+    db_session,
+    tmp_path: Path,
+):
+    bot = build_bot(id="native-cli-promote-bot", name="Harness", model="unused")
+    bot.harness_runtime = "claude-code"
+    channel = build_channel(bot_id=bot.id)
+    session = Session(
+        client_id="native-cli-promote-session",
+        bot_id=bot.id,
+        channel_id=channel.id,
+    )
+    db_session.add_all([bot, channel, session])
+    await db_session.commit()
+
+    transcript = tmp_path / "claude-native-session.jsonl"
+    transcript.write_text("{}\n", encoding="utf-8")
+    await _persist_mirrored_record(
+        spindrel_session_id=session.id,
+        bot_id=bot.id,
+        channel_id=channel.id,
+        runtime_name="claude-code",
+        native_session_id=None,
+        transcript_path=transcript,
+        record=NativeCliMirrorRecord(key="claude:record-1", role="assistant", content="CLI result"),
+    )
+
+    harness_meta, _ = await load_latest_harness_metadata(db_session, session.id)
+    assert harness_meta is not None
+    assert harness_meta["runtime"] == "claude-code"
+    assert harness_meta["session_id"] == "claude-native-session"
+
+    row = await db_session.scalar(select(Message).where(Message.session_id == session.id))
+    assert row is not None
+    assert row.metadata_["harness_native_cli"]["native_session_id"] == "claude-native-session"
 
 
 @pytest.mark.asyncio

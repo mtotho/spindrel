@@ -1,9 +1,9 @@
 import { AlertTriangle, CheckCircle2, ExternalLink, FileText, GitBranch, GitMerge, ListChecks, MessageSquarePlus, Monitor, ServerCog, TerminalSquare } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
-import { useContinueProjectCodingRun, useProject, useProjectCodingRun } from "@/src/api/hooks/useProjects";
+import { useContinueProjectCodingRun, useMarkProjectCodingRunReviewed, useProject, useProjectCodingRun } from "@/src/api/hooks/useProjects";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { Section } from "@/src/components/shared/FormControls";
 import { ActionButton, EmptyState, SettingsControlRow, StatusBadge } from "@/src/components/shared/SettingsControls";
@@ -87,8 +87,26 @@ function reviewStatus(run: ProjectCodingRun) {
   return run.review?.status || run.status;
 }
 
-function runTitle(run: ProjectCodingRun) {
-  return run.request || run.task.title || "Project coding run";
+function problemTitle(run: ProjectCodingRun) {
+  return run.source_work_pack?.title || run.task.title || run.request || "Project coding run";
+}
+
+function problemSummary(run: ProjectCodingRun) {
+  return run.source_work_pack?.summary || run.request || run.receipt?.summary || "No problem statement was recorded for this run.";
+}
+
+function sourceLine(run: ProjectCodingRun) {
+  const pieces = [
+    run.source_work_pack_id ? `work pack ${String(run.source_work_pack_id).slice(0, 8)}` : null,
+    run.launch_batch_id ? `batch ${run.launch_batch_id}` : null,
+    run.task.channel_id ? `channel ${String(run.task.channel_id).slice(0, 8)}` : null,
+    run.task.session_id ? `session ${String(run.task.session_id).slice(0, 8)}` : null,
+  ].filter(Boolean);
+  return pieces.join(" · ") || "Started directly from a Project coding-run request";
+}
+
+function isTerminalReviewed(run: ProjectCodingRun) {
+  return Boolean(run.review?.reviewed || run.review_queue_state === "reviewed");
 }
 
 function prLine(run: ProjectCodingRun) {
@@ -144,9 +162,11 @@ function recoveryLine(run: ProjectCodingRun) {
 
 export default function ProjectRunDetail() {
   const { projectId, taskId } = useParams<{ projectId: string; taskId: string }>();
+  const navigate = useNavigate();
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const { data: run, isLoading: runLoading, error } = useProjectCodingRun(projectId, taskId);
   const continueRun = useContinueProjectCodingRun(projectId);
+  const markReviewed = useMarkProjectCodingRunReviewed(projectId);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [createdFollowUp, setCreatedFollowUp] = useState<ProjectCodingRun | null>(null);
 
@@ -180,6 +200,8 @@ export default function ProjectRunDetail() {
   const recoveryIcon = canContinue || latestFollowUpId ? <MessageSquarePlus size={14} /> : run.review?.reviewed ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />;
   const recoveryMeta = canContinue ? "can continue" : latestFollowUpId ? "follow-up" : run.review?.reviewed ? "closed" : "blocked";
   const recoveryNeedsAttention = !run.review?.reviewed && (canContinue || Boolean(latestFollowUpId) || ["blocked", "changes_requested"].includes(String(reviewStatus(run))));
+  const terminalReviewed = isTerminalReviewed(run);
+  const prMerged = Boolean(run.review?.merged_at);
   const submitFollowUp = () => {
     if (!canContinue || continueRun.isPending) return;
     continueRun.mutate(
@@ -237,11 +259,12 @@ export default function ProjectRunDetail() {
       <PageHeader
         variant="detail"
         chrome="flow"
-        title={runTitle(run)}
+        title="Project run"
         subtitle={`${project.name} · ${formatRunTime(run.updated_at || run.created_at)}`}
         backTo={`/admin/projects/${project.id}#runs`}
         right={
           <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <RowLink to={`/admin/projects/${project.id}#runs`}>Runs</RowLink>
             {handoffUrl && <RowLink href={handoffUrl}>Handoff</RowLink>}
             <RowLink to={`/admin/tasks/${run.task.id}`}>Task</RowLink>
           </div>
@@ -250,7 +273,48 @@ export default function ProjectRunDetail() {
 
       <div data-testid="project-run-detail" className="min-h-0 flex-1 overflow-auto">
         <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-7 px-5 py-5 md:px-6">
-          {recoveryNeedsAttention ? recoverySection : null}
+          <Section title="Problem Statement" description="The source issue, requested work, and current close-out state for this run.">
+            <div className="flex flex-col gap-3">
+              <div className="rounded-md bg-surface-overlay/35 px-4 py-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge label={reviewStatus(run)} variant={statusTone(reviewStatus(run))} />
+                  {prMerged && <StatusBadge label="merged" variant="success" />}
+                  {terminalReviewed && <StatusBadge label="reviewed" variant="success" />}
+                  {run.source_work_pack?.category && <StatusBadge label={run.source_work_pack.category.replaceAll("_", " ")} variant="neutral" />}
+                </div>
+                <h1 className="mt-3 text-xl font-semibold leading-7 tracking-normal text-text">{problemTitle(run)}</h1>
+                <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-text-muted">{problemSummary(run)}</p>
+                <div className="mt-3 text-xs text-text-dim">{sourceLine(run)}</div>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-overlay/25 px-3 py-2">
+                <div className="text-xs leading-5 text-text-muted">
+                  {terminalReviewed
+                    ? `Closed on our side${run.review?.reviewed_at ? ` · ${formatRunTime(run.review.reviewed_at)}` : ""}${run.review?.review_summary ? ` · ${run.review.review_summary}` : ""}`
+                    : prMerged
+                      ? "PR is merged. Mark this run reviewed to close it on our side."
+                    : run.review_next_action || "Review evidence, merge or request changes, then close the run."}
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                  {!terminalReviewed && run.review?.actions?.can_mark_reviewed && (
+                    <ActionButton
+                      label={markReviewed.isPending ? "Closing" : "Mark reviewed"}
+                      icon={<CheckCircle2 size={13} />}
+                      size="small"
+                      disabled={markReviewed.isPending}
+                      onPress={() => markReviewed.mutate(run.task.id)}
+                    />
+                  )}
+                  <ActionButton
+                    label="Back to runs"
+                    icon={<ExternalLink size={13} />}
+                    size="small"
+                    variant="secondary"
+                    onPress={() => navigate(`/admin/projects/${project.id}#runs`)}
+                  />
+                </div>
+              </div>
+            </div>
+          </Section>
 
           <Section title="Run Summary" description="Current status, source branch, review state, and handoff links.">
             <div className="grid gap-2 md:grid-cols-2">

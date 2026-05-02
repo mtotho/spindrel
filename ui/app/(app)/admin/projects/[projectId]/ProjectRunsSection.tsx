@@ -43,6 +43,25 @@ function activitySummary(run: ProjectCodingRun) {
     .join(", ");
 }
 
+function isActiveCodingRun(run: ProjectCodingRun) {
+  const status = String(run.task.status || run.status || "").toLowerCase();
+  return status === "pending" || status === "running";
+}
+
+function runTitle(run: ProjectCodingRun) {
+  return run.request || run.task.title || "Project coding run";
+}
+
+function activeRunLine(run: ProjectCodingRun) {
+  const pieces = [
+    run.branch ? `Branch ${run.branch}` : null,
+    workSurfaceLine(run),
+    dependencyStackLine(run),
+    devTargetsLine(run.dev_targets) ? `Dev targets: ${devTargetsLine(run.dev_targets)}` : null,
+  ].filter(Boolean);
+  return pieces.length > 0 ? pieces.join(" · ") : activitySummary(run);
+}
+
 function progressLabel(actionType?: string) {
   if (actionType === "handoff.prepare_branch") return "Branch";
   if (actionType === "handoff.push") return "Push";
@@ -320,6 +339,7 @@ export function ProjectRunsSection({
       setSelectedRepoPath(blueprintRepos[0].value);
     }
   }, [blueprintRepos, selectedRepoPath]);
+  const activeRuns = useMemo(() => runs.filter(isActiveCodingRun), [runs]);
   const createdRun = runs.find((run) => run.id === createdRunId);
   const changeRun = runs.find((run) => run.id === changeRunId);
   const selectedRuns = runs.filter((run) => selectedRunIds.includes(run.id));
@@ -476,6 +496,33 @@ export function ProjectRunsSection({
 
   return (
     <div data-testid="project-workspace-runs" className="mx-auto flex w-full max-w-[1120px] flex-col gap-7 px-5 py-5 md:px-6">
+      {activeRuns.length > 0 && (
+        <Section
+          title="Active Runs"
+          description="Project coding runs currently executing in fresh instances with their own dependency stacks and dev targets."
+        >
+          <div className="flex flex-col gap-2">
+            {activeRuns.map((run) => (
+              <SettingsControlRow
+                key={run.id}
+                leading={<Play size={14} />}
+                title={runTitle(run)}
+                description={
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="truncate text-[11px] text-text-dim">{activeRunLine(run)}</span>
+                    <span className="truncate text-[11px] text-text-dim">
+                      Started {formatRunTime(run.created_at)} · {run.task.bot_id}
+                    </span>
+                  </span>
+                }
+                meta={<StatusBadge label={run.task.status || run.status} variant={statusTone(run.task.status || run.status)} />}
+                action={<RunActionLinks run={run} />}
+              />
+            ))}
+          </div>
+        </Section>
+      )}
+
       <Section
         title="Agent Coding Run"
         description="Start a Project-scoped implementation task with a fresh instance, guided branch handoff, runtime env, and review receipt."

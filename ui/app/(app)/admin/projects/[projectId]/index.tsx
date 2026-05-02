@@ -129,6 +129,33 @@ function countRunsByStatus(runs: ProjectCodingRun[]) {
   );
 }
 
+function isActiveCodingRun(run: ProjectCodingRun) {
+  const status = String(run.task.status || run.status || "").toLowerCase();
+  return status === "pending" || status === "running";
+}
+
+function runTitle(run: ProjectCodingRun) {
+  return run.request || run.task.title || "Project run";
+}
+
+function runWorkSurfaceLabel(run: ProjectCodingRun) {
+  const surface = run.work_surface;
+  if (!surface) return "Work surface pending";
+  if (surface.blocker) return surface.blocker;
+  if (surface.kind === "project_instance") {
+    const root = surface.display_path || (surface.root_path ? `/${surface.root_path}` : "fresh instance");
+    return `Isolated ${surface.status || "instance"} · ${root}`;
+  }
+  return surface.display_path || surface.root_path || "Project root";
+}
+
+function runDevTargetLabel(run: ProjectCodingRun) {
+  const target = run.dev_targets?.[0];
+  if (!target) return null;
+  if (typeof target === "string") return target;
+  return String(target.url || target.port || target.label || target.key || "");
+}
+
 function hasIssueIntake(item: WorkspaceAttentionItem) {
   const evidence = item.evidence ?? {};
   return Boolean(
@@ -181,6 +208,7 @@ function ProjectOverviewSection({
   const attachedCount = channels?.length ?? project.attached_channel_count ?? 0;
   const activeInstances = (instances ?? []).filter((instance) => !["deleted", "expired"].includes(instance.status));
   const dependencyConfigured = Boolean(project.metadata_?.blueprint_snapshot?.dependency_stack);
+  const activeRuns = runs.filter(isActiveCodingRun);
   const latestRuns = runs.slice(0, 4);
   const projectChannelIds = new Set((channels ?? []).map((channel) => channel.id));
   const projectKey = `${project.name} ${project.slug} ${project.root_path}`.toLowerCase();
@@ -251,6 +279,37 @@ function ProjectOverviewSection({
           />
         </div>
       </AnchorSection>
+
+      {activeRuns.length > 0 && (
+        <AnchorSection
+          icon={<Play size={15} />}
+          eyebrow="Running now"
+          title={`${activeRuns.length} active Project run${activeRuns.length === 1 ? "" : "s"}`}
+          meta="Live"
+          emphasis="secondary"
+          action={<ActionButton label="Open runs" icon={<ExternalLink size={14} />} size="small" variant="secondary" onPress={() => setTab("runs")} />}
+        >
+          <div className="grid gap-2 lg:grid-cols-2">
+            {activeRuns.slice(0, 4).map((run) => (
+              <SettingsControlRow
+                key={run.id}
+                leading={<Play size={14} />}
+                title={runTitle(run)}
+                description={
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="truncate text-[11px] text-text-dim">{runWorkSurfaceLabel(run)}</span>
+                    {runDevTargetLabel(run) && (
+                      <span className="truncate text-[11px] text-text-dim">Dev target: {runDevTargetLabel(run)}</span>
+                    )}
+                  </span>
+                }
+                meta={<StatusBadge label={run.task.status || run.status} variant="warning" />}
+                action={<HeaderLink to={`/admin/projects/${project.id}/runs/${run.task.id}`} icon={<ExternalLink size={13} />}>Details</HeaderLink>}
+              />
+            ))}
+          </div>
+        </AnchorSection>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="flex min-w-0 flex-col gap-4">

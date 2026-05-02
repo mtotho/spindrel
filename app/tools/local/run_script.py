@@ -199,6 +199,12 @@ async def run_script(
     if channel_id:
         env_exports.append(f"export SPINDREL_CHANNEL_ID={shlex.quote(str(channel_id))}")
     env_exports.append(f"export SPINDREL_TOOL_TIMEOUT={timeout_clamped}")
+    # Egress guard mode — the sitecustomize.py written into the scratch dir
+    # reads this and patches socket.socket.connect accordingly.
+    from app.config import settings as _egress_cfg
+    env_exports.append(
+        f"export SPINDREL_SCRIPT_EGRESS_MODE={shlex.quote(_egress_cfg.SCRIPT_EGRESS_MODE)}"
+    )
 
     # Use python3 (most workspaces alias both, but python3 is safer on hosts
     # where python is python2). The cwd is set to the scratch dir so spindrel.py

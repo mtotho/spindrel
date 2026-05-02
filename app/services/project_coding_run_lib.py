@@ -803,6 +803,22 @@ async def _coding_run_row(
     ctx = ProjectTaskExecutionContext.from_task(task)
     cfg = _task_run_config(task)
     work_surface = _work_surface_summary(project=project, task=task, instance=instance)
+    source_work_pack = None
+    if ctx.source_work_pack_id:
+        pack = await db.get(IssueWorkPack, ctx.source_work_pack_id)
+        if pack is not None:
+            source_work_pack = {
+                "id": str(pack.id),
+                "title": pack.title,
+                "summary": pack.summary,
+                "category": pack.category,
+                "confidence": pack.confidence,
+                "status": pack.status,
+                "source_item_ids": pack.source_item_ids or [],
+                "launch_prompt": pack.launch_prompt,
+                "created_at": pack.created_at.isoformat() if pack.created_at else None,
+                "updated_at": pack.updated_at.isoformat() if pack.updated_at else None,
+            }
     updated_at = (
         receipt.created_at.isoformat()
         if receipt is not None and receipt.created_at is not None
@@ -826,6 +842,7 @@ async def _coding_run_row(
         "readiness": ctx.readiness_summary(dependency_stack_status=dependency_stack),
         "work_surface": work_surface,
         "source_work_pack_id": ctx.source_work_pack_id,
+        "source_work_pack": source_work_pack,
         "launch_batch_id": cfg.get("launch_batch_id"),
         "parent_task_id": ctx.lineage.parent_task_id,
         "root_task_id": ctx.lineage.root_task_id,

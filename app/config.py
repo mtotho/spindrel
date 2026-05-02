@@ -776,6 +776,14 @@ class Settings(BaseSettings):
     # containers launched with --add-host by sandbox.py.
     SERVER_INTERNAL_URL: str = "http://localhost:8000"
 
+    # Egress guard for run_script subprocesses (R2). A sitecustomize.py is dropped
+    # next to script.py / spindrel.py and patches socket.socket.connect so the
+    # bot's Python script can only talk to the spindrel server (AGENT_SERVER_URL).
+    # Phase 1 — Python-level guard. Bypasses still possible via subprocess to a
+    # native binary (curl, etc.) or via ctypes; Phase 2 (OS-level netns) closes
+    # those. Modes: "off" / "audit" (log only, default) / "enforce" (raise).
+    SCRIPT_EGRESS_MODE: str = "audit"
+
     # Workspace code editor (code-server)
     EDITOR_PORT_RANGE_START: int = 9200
     EDITOR_PORT_RANGE_END: int = 9299

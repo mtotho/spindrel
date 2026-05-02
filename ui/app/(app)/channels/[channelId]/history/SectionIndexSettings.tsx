@@ -12,14 +12,27 @@ export const VERBOSITY_OPTIONS = [
   { label: "Detailed", value: "detailed" },
 ];
 
+type NativeContextPolicy = NonNullable<ChannelSettings["effective_native_context_policy"]>;
+
+function policySectionIndexDefaults(policy: NativeContextPolicy): { count: number; verbosity: string } {
+  if (policy === "lean") return { count: 8, verbosity: "compact" };
+  return { count: 10, verbosity: "standard" };
+}
+
 export function SectionIndexSettings({ form, patch, channelId }: {
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
   channelId: string;
 }) {
   const isMobile = useIsMobile();
-  const count = form.section_index_count ?? 10;
-  const verbosity = form.section_index_verbosity ?? "standard";
+  const effectivePolicy = (
+    form.native_context_policy && form.native_context_policy !== "default"
+      ? form.native_context_policy
+      : form.effective_native_context_policy
+  ) as NativeContextPolicy | undefined;
+  const policyDefaults = policySectionIndexDefaults(effectivePolicy ?? "lean");
+  const count = form.section_index_count ?? policyDefaults.count;
+  const verbosity = form.section_index_verbosity ?? policyDefaults.verbosity;
 
   const { data: preview } = useQuery({
     queryKey: ["section-index-preview", channelId, count, verbosity, "current"],
@@ -34,15 +47,16 @@ export function SectionIndexSettings({ form, patch, channelId }: {
       <div className="mb-2 text-[11px] leading-relaxed text-text-muted">
         The bot sees the current session archive without spending a tool call and can use{" "}
         <code className="rounded bg-surface-overlay px-1 py-px font-mono text-[10px] text-text-muted">read_conversation_history</code>{" "}
-        with a section number to read full transcripts.
+        with a section number to read full transcripts. Leave these blank to use the active context policy default
+        ({policyDefaults.count} sections, {policyDefaults.verbosity}).
       </div>
       <Row stack={isMobile}>
         <Col minWidth={isMobile ? 0 : 200}>
           <FormRow label="Index Sections" description="Recent sections injected into context each turn. 0 = disabled.">
             <TextInput
-              value={count === 10 && form.section_index_count == null ? "" : count.toString()}
+              value={form.section_index_count == null ? "" : count.toString()}
               onChangeText={(v) => { const n = parseInt(v); patch("section_index_count", isNaN(n) ? undefined : n); }}
-              placeholder="10"
+              placeholder={`${policyDefaults.count} (policy default)`}
               type="number"
             />
           </FormRow>
@@ -50,9 +64,12 @@ export function SectionIndexSettings({ form, patch, channelId }: {
         <Col minWidth={isMobile ? 0 : 200}>
           <FormRow label="Verbosity" description="How much detail to show per section.">
             <SelectInput
-              value={verbosity}
-              onChange={(v) => patch("section_index_verbosity", v || undefined)}
-              options={VERBOSITY_OPTIONS}
+              value={form.section_index_verbosity ?? "__policy__"}
+              onChange={(v) => patch("section_index_verbosity", (v === "__policy__" ? undefined : v) as ChannelSettings["section_index_verbosity"])}
+              options={[
+                { label: `Policy default (${policyDefaults.verbosity})`, value: "__policy__" },
+                ...VERBOSITY_OPTIONS,
+              ]}
             />
           </FormRow>
         </Col>

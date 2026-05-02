@@ -519,12 +519,21 @@ Approval mapping intent (final values from schema):
   Spindrel-added benefits, and the next gaps to deepen, so future parity work
   starts from an explicit matrix instead of re-discovering already-covered
   surfaces.
-- 2026-05-02 native CLI round-trip hardening: the live native CLI mirror tests
-  now continue from the mirrored CLI turn with a normal Spindrel chat turn and
-  require the runtime to recall the marker from the immediately previous native
-  CLI turn. Added a `cli` local parity batch preset covering Codex mirror,
-  Codex model/effort sync, and Claude mirror screenshots so this surface can be
-  rerun without the full replay tier.
+- 2026-05-02 native CLI round-trip hardening: the local CLI parity lane now
+  proves Codex native terminal input, transcript mirroring, model/effort sync,
+  and a normal Spindrel chat turn resuming the same native thread after a CLI
+  turn. The same pass exposed a real Claude gap: Claude Code CLI rows mirror
+  into Spindrel, but the following Claude SDK chat turn resumes the session id
+  without seeing the CLI-mutated leaf. Added a `cli` local parity batch preset
+  covering Codex mirror, Codex model/effort sync, and Claude mirror screenshots
+  so this surface can be rerun without the full replay tier.
+- 2026-05-02 native CLI session promotion: mirrored native CLI assistant rows
+  now promote the discovered runtime session id back into Spindrel harness
+  metadata. Claude discovers it from the transcript filename; Codex discovers
+  it from the transcript `session_meta` record. This closes the CLI-first and
+  native-session-drift gap where the transcript appeared in Spindrel but the
+  next chat turn had no reliable native resume id. It does not claim to solve
+  Claude's live-process leaf visibility boundary documented above.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

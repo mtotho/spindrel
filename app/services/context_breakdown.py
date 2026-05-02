@@ -67,6 +67,7 @@ class CompactionState:
     has_summary: bool = False
     summary_chars: int = 0
     messages_since_watermark: int = 0
+    user_turns_since_watermark: int = 0
     total_messages: int = 0
     compaction_interval: int = 0
     compaction_keep_turns: int = 0
@@ -924,6 +925,7 @@ async def _build_compaction_state(
         has_summary=has_summary,
         summary_chars=summary_chars,
         messages_since_watermark=stats.msgs_since_watermark,
+        user_turns_since_watermark=user_turns_since,
         total_messages=stats.total_messages,
         compaction_interval=interval,
         compaction_keep_turns=keep_turns,

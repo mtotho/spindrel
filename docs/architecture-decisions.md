@@ -10,6 +10,20 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### UI API types are generated from OpenAPI, not hand-written
+**Decided 2026-05-02.** The Spindrel web UI consumes FastAPI response models as static TS types via `openapi-typescript`. The generator runs offline against `app.main:app.openapi()`; both the schema snapshot (`ui/openapi.json`) and the emitted types (`ui/src/types/api.generated.ts`) are committed. The CI `api-type-drift` job regenerates and fails on `git diff`, so any backend response-model change must ship its TS counterpart in the same PR.
+
+**Load-bearing invariants.**
+- Source of truth is the live FastAPI route table — Pydantic response models, not hand-written TS interfaces. The generator (`scripts/generate-api-types.sh`) is the only path that produces `ui/src/types/api.generated.ts`; agents do not edit it.
+- Operation IDs must be unique in the emitted schema. `scripts/dump_openapi.py` post-processes duplicate `operationId` collisions caused by `api_route(methods=["PUT", "PATCH"])` (FastAPI computes one ID per route across both methods) by suffixing with the actual HTTP method. Don't work around by adding `generate_unique_id_function` at the FastAPI level — that runs per-route and can't disambiguate per-method.
+- Generated types are imported via the shim at `ui/src/types/apiSchema.ts`, never directly from `api.generated.ts`. The shim is where friendly aliases live (`ChannelOut` → `Schema["ChannelOut"]`); add new aliases there as feature migrations adopt generated types.
+- The legacy hand-written `ui/src/types/api.ts` (~2,347 lines) stays during incremental migration. Per-feature PRs flip imports from `./api` to `./apiSchema` and delete the corresponding interfaces; that file goes when nothing imports it.
+- Codegen is types-only. Runtime client (`apiFetch<T>()`) and TanStack Query hooks stay as-is; generated types are passed as type parameters. No `openapi-fetch`/`orval`/`hey-api` wiring.
+
+**Why.** Recent history shows the dual-edit pattern was failing silently: `launch_batch_id` was added to both `ProjectCodingRunOut` (Python) and `ProjectCodingRun` (TS) in commit `7210ab97`, but nothing prevents an agent from forgetting the TS half. The OpenAPI schema already exists and is documented as available "for code generation"; not using it was pure manual labor with no drift gate. Manual sync also drifts on field removals — TS keeps an outdated optional field forever — and on type narrowings (string → enum) that the type checker would catch if generated.
+
+**Implementation.** `scripts/dump_openapi.py` imports `app.main:app`, unwraps `SPAFallbackMiddleware`, runs `app.openapi()`, dedupes operation IDs, and writes `ui/openapi.json`. `scripts/generate-api-types.sh` chains the dumper into `npm --prefix ui run generate-api-types`. The `api-type-drift` job in `.github/workflows/test.yml` runs the chain in CI and fails on `git diff`. Regen command: `bash scripts/generate-api-types.sh`.
+
 ### Heartbeat tool surfaces are deterministic, not retrieved
 **Decided 2026-05-01.** Heartbeat-origin turns assemble the LLM tool surface from configuration, not embedding retrieval. Discovery hatches (`get_tool_info`, `search_tools`, `list_tool_signatures`) are suppressed on heartbeat surfaces regardless of `tool_surface_policy`.
 

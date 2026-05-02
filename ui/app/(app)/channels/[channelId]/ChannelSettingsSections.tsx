@@ -433,6 +433,12 @@ export function AgentBehaviorSection({
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
 }) {
   const isMobile = useIsMobile();
+  const nativePolicy = (
+    form.native_context_policy && form.native_context_policy !== "default"
+      ? form.native_context_policy
+      : form.effective_native_context_policy
+  ) ?? "lean";
+  const workspaceRagEffective = nativePolicy !== "lean";
 
   return (
     <Section title="Behavior">
@@ -445,9 +451,18 @@ export function AgentBehaviorSection({
       <Toggle
         value={form.workspace_rag ?? true}
         onChange={(v) => patch("workspace_rag", v as ChannelSettings["workspace_rag"])}
-        label="Workspace RAG"
-        description="Auto-inject relevant workspace files into context each turn."
+        label="Workspace RAG gate"
+        description={
+          workspaceRagEffective
+            ? "Allows the active native context policy to auto-inject relevant workspace files. Turn this off to suppress workspace RAG even in Standard or Rich."
+            : "Currently inactive because the Lean native context policy disables workspace RAG. Switch the History tab policy to Standard or Rich to use this gate."
+        }
       />
+      {!workspaceRagEffective && (
+        <InfoBanner variant="info">
+          Workspace RAG is a lower-level gate. Lean policy wins over it so normal chat stays on-demand.
+        </InfoBanner>
+      )}
       <Toggle
         value={form.pinned_widget_context_enabled ?? true}
         onChange={(v) => patch("pinned_widget_context_enabled", v as ChannelSettings["pinned_widget_context_enabled"])}
