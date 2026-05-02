@@ -24,7 +24,7 @@ import { useThemeStore } from "../../../stores/theme";
 import { useVersion } from "../../../api/hooks/useVersion";
 import { useProjectFactoryReviewInbox } from "../../../api/hooks/useProjects";
 import { useLatestHealthSummary } from "../../../api/hooks/useSystemHealth";
-import { useIssueWorkPacks, useWorkspaceAttention, useWorkspaceAttentionBrief } from "../../../api/hooks/useWorkspaceAttention";
+import { useWorkspaceAttention, useWorkspaceAttentionBrief } from "../../../api/hooks/useWorkspaceAttention";
 import { useUnreadState } from "../../../api/hooks/useUnread";
 import {
   channelIdFromSlug,

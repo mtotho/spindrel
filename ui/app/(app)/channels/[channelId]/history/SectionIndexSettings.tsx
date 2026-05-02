@@ -30,7 +30,7 @@ export function SectionIndexSettings({ form, patch, channelId }: {
       ? form.native_context_policy
       : form.effective_native_context_policy
   ) as NativeContextPolicy | undefined;
-  const policyDefaults = policySectionIndexDefaults(effectivePolicy ?? "lean");
+  const policyDefaults = policySectionIndexDefaults(effectivePolicy ?? "standard");
   const count = form.section_index_count ?? policyDefaults.count;
   const verbosity = form.section_index_verbosity ?? policyDefaults.verbosity;
 

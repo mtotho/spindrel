@@ -53,7 +53,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "LLM_RATE_LIMIT_INITIAL_WAIT": {"group": "Agent", "label": "Rate Limit Initial Wait", "description": "Seconds before first rate limit retry", "type": "int", "min": 10, "max": 300},
     # --- Chat History ---
     "DEFAULT_HISTORY_MODE": {"group": "Chat History", "label": "Default History Mode", "description": "How conversation history is stored and retrieved. 'file' is the active/default path; 'summary' and 'structured' remain supported as legacy-compatible modes.", "type": "string", "options": ["file", "summary", "structured"]},
-    "NATIVE_CONTEXT_POLICY_DEFAULT": {"group": "Chat History", "label": "Native Context Policy", "description": "Default context diet for native Spindrel chat turns. Harness agents use separate harness context settings.", "type": "string", "options": ["lean", "standard", "rich"]},
+    "NATIVE_CONTEXT_POLICY_DEFAULT": {"group": "Chat History", "label": "Native Context Policy", "description": "Default token-budget profile for native Spindrel chat turns. Harness agents use separate harness context settings.", "type": "string", "options": ["lean", "standard", "rich", "manual"]},
     "COMPACTION_MODEL": {"group": "Chat History", "label": "Compaction Model", "description": "Model used for context compaction", "type": "string", "widget": "model"},
     "COMPACTION_MODEL_PROVIDER_ID": {"group": "Chat History", "label": "Compaction Model Provider", "type": "string", "description": "Provider for compaction model", "ui_hidden": True},
     "COMPACTION_INTERVAL": {"group": "Chat History", "label": "Compaction Interval", "description": "Turns between compaction runs", "type": "int", "min": 5, "max": 200},

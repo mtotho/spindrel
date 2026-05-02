@@ -294,6 +294,9 @@ def _compaction_envelope(
     elif status == "running":
         heading = "Compaction running"
         body_detail = detail or "Older conversation history is being summarized."
+    elif status == "warning":
+        heading = "Context pressure rising"
+        body_detail = detail or "The conversation is approaching the automatic compaction threshold."
     elif status == "failed":
         heading = "Compaction failed"
         body_detail = error or detail or "Compaction did not complete."
@@ -1796,8 +1799,13 @@ async def _drain_compaction(
 def _should_trigger_budget_compaction(
     budget_utilization: float | None,
     budget_snapshot: dict[str, Any] | None,
+    *,
+    trigger_utilization_soft: float | None = None,
+    live_history_max_ratio: float | None = None,
 ) -> tuple[bool, str | None]:
     """Return whether early compaction should fire, plus the reason."""
+    trigger_utilization_soft = trigger_utilization_soft if trigger_utilization_soft is not None else _get_compaction_trigger_utilization_soft()
+    live_history_max_ratio = live_history_max_ratio if live_history_max_ratio is not None else _get_compaction_live_history_max_ratio()
     live_tokens = int((budget_snapshot or {}).get("live_history_tokens") or 0)
     live_util = (budget_snapshot or {}).get("live_history_utilization")
     try:
@@ -1807,11 +1815,82 @@ def _should_trigger_budget_compaction(
 
     if live_tokens >= _get_compaction_live_history_max_tokens():
         return True, "live_history_tokens"
-    if live_util_f is not None and live_util_f >= _get_compaction_live_history_max_ratio():
+    if live_util_f is not None and live_util_f >= live_history_max_ratio:
         return True, "live_history_ratio"
-    if budget_utilization is not None and budget_utilization > _get_compaction_trigger_utilization_soft():
+    if budget_utilization is not None and budget_utilization > trigger_utilization_soft:
         return True, "total_utilization"
     return False, None
+
+
+async def _resolve_context_pressure_thresholds(session_id: uuid.UUID) -> tuple[float, float]:
+    trigger_util = _get_compaction_trigger_utilization_soft()
+    live_ratio = _get_compaction_live_history_max_ratio()
+    try:
+        async with async_session() as db:
+            session = await db.get(Session, session_id)
+            channel = await db.get(Channel, session.channel_id) if session and session.channel_id else None
+            cfg = (channel.config or {}) if channel is not None else {}
+        if cfg.get("native_context_compaction_utilization") is not None:
+            trigger_util = float(cfg.get("native_context_compaction_utilization"))
+    except Exception:
+        logger.debug("Failed to resolve context pressure thresholds", exc_info=True)
+    return trigger_util, live_ratio
+
+
+async def _maybe_insert_context_pressure_warning(
+    session_id: uuid.UUID,
+    bot: BotConfig,
+    *,
+    budget_utilization: float | None,
+    budget_snapshot: dict[str, Any] | None,
+) -> None:
+    session: Session | None = None
+    trigger_util, live_ratio = await _resolve_context_pressure_thresholds(session_id)
+    warning_util = trigger_util * 0.85
+    warning_live_ratio = live_ratio * 0.85
+    async with async_session() as db:
+        session = await db.get(Session, session_id)
+        if session is None:
+            return
+        channel = await db.get(Channel, session.channel_id) if session.channel_id else None
+        cfg = (channel.config or {}) if channel is not None else {}
+        try:
+            warning_util = float(cfg.get("native_context_warning_utilization") or warning_util)
+        except (TypeError, ValueError):
+            pass
+
+    live_util = (budget_snapshot or {}).get("live_history_utilization")
+    try:
+        live_util_f = float(live_util) if live_util is not None else None
+    except (TypeError, ValueError):
+        live_util_f = None
+    pressure = (
+        (budget_utilization is not None and budget_utilization >= warning_util)
+        or (live_util_f is not None and live_util_f >= warning_live_ratio)
+    )
+    if not pressure:
+        return
+
+    async with async_session() as db:
+        existing = await _find_active_compaction_message(
+            db,
+            session_id,
+            origin="auto",
+            statuses={"warning", "running", "queued"},
+        )
+    if existing is not None:
+        return
+    await _insert_compaction_run_message(
+        session_id,
+        bot,
+        origin="auto",
+        status="warning",
+        detail=(
+            "This chat is approaching the automatic compaction threshold. "
+            "Recent conversation will stay live; older turns may be archived into sections after a future turn."
+        ),
+        trigger_reason="context_pressure_warning",
+    )
 
 
 def maybe_compact(
@@ -1829,6 +1908,28 @@ def maybe_compact(
         budget_utilization,
         budget_snapshot,
     )
+    live_util = (budget_snapshot or {}).get("live_history_utilization")
+    try:
+        live_util_f = float(live_util) if live_util is not None else None
+    except (TypeError, ValueError):
+        live_util_f = None
+    warn_pressure = (
+        (
+            budget_utilization is not None
+            and _get_compaction_trigger_utilization_soft() * 0.85 <= budget_utilization < _get_compaction_trigger_utilization_soft()
+        )
+        or (
+            live_util_f is not None
+            and _get_compaction_live_history_max_ratio() * 0.85 <= live_util_f < _get_compaction_live_history_max_ratio()
+        )
+    )
+    if not _budget_triggered and warn_pressure:
+        asyncio.create_task(_maybe_insert_context_pressure_warning(
+            session_id,
+            bot,
+            budget_utilization=budget_utilization,
+            budget_snapshot=budget_snapshot,
+        ))
     asyncio.create_task(_drain_compaction(
         session_id, bot, messages,
         correlation_id=correlation_id,

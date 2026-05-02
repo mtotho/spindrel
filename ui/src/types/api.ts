@@ -358,10 +358,12 @@ export interface Channel {
     layout_mode?: "full" | "rail-header-chat" | "rail-chat" | "dashboard-only";
     /** Chat presentation mode for the main channel surface. */
     chat_mode?: "default" | "terminal";
-    /** Native Spindrel context diet. Harness runtimes use separate harness context settings. */
-    native_context_policy?: "default" | "lean" | "standard" | "rich";
+    /** Native Spindrel context budget. Harness runtimes use separate harness context settings. */
+    native_context_policy?: "default" | "lean" | "standard" | "rich" | "manual";
     /** Resolved native context diet after channel/global defaults. */
-    effective_native_context_policy?: "lean" | "standard" | "rich";
+    effective_native_context_policy?: "lean" | "standard" | "rich" | "manual";
+    native_context_live_history_ratio?: number | null;
+    native_context_min_recent_turns?: number | null;
     /** Top-center header strip shell treatment for header-zone widgets. */
     header_backdrop_mode?: "default" | "glass" | "clear";
     /** Composer plan-control visibility. "auto" is the absent/default state. */

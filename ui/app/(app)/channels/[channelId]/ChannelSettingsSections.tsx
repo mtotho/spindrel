@@ -437,7 +437,7 @@ export function AgentBehaviorSection({
     form.native_context_policy && form.native_context_policy !== "default"
       ? form.native_context_policy
       : form.effective_native_context_policy
-  ) ?? "lean";
+  ) ?? "standard";
   const workspaceRagEffective = nativePolicy !== "lean";
 
   return (

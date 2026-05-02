@@ -4,7 +4,6 @@ import {
   GitMerge,
   HeartPulse,
   Inbox,
-  MessageSquareWarning,
   Plus,
   Radar,
   Sparkles,
@@ -49,7 +48,6 @@ function toneClass(value: ActionInboxTone): string {
 function rowIcon(row: ActionInboxRow) {
   if (row.kind === "replies") return row.count ? <Inbox size={15} /> : <CheckCheck size={15} />;
   if (row.kind === "project_reviews") return <GitMerge size={15} />;
-  if (row.kind === "issue_intake") return <MessageSquareWarning size={15} />;
   if (row.kind === "findings") return <Sparkles size={15} />;
   return <HeartPulse size={15} />;
 }
@@ -83,7 +81,6 @@ function ActionInboxSection() {
   const { data: health } = useLatestHealthSummary();
   const { data: unread } = useUnreadState();
   const { data: projectReviewInbox } = useProjectFactoryReviewInbox(8);
-  const { data: workPacks = [] } = useIssueWorkPacks();
   const regularChannels = (channels ?? []).filter((ch) => !isOrchestratorClient(ch.client_id));
   const model = buildActionInboxModel({
     unreadStates: unread?.states,
@@ -91,7 +88,6 @@ function ActionInboxSection() {
     attentionBrief,
     health,
     projectReviewInbox,
-    workPacks,
   });
   const primaryRow = model.rows[0] ?? {
     kind: "replies" as const,

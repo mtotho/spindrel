@@ -102,7 +102,7 @@ export function SessionsTabPanel({
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+      <div className="scroll-subtle min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {project && (
           <section className="mb-4 flex flex-col gap-2">
             <div className="flex items-baseline gap-2 px-1">
