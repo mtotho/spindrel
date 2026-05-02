@@ -127,7 +127,11 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 
 ![Codex native `/features` result rendered in chat](../images/harness-codex-native-features-result-dark.png)
 
+![Codex native `/context` result rendered in chat](../images/harness-codex-native-context-result-dark.png)
+
 ![Claude Code native `/skills` result rendered in chat](../images/harness-claude-native-skills-result-dark.png)
+
+![Claude Code native `/context` result rendered in chat](../images/harness-claude-native-context-result-dark.png)
 
 ![Claude Code native `/agents` result rendered in chat](../images/harness-claude-native-agents-result-dark.png)
 
@@ -266,7 +270,7 @@ Answering the card writes a suppress-outbox user message with the answers. If th
 
 ## Native status, compact, and host hints
 
-Harness sessions expose lightweight native state through `GET /api/v1/sessions/{id}/harness-status` and `/context`:
+Harness sessions expose lightweight host-observed native state through `GET /api/v1/sessions/{id}/harness-status` and the header context popover:
 
 - selected harness model/effort and approval mode;
 - latest native harness resume id;
@@ -275,6 +279,8 @@ Harness sessions expose lightweight native state through `GET /api/v1/sessions/{
 - last turn timestamp, native compact status, estimated native context remaining when available, and last usage/cost metadata.
 
 This is not a full Spindrel context budget. The native provider owns its own context window. Spindrel can only report the metadata it sees at the host boundary. Codex `thread/tokenUsage/updated` includes `modelContextWindow`, so Codex-backed sessions can show estimated remaining native context when that event has been observed.
+
+Typed `/context` in a harness session is runtime-native, not Spindrel host context. Claude Code dispatches SDK `/context` into the active native session. Codex currently returns a terminal handoff because the app-server JSON-RPC surface does not expose a read-only native `/context` method.
 
 The same status payload includes a compact run inspector for the last persisted harness turn: runtime, native session/thread id, effective cwd, selected model/effort, approval and plan modes, redacted input-manifest counts, bridge inventory counts, runtime-native inventory counts, error/interruption state, and any runtime latency milestones Spindrel has observed. The ctx popover renders these fields so operators can tell whether slowness is runtime startup, first notification, first text/tool latency, bridge inventory, or replay/rendering.
 

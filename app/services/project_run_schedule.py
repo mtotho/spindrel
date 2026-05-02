@@ -34,6 +34,7 @@ def _schedule_execution_config(
     *,
     project_id: uuid.UUID,
     request: str,
+    repo_path: str | None,
     machine_target_grant: ProjectMachineTargetGrant | None,
 ) -> dict[str, Any]:
     return {
@@ -41,6 +42,7 @@ def _schedule_execution_config(
         "project_coding_run_schedule": {
             "project_id": str(project_id),
             "request": request.strip(),
+            "repo_path": repo_path,
             "machine_target_grant": _machine_target_grant_summary(machine_target_grant),
         },
     }
@@ -97,6 +99,7 @@ async def create_project_coding_run_schedule(
         execution_config=_schedule_execution_config(
             project_id=project.id,
             request=body.request,
+            repo_path=body.repo_path,
             machine_target_grant=body.machine_target_grant,
         ),
         recurrence=recurrence,
@@ -144,6 +147,8 @@ async def update_project_coding_run_schedule(
     if body.request is not None:
         cfg["request"] = body.request.strip()
         task.prompt = body.request.strip()
+    if body.repo_path is not None:
+        cfg["repo_path"] = body.repo_path
     if body.scheduled_at is not None:
         task.scheduled_at = body.scheduled_at
     if body.recurrence is not None:
@@ -223,6 +228,7 @@ async def fire_project_coding_run_schedule(
         ProjectCodingRunCreate(
             channel_id=channel_id,
             request=str(cfg.get("request") or schedule.prompt or ""),
+            repo_path=str(cfg.get("repo_path") or "") or None,
             machine_target_grant=grant,
             schedule_task_id=schedule.id,
             schedule_run_number=run_number,
@@ -295,4 +301,5 @@ async def _coding_run_schedule_row(db: AsyncSession, task: Task, recent_runs: li
         "recent_runs": recent_runs or [],
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "machine_target_grant": await task_machine_grant_payload(db, task),
+        "repo_path": cfg.get("repo_path"),
     }

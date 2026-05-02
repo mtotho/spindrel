@@ -41,6 +41,7 @@ from app.services.run_presets import (
     RunPreset,
     get_run_preset,
 )
+from app.services.projects import normalize_project_path
 
 
 # Preset ids — duplicated here so callers can avoid re-importing both this
@@ -350,7 +351,7 @@ class ContextSource(Protocol):
     async def runtime(self, db: AsyncSession) -> ProjectRuntimeEnvironment: ...
 
     def repo_and_branch(
-        self, *, request: str, task_id: uuid.UUID
+        self, *, request: str, task_id: uuid.UUID, repo_path: str | None = None
     ) -> tuple[dict[str, Any], str | None, str | None]: ...
 
 
@@ -450,10 +451,10 @@ class ProjectContextSource:
         return await load_project_runtime_environment(db, self._project)
 
     def repo_and_branch(
-        self, *, request: str, task_id: uuid.UUID
+        self, *, request: str, task_id: uuid.UUID, repo_path: str | None = None
     ) -> tuple[dict[str, Any], str | None, str | None]:
         snapshot = project_snapshot(self._project)
-        repo = _first_repo(snapshot)
+        repo = _repo_for_path(snapshot, repo_path) if repo_path else _first_repo(snapshot)
         base_branch = str(repo.get("branch") or "").strip() or None
         branch = (
             f"spindrel/project-{str(task_id)[:8]}-"
@@ -526,6 +527,7 @@ class ProjectTaskExecutionContext:
         *,
         task_id: uuid.UUID,
         request: str = "",
+        repo_path: str | None = None,
         machine_grant: "MachineGrantInput | None" = None,
         source_work_pack_id: uuid.UUID | None = None,
         schedule_task_id: uuid.UUID | None = None,
@@ -545,7 +547,7 @@ class ProjectTaskExecutionContext:
         runtime = await source.runtime(db)
         runtime_target = RuntimeTargetView.from_payload(runtime.safe_payload())
         repo, branch, base_branch = source.repo_and_branch(
-            request=request, task_id=task_id
+            request=request, task_id=task_id, repo_path=repo_path
         )
         specs = _dev_target_specs(project)
         dev_targets = await allocator.allocate(db, project, task_id=task_id, specs=specs)
@@ -574,6 +576,7 @@ class ProjectTaskExecutionContext:
             schedule_task_id=str(schedule_task_id) if schedule_task_id else None,
             schedule_run_number=int(schedule_run_number) if schedule_run_number is not None else None,
             selected_task_ids=(),
+            repo_path=repo_path,
             _runtime_env=dict(runtime.env),
             _preset=preset,
         )
@@ -685,7 +688,7 @@ class ProjectTaskExecutionContext:
         runtime = await source.runtime(db)
         runtime_target = RuntimeTargetView.from_payload(runtime.safe_payload())
         repo, _branch, base_branch = source.repo_and_branch(
-            request="", task_id=task_id
+            request="", task_id=task_id, repo_path=repo_path
         )
         dependency_stack = resolver.resolve(project)
         machine_summary = _machine_grant_summary_from_input(machine_grant)
@@ -1214,6 +1217,21 @@ def _first_repo(snapshot: dict[str, Any]) -> dict[str, Any]:
             if isinstance(repo, dict):
                 return repo
     return {}
+
+
+def _repo_for_path(snapshot: dict[str, Any], repo_path: str | None) -> dict[str, Any]:
+    wanted = normalize_project_path(repo_path)
+    if not wanted:
+        return _first_repo(snapshot)
+    repos = snapshot.get("repos")
+    if isinstance(repos, list):
+        for repo in repos:
+            if not isinstance(repo, dict):
+                continue
+            path = normalize_project_path(str(repo.get("path") or repo.get("name") or ""))
+            if path == wanted:
+                return repo
+    raise ValueError(f"Project Blueprint does not declare repository path '{wanted}'")
 
 
 def _dev_target_specs(project: Project) -> list[DevTargetSpec]:

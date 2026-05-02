@@ -293,6 +293,7 @@ class ProjectMachineTargetGrantIn(BaseModel):
 class ProjectCodingRunWrite(BaseModel):
     channel_id: uuid.UUID
     request: str = ""
+    repo_path: str | None = None
     machine_target_grant: ProjectMachineTargetGrantIn | None = None
     source_work_pack_id: uuid.UUID | None = None
 
@@ -328,6 +329,7 @@ class ProjectCodingRunScheduleWrite(BaseModel):
     channel_id: uuid.UUID
     title: str = "Scheduled Project coding run"
     request: str = ""
+    repo_path: str | None = None
     scheduled_at: datetime | None = None
     recurrence: str = "+1w"
     machine_target_grant: ProjectMachineTargetGrantIn | None = None
@@ -337,6 +339,7 @@ class ProjectCodingRunSchedulePatch(BaseModel):
     channel_id: uuid.UUID | None = None
     title: str | None = None
     request: str | None = None
+    repo_path: str | None = None
     scheduled_at: datetime | None = None
     recurrence: str | None = None
     enabled: bool | None = None
@@ -349,6 +352,7 @@ class ProjectCodingRunScheduleOut(BaseModel):
     channel_id: uuid.UUID | None = None
     title: str
     request: str = ""
+    repo_path: str | None = None
     status: str
     enabled: bool
     scheduled_at: str | None = None
@@ -1363,6 +1367,7 @@ async def create_project_coding_run_endpoint(
             ProjectCodingRunCreate(
                 channel_id=body.channel_id,
                 request=body.request,
+                repo_path=body.repo_path,
                 machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
                 granted_by_user_id=_auth_user_id(_auth),
                 source_work_pack_id=body.source_work_pack_id,
@@ -1408,6 +1413,7 @@ async def create_project_coding_run_schedule_endpoint(
                 channel_id=body.channel_id,
                 title=body.title,
                 request=body.request,
+                repo_path=body.repo_path,
                 scheduled_at=body.scheduled_at,
                 recurrence=body.recurrence,
                 machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
@@ -1443,6 +1449,7 @@ async def update_project_coding_run_schedule_endpoint(
                 channel_id=body.channel_id,
                 title=body.title,
                 request=body.request,
+                repo_path=body.repo_path,
                 scheduled_at=body.scheduled_at,
                 recurrence=body.recurrence,
                 enabled=body.enabled,
@@ -1620,6 +1627,25 @@ async def finalize_project_coding_run_review_endpoint(
             merge_method=body.merge_method,
         ),
     )
+
+
+@router.get("/{project_id}/coding-runs/{task_id}", response_model=ProjectCodingRunOut)
+async def get_project_coding_run_endpoint(
+    project_id: uuid.UUID,
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        return await get_project_coding_run(db, project, task_id)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "coding run not found":
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=422, detail=message) from exc
 
 
 @router.post("/{project_id}/coding-runs/{task_id}/refresh", response_model=ProjectCodingRunOut)

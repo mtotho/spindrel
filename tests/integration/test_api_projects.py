@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+import json
 
 import pytest
 from sqlalchemy import select
@@ -317,6 +318,32 @@ class TestProjectsApi:
         assert original_row["review"]["status"] == "ready_for_review"
         assert original_row["review"]["handoff_url"] == "https://github.com/mtotho/spindrel/pull/123"
         assert original_row["review"]["evidence"]["tests_count"] == 1
+
+        detail = await client.get(
+            f"/api/v1/projects/{project_id}/coding-runs/{launched_body['task']['id']}",
+            headers=AUTH_HEADERS,
+        )
+        assert detail.status_code == 200
+        detail_body = detail.json()
+        assert detail_body["id"] == launched_body["task"]["id"]
+        assert detail_body["receipt"]["summary"] == "Screenshot diff is fixed and ready for review."
+        assert detail_body["receipt"]["changed_files"][0] == "ui/app/(app)/admin/projects/[projectId]/ProjectRunsSection.tsx"
+        assert detail_body["review"]["status"] == "ready_for_review"
+
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.tools.local.project_run_handoff import get_project_coding_run_details
+
+        bot_token = current_bot_id.set("test-bot")
+        channel_token = current_channel_id.set(channel.id)
+        try:
+            tool_payload = json.loads(await get_project_coding_run_details())
+        finally:
+            current_channel_id.reset(channel_token)
+            current_bot_id.reset(bot_token)
+        assert tool_payload["ok"] is True
+        assert tool_payload["selection"]["mode"] == "latest_meaningful"
+        assert tool_payload["run"]["id"] == launched_body["task"]["id"]
+        assert tool_payload["links"]["project_run_url"] == f"/admin/projects/{project_id}/runs/{launched_body['task']['id']}"
 
         continuation = await client.post(
             f"/api/v1/projects/{project_id}/coding-runs/{launched_body['task']['id']}/continue",

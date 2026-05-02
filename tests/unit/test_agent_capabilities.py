@@ -388,6 +388,7 @@ def test_project_coding_run_payload_includes_review_tools(monkeypatch):
         "manage_project_dependency_stack": {},
         "prepare_project_run_handoff": {},
         "schedule_project_coding_run": {},
+        "get_project_coding_run_details": {},
         "get_project_coding_run_review_context": {},
         "finalize_project_coding_run_review": {},
         "publish_project_run_receipt": {},
@@ -399,10 +400,12 @@ def test_project_coding_run_payload_includes_review_tools(monkeypatch):
     payload = agent_capabilities._coding_run_payload(manifest)
 
     assert payload["readiness"] == "ready"
+    assert payload["run_details"] == "available"
     assert payload["review_context"] == "available"
     assert payload["review_finalizer"] == "available"
     assert payload["missing_tools"] == []
     assert "get_project_coding_run_review_context" in payload["required_tools"]
+    assert "get_project_coding_run_details" in payload["required_tools"]
     assert "finalize_project_coding_run_review" in payload["required_tools"]
 
 

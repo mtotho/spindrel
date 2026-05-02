@@ -60,6 +60,7 @@ PROJECT_CODING_RUN_TOOLS = (
     "manage_project_dependency_stack",
     "prepare_project_run_handoff",
     "schedule_project_coding_run",
+    "get_project_coding_run_details",
     "get_project_coding_run_review_context",
     "finalize_project_coding_run_review",
     "publish_project_run_receipt",
@@ -1696,6 +1697,7 @@ def _coding_run_payload(manifest: dict[str, Any]) -> dict[str, Any]:
         "fresh_instances": "available",
         "run_receipts": "available" if "publish_project_run_receipt" in _local_tools else "missing",
         "handoff_helper": "available" if "prepare_project_run_handoff" in _local_tools else "missing",
+        "run_details": "available" if "get_project_coding_run_details" in _local_tools else "missing",
         "review_context": "available" if "get_project_coding_run_review_context" in _local_tools else "missing",
         "review_finalizer": "available" if "finalize_project_coding_run_review" in _local_tools else "missing",
         "dependency_stack": "available" if "manage_project_dependency_stack" in _local_tools else "missing",
@@ -1711,6 +1713,7 @@ def _coding_run_payload(manifest: dict[str, Any]) -> dict[str, Any]:
             "capture screenshots when UI changes",
             "prepare_project_run_handoff(open_pr)",
             "publish_project_run_receipt",
+            "get_project_coding_run_details for latest run or review questions",
             "for review sessions, call get_project_coding_run_review_context before finalize_project_coding_run_review",
         ],
     }

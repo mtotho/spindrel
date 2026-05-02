@@ -209,6 +209,7 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
         "project-workspace-instances.png",
         "project-workspace-runs.png",
         "project-workspace-review-inbox.png",
+        "project-workspace-run-detail.png",
         "project-workspace-review-ledger.png",
         "project-workspace-scheduled-reviews.png",
         "project-workspace-execution-access.png",
@@ -236,6 +237,7 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
     assert routes["project-workspace-instances"] == "/admin/projects/blueprint-project-1#Instances"
     assert routes["project-workspace-runs"] == "/admin/projects/project-1#Runs"
     assert routes["project-workspace-review-inbox"] == "/admin/projects/project-1#Runs"
+    assert routes["project-workspace-run-detail"] == "/admin/projects/project-1/runs/screenshot-project-coding-run-task"
     assert routes["project-workspace-review-ledger"] == "/admin/projects/project-1#Runs"
     assert routes["project-workspace-execution-access"] == "/admin/projects/project-1#Runs"
     assert routes["project-workspace-review-launched"] == "/admin/projects/project-1#Runs"

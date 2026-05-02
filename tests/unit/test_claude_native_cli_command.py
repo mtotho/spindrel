@@ -2,7 +2,28 @@ import pytest
 
 pytest.importorskip("claude_agent_sdk")
 
-from integrations.claude_code.harness import build_native_cli_command  # noqa: E402
+from integrations.sdk import HarnessContextHint, TurnContext  # noqa: E402
+from integrations.claude_code.harness import (  # noqa: E402
+    _prompt_with_context_hints,
+    _set_context_hint_system_prompt_kwarg,
+    build_native_cli_command,
+)
+
+import uuid
+
+
+def _ctx(*, context_hints=()) -> TurnContext:
+    return TurnContext(
+        spindrel_session_id=uuid.uuid4(),
+        channel_id=uuid.uuid4(),
+        bot_id="bot",
+        turn_id=uuid.uuid4(),
+        workdir="/workspace",
+        harness_session_id="claude-session",
+        permission_mode="bypassPermissions",
+        db_session_factory=lambda: None,
+        context_hints=tuple(context_hints),
+    )
 
 
 def test_claude_native_cli_command_resumes_session_with_settings():
@@ -20,3 +41,35 @@ def test_claude_native_cli_command_resumes_session_with_settings():
         == "claude -r sess-123 --model claude-sonnet-4-6 --effort high "
         "--permission-mode bypassPermissions --dangerously-skip-permissions"
     )
+
+
+def test_claude_prompt_keeps_user_request_before_host_hints():
+    hint = HarnessContextHint(
+        kind="channel_prompt",
+        text="Read AGENTS.md first.",
+        source="project",
+        priority="instruction",
+    )
+
+    text = _prompt_with_context_hints("Fix the upload bug.", _ctx(context_hints=(hint,)))
+
+    assert text.startswith("Fix the upload bug.")
+    assert text.index("Fix the upload bug.") < text.index("<spindrel_host_instructions>")
+
+
+def test_claude_system_prompt_append_carries_instruction_hints_when_supported():
+    class Options:
+        def __init__(self, *, system_prompt=None):
+            self.system_prompt = system_prompt
+
+    hint = HarnessContextHint(
+        kind="channel_prompt",
+        text="Read AGENTS.md first.",
+        source="project",
+        priority="instruction",
+    )
+    options_kwargs = {}
+
+    assert _set_context_hint_system_prompt_kwarg(Options, options_kwargs, _ctx(context_hints=(hint,)))
+    assert options_kwargs["system_prompt"]["preset"] == "claude_code"
+    assert "Read AGENTS.md first." in options_kwargs["system_prompt"]["append"]

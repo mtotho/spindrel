@@ -87,6 +87,49 @@ def test_project_coding_run_defaults_fall_back_when_no_repo_snapshot():
 
 
 @pytest.mark.asyncio
+async def test_create_project_coding_run_uses_explicit_repo_path(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Projects",
+        slug="projects",
+        root_path="common/projects",
+        metadata_={
+            "blueprint_snapshot": {
+                "repos": [
+                    {"name": "vault", "path": "vault", "branch": "master"},
+                    {"name": "spindrel", "path": "spindrel", "branch": "development"},
+                ],
+            },
+        },
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    task = await create_project_coding_run(
+        db_session,
+        project,
+        ProjectCodingRunCreate(channel_id=channel_id, request="Smoke.", repo_path="spindrel"),
+    )
+
+    run_cfg = task.execution_config["project_coding_run"]
+    assert run_cfg["repo"] == {"name": "spindrel", "path": "spindrel", "url": None}
+    assert run_cfg["base_branch"] == "development"
+    assert "Repository path: spindrel" in task.prompt
+
+
+@pytest.mark.asyncio
 async def test_create_project_coding_run_attaches_task_scoped_machine_grant(db_session, monkeypatch):
     async def validate_target(provider_id: str, target_id: str):
         assert provider_id == "ssh"

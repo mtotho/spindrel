@@ -75,6 +75,26 @@ _REVIEW_CONTEXT_RETURNS = {
 }
 
 
+_RUN_DETAILS_RETURNS = {
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "project": {"type": "object"},
+        "selection": {"type": "object"},
+        "run": {"type": "object"},
+        "receipt": {"type": "object"},
+        "review": {"type": "object"},
+        "evidence": {"type": "object"},
+        "links": {"type": "object"},
+        "error": {"type": "string"},
+        "error_code": {"type": "string"},
+        "error_kind": {"type": "string"},
+        "retryable": {"type": "boolean"},
+    },
+    "required": ["ok"],
+}
+
+
 _SCHEDULE_RETURNS = {
     "type": "object",
     "properties": {
@@ -242,6 +262,117 @@ async def schedule_project_coding_run(
     except Exception as exc:
         return _tool_error(str(exc), "project_schedule_failed", error_kind="execution")
     return json.dumps({"ok": True, "schedule": row}, ensure_ascii=False)
+
+
+def _run_has_meaningful_review_state(run: dict[str, Any]) -> bool:
+    review = run.get("review")
+    if not isinstance(review, dict):
+        review = {}
+    status = str(review.get("status") or run.get("status") or "")
+    return status in {
+        "ready_for_review",
+        "reviewed",
+        "changes_requested",
+        "blocked",
+        "accepted",
+        "rejected",
+        "merged",
+    } or bool(run.get("receipt")) or bool(review.get("reviewed")) or bool(review.get("review_summary"))
+
+
+def _project_run_detail_payload(project: Any, run: dict[str, Any], *, selection: str) -> dict[str, Any]:
+    receipt = run.get("receipt") if isinstance(run.get("receipt"), dict) else None
+    review = run.get("review") if isinstance(run.get("review"), dict) else {}
+    project_url = f"/admin/projects/{project.id}"
+    task_id = str(run.get("task", {}).get("id") or run.get("id") or "")
+    detail_url = f"{project_url}/runs/{task_id}" if task_id else project_url
+    receipt_metadata = receipt.get("metadata") if isinstance(receipt, dict) and isinstance(receipt.get("metadata"), dict) else {}
+    return {
+        "ok": True,
+        "project": {
+            "id": str(project.id),
+            "name": project.name,
+            "root_path": project.root_path,
+            "url": project_url,
+        },
+        "selection": {
+            "mode": selection,
+            "latest_meaningful": selection == "latest_meaningful",
+        },
+        "run": run,
+        "receipt": receipt,
+        "review": review,
+        "evidence": {
+            "changed_files": receipt.get("changed_files", []) if isinstance(receipt, dict) else [],
+            "tests": receipt.get("tests", []) if isinstance(receipt, dict) else [],
+            "screenshots": receipt.get("screenshots", []) if isinstance(receipt, dict) else [],
+            "dev_targets": run.get("dev_targets") or (receipt.get("dev_targets", []) if isinstance(receipt, dict) else []),
+            "metadata": receipt_metadata,
+            "activity": run.get("activity") or [],
+        },
+        "links": {
+            "project_url": project_url,
+            "project_run_url": detail_url,
+            "task_url": f"/admin/tasks/{task_id}" if task_id else None,
+            "handoff_url": review.get("handoff_url") or (receipt.get("handoff_url") if isinstance(receipt, dict) else None),
+        },
+    }
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "get_project_coding_run_details",
+        "description": (
+            "Return the latest meaningful Project coding-run review details, or a specific run by task id. "
+            "Use this when the operator asks what changed, what tests/screenshots were published, "
+            "or wants a Project run/review summarized in chat."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "description": "Optional Project coding-run task UUID. Omit to inspect the latest meaningful run."},
+            },
+        },
+    },
+}, safety_tier="readonly", requires_bot_context=True, requires_channel_context=True, returns=_RUN_DETAILS_RETURNS)
+async def get_project_coding_run_details(task_id: str | None = None) -> str:
+    bot_id = current_bot_id.get()
+    channel_id = current_channel_id.get()
+    if not bot_id:
+        return _tool_error("No bot context available.", "missing_bot_context")
+    if not channel_id:
+        return _tool_error("No channel context available.", "missing_channel_context")
+
+    try:
+        from app.db.engine import async_session
+        from app.db.models import Channel, Project
+        from app.services.project_coding_runs import get_project_coding_run, list_project_coding_runs
+
+        async with async_session() as db:
+            channel = await db.get(Channel, channel_id)
+            if channel is None or channel.project_id is None:
+                return _tool_error("Current channel is not Project-bound.", "project_channel_required")
+            project = await db.get(Project, channel.project_id)
+            if project is None:
+                return _tool_error("Project not found.", "project_not_found")
+            if task_id:
+                run = await get_project_coding_run(db, project, uuid.UUID(str(task_id)))
+                selection = "task_id"
+            else:
+                runs = await list_project_coding_runs(db, project, limit=50)
+                if not runs:
+                    return _tool_error("No Project coding runs found.", "project_run_not_found", error_kind="not_found")
+                run = next((item for item in runs if _run_has_meaningful_review_state(item)), runs[0])
+                selection = "latest_meaningful"
+            payload = _project_run_detail_payload(project, run, selection=selection)
+    except ValueError as exc:
+        message = str(exc)
+        code = "project_run_not_found" if message == "coding run not found" else "project_run_invalid_request"
+        return _tool_error(message, code, error_kind="not_found" if code == "project_run_not_found" else "validation")
+    except Exception as exc:
+        return _tool_error(str(exc), "project_run_details_failed", error_kind="execution")
+    return json.dumps(payload, ensure_ascii=False)
 
 
 @register({

@@ -87,6 +87,11 @@ class _StubRuntime:
                     aliases=("health",),
                 ),
                 HarnessRuntimeCommandSpec(
+                    id="context",
+                    label="context",
+                    description="Show test harness native context.",
+                ),
+                HarnessRuntimeCommandSpec(
                     id="mutate",
                     label="mutate",
                     description="Mutating test command.",
@@ -433,7 +438,7 @@ async def test_harness_plan_sets_session_plan_mode_not_approval_mode(db_session)
     assert await load_session_mode(db_session, session.id) == "bypassPermissions"
 
 
-async def test_harness_context_is_native_first_with_host_diagnostics_nested(db_session, monkeypatch):
+async def test_harness_context_routes_to_native_runtime_without_host_summary(db_session, monkeypatch):
     bot, channel, session = await _make_harness_setup(db_session)
 
     async def fake_resolve_harness_paths(db, *, channel_id, bot):
@@ -457,10 +462,15 @@ async def test_harness_context_is_native_first_with_host_diagnostics_nested(db_s
         args=[],
     )
 
-    assert result.result_type == "harness_context_summary"
-    assert result.payload["native_context"]["title"] == "Stub native context"
-    assert result.payload["native_context"]["detail"] == "native context from runtime"
-    assert result.payload["host_context"]["runtime"] == _RUNTIME_NAME
+    assert result.result_type == "harness_runtime_command"
+    assert result.payload["runtime"] == _RUNTIME_NAME
+    assert result.payload["command"] == "context"
+    assert result.payload["status"] == "ok"
+    assert result.payload["title"] == "Stub native context"
+    assert result.payload["detail"] == "native context from runtime"
+    assert result.payload["data"]["usage"]["iterations"] == {"count": 2}
+    assert "host_context" not in result.payload
+    assert "native_context" not in result.payload
     assert "native context from runtime" in result.fallback_text
     assert "Spindrel bridge tools" not in result.fallback_text
 

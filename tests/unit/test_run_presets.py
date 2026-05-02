@@ -73,6 +73,7 @@ def test_project_coding_run_defaults_to_fresh_project_receipt_flow():
     assert defaults["harness_effort"] == "high"
     assert defaults["max_run_seconds"] == 7200
     assert "prepare_project_run_handoff" in defaults["tools"]
+    assert "get_project_coding_run_details" in defaults["tools"]
     assert "publish_project_run_receipt" in defaults["tools"]
     assert "run_e2e_tests" not in defaults["tools"]
     assert defaults["skills"] == [
@@ -96,6 +97,7 @@ def test_project_coding_run_review_defaults_to_selected_run_finalizer():
     assert defaults["session_target"] == {"mode": "new_each_run"}
     assert defaults["project_instance"] == {"mode": "fresh"}
     assert "finalize_project_coding_run_review" in defaults["tools"]
+    assert "get_project_coding_run_details" in defaults["tools"]
     assert "get_project_coding_run_review_context" in defaults["tools"]
     assert "prepare_project_run_handoff" in defaults["tools"]
     assert defaults["skills"] == [

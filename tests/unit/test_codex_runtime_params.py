@@ -147,6 +147,14 @@ def test_codex_thread_name_from_prompt_ignores_spindrel_wrappers():
     ) == "Fix the upload bug and update tests."
 
 
+def test_codex_thread_name_from_prompt_ignores_host_instruction_wrappers_first():
+    assert _codex_thread_name_from_prompt(
+        "<spindrel_host_instructions>read AGENTS.md</spindrel_host_instructions>\n"
+        "<spindrel_context_hints>memory pointer</spindrel_context_hints>\n"
+        "Investigate the attachment upload regression."
+    ) == "Investigate the attachment upload regression."
+
+
 def test_parse_model_options_preserves_per_model_efforts_and_defaults():
     options = _parse_model_options(
         {

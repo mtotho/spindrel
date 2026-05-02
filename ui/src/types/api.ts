@@ -1502,7 +1502,7 @@ export interface ProjectRunReceipt {
   branch?: string | null;
   base_branch?: string | null;
   commit_sha?: string | null;
-  changed_files?: string[];
+  changed_files?: Array<Record<string, any> | string>;
   tests?: Array<Record<string, any> | string>;
   screenshots?: Array<Record<string, any> | string>;
   dev_targets?: Array<Record<string, any> | string>;
@@ -1722,6 +1722,7 @@ export interface ProjectCodingRunSchedule {
   channel_id?: string | null;
   title: string;
   request?: string;
+  repo_path?: string | null;
   status: string;
   enabled: boolean;
   scheduled_at?: string | null;

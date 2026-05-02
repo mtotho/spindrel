@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Bot, Check, Eye, FileText, History, MessageSquare, PenLine, Save, Sparkles, Tags, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  Eye,
+  FileText,
+  MessageSquare,
+  PenLine,
+  Save,
+  Sparkles,
+  Wand2,
+  X,
+} from "lucide-react";
 import {
   useAssistChannelNote,
   useChannel,
@@ -9,7 +20,6 @@ import {
   useWriteChannelNote,
   type ChannelNoteAssistProposal,
 } from "@/src/api/hooks/useChannels";
-import { SourceTextEditor } from "@/src/components/shared/SourceTextEditor";
 import { MarkdownViewer } from "@/src/components/workspace/MarkdownViewer";
 import { ChatSession } from "@/src/components/chat/ChatSession";
 
@@ -34,6 +44,7 @@ export default function NoteWorkspacePage() {
   const [proposal, setProposal] = useState<ChannelNoteAssistProposal | null>(null);
   const [customInstruction, setCustomInstruction] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
+  const [aiFlash, setAiFlash] = useState(false);
 
   useEffect(() => {
     if (!note) return;
@@ -52,6 +63,7 @@ export default function NoteWorkspacePage() {
   );
   const dirty = Boolean(note && fullDraft !== note.content);
   const selectedText = selection.text.trim();
+  const proposalMeaningful = proposal ? normalizeMd(proposal.replacement_markdown) !== normalizeMd(proposal.target === "selection" && selectedText ? selectedText : bodyDraft) : false;
 
   const handleSave = useCallback(async () => {
     if (!channelId || !slug) return;
@@ -65,25 +77,33 @@ export default function NoteWorkspacePage() {
 
   const handleAssist = useCallback(async (mode: string) => {
     if (!slug) return;
-    const proposal = await assistNote.mutateAsync({
+    const next = await assistNote.mutateAsync({
       slug,
       mode,
       instruction: mode === "custom" ? customInstruction : undefined,
       selection: selectedText ? selection : null,
       base_hash: baseHash,
     });
-    setProposal(proposal);
+    setProposal(next);
+    setAiFlash(true);
+    window.setTimeout(() => setAiFlash(false), 900);
   }, [assistNote, baseHash, customInstruction, selectedText, selection, slug]);
 
   const acceptProposal = useCallback(() => {
     if (!proposal) return;
+    if (!proposalMeaningful) {
+      setProposal(null);
+      return;
+    }
     if (proposal.target === "selection" && selectedText) {
       setBodyDraft((current) => current.slice(0, selection.start) + proposal.replacement_markdown + current.slice(selection.end));
     } else {
       setBodyDraft(stripFrontmatter(proposal.replacement_markdown));
     }
     setProposal(null);
-  }, [proposal, selectedText, selection.end, selection.start]);
+    setAiFlash(true);
+    window.setTimeout(() => setAiFlash(false), 900);
+  }, [proposal, proposalMeaningful, selectedText, selection.end, selection.start]);
 
   if (!channelId || !slug) {
     return <div className="p-6 text-text-muted">Missing note route.</div>;
@@ -105,160 +125,136 @@ export default function NoteWorkspacePage() {
 
   const channelName = channelQuery.data?.display_name || channelQuery.data?.name || "Channel";
   const botId = channelQuery.data?.bot_id;
+  const targetLabel = selectedText ? `${selectedText.length} selected chars` : "Whole note";
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
-      <div className="flex min-h-0 flex-1 flex-col px-4 py-3 sm:px-6 lg:px-8">
-        <header className="flex shrink-0 items-center gap-3 pb-3">
-          <button
-            type="button"
-            onClick={() => navigate(`/channels/${encodeURIComponent(channelId)}`)}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay hover:text-text"
-            aria-label="Back to channel"
-          >
-            <ArrowLeft size={17} />
-          </button>
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <FileText size={16} className="shrink-0 text-emphasis" />
-              <input
-                value={titleDraft}
-                onChange={(event) => setTitleDraft(event.target.value)}
-                className="min-w-0 flex-1 bg-transparent text-[18px] font-semibold text-text outline-none placeholder:text-text-dim"
-                placeholder="Untitled"
-              />
-              <span className="rounded-full bg-surface-overlay px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text-dim">
-                {note.scope}
-              </span>
+      <header className="flex h-12 shrink-0 items-center gap-3 px-4 sm:px-6 lg:px-8">
+        <button
+          type="button"
+          onClick={() => navigate(`/channels/${encodeURIComponent(channelId)}`)}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay hover:text-text"
+          aria-label="Back to channel"
+        >
+          <ArrowLeft size={17} />
+        </button>
+        <FileText size={16} className="shrink-0 text-emphasis" />
+        <input
+          value={titleDraft}
+          onChange={(event) => setTitleDraft(event.target.value)}
+          className="min-w-0 flex-1 bg-transparent text-[18px] font-semibold text-text outline-none placeholder:text-text-dim"
+          placeholder="Untitled"
+        />
+        <span className="hidden rounded-full bg-surface-overlay px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text-dim sm:inline-flex">
+          {note.scope}
+        </span>
+        <button
+          type="button"
+          onClick={() => setPreview((v) => !v)}
+          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-text-muted hover:bg-surface-overlay"
+        >
+          {preview ? <PenLine size={14} /> : <Eye size={14} />}
+          {preview ? "Edit" : "Preview"}
+        </button>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!dirty || writeNote.isPending}
+          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-accent hover:bg-surface-overlay disabled:opacity-40"
+        >
+          <Save size={14} />
+          Save
+        </button>
+      </header>
+
+      <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pb-2 text-[11px] text-text-dim sm:px-6 lg:px-8">
+        <span>{channelName}</span>
+        <span>{wordCount(bodyDraft)} words</span>
+        <span>{versionsQuery.data?.versions.length ?? 0} revisions</span>
+        <span>{targetLabel}</span>
+        <Link to={`/channels/${encodeURIComponent(channelId)}`} className="text-accent hover:underline">Channel</Link>
+      </div>
+
+      <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 px-4 pb-4 sm:px-6 lg:px-8 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <section className={`relative min-h-0 overflow-hidden rounded-md bg-surface-raised/45 ${aiFlash ? "note-ai-flash" : ""}`}>
+          {preview ? (
+            <div className="h-full overflow-auto bg-surface px-8 py-7">
+              <MarkdownViewer content={bodyDraft} />
             </div>
-            <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-text-dim">
-              <span>{channelName}</span>
-              <span>{note.word_count} words</span>
-              <span>{versionsQuery.data?.versions.length ?? 0} revisions</span>
-              <Link to={`/channels/${encodeURIComponent(channelId)}`} className="text-accent hover:underline">Channel</Link>
+          ) : (
+            <MarkdownNoteEditor value={bodyDraft} onChange={setBodyDraft} onSelectionChange={setSelection} />
+          )}
+          {assistNote.isPending && (
+            <div className="pointer-events-none absolute inset-x-6 top-6 flex items-center gap-2 rounded-md bg-accent/[0.10] px-3 py-2 text-[12px] text-accent">
+              <Sparkles size={14} className="thinking-pulse" />
+              Authoring a Markdown proposal...
+            </div>
+          )}
+        </section>
+
+        <aside className="flex min-h-0 flex-col gap-3 rounded-md bg-surface-raised/55 p-3">
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-emphasis/10 text-emphasis">
+              <Wand2 size={15} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[12px] font-medium text-text">Magic edit</div>
+              <div className="text-[11px] text-text-dim">{targetLabel}</div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setPreview((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-text-muted hover:bg-surface-overlay"
-          >
-            {preview ? <PenLine size={14} /> : <Eye size={14} />}
-            {preview ? "Edit" : "Preview"}
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={!dirty || writeNote.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-accent hover:bg-surface-overlay disabled:opacity-40"
-          >
-            <Save size={14} />
-            Save
-          </button>
-        </header>
 
-        <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <section className="min-h-0 rounded-md bg-surface-raised/55 p-2">
-            {preview ? (
-              <div className="h-full min-h-[560px] overflow-auto rounded-md bg-surface px-4 py-4">
-                <MarkdownViewer content={bodyDraft} />
-              </div>
+          <button
+            type="button"
+            onClick={() => void handleAssist("clarify_structure")}
+            disabled={assistNote.isPending}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-accent/[0.10] px-3 py-2 text-[12px] font-medium text-accent hover:bg-accent/[0.16] disabled:opacity-40"
+          >
+            <Sparkles size={14} />
+            Clarify & Structure
+          </button>
+
+          <div className="flex shrink-0 flex-col gap-2 rounded-md bg-input p-2">
+            <textarea
+              value={customInstruction}
+              onChange={(event) => setCustomInstruction(event.target.value)}
+              placeholder="Tell the assistant what to change"
+              className="min-h-[84px] resize-none bg-transparent text-[13px] leading-relaxed text-text outline-none placeholder:text-text-dim"
+            />
+            <button
+              type="button"
+              onClick={() => void handleAssist("custom")}
+              disabled={!customInstruction.trim() || assistNote.isPending}
+              className="self-end rounded-md px-2.5 py-1.5 text-[12px] text-accent hover:bg-surface-overlay disabled:opacity-40"
+            >
+              Propose
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setChatOpen(true)}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-[12px] text-text-muted hover:bg-surface-overlay"
+          >
+            <MessageSquare size={14} />
+            Open note chat
+          </button>
+
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {proposal ? (
+              <ProposalReview
+                proposal={proposal}
+                meaningful={proposalMeaningful}
+                onAccept={acceptProposal}
+                onReject={() => setProposal(null)}
+              />
             ) : (
-              <SourceTextEditor
-                value={bodyDraft}
-                language="markdown"
-                onChange={setBodyDraft}
-                onSelectionChange={setSelection}
-                minHeight={560}
-                maxHeight={undefined}
-                className="h-full"
-                status={{ variant: dirty ? "neutral" : "success", label: dirty ? "Unsaved Markdown note" : "Saved Markdown note" }}
-              />
+              <div className="flex h-full items-center rounded-md border border-dashed border-surface-border px-3 py-4 text-[12px] leading-relaxed text-text-dim">
+                Highlight text or write an instruction, then let the assistant prepare a reviewable Markdown draft.
+              </div>
             )}
-          </section>
-
-          <aside className="flex min-h-0 flex-col gap-3 rounded-md bg-surface-raised/55 p-3">
-            <section className="flex shrink-0 flex-col gap-2">
-              <div className="flex items-center gap-1.5 text-[12px] font-medium text-text">
-                <Bot size={14} className="text-emphasis" />
-                Note assistant
-              </div>
-              <div className="text-[11px] text-text-dim">
-                {selectedText ? `${selectedText.length} selected characters` : "Whole note target"}
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {note.category && <span className="rounded-full bg-surface-overlay px-2 py-0.5 text-[11px] text-text-muted">{note.category}</span>}
-                {note.tags.map((tag) => (
-                  <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-surface-overlay px-2 py-0.5 text-[11px] text-text-muted">
-                    <Tags size={10} />
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </section>
-
-            <section className="flex shrink-0 flex-col gap-2">
-              <button
-                type="button"
-                onClick={() => void handleAssist("clarify_structure")}
-                disabled={assistNote.isPending}
-                className="inline-flex items-center justify-center gap-1.5 rounded-md bg-accent/[0.10] px-3 py-2 text-[12px] font-medium text-accent hover:bg-accent/[0.16] disabled:opacity-40"
-              >
-                <Sparkles size={14} />
-                Clarify & Structure
-              </button>
-              <textarea
-                value={customInstruction}
-                onChange={(event) => setCustomInstruction(event.target.value)}
-                placeholder="Ask for a specific change"
-                className="min-h-[76px] resize-none rounded-md bg-input px-2.5 py-2 text-[12px] text-text outline-none placeholder:text-text-dim"
-              />
-              <button
-                type="button"
-                onClick={() => void handleAssist("custom")}
-                disabled={!customInstruction.trim() || assistNote.isPending}
-                className="rounded-md px-3 py-2 text-[12px] text-text-muted hover:bg-surface-overlay disabled:opacity-40"
-              >
-                Propose change
-              </button>
-              <button
-                type="button"
-                onClick={() => setChatOpen(true)}
-                className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-[12px] text-text-muted hover:bg-surface-overlay"
-              >
-                <MessageSquare size={14} />
-                Open note chat
-              </button>
-            </section>
-
-            <section className="flex min-h-0 flex-1 flex-col gap-2">
-              {proposal ? (
-                <>
-                  <div className="text-[12px] text-text-muted">{proposal.rationale}</div>
-                  <pre className="min-h-[180px] flex-1 overflow-auto whitespace-pre-wrap rounded-md bg-input p-2 text-[11px] text-text">
-                    {proposal.diff || proposal.replacement_markdown}
-                  </pre>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={acceptProposal} className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[12px] text-accent hover:bg-surface-overlay">
-                      <Check size={13} />
-                      Accept
-                    </button>
-                    <button type="button" onClick={() => setProposal(null)} className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[12px] text-text-muted hover:bg-surface-overlay">
-                      <X size={13} />
-                      Reject
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className="flex flex-1 items-center gap-2 rounded-md border border-dashed border-surface-border px-3 py-4 text-[12px] text-text-dim">
-                  <History size={14} />
-                  Revisions are created before each overwrite.
-                </div>
-              )}
-            </section>
-          </aside>
-        </main>
-      </div>
+          </div>
+        </aside>
+      </main>
 
       {note.session_id && botId && (
         <ChatSession
@@ -286,6 +282,80 @@ export default function NoteWorkspacePage() {
           initiallyExpanded
         />
       )}
+    </div>
+  );
+}
+
+function MarkdownNoteEditor({
+  value,
+  onChange,
+  onSelectionChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onSelectionChange: (selection: SelectionState) => void;
+}) {
+  const emitSelection = useCallback((target: HTMLTextAreaElement) => {
+    onSelectionChange({
+      start: target.selectionStart,
+      end: target.selectionEnd,
+      text: target.value.slice(target.selectionStart, target.selectionEnd),
+    });
+  }, [onSelectionChange]);
+
+  return (
+    <textarea
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      onSelect={(event) => emitSelection(event.currentTarget)}
+      onKeyUp={(event) => emitSelection(event.currentTarget)}
+      onMouseUp={(event) => emitSelection(event.currentTarget)}
+      spellCheck
+      placeholder="Start writing..."
+      className="h-full min-h-[calc(100vh-168px)] w-full resize-none border-0 bg-transparent px-8 py-7 font-sans text-[18px] leading-8 text-text outline-none placeholder:text-text-dim/70"
+    />
+  );
+}
+
+function ProposalReview({
+  proposal,
+  meaningful,
+  onAccept,
+  onReject,
+}: {
+  proposal: ChannelNoteAssistProposal;
+  meaningful: boolean;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="rounded-md bg-accent/[0.08] px-3 py-2 text-[12px] leading-relaxed text-text-muted">
+        {meaningful ? proposal.rationale : "The assistant did not find a useful structural change. Your draft is unchanged."}
+      </div>
+      {meaningful && (
+        <div className="min-h-0 flex-1 overflow-auto rounded-md bg-input px-3 py-3">
+          <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-accent">
+            <Sparkles size={12} />
+            Pending AI draft
+          </div>
+          <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-text">
+            {stripFrontmatter(proposal.replacement_markdown)}
+          </pre>
+        </div>
+      )}
+      <div className="flex shrink-0 gap-2">
+        {meaningful && (
+          <button type="button" onClick={onAccept} className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px] text-accent hover:bg-surface-overlay">
+            <Check size={13} />
+            Accept
+          </button>
+        )}
+        <button type="button" onClick={onReject} className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px] text-text-muted hover:bg-surface-overlay">
+          <X size={13} />
+          {meaningful ? "Reject" : "Dismiss"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -325,4 +395,12 @@ function yamlScalar(value: string): string {
     return JSON.stringify(value);
   }
   return value;
+}
+
+function wordCount(value: string): number {
+  return (value.match(/\b[\w'-]+\b/g) ?? []).length;
+}
+
+function normalizeMd(value: string): string {
+  return stripFrontmatter(value).replace(/\s+/g, " ").trim();
 }

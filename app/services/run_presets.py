@@ -47,12 +47,12 @@ Expected workflow:
 4. Run the smallest relevant tests first with the native Project shell/runtime env, then broaden as needed.
 5. For UI changes, run the Project's typecheck/tests, start the project app on the assigned dev target port when present, and capture screenshots against that app. Testing is defined by the Project repo, not by a Spindrel-specific e2e tool.
 6. Prepare a review handoff: call prepare_project_run_handoff(action="open_pr") when GitHub credentials and gh are available, or record the blocker from that tool result.
-7. Call publish_project_run_receipt before finishing so the Project page has a durable review record. Receipt retries are idempotent when task, handoff, git metadata, or an explicit idempotency_key is stable."""
+7. Call publish_project_run_receipt before finishing so the Project page has a durable review record. Include structured file/test/screenshot/dev-target evidence, blockers, risks, follow-ups, dependency health, and PR notes when available. Receipt retries are idempotent when task, handoff, git metadata, or an explicit idempotency_key is stable."""
 
 
 PROJECT_CODING_RUN_REVIEW_PROMPT = """Review the selected Project coding runs and finalize only accepted work.
 
-Before deciding, load the `workspace/project_coding_runs` runtime skill if it is not already loaded and call get_project_coding_run_review_context for the current review task.
+Before deciding, load the `workspace/project_coding_runs` runtime skill if it is not already loaded and call get_project_coding_run_review_context for the current review task. For ad hoc latest-run or latest-review questions outside a review session, call get_project_coding_run_details instead.
 Use the Project root as the working directory. Inspect each selected run's task, receipt, PR, tests, screenshots, and reviewer-visible evidence before making a decision. If the operator asked you to merge accepted PRs, merge only the runs you accept.
 If you are running through a Codex or Claude Code harness, use native tools for repo-local inspection, test commands, and app/dev server checks. Do not wrap unit tests in Docker, Dockerfile.test, or docker compose. Docker-backed dependency control, merge/finalizer actions, and receipts must use task-granted Spindrel tools.
 If stack-backed dependencies are needed, use get_project_dependency_stack and manage_project_dependency_stack; do not use raw docker or docker compose in the harness shell, and do not use dependency stacks to run unit tests.
@@ -167,6 +167,7 @@ PROJECT_CODING_RUN = RunPreset(
             "get_project_dependency_stack",
             "manage_project_dependency_stack",
             "prepare_project_run_handoff",
+            "get_project_coding_run_details",
             "publish_project_run_receipt",
         ),
         post_final_to_channel=True,
@@ -208,6 +209,7 @@ PROJECT_CODING_RUN_REVIEW = RunPreset(
             "get_project_dependency_stack",
             "manage_project_dependency_stack",
             "prepare_project_run_handoff",
+            "get_project_coding_run_details",
             "get_project_coding_run_review_context",
             "finalize_project_coding_run_review",
         ),

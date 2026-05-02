@@ -11,7 +11,6 @@ hardcoded registries.
 """
 from __future__ import annotations
 
-import asyncio
 import copy as _copy
 import logging
 import uuid
@@ -1072,119 +1071,23 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     bot = get_bot(session.bot_id)
     if getattr(bot, "harness_runtime", None):
         from app.services.agent_harnesses.approvals import load_session_mode
-        from app.services.agent_harnesses.session_state import (
-            HARNESS_RESUME_RESET_AT_KEY,
-            context_window_from_usage,
-            estimate_native_compaction_remaining_pct,
-            hint_preview,
-            load_bridge_status,
-            load_context_hints,
-            load_latest_harness_metadata,
-            load_native_compaction,
-            normalize_context_usage,
-        )
-        from app.services.agent_harnesses.settings import load_session_settings
-        from app.services.agent_harnesses.tools import resolve_harness_bridge_inventory
         from app.services.agent_harnesses import HARNESS_REGISTRY
+        from app.services.agent_harnesses.base import HarnessRuntimeCommandResult
+        from app.services.agent_harnesses.session_state import load_latest_harness_metadata
+        from app.services.agent_harnesses.settings import load_session_settings
 
         settings = await load_session_settings(ctx.db, session.id)
         mode = await load_session_mode(ctx.db, session.id)
-        hints = await load_context_hints(ctx.db, session.id)
-        bridge_status = await load_bridge_status(ctx.db, session.id)
-        harness_meta, last_turn_at = await load_latest_harness_metadata(ctx.db, session.id)
+        harness_meta, _last_turn_at = await load_latest_harness_metadata(ctx.db, session.id)
         runtime = HARNESS_REGISTRY.get(bot.harness_runtime)
-        caps = runtime.capabilities() if runtime and hasattr(runtime, "capabilities") else None
-        native_compaction = await load_native_compaction(ctx.db, session.id)
-        inventory_error: str | None = None
-        bridge_tool_items: list[dict[str, str]] = []
-        try:
-            bridge_inventory = await asyncio.wait_for(
-                resolve_harness_bridge_inventory(
-                    ctx.db,
-                    bot_id=bot.id,
-                    channel_id=session.channel_id or session.parent_channel_id,
-                ),
-                timeout=3.0,
+        if runtime is None:
+            native_result = HarnessRuntimeCommandResult(
+                command_id="context",
+                title="Native /context unavailable",
+                detail=f"Harness runtime {bot.harness_runtime!r} is not registered.",
+                status="error",
             )
-            bridge_tool_items = [
-                {"name": spec.name, "description": spec.description}
-                for spec in bridge_inventory.specs
-            ]
-            if bridge_inventory.errors:
-                inventory_error = "; ".join(bridge_inventory.errors)
-        except asyncio.TimeoutError:
-            exported = bridge_status.get("exported_tools")
-            if isinstance(exported, list):
-                bridge_tool_items = [
-                    {"name": str(name), "description": ""}
-                    for name in exported
-                    if isinstance(name, str) and name
-                ]
-            inventory_error = "live bridge inventory timed out; showing last recorded bridge status"
-        except Exception as exc:
-            inventory_error = f"failed to list Spindrel bridge tools: {exc}"
-        reset_at = (session.metadata_ or {}).get(HARNESS_RESUME_RESET_AT_KEY)
-        lines = [
-            f"Harness: {bot.harness_runtime}",
-            f"Model: {settings.model or 'runtime default'}",
-            f"Effort: {settings.effort or 'default'}",
-            f"Approval mode: {mode}",
-            f"Native resume id: {(harness_meta or {}).get('session_id') or 'none'}",
-            f"Pending host hints: {len(hints)}",
-            f"Spindrel bridge tools: {len(bridge_tool_items)}",
-            f"Bridge status: {bridge_status.get('status') or ('enabled' if bridge_tool_items else 'none_selected')}",
-        ]
-        missing_baseline = bridge_status.get("missing_baseline_tools")
-        if isinstance(missing_baseline, list) and missing_baseline:
-            lines.append("Missing baseline tools: " + ", ".join(str(name) for name in missing_baseline))
-        if last_turn_at:
-            lines.append(f"Last harness turn: {last_turn_at.isoformat()}")
-        if isinstance(reset_at, str):
-            lines.append(f"Last compact reset: {reset_at}")
-        usage = (harness_meta or {}).get("usage") if harness_meta else None
-        context_window_tokens = (
-            context_window_from_usage(usage)
-            or (getattr(caps, "context_window_tokens", None) if caps else None)
-        )
-        if usage:
-            lines.append(f"Last usage: {usage}")
-        input_manifest = (harness_meta or {}).get("input_manifest") if harness_meta else None
-        if isinstance(input_manifest, dict):
-            item_counts = input_manifest.get("runtime_item_counts")
-            attachments = input_manifest.get("attachments")
-            if isinstance(item_counts, dict) and item_counts:
-                counts = ", ".join(f"{key}={value}" for key, value in sorted(item_counts.items()))
-                lines.append(f"Last runtime input items: {counts}")
-            if isinstance(attachments, list) and attachments:
-                lines.append(f"Last runtime attachments: {len(attachments)}")
-        context_diagnostics = normalize_context_usage(
-            usage if isinstance(usage, dict) else None,
-            runtime=bot.harness_runtime,
-            context_window_tokens=context_window_tokens,
-            source="last_turn",
-        )
-        remaining_pct = context_diagnostics.get("remaining_pct")
-        if not isinstance(remaining_pct, (int, float)):
-            remaining_pct = None
-        if native_compaction and native_compaction.get("status") == "completed":
-            compact_usage = native_compaction.get("usage")
-            compact_remaining = estimate_native_compaction_remaining_pct(
-                compact_usage if isinstance(compact_usage, dict) else None,
-                context_window_tokens=context_window_tokens,
-            )
-            if compact_remaining is not None:
-                remaining_pct = compact_remaining
-        if remaining_pct is not None:
-            lines.append(f"Estimated context remaining: {remaining_pct}%")
-        if native_compaction:
-            lines.append(f"Last native compact: {native_compaction.get('status')} at {native_compaction.get('created_at')}")
-        native_context: dict[str, Any] = {
-            "status": "unavailable",
-            "title": "Native /context unavailable",
-            "detail": "This runtime has not exposed native /context through its SDK/app-server adapter.",
-            "data": {},
-        }
-        if runtime is not None and hasattr(runtime, "context_status"):
+        else:
             try:
                 turn_ctx = await _build_harness_turn_context_for_session(
                     ctx,
@@ -1194,64 +1097,49 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
                     mode=mode,
                     harness_meta=harness_meta,
                 )
-                native_result = await runtime.context_status(ctx=turn_ctx)
-                native_context = {
-                    "status": native_result.status,
-                    "title": native_result.title,
-                    "detail": native_result.detail,
-                    "command": native_result.command_id,
-                    "data": dict(native_result.payload or {}),
-                }
-            except NotImplementedError:
-                pass
+                if hasattr(runtime, "context_status"):
+                    native_result = await runtime.context_status(ctx=turn_ctx)
+                else:
+                    native_result = await runtime.execute_native_command(
+                        command_id="context",
+                        args=tuple(ctx.args),
+                        ctx=turn_ctx,
+                    )
             except Exception as exc:
                 logger.exception("harness native /context failed for %s", bot.harness_runtime)
-                native_context = {
-                    "status": "error",
-                    "title": "Native /context failed",
-                    "detail": str(exc),
-                    "data": {},
-                }
-        native_lines = [
-            f"Native /context ({bot.harness_runtime}): {native_context.get('status')}",
-            str(native_context.get("detail") or native_context.get("title") or "").strip(),
-        ]
-        host_context = {
-            "session_id": str(session.id),
-            "bot_id": bot.id,
+                native_result = HarnessRuntimeCommandResult(
+                    command_id="context",
+                    title="Native /context failed",
+                    detail=str(exc),
+                    status="error",
+                )
+        if ctx.surface == "channel":
+            scope_kind: Literal["channel", "session"] = "channel"
+            scope_id = str(ctx.channel_id or session.channel_id or session.parent_channel_id)
+        else:
+            scope_kind = "session"
+            scope_id = str(ctx.session_id or session.id)
+        payload = {
             "runtime": bot.harness_runtime,
-            "model": settings.model,
-            "effort": settings.effort,
-            "permission_mode": mode,
-            "harness_session_id": (harness_meta or {}).get("session_id") if harness_meta else None,
-            "pending_hint_count": len(hints),
-            "hints": [hint_preview(hint) for hint in hints],
-            "bridge_tools": bridge_tool_items,
-            "bridge_status": bridge_status.get("status") or ("enabled" if bridge_tool_items else "none_selected"),
-            "bridge_status_detail": {
-                **bridge_status,
-                **({"inventory_errors": [inventory_error]} if inventory_error else {}),
-            },
-            "native_token_budget_available": remaining_pct is not None,
-            "native_compaction_available": bool(getattr(caps, "native_compaction", False)) if caps else False,
-            "context_window_tokens": context_window_tokens,
-            "context_remaining_pct": remaining_pct,
-            "context_diagnostics": context_diagnostics,
-            "last_turn_at": last_turn_at.isoformat() if last_turn_at else None,
-            "last_compacted_at": reset_at if isinstance(reset_at, str) else None,
-            "native_compaction": native_compaction,
-            "usage": usage,
-            "input_manifest": input_manifest if isinstance(input_manifest, dict) else None,
+            "command": native_result.command_id,
+            "status": native_result.status,
+            "title": native_result.title,
+            "detail": native_result.detail,
+            "scope_kind": scope_kind,
+            "scope_id": scope_id,
+            "data": dict(native_result.payload or {}),
         }
         return SlashCommandResult(
             command_id="context",
-            result_type="harness_context_summary",
-            payload={
-                **host_context,
-                "native_context": native_context,
-                "host_context": host_context,
-            },
-            fallback_text="\n".join(part for part in native_lines if part),
+            result_type="harness_runtime_command",
+            payload=payload,
+            fallback_text="\n".join(
+                part for part in (
+                    f"{bot.harness_runtime} {native_result.command_id}: {native_result.title}",
+                    native_result.detail,
+                )
+                if part
+            ),
         )
     return await _build_session_context_summary(session.id, ctx.db)
 

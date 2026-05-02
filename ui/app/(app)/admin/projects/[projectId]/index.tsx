@@ -329,6 +329,7 @@ function ProjectOverviewSection({
 }
 
 function ProjectBlueprintSection({ project }: { project: Project }) {
+  const navigate = useNavigate();
   const { data: secrets = [] } = useSecretValues();
   const updateBindings = useUpdateProjectSecretBindings(project.id);
   const [bindingsDraft, setBindingsDraft] = useState<Record<string, string>>({});
@@ -390,6 +391,14 @@ function ProjectBlueprintSection({ project }: { project: Project }) {
           title={project.blueprint?.name ?? "No blueprint applied"}
           description={project.blueprint ? project.blueprint.description || project.blueprint.slug : "This Project was created directly."}
           meta={project.blueprint ? <QuietPill label={project.blueprint.slug} /> : <QuietPill label="direct" />}
+          onClick={project.blueprint ? () => navigate(`/admin/projects/blueprints/${project.blueprint?.id}`) : undefined}
+          action={
+            project.blueprint ? (
+              <HeaderLink to={`/admin/projects/blueprints/${project.blueprint.id}`} icon={<ExternalLink size={13} />}>
+                Open Blueprint
+              </HeaderLink>
+            ) : undefined
+          }
         />
 
         {project.blueprint && (
@@ -405,12 +414,14 @@ function ProjectBlueprintSection({ project }: { project: Project }) {
               title="Repo declarations"
               description={repos.length > 0 ? repos.map((repo: Record<string, unknown>) => String(repo.name || repo.url || "repo")).join(", ") : "No repos declared"}
               meta={<QuietPill label={`${repos.length}`} />}
+              onClick={project.blueprint ? () => navigate(`/admin/projects/blueprints/${project.blueprint?.id}`) : undefined}
             />
             <SettingsControlRow
               leading={<Hash size={14} />}
               title="Env defaults"
               description={Object.keys(envDefaults).length > 0 ? Object.keys(envDefaults).join(", ") : "No env defaults declared"}
               meta={<QuietPill label={`${Object.keys(envDefaults).length}`} />}
+              onClick={project.blueprint ? () => navigate(`/admin/projects/blueprints/${project.blueprint?.id}`) : undefined}
             />
           </div>
         )}
@@ -1359,6 +1370,7 @@ export default function ProjectDetail() {
               </Section>
 
               <ProjectBlueprintSection project={project} />
+              <DependencyStackSection project={project} />
               <ProjectRuntimeSection runtimeEnv={runtimeEnv} />
             </div>
           </div>

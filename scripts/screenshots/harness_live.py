@@ -667,16 +667,14 @@ def _native_context_specs(ui_url: str, target: RuntimeTarget, session_id: str) -
     route = f"{ui_url}/channels/{target.channel_id}/session/{session_id}"
     if target.name == "claude":
         wait = (
-            "document.body.innerText.toLowerCase().includes('native runtime context') "
-            "&& document.body.innerText.toLowerCase().includes('claude code native /context')"
+            "document.body.innerText.toLowerCase().includes('claude code native /context')"
         )
-        contains = ("Native runtime context", "Claude Code native /context")
+        contains = ("Claude Code native /context",)
     else:
         wait = (
-            "document.body.innerText.toLowerCase().includes('native runtime context') "
-            "&& document.body.innerText.toLowerCase().includes('codex native /context')"
+            "document.body.innerText.toLowerCase().includes('codex native /context')"
         )
-        contains = ("Native runtime context", "Codex native /context", "app-server")
+        contains = ("Codex native /context", "app-server")
     return [
         CaptureSpec(
             name=f"harness-{target.name}-native-context-result-dark",

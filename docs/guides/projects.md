@@ -303,6 +303,7 @@ artifacts, not ad hoc local captures:
 |---|---|
 | [Project work hub](../images/project-workspace-detail.png) | Project detail opens as an agent-work home with pulse, runs, readiness, channels, and work-surface entry points instead of dropping directly into files. |
 | [Project Review Inbox](../images/project-workspace-review-inbox.png) | Launch-batch morning review queue with source Work Packs, run readiness, evidence counts, Select runs, and Start review actions. |
+| [Project Run detail](../images/project-workspace-run-detail.png) | Canonical review page for one coding run, including summary, receipt, review decision, changed files, tests, screenshots, dev targets, dependency stack, activity, and raw metadata. |
 | [Project Review Ledger](../images/project-workspace-review-ledger.png) | Review-session audit rows with selected runs, source Work Packs, outcome counts, merge settings, summaries, evidence, and active/finalized review links. |
 | [Project Runs cockpit](../images/project-workspace-runs.png) | Coding-run launch, Review Inbox launch-batch readiness, launch-batch grouping/review controls, selected-run review prompt, batch mark-reviewed/review-session controls, branch/PR progress, continuation action, handoff links, and receipt evidence. |
 | [Coding-run execution access](../images/project-workspace-execution-access.png) | Launching a coding run can grant one existing e2e/machine target with explicit inspect/exec and agent-tool controls. |

@@ -3315,6 +3315,135 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
           headers: { "Content-Type": "application/json" }
         });
       }
+      const detailMatch = url.pathname.match(/\\/api\\/v1\\/projects\\/([^/]+)\\/coding-runs\\/([^/]+)$/);
+      if (detailMatch) {
+        const projectId = detailMatch[1];
+        const taskId = detailMatch[2];
+        return new Response(JSON.stringify({
+          id: taskId,
+          project_id: projectId,
+          status: "completed",
+          request: "Prepare the Project workspace screenshot receipt and handoff evidence.",
+          branch: "screenshot/project-coding-run",
+          base_branch: "development",
+          repo: { name: "spindrel", path: "spindrel", url: "https://github.com/mtotho/spindrel.git" },
+          runtime_target: { ready: true, configured_keys: ["SPINDREL_E2E_URL", "GITHUB_TOKEN"], missing_secrets: [] },
+          dev_targets: [
+            { key: "api", label: "API", port: 31100, port_env: "SPINDREL_DEV_API_PORT", url: "http://127.0.0.1:31100", url_env: "SPINDREL_DEV_API_URL", status: "running" },
+            { key: "ui", label: "UI", port: 31200, port_env: "SPINDREL_DEV_UI_PORT", url: "http://127.0.0.1:31200", url_env: "SPINDREL_DEV_UI_URL", status: "running" }
+          ],
+          dependency_stack: {
+            configured: true,
+            instance: {
+              id: "screenshot-dependency-stack",
+              status: "running",
+              source_path: ".spindrel/docker-compose.yml",
+              env: { DATABASE_URL: "postgres://redacted", REDIS_URL: "redis://redacted" }
+            }
+          },
+          dependency_stack_preflight: { status: "ready", env_keys: ["DATABASE_URL", "REDIS_URL"] },
+          readiness: { status: "ready", blockers: [], required_evidence: ["tests", "screenshots", "handoff"] },
+          source_work_pack_id: "screenshot-work-pack-main",
+          launch_batch_id: "issue-work-pack-batch:screenshot",
+          parent_task_id: null,
+          root_task_id: taskId,
+          continuation_index: 0,
+          continuation_feedback: null,
+          continuation_count: 1,
+          latest_continuation: null,
+          continuations: [],
+          task: {
+            id: taskId,
+            status: "complete",
+            title: "Project coding run",
+            bot_id: "screenshot-projects",
+            channel_id: "channel-1",
+            session_id: "screenshot-project-session",
+            project_instance_id: "screenshot-project-instance",
+            correlation_id: "screenshot-project-correlation",
+            created_at: "2026-04-30T15:20:00Z",
+            scheduled_at: null,
+            run_at: "2026-04-30T15:21:00Z",
+            completed_at: "2026-04-30T15:28:00Z",
+            error: null
+          },
+          receipt: {
+            id: "screenshot-project-coding-run-receipt",
+            project_id: projectId,
+            project_instance_id: "screenshot-project-instance",
+            task_id: taskId,
+            session_id: "screenshot-project-session",
+            bot_id: "screenshot-projects",
+            idempotency_key: "screenshot:project-coding-run",
+            status: "completed",
+            summary: "Screenshot Project coding run receipt with review-ready evidence.",
+            handoff_type: "pull_request",
+            handoff_url: "https://example.invalid/spindrel/project-run",
+            branch: "screenshot/project-coding-run",
+            base_branch: "development",
+            commit_sha: "def5678abc1234",
+            changed_files: [
+              { path: "app/services/projects.py", status: "modified", summary: "Centralized Project work-surface policy." },
+              { path: "ui/app/(app)/admin/projects/[projectId]/ProjectRunsSection.tsx", status: "modified", summary: "Added Project Factory review controls." }
+            ],
+            tests: [
+              { command: "pytest tests/unit/test_projects_service.py", status: "passed", exit_code: 0, summary: "Project work-surface policy passed." },
+              { command: "cd ui && npx tsc --noEmit", status: "passed", exit_code: 0, summary: "Frontend typecheck passed." }
+            ],
+            screenshots: [
+              { path: "docs/images/project-workspace-runs.png", label: "Project Runs cockpit", viewport: "1440x1000", status: "captured" },
+              { path: "docs/images/project-workspace-run-detail.png", label: "Project Run detail", viewport: "1440x1000", status: "captured" }
+            ],
+            dev_targets: [
+              { key: "api", label: "API", url: "http://127.0.0.1:31100", port: 31100, status: "running" },
+              { key: "ui", label: "UI", url: "http://127.0.0.1:31200", port: 31200, status: "running" }
+            ],
+            metadata: {
+              risks: ["No live PR provider fetch in v1; stored evidence is canonical."],
+              follow_ups: ["Enrich receipts from PR bodies when provider integration is available."],
+              dependency_health: "postgres and redis healthy",
+              implementation_notes: "Receipt includes structured files, tests, screenshots, dev targets, and review notes."
+            },
+            created_at: "2026-04-30T15:28:00Z"
+          },
+          activity: [
+            { id: "screenshot-project-coding-run-progress-branch", kind: "execution_receipt", status: "succeeded", summary: "Screenshot Project run branch ready.", source: { scope: "project_coding_run", action_type: "handoff.prepare_branch", result: { current_branch: "screenshot/project-coding-run" } }, created_at: "2026-04-30T15:21:00Z" },
+            { id: "screenshot-project-coding-run-progress-pr", kind: "execution_receipt", status: "succeeded", summary: "Screenshot Project run draft PR ready.", source: { scope: "project_coding_run", action_type: "handoff.open_pr", result: { pr_url: "https://example.invalid/spindrel/project-run" } }, created_at: "2026-04-30T15:27:00Z" },
+            { id: "screenshot-project-coding-run-activity", kind: "project_receipt", status: "succeeded", summary: "Published screenshot handoff receipt", created_at: "2026-04-30T15:28:00Z" }
+          ],
+          review: {
+            status: "reviewed",
+            blocker: null,
+            reviewed: true,
+            reviewed_at: "2026-04-30T15:30:00Z",
+            reviewed_by: "agent",
+            review_task_id: "screenshot-review-task",
+            review_session_id: "screenshot-review-session",
+            review_summary: "Accepted after reviewing tests, screenshots, and PR handoff evidence.",
+            review_details: { outcome: "accepted", checks: "passed", screenshots: "reviewed", notes: "Stored evidence is sufficient for the screenshot scenario." },
+            merge_method: "squash",
+            merged_at: "2026-04-30T15:32:00Z",
+            merge_commit_sha: "abc1234def5678",
+            handoff_url: "https://example.invalid/spindrel/project-run",
+            pr: { url: "https://example.invalid/spindrel/project-run", state: "MERGED", draft: false, checks_status: "passed" },
+            steps: {
+              branch: { status: "succeeded", summary: "Branch ready." },
+              pr: { status: "succeeded", summary: "Pull request ready." },
+              status: { status: "succeeded", summary: "Repository state inspected." },
+              merge: { status: "succeeded", summary: "Merged with squash." },
+              review: { status: "succeeded", summary: "Finalized accepted review." }
+            },
+            evidence: { changed_files_count: 2, tests_count: 2, screenshots_count: 2, dev_targets_count: 2, has_tests: true, has_screenshots: true, has_dev_targets: true },
+            instance: { id: "screenshot-project-instance", status: "ready", root_path: "common/project-instances/screenshot/project-run" },
+            actions: { can_refresh: true, can_mark_reviewed: false, can_cleanup_instance: true, can_request_changes: false }
+          },
+          created_at: "2026-04-30T15:20:00Z",
+          updated_at: "2026-04-30T15:32:00Z"
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
       const match = url.pathname.match(/\\/api\\/v1\\/projects\\/([^/]+)\\/coding-runs$/);
       if (match) {
         const response = await originalFetch(input, init);
@@ -3901,6 +4030,33 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "&& text.includes('Select runs') "
             "&& text.includes('Start review'), "
             "detail: 'Project Runs tab did not show the launch-batch Review Inbox' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-run-detail",
+        route="/admin/projects/{project_workspace_project}/runs/screenshot-project-coding-run-task",
+        viewport={"width": 1440, "height": 1000},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-run-detail\"]') "
+            "&& document.body.innerText.includes('Review Decision') "
+            "&& document.body.innerText.includes('Changed Files') "
+            "&& document.body.innerText.includes('Activity Timeline')"
+        ),
+        output="project-workspace-run-detail.png",
+        color_scheme="dark",
+        full_page=True,
+        extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('Screenshot Project coding run receipt with review-ready evidence') "
+            "&& text.includes('Accepted after reviewing tests') "
+            "&& text.includes('app/services/projects.py') "
+            "&& text.includes('pytest tests/unit/test_projects_service.py') "
+            "&& text.includes('docs/images/project-workspace-run-detail.png') "
+            "&& text.includes('Dependency stack running') "
+            "&& text.includes('Published screenshot handoff receipt'), "
+            "detail: 'Project Run detail page did not expose receipt, review, evidence, dependency, and activity data' };"
         ),
     ),
     ScreenshotSpec(

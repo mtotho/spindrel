@@ -102,6 +102,7 @@ const AdminProjectsIndex = lazy(() => import("@/app/(app)/admin/projects/index")
 const AdminProjectBlueprintsIndex = lazy(() => import("@/app/(app)/admin/projects/blueprints/index"));
 const AdminProjectBlueprintDetail = lazy(() => import("@/app/(app)/admin/projects/blueprints/[blueprintId]/index"));
 const AdminProjectDetail = lazy(() => import("@/app/(app)/admin/projects/[projectId]/index"));
+const AdminProjectRunDetail = lazy(() => import("@/app/(app)/admin/projects/[projectId]/runs/[taskId]/index"));
 const AdminProviders = lazy(() => import("@/app/(app)/admin/providers/index"));
 const AdminProviderDetail = lazy(() => import("@/app/(app)/admin/providers/[providerId]/index"));
 const AdminSandboxes = lazy(() => import("@/app/(app)/admin/sandboxes"));
@@ -259,6 +260,7 @@ export const router = createBrowserRouter([
               { path: "projects", element: <AdminProjectsIndex /> },
               { path: "projects/blueprints", element: <AdminProjectBlueprintsIndex /> },
               { path: "projects/blueprints/:blueprintId", element: <AdminProjectBlueprintDetail /> },
+              { path: "projects/:projectId/runs/:taskId", element: <AdminProjectRunDetail /> },
               { path: "projects/:projectId", element: <AdminProjectDetail /> },
               { path: "providers", element: <AdminProviders /> },
               { path: "providers/:providerId", element: <AdminProviderDetail /> },

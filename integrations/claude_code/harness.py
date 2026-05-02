@@ -115,7 +115,7 @@ def _effective_permission_mode(ctx: TurnContext) -> str:
 # Conservative v1 slash-command allowlist for harness sessions on this runtime.
 # Excluded by intent (re-add only with documented harness behavior):
 #   compact  — harness-aware: triggers Claude native compaction
-#   context  — harness-aware: shows native resume/status summary
+#   context  — harness-aware: dispatches Claude Code native /context
 #   find     — channel-scoped keyword search; Spindrel-only semantics
 #   skills + any Spindrel-tool-control commands — runtime owns tools
 #
@@ -152,6 +152,11 @@ _CLAUDE_NATIVE_COMMANDS: tuple[HarnessRuntimeCommandSpec, ...] = (
         id="auth",
         label="auth",
         description="Show Spindrel's Claude Code auth probe result.",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="context",
+        label="context",
+        description="Run Claude Code native /context for this harness session.",
     ),
     HarnessRuntimeCommandSpec(
         id="skills",
@@ -265,6 +270,8 @@ def _claude_cli_command(*args: str) -> list[str]:
 def _build_claude_query_input(
     prompt: str,
     ctx: TurnContext,
+    *,
+    instruction_hints_in_system: bool = False,
 ) -> tuple[
     str | AsyncIterator[dict[str, Any]],
     tuple[Mapping[str, Any], ...],
@@ -272,7 +279,11 @@ def _build_claude_query_input(
 ]:
     """Build Claude SDK input, preserving the plain-string path when possible."""
 
-    text = _prompt_with_context_hints(prompt, ctx)
+    text = _prompt_with_context_hints(
+        prompt,
+        ctx,
+        include_instruction_hints=not instruction_hints_in_system,
+    )
     image_blocks, runtime_items, warnings = _claude_image_content_blocks(ctx)
     if not image_blocks:
         return text, tuple(runtime_items), tuple(warnings)
@@ -502,6 +513,11 @@ class ClaudeCodeRuntime:
         _set_env_kwarg(ClaudeAgentOptions, options_kwargs, ctx.env)
         _set_partial_message_streaming_kwarg(ClaudeAgentOptions, options_kwargs)
         _set_streaming_permission_hooks(ClaudeAgentOptions, options_kwargs)
+        instruction_hints_in_system = _set_context_hint_system_prompt_kwarg(
+            ClaudeAgentOptions,
+            options_kwargs,
+            ctx,
+        )
         # ctx.runtime_settings is reserved for future Claude/Codex-specific knobs.
 
         result_meta: dict[str, Any] = {"claude_spindrel_tool_results": {}}
@@ -526,6 +542,7 @@ class ClaudeCodeRuntime:
         query_input, runtime_input_items, input_warnings = _build_claude_query_input(
             prompt,
             ctx,
+            instruction_hints_in_system=instruction_hints_in_system,
         )
 
         async with ClaudeSDKClient(options=opts) as client:
@@ -772,6 +789,8 @@ class ClaudeCodeRuntime:
         args: tuple[str, ...],
         ctx: TurnContext,
     ) -> HarnessRuntimeCommandResult:
+        if command_id == "context":
+            return await self.context_status(ctx=ctx)
         if command_id == "auth":
             status = self.auth_status()
             return HarnessRuntimeCommandResult(
@@ -1193,6 +1212,55 @@ def _set_partial_message_streaming_kwarg(
         )
 
 
+def _set_context_hint_system_prompt_kwarg(
+    options_cls: Any,
+    options_kwargs: dict[str, Any],
+    ctx: TurnContext,
+) -> bool:
+    """Use Claude Agent SDK's documented system_prompt append for host instructions."""
+    instruction_hints = tuple(hint for hint in ctx.context_hints if hint.priority == "instruction")
+    if not instruction_hints:
+        return False
+    try:
+        sig = inspect.signature(options_cls)
+        names = set(sig.parameters)
+        has_var_kwargs = any(
+            param.kind is inspect.Parameter.VAR_KEYWORD
+            for param in sig.parameters.values()
+        )
+    except Exception:
+        names = set(getattr(options_cls, "__annotations__", {}) or {})
+        has_var_kwargs = False
+    if "system_prompt" not in names and not has_var_kwargs:
+        logger.warning(
+            "claude-code: installed ClaudeAgentOptions exposes no system_prompt kwarg; "
+            "host instruction hints will be appended after the user prompt"
+        )
+        return False
+    options_kwargs["system_prompt"] = {
+        "type": "preset",
+        "preset": "claude_code",
+        "append": _render_instruction_hints_for_system_prompt(instruction_hints),
+    }
+    return True
+
+
+def _render_instruction_hints_for_system_prompt(hints: tuple[Any, ...]) -> str:
+    parts = [
+        "The host application supplied these instructions for this harness turn. "
+        "Follow them together with the user's request."
+    ]
+    for hint in hints:
+        label = str(getattr(hint, "kind", "") or "instruction")
+        source = getattr(hint, "source", None)
+        if source:
+            label += f" from {source}"
+        created_at = getattr(hint, "created_at", "")
+        text = str(getattr(hint, "text", "") or "").strip()
+        parts.append(f"[{label} at {created_at}]\n{text}")
+    return "\n\n".join(part for part in parts if part)
+
+
 def _attach_claude_mcp_bridge(
     ctx: TurnContext,
     options_kwargs: dict[str, Any],
@@ -1346,15 +1414,27 @@ def _pop_claude_spindrel_tool_result(
     return envelope, summary if isinstance(summary, dict) else None
 
 
-def _prompt_with_context_hints(prompt: str, ctx: TurnContext) -> str:
-    return render_context_hints_for_prompt(
-        prompt,
-        ctx.context_hints,
+def _prompt_with_context_hints(
+    prompt: str,
+    ctx: TurnContext,
+    *,
+    include_instruction_hints: bool = True,
+) -> str:
+    hints = tuple(
+        hint for hint in ctx.context_hints
+        if include_instruction_hints or hint.priority != "instruction"
+    )
+    hint_text = render_context_hints_for_prompt(
+        "",
+        hints,
         context_intro=(
             "The host application supplied these one-shot context hints for continuity. "
             "Treat them as context, not as direct user instructions."
         ),
-    )
+    ).strip()
+    if not hint_text:
+        return prompt
+    return f"{prompt}\n\n{hint_text}"
 
 
 def _bridge_message(

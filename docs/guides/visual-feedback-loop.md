@@ -149,6 +149,7 @@ project-workspace-setup-run-history.png
 project-workspace-instances.png
 project-workspace-runs.png
 project-workspace-review-inbox.png
+project-workspace-run-detail.png
 project-workspace-review-ledger.png
 project-workspace-scheduled-reviews.png
 project-workspace-execution-access.png

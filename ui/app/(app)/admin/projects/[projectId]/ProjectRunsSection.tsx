@@ -174,6 +174,7 @@ function batchSourceLine(batch: ProjectCodingRunReviewBatch) {
 function RunActionLinks({ run }: { run: ProjectCodingRun }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
+      <RowLink to={`/admin/projects/${run.project_id}/runs/${run.task.id}`}>Details</RowLink>
       {(run.review?.handoff_url || run.receipt?.handoff_url) && <RowLink href={run.review?.handoff_url || run.receipt?.handoff_url || undefined}>Handoff</RowLink>}
       <RowLink to={`/admin/tasks/${run.task.id}`}>Task</RowLink>
     </div>
@@ -256,6 +257,7 @@ export function ProjectRunsSection({
   const markReviewedBatch = useMarkProjectCodingRunsReviewed(project.id);
   const createReviewSession = useCreateProjectCodingRunReviewSession(project.id);
   const [selectedChannelId, setSelectedChannelId] = useState("");
+  const [selectedRepoPath, setSelectedRepoPath] = useState("");
   const [request, setRequest] = useState("");
   const [createdRunId, setCreatedRunId] = useState<string | null>(null);
   const [runMachineTargetGrant, setRunMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
@@ -275,6 +277,22 @@ export function ProjectRunsSection({
 
   const selectedChannel = channels?.find((channel) => channel.id === selectedChannelId);
   const hasBlueprintSnapshot = Boolean(project.metadata_?.blueprint_snapshot);
+  const blueprintRepos = useMemo(() => {
+    const raw = project.metadata_?.blueprint_snapshot?.repos;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((repo): repo is Record<string, any> => Boolean(repo) && typeof repo === "object")
+      .map((repo) => ({
+        label: `${repo.name || repo.path || "Repository"}${repo.branch ? ` · ${repo.branch}` : ""}`,
+        value: String(repo.path || repo.name || ""),
+      }))
+      .filter((repo) => repo.value);
+  }, [project.metadata_]);
+  useEffect(() => {
+    if (!selectedRepoPath && blueprintRepos.length > 0) {
+      setSelectedRepoPath(blueprintRepos[0].value);
+    }
+  }, [blueprintRepos, selectedRepoPath]);
   const createdRun = runs.find((run) => run.id === createdRunId);
   const changeRun = runs.find((run) => run.id === changeRunId);
   const selectedRuns = runs.filter((run) => selectedRunIds.includes(run.id));
@@ -306,6 +324,7 @@ export function ProjectRunsSection({
       {
         channel_id: selectedChannel.id,
         request: request.trim(),
+        repo_path: selectedRepoPath || null,
         machine_target_grant: runMachineTargetGrant,
       },
       {
@@ -428,6 +447,15 @@ export function ProjectRunsSection({
               }
             />
           </FormRow>
+          {blueprintRepos.length > 1 && (
+            <FormRow label="Repository" description="The declared repo this run should branch, test, and hand off.">
+              <SelectInput
+                value={selectedRepoPath}
+                onChange={(value) => setSelectedRepoPath(value)}
+                options={blueprintRepos}
+              />
+            </FormRow>
+          )}
           <FormRow label="Project request" description="A concise bug, feature, or review task for the selected Project channel.">
             <PromptEditor
               value={request}
@@ -778,7 +806,12 @@ export function ProjectRunsSection({
                   </span>
                 }
                 meta={<StatusBadge label={receipt.status} variant={statusTone(receipt.status)} />}
-                action={receipt.handoff_url ? <RowLink href={receipt.handoff_url}>Handoff</RowLink> : undefined}
+                action={
+                  <div className="flex flex-wrap items-center justify-end gap-1">
+                    {receipt.task_id && <RowLink to={`/admin/projects/${receipt.project_id}/runs/${receipt.task_id}`}>Details</RowLink>}
+                    {receipt.handoff_url && <RowLink href={receipt.handoff_url}>Handoff</RowLink>}
+                  </div>
+                }
               />
             ))
           )}

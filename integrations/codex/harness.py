@@ -78,6 +78,12 @@ _CODEX_GENERIC_SLASH_ALLOWED: frozenset[str] = frozenset(
 
 _CODEX_NATIVE_COMMANDS: tuple[HarnessRuntimeCommandSpec, ...] = (
     HarnessRuntimeCommandSpec(
+        id="context",
+        label="context",
+        description="Open Codex native /context for this harness session.",
+        fallback_behavior="terminal",
+    ),
+    HarnessRuntimeCommandSpec(
         id="config",
         label="config",
         description="Read Codex app-server configuration status.",
@@ -553,6 +559,8 @@ class CodexRuntime:
         args: tuple[str, ...],
         ctx: TurnContext,
     ) -> HarnessRuntimeCommandResult:
+        if command_id == "context":
+            return await self.context_status(ctx=ctx)
         args = tuple(arg for arg in args if arg)
         resolved = _resolve_codex_native_app_server_call(command_id, args)
         if resolved is None:

@@ -49,6 +49,7 @@ class ProjectMachineTargetGrant:
 class ProjectCodingRunCreate:
     channel_id: uuid.UUID
     request: str = ""
+    repo_path: str | None = None
     machine_target_grant: ProjectMachineTargetGrant | None = None
     granted_by_user_id: uuid.UUID | None = None
     source_work_pack_id: uuid.UUID | None = None
@@ -61,6 +62,7 @@ class ProjectCodingRunScheduleCreate:
     channel_id: uuid.UUID
     title: str = "Scheduled Project coding run"
     request: str = ""
+    repo_path: str | None = None
     scheduled_at: datetime | None = None
     recurrence: str = "+1w"
     machine_target_grant: ProjectMachineTargetGrant | None = None
@@ -71,6 +73,7 @@ class ProjectCodingRunScheduleCreate:
 class ProjectCodingRunScheduleUpdate:
     title: str | None = None
     request: str | None = None
+    repo_path: str | None = None
     scheduled_at: datetime | None = None
     recurrence: str | None = None
     enabled: bool | None = None

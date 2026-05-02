@@ -80,6 +80,22 @@ the user explicitly asked to launch a coding run.
    GitHub credentials and `gh` are available. If not, record the exact blocker.
 7. Finish with `publish_project_run_receipt` including branch, changed files,
    tests, screenshots, dev target URLs/status, handoff URL, and any blockers.
+   Make the receipt review-ready: use structured records where useful, such
+   as `{path,status,summary}` for files, `{command,status,exit_code,summary}`
+   for tests, `{path,url,label,viewport,notes}` for screenshots, and metadata
+   for risks, follow-ups, dependency health, PR notes, and implementation
+   details.
+
+## Run Details
+
+1. When the operator asks what changed, asks for the latest review, or wants a
+   Project run summarized in chat, call `get_project_coding_run_details`.
+2. Omit `task_id` to retrieve the latest meaningful run: the newest reviewed
+   or ready-for-review run, falling back to the newest run when no reviewable
+   run exists.
+3. Use the returned `links.project_run_url` for the full review page. Summarize
+   `receipt`, `review`, `evidence`, `activity`, and blockers in plain language
+   instead of dumping raw JSON unless the operator asks for raw details.
 
 ## Review Sessions
 
