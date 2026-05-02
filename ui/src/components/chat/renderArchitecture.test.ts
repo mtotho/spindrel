@@ -474,6 +474,10 @@ test("channel file editor keeps textarea and highlight font metrics aligned", ()
 
   assert.match(codeEditor, /const EDITOR_FONT_SIZE = 16;/);
   assert.match(codeEditor, /Global CSS forces textarea \{ font-size: 16px !important \}/);
+  assert.match(codeEditor, /wrap="off"/);
+  assert.match(codeEditor, /whiteSpace:\s*"pre"/);
+  assert.match(codeEditor, /wordWrap:\s*"normal"/);
+  assert.match(codeEditor, /WebkitTextFillColor:\s*highlightedLines \? "transparent" : undefined/);
   assert.doesNotMatch(codeEditor, /fontSize:\s*13/);
   assert.doesNotMatch(codeEditor, /fontSize:\s*12/);
 });

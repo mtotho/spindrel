@@ -21488,6 +21488,11 @@
             "title": "Blueprint",
             "type": "object"
           },
+          "canonical_repo": {
+            "additionalProperties": true,
+            "title": "Canonical Repo",
+            "type": "object"
+          },
           "current_stage": {
             "title": "Current Stage",
             "type": "string"
@@ -21500,6 +21505,11 @@
           "intake": {
             "additionalProperties": true,
             "title": "Intake",
+            "type": "object"
+          },
+          "intake_config": {
+            "additionalProperties": true,
+            "title": "Intake Config",
             "type": "object"
           },
           "planning": {
@@ -21898,6 +21908,27 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "intake_kind": {
+            "default": "unset",
+            "title": "Intake Kind",
+            "type": "string"
+          },
+          "intake_metadata": {
+            "additionalProperties": true,
+            "title": "Intake Metadata",
+            "type": "object"
+          },
+          "intake_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intake Target"
           },
           "metadata_": {
             "additionalProperties": true,
@@ -22609,6 +22640,40 @@
               }
             ],
             "title": "Description"
+          },
+          "intake_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intake Kind"
+          },
+          "intake_metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intake Metadata"
+          },
+          "intake_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intake Target"
           },
           "metadata_": {
             "anyOf": [

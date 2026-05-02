@@ -316,6 +316,7 @@ export function CodeEditor({ content, onChange, filePath, t }: CodeEditorProps) 
               overflow: "auto",
               pointerEvents: "none",
               whiteSpace: "pre",
+              wordWrap: "normal",
               tabSize: 2,
             }}
           >
@@ -329,6 +330,7 @@ export function CodeEditor({ content, onChange, filePath, t }: CodeEditorProps) 
           value={content}
           onChange={(e) => onChange(e.target.value)}
           onScroll={handleScroll}
+          wrap="off"
           spellCheck={false}
           style={{
             position: "relative",
@@ -346,6 +348,9 @@ export function CodeEditor({ content, onChange, filePath, t }: CodeEditorProps) 
             resize: "none",
             tabSize: 2,
             overflow: "auto",
+            whiteSpace: "pre",
+            wordWrap: "normal",
+            WebkitTextFillColor: highlightedLines ? "transparent" : undefined,
             zIndex: 1,
           }}
         />

@@ -3254,6 +3254,45 @@ async def test_live_codex_native_cli_model_effort_syncs_to_spindrel_composer(
 
 
 @pytest.mark.asyncio
+async def test_live_claude_native_cli_model_effort_syncs_to_spindrel_composer(
+    client: E2EClient,
+) -> None:
+    _requires_tier("terminal")
+    case = next(harness for harness in HARNESSES if harness.name == "claude")
+    channel_id, session_id, _bot_id = await _fresh_session(client, case)
+    caps = await client.get_runtime_capabilities(case.runtime)
+    model, effort = _choose_model_and_effort(case, caps)
+    assert model, f"no Claude model available for native CLI settings sync: {caps}"
+
+    status_before = await client.get_session_harness_status(session_id)
+    assert status_before.get("effective_model") or status_before.get("default_model"), status_before
+
+    screenshot = await _sync_native_cli_settings_via_ui(
+        client,
+        runtime_name=case.runtime,
+        channel_id=channel_id,
+        session_id=session_id,
+        model=model,
+        effort=effort,
+        screenshot_name=(
+            "harness-claude-native-cli-settings-sync-dark"
+            if _should_capture_screenshots("harness-claude-native-cli-settings-sync")
+            else None
+        ),
+    )
+    settings = await client.get_session_harness_settings(session_id)
+    assert settings["model"] == model
+    if effort:
+        assert settings["effort"] == effort
+    status_after = await client.get_session_harness_status(session_id)
+    assert status_after["effective_model"] == model
+    if effort:
+        assert status_after["effective_effort"] == effort
+    if screenshot is not None:
+        assert screenshot.is_file(), f"settings sync screenshot was not written: {screenshot}"
+
+
+@pytest.mark.asyncio
 async def test_live_claude_native_cli_terminal_mirrors_to_spindrel(
     client: E2EClient,
 ) -> None:

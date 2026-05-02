@@ -9,7 +9,7 @@
  * intentionally has one widget surface: the chat shelf.
  */
 import { useCallback, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   ChevronLeft,
   Layers,
@@ -21,6 +21,14 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { FilesTabPanel } from "./FilesTabPanel";
 import { NotesTabPanel } from "./NotesTabPanel";
 import { SessionsTabPanel } from "./SessionsTabPanel";
+import {
+  useChannelSessionCatalog,
+  useResetScratchSession,
+} from "@/src/api/hooks/useChannelSessions";
+import {
+  getChannelSessionMeta,
+  type ChannelSessionCatalogItem,
+} from "@/src/lib/channelSessionSurfaces";
 import type { ChannelSessionSurface } from "@/src/lib/channelSessionSurfaces";
 import { WidgetRailSection } from "./WidgetRailSection";
 import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
@@ -114,6 +122,7 @@ export function OmniPanel({
   onActivateSessionSurface,
 }: OmniPanelProps) {
   const t = useThemeTokens();
+  const navigate = useNavigate();
 
   const slug = channelSlug(channelId);
   // Hydration trigger — useChannelChatZones re-uses the same store, but we
@@ -243,48 +252,62 @@ export function OmniPanel({
       ? "widgets"
       : selectedTab;
 
+  const activateSessionSurface = useCallback(
+    (surface: ChannelSessionSurface) => {
+      if (onActivateSessionSurface) {
+        onActivateSessionSurface(surface);
+        return;
+      }
+      if (surface.kind === "primary") {
+        navigate(`/channels/${encodeURIComponent(channelId)}`);
+        return;
+      }
+      navigate(
+        `/channels/${encodeURIComponent(channelId)}/session/${encodeURIComponent(surface.sessionId)}` +
+          (surface.kind === "scratch" ? "?scratch=true" : ""),
+      );
+    },
+    [channelId, navigate, onActivateSessionSurface],
+  );
+
+  const showSessionPulse = activeTab !== "sessions" && !mobileTabs;
+
   return (
     <div
       className="flex flex-col h-full overflow-hidden"
       style={fullWidth ? { flex: 1 } : { width, flexShrink: 0 }}
     >
-      {/* Tab strip sits bare on the chat surface — no card bg, no bottom
-          border. The floating pill buttons provide their own active-state
-          contrast. */}
-      <div className="flex items-center gap-0.5 px-1.5 pt-1.5 pb-1.5">
-        <TabButton
+      <div className="flex items-center gap-1.5 px-2 py-2">
+        <WorkbenchNavButton
           label="Sessions"
-          icon={<MessageCircle size={11} />}
+          icon={<MessageCircle size={13} />}
           active={activeTab === "sessions"}
           onClick={() => setTab("sessions")}
-          compact
-          t={t}
+          priority="primary"
         />
         {hasWorkspace && !mobileTabs && (
-          <TabButton
+          <WorkbenchNavButton
             label="Notes"
-            icon={<NotebookText size={11} />}
+            icon={<NotebookText size={13} />}
             active={activeTab === "notes"}
             onClick={() => setTab("notes")}
-            compact
-            t={t}
+            priority="primary"
           />
         )}
-        <TabButton
+        <WorkbenchNavButton
           label="Widgets"
+          icon={<Layers size={13} />}
           active={activeTab === "widgets"}
           onClick={() => setTab("widgets")}
           count={railPins.length}
-          compact
-          t={t}
+          priority="secondary"
         />
         {hasWorkspace && (
-          <TabButton
+          <WorkbenchNavButton
             label="Files"
             active={activeTab === "files"}
             onClick={() => setTab("files")}
-            compact
-            t={t}
+            priority="secondary"
           />
         )}
         {/* Collapse chevron — tucks the panel away; a peek-tab at the
@@ -316,6 +339,16 @@ export function OmniPanel({
         </button>
       </div>
 
+      {showSessionPulse && (
+        <SessionPulse
+          channelId={channelId}
+          botId={botId}
+          channelLabel={channelDisplayName ?? null}
+          onActivateSurface={activateSessionSurface}
+          onOpenSessions={() => setTab("sessions")}
+        />
+      )}
+
       {activeTab === "sessions" ? (
         <div className="flex-1 min-h-0 overflow-hidden">
           <SessionsTabPanel
@@ -323,7 +356,7 @@ export function OmniPanel({
             botId={botId}
             channelLabel={channelDisplayName ?? null}
             project={project}
-            onActivateSurface={onActivateSessionSurface}
+            onActivateSurface={activateSessionSurface}
           />
         </div>
       ) : activeTab === "notes" && hasWorkspace ? (
@@ -365,52 +398,140 @@ function EmptyWidgets({
   );
 }
 
-function TabButton({
+function WorkbenchNavButton({
   label,
   icon,
   active,
   onClick,
   count,
-  compact = false,
-  t,
+  priority,
 }: {
   label: string;
   icon?: React.ReactNode;
   active: boolean;
   onClick: () => void;
   count?: number;
-  compact?: boolean;
-  t: ReturnType<typeof useThemeTokens>;
+  priority: "primary" | "secondary";
 }) {
+  const isPrimary = priority === "primary";
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-1.5 rounded-md transition-colors duration-150 bg-transparent border-0 cursor-pointer"
-      style={{
-        color: active ? t.text : t.textMuted,
-        backgroundColor: active ? t.surfaceOverlay : "transparent",
-        fontSize: compact ? 12 : 14,
-        fontWeight: 600,
-        letterSpacing: 0.2,
-        minHeight: compact ? 30 : 40,
-        padding: compact ? "0 10px" : "0 12px",
-      }}
+      className={[
+        "relative inline-flex h-8 items-center gap-1.5 rounded-md border-0 bg-transparent px-2.5 text-[12px] font-semibold transition-colors",
+        active
+          ? "bg-accent/[0.08] text-text before:absolute before:left-0 before:top-1/2 before:h-4 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-accent"
+          : isPrimary
+            ? "text-text-muted hover:bg-surface-overlay/60 hover:text-text"
+            : "text-text-dim hover:bg-surface-overlay/45 hover:text-text-muted",
+        isPrimary ? "min-w-[78px]" : "px-2",
+      ].join(" ")}
       aria-pressed={active}
     >
       {icon && <span className="shrink-0 flex items-center">{icon}</span>}
       <span>{label}</span>
       {typeof count === "number" && count > 0 && (
-        <span
-          className="text-[10px] tabular-nums rounded-full px-1.5 py-0.5"
-          style={{
-            color: active ? t.accent : t.textMuted,
-            backgroundColor: active ? `${t.accent}22` : `${t.textMuted}18`,
-          }}
-        >
+        <span className="rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] tabular-nums text-text-dim">
           {count}
         </span>
       )}
     </button>
+  );
+}
+
+function SessionPulse({
+  channelId,
+  botId,
+  channelLabel,
+  onActivateSurface,
+  onOpenSessions,
+}: {
+  channelId: string;
+  botId?: string;
+  channelLabel?: string | null;
+  onActivateSurface: (surface: ChannelSessionSurface) => void;
+  onOpenSessions: () => void;
+}) {
+  const { data: catalog } = useChannelSessionCatalog(channelId);
+  const resetScratch = useResetScratchSession();
+  const rows = useMemo(() => {
+    const items = catalog ?? [];
+    const current = items.find((row) => row.is_current) ?? null;
+    const rest = items.filter((row) => row !== current);
+    return [current, ...rest].filter(Boolean).slice(0, 3) as ChannelSessionCatalogItem[];
+  }, [catalog]);
+
+  const createSession = useCallback(async () => {
+    if (!botId) return;
+    const next = await resetScratch.mutateAsync({
+      parent_channel_id: channelId,
+      bot_id: botId,
+    });
+    onActivateSurface({ kind: "scratch", sessionId: next.session_id });
+  }, [botId, channelId, onActivateSurface, resetScratch]);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="mx-2 mb-1 rounded-md bg-surface-raised/55 px-2.5 py-2">
+      <div className="mb-1.5 flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
+            Active sessions
+          </div>
+          <div className="truncate text-[11px] text-text-dim">
+            {channelLabel ? `#${channelLabel}` : "This channel"}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={createSession}
+          disabled={!botId || resetScratch.isPending}
+          className="rounded-md px-2 py-1 text-[11px] font-medium text-accent transition-colors hover:bg-accent/[0.08] disabled:opacity-40"
+        >
+          New
+        </button>
+        <button
+          type="button"
+          onClick={onOpenSessions}
+          className="rounded-md px-2 py-1 text-[11px] text-text-muted transition-colors hover:bg-surface-overlay/60 hover:text-text"
+        >
+          All
+        </button>
+      </div>
+      <div className="flex flex-col gap-1">
+        {rows.map((row) => {
+          const isPrimary = row.surface_kind === "channel" && row.is_active;
+          const title = row.label?.trim() || (isPrimary ? "Main chat" : "Untitled session");
+          const surface: ChannelSessionSurface = isPrimary
+            ? { kind: "primary" }
+            : {
+                kind: row.surface_kind === "scratch" ? "scratch" : "channel",
+                sessionId: row.session_id,
+              };
+          return (
+            <button
+              key={row.session_id}
+              type="button"
+              onClick={() => onActivateSurface(surface)}
+              className={[
+                "relative flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
+                row.is_current
+                  ? "bg-accent/[0.08] text-text before:absolute before:left-0 before:top-1/2 before:h-4 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-accent"
+                  : "text-text-muted hover:bg-surface-overlay/55 hover:text-text",
+              ].join(" ")}
+            >
+              <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
+                {title}
+              </span>
+              <span className="shrink-0 text-[10px] text-text-dim">
+                {getChannelSessionMeta(row)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

@@ -96,6 +96,40 @@ async def test_memory_append_emits_diff_envelope(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_memory_append_rejects_leaked_tool_call_transcript(tmp_path):
+    bot = SimpleNamespace(id="bot-1", memory_scheme="workspace-files")
+    memory_root = tmp_path / "memory"
+    memory_root.mkdir()
+    (memory_root / "logs").mkdir()
+    target = memory_root / "logs" / "2026-05-02.md"
+    target.write_text("# Log\n")
+    token = memory_files.current_bot_id.set("bot-1")
+    try:
+        with (
+            patch("app.agent.bots.get_bot", return_value=bot),
+            patch("app.services.workspace.workspace_service.get_workspace_root", return_value=str(tmp_path)),
+            patch("app.services.memory_scheme.get_memory_root", return_value=str(memory_root)),
+            patch("app.services.bot_hooks.schedule_after_write", MagicMock()) as schedule_after_write,
+        ):
+            result = await memory_files.memory(
+                operation="append",
+                path="logs/2026-05-02.md",
+                content=(
+                    "- 12:48 PM: Assessed attachment "
+                    "}}}} to=functions.describe_attachment 天天中奖 to=functions.memory\n"
+                ),
+            )
+    finally:
+        memory_files.current_bot_id.reset(token)
+
+    data = json.loads(result)
+    assert "error" in data
+    assert "tool-call transcript" in data["error"]
+    assert target.read_text() == "# Log\n"
+    schedule_after_write.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_memory_read_envelope_renders_markdown_body(tmp_path):
     bot = SimpleNamespace(id="bot-1", memory_scheme="workspace-files")
     memory_root = tmp_path / "memory"

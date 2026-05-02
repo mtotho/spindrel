@@ -652,6 +652,11 @@ Approval mapping intent (final values from schema):
   on the selected values instead of displaying `"default"`. Local transcript
   batch with screenshots disabled passed the new resume and settings checks
   together (`4 passed, 66 deselected`).
+- 2026-05-02 Claude native CLI settings sync guard: added
+  `test_live_claude_native_cli_model_effort_syncs_to_spindrel_composer` beside
+  the existing Codex native CLI settings test. This covers the reverse path
+  where a user changes model/effort in the embedded native CLI and expects the
+  Spindrel composer/status surface to stop showing `default`.
 - 2026-05-02 native CLI switching guard: added
   `test_live_harness_native_cli_switching_preserves_thread_and_order` for both
   Claude Code and Codex. The scenario starts in Spindrel chat, switches into

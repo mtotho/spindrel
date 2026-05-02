@@ -207,9 +207,9 @@ function SessionRow({
     <button
       type="button"
       onClick={onClick}
-      className={`mx-1 rounded-md px-3 py-2.5 text-left transition-colors ${
+      className={`relative mx-1 rounded-md px-3 py-2.5 text-left transition-colors ${
         row.is_current
-          ? "bg-accent/[0.08] text-text"
+          ? "bg-accent/[0.08] text-text before:absolute before:left-0 before:top-1/2 before:h-4 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-accent"
           : "bg-surface-raised/70 text-text hover:bg-surface-overlay/55"
       }`}
     >

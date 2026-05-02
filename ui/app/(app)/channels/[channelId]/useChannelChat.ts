@@ -42,6 +42,10 @@ export interface UseChannelChatOptions {
 export interface UseChannelChatReturn {
   /** Flattened messages from DB, in chronological order (newest last) */
   invertedData: Message[];
+  /** Background-task / queue gate — flips at turn boundaries, not per token */
+  isProcessing: boolean;
+  /** Cheap streaming gate — flips at turn boundaries */
+  isStreaming: boolean;
   /** TanStack Query loading state */
   isLoading: boolean;
   isFetchingNextPage: boolean;
@@ -815,6 +819,10 @@ export function useChannelChat({
 
   return {
     invertedData,
+    /** Background-task / queue gate — flips at turn boundaries, NOT per token */
+    isProcessing,
+    /** Cheap streaming gate (`turnsCount > 0`) — flips at turn boundaries */
+    isStreaming: turnsCount > 0,
     isLoading,
     isFetchingNextPage,
     hasNextPage,

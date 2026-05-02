@@ -38,12 +38,11 @@ import { useAuthStore } from "@/src/stores/auth";
 import { LayoutDashboard as LayoutDashboardIcon, Terminal as TerminalIcon } from "lucide-react";
 import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
 import { ActiveBadgeBar } from "./ActiveBadgeBar";
-import { ErrorBanner, SecretWarningBanner } from "./ChatBanners";
 import { BotInfoPanel } from "@/src/components/chat/BotInfoPanel";
 import { TriggerCard, SUPPORTED_TRIGGERS } from "@/src/components/chat/TriggerCard";
 import { TaskRunEnvelope } from "@/src/components/chat/TaskRunEnvelope";
 import { shouldGroup, formatDateSeparator, isDifferentDay, getTurnMessages, getTurnText } from "./chatUtils";
-import { ChatMessageArea, DateSeparator } from "@/src/components/chat/ChatMessageArea";
+import { DateSeparator } from "@/src/components/chat/ChatMessageArea";
 import { ChannelPendingApprovals } from "./ChannelPendingApprovals";
 import { ChannelHeader } from "./ChannelHeader";
 import { ChannelChatPaneGroup } from "./ChannelChatPaneGroup";
@@ -58,6 +57,7 @@ import { useWidgetStreamBroker } from "@/src/api/hooks/useWidgetStreamBroker";
 import { FindingsPanel, FindingsSheet, useFindings } from "./FindingsPanel";
 import { ChatScreenSkeleton } from "./ChatScreenSkeleton";
 import { useChannelChat } from "./useChannelChat";
+import { ChatStreamingArea } from "./ChatStreamingArea";
 import { useSessionPlanMode } from "./useSessionPlanMode";
 import {
   useChannelSessionOverlayController,
@@ -327,8 +327,9 @@ export default function ChatScreen() {
   });
 
   const {
-    chatState,
     invertedData,
+    isProcessing,
+    isStreaming,
     isLoading,
     isFetchingNextPage,
     hasNextPage,
@@ -446,6 +447,12 @@ export default function ChatScreen() {
   const scratchSessionState = useChatStore((s) =>
     scratchUrlSessionId ? s.getChannel(scratchUrlSessionId) : null,
   );
+  // Narrow read: contextBudget changes episodically, NOT on text-deltas.
+  // Reference equality on the budget object short-circuits per-token re-renders
+  // of the parent that previously consumed `chatState.contextBudget`.
+  const primaryContextBudget = useChatStore((s) =>
+    channelId ? s.getChannel(channelId).contextBudget : null,
+  );
   const currentBudgetSessionId = routeSessionId ?? channel?.active_session_id ?? null;
   useEffect(() => {
     const visibleSessionId = routeSessionId ?? channel?.active_session_id ?? null;
@@ -471,7 +478,7 @@ export default function ChatScreen() {
   const effectiveContextBudget = (
     currentBudgetSessionId
       ? scratchSessionState?.contextBudget
-      : chatState.contextBudget
+      : primaryContextBudget
   ) ?? (
     savedBudget?.utilization != null ? {
       utilization: savedBudget.utilization,
@@ -821,7 +828,7 @@ export default function ChatScreen() {
     headerBudgetSessionId ? s.getChannel(headerBudgetSessionId) : null,
   );
   const headerContextBudget = channelHeaderChromeMode !== "canvas"
-    ? (headerBudgetSessionId ? headerPaneChatState?.contextBudget : chatState.contextBudget) ?? (
+    ? (headerBudgetSessionId ? headerPaneChatState?.contextBudget : primaryContextBudget) ?? (
         headerSavedBudget?.utilization != null ? {
           utilization: headerSavedBudget.utilization,
           consumed: headerSavedBudget.consumed_tokens ?? 0,
@@ -939,7 +946,7 @@ export default function ChatScreen() {
       : autoCompactPressure === "hard" && autoCompactRunning
         ? "Native compaction is running. Send after it finishes."
         : null,
-    isStreaming: selectIsStreaming(chatState) || chatState.isProcessing,
+    isStreaming: isStreaming || isProcessing,
     onCancel: handleCancel,
     modelOverride: turnModelOverride,
     modelProviderIdOverride: turnProviderIdOverride,
@@ -984,7 +991,8 @@ export default function ChatScreen() {
     onApprovePlan,
   }), [
     handleSend, handleSendAudio, isPaused, pendingHarnessQuestion,
-    autoCompactPressure, autoCompactRunning, chatState, handleCancel,
+    autoCompactPressure, autoCompactRunning, isStreaming, isProcessing,
+    handleCancel,
     turnModelOverride, turnProviderIdOverride, handleModelOverrideChange,
     channel?.model_override, channel?.bot_id, channel?.member_bots?.length,
     channel?.config?.plan_mode_control, bot?.model, bot?.harness_runtime,
@@ -1007,10 +1015,11 @@ export default function ChatScreen() {
     ),
     [channelId, chatMode],
   );
-  const messageAreaProps = useMemo(() => ({
+  // Everything ChatMessageArea needs EXCEPT `chatState` — added inside
+  // <ChatStreamingArea> alongside its narrow subscription.
+  const messageAreaPropsBase = useMemo(() => ({
     invertedData: visibleInvertedData,
     renderMessage,
-    chatState,
     bot,
     botId: channel?.bot_id,
     pendingApprovalsSlot: channelId ? pendingApprovalsSlot : undefined,
@@ -1018,23 +1027,23 @@ export default function ChatScreen() {
     isFetchingNextPage,
     hasNextPage,
     handleLoadMore,
-    isProcessing: chatState.isProcessing,
+    isProcessing,
     t,
     chatMode,
     channelId,
     sessionId: channel?.active_session_id,
     onOpenMessageSession: handleOpenFindResultSession,
   }), [
-    visibleInvertedData, renderMessage, chatState, bot, channel?.bot_id,
+    visibleInvertedData, renderMessage, bot, channel?.bot_id,
     channel?.active_session_id, channelId, pendingApprovalsSlot, isLoading,
-    isFetchingNextPage, hasNextPage, handleLoadMore, t, chatMode,
+    isFetchingNextPage, hasNextPage, handleLoadMore, isProcessing, t, chatMode,
     handleOpenFindResultSession,
   ]);
   const primarySessionResumeSlot = useSessionResumeCard({
     sessionId: channel?.active_session_id,
     channelId,
     messages: invertedData,
-    isActive: selectIsStreaming(chatState) || !!chatState.isProcessing,
+    isActive: isStreaming || isProcessing,
     chatMode,
     seed: {
       surfaceKind: "primary",
@@ -1106,27 +1115,6 @@ export default function ChatScreen() {
     </div>
   ) : null;
 
-  const terminalBottomSlot = chatMode === "terminal" ? (
-    <>
-      {chatState.error && (
-        <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
-      )}
-      {chatState.secretWarning && (
-        <SecretWarningBanner
-          patterns={chatState.secretWarning.patterns}
-          onDismiss={() => channelId && useChatStore.setState((s) => ({
-            channels: { ...s.channels, [channelId]: { ...s.channels[channelId]!, secretWarning: null } },
-          }))}
-        />
-      )}
-      {pendingHarnessQuestionLane}
-      {harnessAutoCompactionLane}
-      <ChatComposerShell chatMode={chatMode}>
-        <MessageInput {...messageInputProps} />
-      </ChatComposerShell>
-    </>
-  ) : null;
-
   const scratchEmptyState = (
     <div
       className="flex flex-col items-center justify-center text-center px-6"
@@ -1193,53 +1181,19 @@ export default function ChatScreen() {
         </div>
       </div>
     ) : null;
-  // Measured height of the composer overlay (input card + banners + strips)
-  // so messages scroll BEHIND the frosted input at the bottom — Claude-style.
-  const inputOverlayRef = useRef<HTMLDivElement>(null);
-  const [inputOverlayHeight, setInputOverlayHeight] = useState(96);
-  useEffect(() => {
-    if (!inputOverlayRef.current) return;
-    const ro = new ResizeObserver((entries) => {
-      const h = entries[0]?.contentRect.height;
-      if (h) setInputOverlayHeight(Math.ceil(h));
-    });
-    ro.observe(inputOverlayRef.current);
-    return () => ro.disconnect();
-  }, []);
-
-  const primaryChatNode = (
-    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
-      <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
-        <ChatMessageArea
-          {...messageAreaProps}
-          sessionResumeSlot={primarySessionResumeSlot}
-          bottomSlot={terminalBottomSlot}
-          scrollPaddingTop={0}
-          scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + (isMobile ? 32 : 48)}
-        />
-      </div>
-      {chatMode !== "terminal" && (
-        <div ref={inputOverlayRef} style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 4 }}>
-          {chatState.error && (
-            <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
-          )}
-          {chatState.secretWarning && (
-            <SecretWarningBanner
-              patterns={chatState.secretWarning.patterns}
-              onDismiss={() => channelId && useChatStore.setState((s) => ({
-                channels: { ...s.channels, [channelId]: { ...s.channels[channelId]!, secretWarning: null } },
-              }))}
-            />
-          )}
-          {pendingHarnessQuestionLane}
-          {harnessAutoCompactionLane}
-          <ChatComposerShell chatMode={chatMode}>
-            <MessageInput {...messageInputProps} />
-          </ChatComposerShell>
-        </div>
-      )}
-    </div>
-  );
+  const primaryChatNode = channelId ? (
+    <ChatStreamingArea
+      channelId={channelId}
+      chatMode={chatMode}
+      isMobile={isMobile}
+      messageInputProps={messageInputProps}
+      messageAreaPropsBase={messageAreaPropsBase}
+      pendingHarnessQuestionLane={pendingHarnessQuestionLane}
+      harnessAutoCompactionLane={harnessAutoCompactionLane}
+      primarySessionResumeSlot={primarySessionResumeSlot}
+      onRetry={handleRetry}
+    />
+  ) : null;
 
   const channelHeaderBlock = (
     // Transparent wrapper — header, HUD strip, and launchpad sit directly

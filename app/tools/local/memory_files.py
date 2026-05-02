@@ -57,6 +57,10 @@ def _format_search_results(results) -> str:
 
 logger = logging.getLogger(__name__)
 
+_LEAKED_TOOL_CALL_RE = re.compile(
+    r"(?:^|[\s{}])(?:to=functions\.|functions\.[A-Za-z_][\w.-]*|<\|tool)",
+)
+
 
 def _get_bot_and_root() -> tuple:
     """Resolve current bot and its workspace/memory root."""
@@ -280,6 +284,18 @@ def _memory_error(message: str) -> str:
     return json.dumps({"error": message}, ensure_ascii=False)
 
 
+def _memory_text_error(*values: str | None) -> str | None:
+    """Reject transcript/control syntax that should never be persisted as memory."""
+    for value in values:
+        if value and _LEAKED_TOOL_CALL_RE.search(value):
+            return (
+                "Refusing memory write: content appears to contain leaked "
+                "tool-call transcript syntax. Rewrite the note as plain Markdown "
+                "and call memory again."
+            )
+    return None
+
+
 def _mimetype_for_memory_path(path: str | None) -> str:
     if path and path.lower().endswith(".md"):
         return "text/markdown"
@@ -465,6 +481,13 @@ async def memory(
             )
 
         before_text = Path(resolved).read_text() if os.path.isfile(resolved) else ""
+        if operation in {"create", "overwrite", "append", "replace_section"}:
+            if error := _memory_text_error(content):
+                return _memory_error(error)
+        elif operation == "edit":
+            if error := _memory_text_error(replace):
+                return _memory_error(error)
+
         if operation == "create":
             if os.path.exists(resolved):
                 return _memory_error(f"File already exists: {rel}")

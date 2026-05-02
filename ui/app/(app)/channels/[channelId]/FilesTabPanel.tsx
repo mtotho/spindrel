@@ -3,8 +3,8 @@
  * Files tab. Ports the body of the former BrowseFilesModal (minus the
  * portal, backdrop, and close button) into a rail-sized surface:
  *
- *   [ + ] [ 📁+ ] [ 🔎 ] [ ⟳ ]                          ~Ntok
- *   Channel · Workspace · Memory
+ *   [ + ] [ folder+ ] [ search ] [ more ]               ~Ntok
+ *   Location selector
  *   /ws › channels › #home-assistant
  *   [ tree: folders + files, drag-drop upload, context menus, bulk select ]
  *
@@ -13,11 +13,12 @@
  * IN CONTEXT card has been dropped; the token gauge lives in the action row.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, FolderPlus, Search, Upload, MoreHorizontal, X } from "lucide-react";
+import { Plus, FolderPlus, Search, Upload, MoreHorizontal, X, FolderOpen } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { Spinner } from "@/src/components/shared/Spinner";
+import { SelectDropdown, type SelectDropdownOption } from "@/src/components/shared/SelectDropdown";
 import { apiFetch } from "@/src/api/client";
 import {
   useChannels,
@@ -40,7 +41,6 @@ import { channelSlug } from "@/src/stores/dashboards";
 import { ContextMenu, type ContextMenuItem, estimateTokens } from "./ChannelFileExplorerData";
 import { parsePayload } from "@/src/components/chat/renderers/nativeApps/shared";
 import {
-  ScopeStrip,
   Breadcrumb,
   TreeBranch,
   NewItemRow,
@@ -168,13 +168,11 @@ export function FilesTabPanel({
     }),
   );
 
-  // Auto-expand the Knowledge Base folder for the current channel scope on
-  // mount so the auto-indexed convention is visible without an extra click.
-  // Idempotent — `expandDir` no-ops when already expanded.
+  // Keep the current root visible without forcing knowledge-base open. Notes
+  // owns the knowledge/document mental model; Files is the raw workspace view.
   useEffect(() => {
     expandDir(stripSlashes(normalizedRootPath));
-    if (!hasProjectRoot) expandDir(`channels/${channelId}/knowledge-base`);
-  }, [channelId, expandDir, hasProjectRoot, normalizedRootPath]);
+  }, [expandDir, normalizedRootPath]);
   const setCurrentPath = useCallback(
     (p: string) => {
       setCurrentPathRaw(p);
@@ -704,6 +702,49 @@ export function FilesTabPanel({
     });
   }, [currentPath, onOpenTerminal, refreshAll, tokenStr]);
 
+  const locationOptions = useMemo<SelectDropdownOption[]>(() => [
+    ...(hasProjectRoot
+      ? [{
+          value: normalizedRootPath,
+          label: rootLabel,
+          description: "Project workspace root",
+          icon: <FolderOpen size={13} className="text-text-dim" />,
+          searchText: `${rootLabel} project workspace root`,
+        }]
+      : [{
+          value: channelTarget,
+          label: "Channel",
+          description: "Files attached to this channel",
+          icon: <FolderOpen size={13} className="text-text-dim" />,
+          searchText: "channel files knowledge base active archive data",
+        }]),
+    {
+      value: "/",
+      label: "Workspace",
+      description: "All workspace files",
+      icon: <FolderOpen size={13} className="text-text-dim" />,
+      searchText: "workspace root all files",
+    },
+    ...(memoryTarget
+      ? [{
+          value: memoryTarget,
+          label: "Memory",
+          description: "Bot memory files",
+          icon: <FolderOpen size={13} className="text-text-dim" />,
+          searchText: "bot memory files",
+        }]
+      : []),
+  ], [channelTarget, hasProjectRoot, memoryTarget, normalizedRootPath, rootLabel]);
+
+  const selectedLocation = useMemo(() => {
+    const exact = locationOptions.find((option) => option.value === currentPath);
+    if (exact) return exact.value;
+    const scoped = locationOptions
+      .filter((option) => option.value !== "/" && currentPath.startsWith(`${option.value.replace(/\/$/, "")}/`))
+      .sort((a, b) => b.value.length - a.value.length)[0];
+    return scoped?.value ?? "/";
+  }, [currentPath, locationOptions]);
+
   return (
     <div
       ref={rootRef}
@@ -820,16 +861,24 @@ export function FilesTabPanel({
           </div>
         )}
 
-        <ScopeStrip
-          currentPath={currentPath}
-          scopeTargets={[
-            ...(hasProjectRoot ? [{ label: rootLabel, path: normalizedRootPath }] : []),
-            ...(!hasProjectRoot ? [{ label: "Channel", path: channelTarget }] : []),
-            { label: "Workspace", path: "/" },
-            ...(memoryTarget ? [{ label: "Memory", path: memoryTarget }] : []),
-          ]}
-          onJump={setCurrentPath}
-        />
+        <div className="px-2 py-1.5">
+          <SelectDropdown
+            value={selectedLocation}
+            options={locationOptions}
+            onChange={(value) => setCurrentPath(value)}
+            size="compact"
+            popoverWidth="trigger"
+            triggerClassName="min-h-[28px] border-0 bg-surface-raised/55 text-[11px] hover:bg-surface-overlay/55"
+            renderValue={(option) => (
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
+                  Location
+                </span>
+                <span className="truncate text-text-muted">{option.label}</span>
+              </span>
+            )}
+          />
+        </div>
 
         <Breadcrumb
           path={currentPath}

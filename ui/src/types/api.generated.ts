@@ -18672,6 +18672,10 @@ export interface components {
             blueprint: {
                 [key: string]: unknown;
             };
+            /** Canonical Repo */
+            canonical_repo?: {
+                [key: string]: unknown;
+            };
             /** Current Stage */
             current_stage: string;
             /** Dependency Stack */
@@ -18680,6 +18684,10 @@ export interface components {
             };
             /** Intake */
             intake: {
+                [key: string]: unknown;
+            };
+            /** Intake Config */
+            intake_config?: {
                 [key: string]: unknown;
             };
             /** Planning */
@@ -18847,6 +18855,17 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Intake Kind
+             * @default unset
+             */
+            intake_kind: string;
+            /** Intake Metadata */
+            intake_metadata?: {
+                [key: string]: unknown;
+            };
+            /** Intake Target */
+            intake_target?: string | null;
             /**
              * Metadata
              * @default {}
@@ -19116,6 +19135,14 @@ export interface components {
         ProjectWrite: {
             /** Description */
             description?: string | null;
+            /** Intake Kind */
+            intake_kind?: string | null;
+            /** Intake Metadata */
+            intake_metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Intake Target */
+            intake_target?: string | null;
             /** Metadata */
             metadata_?: {
                 [key: string]: unknown;

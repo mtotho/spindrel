@@ -74,6 +74,27 @@ surface:
     `/api/v1/projects/{project_id}/runtime-env`, and
     `/api/v1/projects/{project_id}/dependency-stack`. Report what is ready,
     what changed, and what still needs a user decision.
+11. Configure the issue-intake convention exactly once per Project. Read
+    `intake_config.kind` from `get_project_factory_state`:
+    - `unset` -> ask the user where issues should live and persist the answer
+      with `update_project_intake_config`. Choices:
+      - **A file in this repo** -> ask for a relative path. If the user has no
+        preference, suggest `docs/inbox.md` and mention that an existing
+        repo-local `.agents/skills/<repo>-issues/SKILL.md` may name a
+        different file.
+      - **A folder in this repo** -> ask for a relative path. Suggest
+        `docs/inbox/` if no preference.
+      - **GitHub / Linear / Notion / other tracker** -> ask for the canonical
+        URL or identifier; record the platform under
+        `metadata.tracker` (e.g. `{"tracker": "github"}`).
+      - **Skip / decide later** -> leave `intake_kind = unset`. The generic
+        `project/intake` skill will warn next time it is invoked.
+    - Already set -> do not re-prompt. If the user explicitly says
+      "reconfigure intake," walk through the same choices and overwrite via
+      `update_project_intake_config`.
+    Strict invariant: this step records the convention only - it never writes
+    the inbox file or creates the tracker on the user's behalf. The first real
+    write happens via `project/intake`.
 
 ## Boundaries
 

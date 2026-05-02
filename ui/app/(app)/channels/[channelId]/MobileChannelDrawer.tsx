@@ -2,9 +2,9 @@
  * MobileChannelDrawer — channel-scoped full-height mobile drawer.
  *
  * Replaces the old `MobileOmniSheet` bottom sheet. Opened by the channel
- * header's hamburger, the drawer exposes three tabs:
+ * header's hamburger, the drawer exposes the channel workbench surfaces:
  *
- *   [Notes] [Widgets (N)] [Files]
+ *   [Sessions] [Notes] [Widgets (N)] [Files]
  *
  * Widgets: every channel-dashboard pin in one mobile workbench list, so users
  *          do not have to understand desktop dashboard zones.
@@ -19,7 +19,7 @@
  */
 import { useCallback, useEffect, useMemo } from "react";
 import ReactDOM from "react-dom";
-import { Layers, Files, X, LayoutDashboard, Maximize2, MessageCircle } from "lucide-react";
+import { Layers, Files, X, LayoutDashboard, Maximize2, MessageCircle, NotebookText } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
@@ -30,6 +30,7 @@ import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { channelSlug } from "@/src/stores/dashboards";
 import { FilesTabPanel } from "./FilesTabPanel";
 import { SessionsTabPanel } from "./SessionsTabPanel";
+import { NotesTabPanel } from "./NotesTabPanel";
 import { PinnedToolWidget } from "./PinnedToolWidget";
 import { widgetPinHref } from "@/src/lib/hubRoutes";
 import type { ChannelSessionSurface } from "@/src/lib/channelSessionSurfaces";
@@ -194,17 +195,12 @@ export function MobileChannelDrawer({
   // If the user lost workspace-tab access, bounce them to widgets.
   useEffect(() => {
     if (!hasWorkspace && (tab === "files" || tab === "notes")) setTab("widgets");
-    // Mobile drawer hides the Notes tab — Notes lives in the channel header
-    // 3-dot menu instead. Bounce stale "notes" prefs to Sessions.
-    if (tab === "notes") setTab("sessions");
   }, [hasWorkspace, tab, setTab]);
 
   if (!open || typeof document === "undefined") return null;
 
   const activeTabWithoutWorkspace: OmniPanelTab = hasWorkspace
-    ? tab === "notes"
-      ? "sessions"
-      : tab
+    ? tab
     : tab === "files" || tab === "notes"
       ? "widgets"
       : tab;
@@ -227,7 +223,7 @@ export function MobileChannelDrawer({
       {/* Tab strip — rich channel work surfaces. Global Jump remains available
           through the app palette shortcut and header entry points. */}
       <div
-        className="flex items-center gap-1 px-2 py-1.5"
+        className="flex items-center gap-1 overflow-x-auto px-2 py-1.5 scroll-subtle"
         style={{ backgroundColor: t.surfaceRaised }}
       >
         <DrawerTab
@@ -235,6 +231,13 @@ export function MobileChannelDrawer({
           icon={<MessageCircle size={13} />}
           active={activeTab === "sessions"}
           onClick={() => setTab("sessions")}
+          t={t}
+        />
+        <DrawerTab
+          label="Notes"
+          icon={<NotebookText size={13} />}
+          active={activeTab === "notes"}
+          onClick={() => setTab("notes")}
           t={t}
         />
         <DrawerTab
@@ -276,6 +279,13 @@ export function MobileChannelDrawer({
               onActivateSessionSurface?.(surface);
               onClose();
             }}
+          />
+        )}
+        {activeTab === "notes" && hasWorkspace && (
+          <NotesTabPanel
+            channelId={channelId}
+            botId={botId}
+            onSelectFile={onSelectFile}
           />
         )}
         {activeTab === "widgets" && (

@@ -439,6 +439,7 @@ export function SourceTextEditor({
               onMouseUp={(event) => emitSelection(event.currentTarget)}
               onScroll={handleScroll}
               onKeyDown={handleKeyDown}
+              wrap="off"
               spellCheck={false}
               autoCapitalize="off"
               autoCorrect="off"
@@ -450,6 +451,7 @@ export function SourceTextEditor({
                 caretColor: t.inputText,
                 WebkitTextFillColor: "transparent",
                 whiteSpace: "pre",
+                wordWrap: "normal",
               }}
             />
           )}

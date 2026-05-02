@@ -4,7 +4,7 @@ summary: Replace the bespoke IssueWorkPack/Attention-based intake DB with a repo
 status: active
 tags: [spindrel, plan, projects, project-factory, intake, runbook]
 created: 2026-05-02
-updated: 2026-05-02
+updated: 2026-05-02 (4BD.0 + 4BD.1 + 4BD.2 + 4BD.3 shipped)
 ---
 
 # Plan - Project Factory Issue Substrate
@@ -81,35 +81,47 @@ Unchanged. Existing pattern. Append-only one-liners.
 - Blueprint editor UI gets a "Canonical" checkbox per repo row; only one can be checked.
 - Unit tests cover validation, resolution fallback, and the computed property.
 
-### Phase 4BD.1 - Project intake convention settings
+### Phase 4BD.1 - Project intake convention settings *(shipped 2026-05-02)*
 
 - New columns on `Project`:
-  - `intake_kind`: `"unset" | "repo_file" | "repo_folder" | "external_tracker"` (server default `"unset"`)
+  - `intake_kind`: `"unset" | "repo_file" | "repo_folder" | "external_tracker"` (server default `"unset"`, NOT NULL)
   - `intake_target`: `Text` nullable. Relative path (for `repo_file`/`repo_folder`) or URL (for `external_tracker`).
-  - `intake_metadata`: `JSONB` nullable. Free-form per-kind config (e.g. external tracker name, format hint).
-- Migration adds the columns nullable. No backfill (no usable existing data).
-- Pydantic schemas + API exposure.
-- Factory-state inclusion: `get_project_factory_state` returns the resolved intake config so agents read it once.
+  - `intake_metadata`: `JSONB`, server default `'{}'`. Free-form per-kind config (e.g. external tracker name, format hint).
+- Migration `292_project_intake_config` adds the columns. No backfill (no usable existing data).
+- Pydantic schemas: `ProjectOut` carries the three fields; `ProjectWrite` accepts them on create + PATCH. `normalize_project_intake_kind` enforces the enum (422 on bad kind).
+- Service: `project_intake_config(project)` returns `{kind, target, metadata, host_target, configured}` - the resolved view agents read. `host_target` joins the canonical repo path with the relative target for repo-file / repo-folder kinds, None for external trackers and unset projects.
+- Factory-state: `get_project_factory_state` payload gains `intake_config: {...}` next to `canonical_repo`, so the generic intake skill reads the convention once.
+- UI types: `ui/src/types/api.ts` mirrors the new fields on `Project` + `ProjectWrite`.
 
-### Phase 4BD.2 - Setup-time convention prompt
+### Phase 4BD.2 - Setup-time convention prompt *(shipped 2026-05-02)*
 
-- Extend `project/setup/init` skill: after blueprint application, if `intake_kind == "unset"`, the agent asks the user where issues should live. Choices:
-  - "A file in this repo" -> ask for path; if user has no preference, suggest `docs/inbox.md` (or whatever the repo-local skill recommends if one exists).
-  - "A folder in this repo" -> ask for path; suggest `docs/inbox/` if no preference.
-  - "GitHub issues" / "Linear" / "Notion" / "Other" -> ask for the canonical link/identifier; record in `intake_metadata`.
-  - "Skip / decide later" -> leaves `intake_kind = "unset"`; intake skill warns next time it is invoked.
-- Persists the choice via a new `update_project_intake_config` tool. Idempotent: re-running setup re-uses the stored choice unless the user explicitly says "reconfigure intake."
-- Strict invariant: the setup skill **never** writes the file or creates the tracker on the user's behalf - it just records the convention. Subsequent `project/intake` invocations are what actually write.
+- New mutating tool `update_project_intake_config(kind, target?, metadata?, project_id?)` in `app/tools/local/project_intake_config.py`. Validates the kind via `normalize_project_intake_kind` (rejects unknown values *before* the DB hit), persists the three columns, returns the resolved `intake_config` payload (kind/target/metadata/host_target/configured) plus the `previous_kind` so callers can detect overwrites.
+- `skills/project/setup/init.md` Step 11 walks the user through the four choices (repo_file / repo_folder / external_tracker / skip), reading `intake_config.kind` from `get_project_factory_state` to skip when already configured.
+- Idempotency lives in the skill, not the tool: the tool always writes what it is given. The skill checks `intake_kind != "unset"` before re-prompting and only re-asks when the user explicitly says "reconfigure intake."
+- Strict invariant captured in the skill: setup records the convention only - it never writes the inbox file or creates the tracker on the user's behalf. The first real write happens via `project/intake` (4BD.3).
+- Suggested defaults when the user has no preference: `docs/inbox.md` for repo_file, `docs/inbox/` for repo_folder. The skill mentions that an existing repo-local `.agents/skills/<repo>-issues/SKILL.md` may name a different file.
 
-### Phase 4BD.3 - Generic intake skill rewrite
+### Phase 4BD.3 - Generic intake skill rewrite *(shipped 2026-05-02)*
 
-- `project/intake` reads `intake_kind`/`intake_target` from factory-state, then:
-  - `repo_file`: reads/writes the file at `<canonical_repo>/<intake_target>`. No DB write.
-  - `repo_folder`: writes a new file per item under `<canonical_repo>/<intake_target>/<timestamp>-<slug>.md`. Reads by listing the folder.
-  - `external_tracker`: emits the captured note as a hand-off message ("Open <intake_target>, paste this:") - does not call any external API.
-  - `unset`: warns the user, points at `project/setup/init`, captures the note in chat as a fallback so it isn't lost.
-- Defers entirely to repo-local `.agents/skills/<repo>-issues/SKILL.md` when one exists - the repo-local skill names the schema, the commit cadence, anything else.
-- `publish_issue_intake` tool is rewritten to call the new write path (file or hand-off). Old DB write path deleted.
+- New service `app/services/project_intake_writer.py`:
+  - `CapturedIntakeNote` dataclass (title, kind, area, status, body, captured_at) with `.normalized()`.
+  - `kebab_slug(value, max_len=60)` for grep-stable headings.
+  - `render_inbox_entry(note)` -> the canonical schema:
+    `## YYYY-MM-DD HH:MM <slug>` + `**kind:** ... · **area:** ... · **status:** ...` tag line + body. The `area: -` placeholder keeps the tag line greppable when no area is set.
+  - `append_to_repo_file(canonical_host, intake_target, note)` -> creates parents, preserves prior content, appends after a single blank line. Returns `IntakeWriteResult` with host_path/relative_path/appended/created_file/slug/timestamp.
+  - `write_to_repo_folder(canonical_host, intake_target, note)` -> filename `<YYYYMMDD-HHMM>-<slug>.md` with `-2`, `-3`... collision suffixes for same-minute captures.
+- New mutating tool `capture_project_intake(title, kind?, area?, body?, project_id?)` in `app/tools/local/capture_project_intake.py` reads `intake_config` and routes:
+  - `repo_file` -> `append_to_repo_file`. Returns `wrote: {host_path, relative_path, appended, slug, timestamp}`.
+  - `repo_folder` -> `write_to_repo_folder`.
+  - `external_tracker` -> returns `handoff: {tracker, target, instructions}`. **Does not call any external API.**
+  - `unset` -> returns `ok: True` with a warning telling the user to run `project/setup/init`; echoes the captured note so it isn't lost.
+- `skills/project/intake.md` rewritten:
+  - Calls `capture_project_intake` instead of `publish_issue_intake`.
+  - Reads `intake_config` from `get_project_factory_state` first.
+  - Lists all four routing branches explicitly so the agent narrates the right confirmation.
+  - **Defers to repo-local `.agents/skills/<repo>-issues/SKILL.md`** when one exists.
+  - Marks `publish_issue_intake` as deprecated (kept until 4BD.6 retires it).
+- `publish_issue_intake` tool itself is **not** rewritten in this slice - we leave the old DB write path in place so any in-flight Mission Control intake still drains. 4BD.6 deletes the table + tool + UI lane in one transactional move once nothing reads it.
 
 ### Phase 4BD.4 - Run Pack stops being a table row
 

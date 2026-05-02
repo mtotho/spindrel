@@ -394,7 +394,7 @@ export function useChannelWorkbenchController({
     if (fileWorkspaceId && !isSystemChannel) {
       actions.push({
         id: `channel:${channelId}:browse-files`,
-        label: "Browse files in this channel",
+        label: "Browse workspace files",
         hint: channelLabel,
         icon: FolderOpen,
         category: "This Channel",
@@ -437,7 +437,7 @@ export function useChannelWorkbenchController({
       });
       actions.push({
         id: `channel:${channelId}:open-widgets`,
-        label: "Open workbench: Widgets",
+        label: "Open widgets",
         hint: workbenchWidgetCount > 0 ? `${workbenchWidgetCount} widget${workbenchWidgetCount === 1 ? "" : "s"}` : channelLabel,
         icon: PanelLeftIcon,
         category: "This Channel",
@@ -446,7 +446,7 @@ export function useChannelWorkbenchController({
       if (fileWorkspaceId) {
         actions.push({
           id: `channel:${channelId}:open-notes`,
-          label: "Open workbench: Notes",
+          label: "Open notes",
           hint: channelLabel,
           icon: NotebookText,
           category: "This Channel",
@@ -454,7 +454,7 @@ export function useChannelWorkbenchController({
         });
         actions.push({
           id: `channel:${channelId}:open-files`,
-          label: "Open workbench: Files",
+          label: "Browse files",
           hint: browseFilesShortcut,
           icon: FolderOpen,
           category: "This Channel",

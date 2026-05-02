@@ -142,7 +142,7 @@ counts = {
     "queued": 0,
     "missing_now": 0,
     "missing_upcoming": 0,
-    "unmatched_missing": 0,
+    "untracked_wanted": 0,
     "registry_empty": 1 if tracked_registry_empty else 0,
 }
 
@@ -195,8 +195,8 @@ for episode in list_from(snapshot, "sonarr", "wanted", "episodes") + list_from(s
             "season": episode.get("season") or episode.get("seasonNumber"),
             "episode": episode.get("episode") or episode.get("episodeNumber"),
         }))
-    elif tracked_shows:
-        counts["unmatched_missing"] += 1
+    else:
+        counts["untracked_wanted"] += 1
 
 for movie in list_from(snapshot, "radarr", "wanted", "movies") + list_from(snapshot, "radarr", "wanted", "items"):
     tracked = matches_tracked(movie.get("title") or movie.get("movieTitle"), tracked_movies)
@@ -209,8 +209,8 @@ for movie in list_from(snapshot, "radarr", "wanted", "movies") + list_from(snaps
             "title": movie.get("title") or movie.get("movieTitle"),
             "year": movie.get("year"),
         }))
-    elif tracked_movies:
-        counts["unmatched_missing"] += 1
+    else:
+        counts["untracked_wanted"] += 1
 
 for service in ("sonarr", "radarr"):
     for queued in list_from(snapshot, service, "queue", "items"):
@@ -229,7 +229,7 @@ for service in ("sonarr", "radarr"):
             "tracked_status": queued.get("tracked_status") or queued.get("trackedDownloadStatus"),
         }))
 
-problem_count = counts["missing_now"] + counts["unmatched_missing"] + counts["registry_empty"]
+problem_count = counts["missing_now"] + counts["registry_empty"]
 status = "needs_attention" if problem_count else "ok"
 if tracked_registry_empty:
     summary = (
@@ -240,7 +240,8 @@ else:
     summary = (
         f"{counts['tracked_shows']} tracked shows, {counts['tracked_movies']} tracked movies; "
         f"{counts['missing_now']} due/wanted missing, {counts['missing_upcoming']} upcoming missing, "
-        f"{counts['queued']} queued, {counts['downloaded']} calendar entries already downloaded."
+        f"{counts['queued']} queued, {counts['downloaded']} calendar entries already downloaded; "
+        f"{counts['untracked_wanted']} untracked Sonarr/Radarr wanted items ignored."
     )
 
 output = {
