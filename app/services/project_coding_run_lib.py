@@ -32,6 +32,61 @@ from app.services.projects import normalize_project_path, project_directory_from
 PROJECT_CODING_RUN_PRESET_ID = "project_coding_run"
 PROJECT_CODING_RUN_REVIEW_PRESET_ID = "project_coding_run_review"
 PROJECT_CODING_RUN_SCHEDULE_PRESET_ID = "project_coding_run_schedule"
+
+
+class ProjectConcurrencyCapExceeded(ValueError):
+    """Raised by create_project_coding_run when the Blueprint `max_concurrent_runs`
+    cap would be exceeded by launching another implementation run.
+
+    Subclasses ValueError so existing route handlers (which map ValueError to 422)
+    keep working without per-call wiring; batch launchers can catch the specific
+    type to stop iterating once the cap is reached.
+    """
+
+    def __init__(self, *, cap: int, in_flight: int):
+        self.cap = cap
+        self.in_flight = in_flight
+        super().__init__(
+            f"Project concurrency cap reached: {in_flight} of {cap} implementation runs already in flight. "
+            "Wait for an active run to finish, raise the Blueprint policy cap, or cancel a pending run."
+        )
+
+
+async def count_active_project_coding_implementations(
+    db: AsyncSession, project: Project
+) -> int:
+    """Count pending/running coding-run tasks (excluding review sessions) for a Project.
+
+    Used by `create_project_coding_run` to enforce `max_concurrent_runs`. The
+    query restricts by run preset id, so review-session tasks (which use the
+    review preset) and schedule shells (`project_coding_run_schedule`) do not
+    count against the implementation cap.
+    """
+    channel_ids = list(
+        (await db.execute(select(Channel.id).where(Channel.project_id == project.id))).scalars().all()
+    )
+    if not channel_ids:
+        return 0
+    candidates = list(
+        (
+            await db.execute(
+                select(Task).where(
+                    Task.channel_id.in_(channel_ids),
+                    Task.status.in_(("pending", "running")),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    count = 0
+    for task in candidates:
+        cfg = task.execution_config if isinstance(task.execution_config, dict) else None
+        if not cfg or cfg.get("run_preset_id") != PROJECT_CODING_RUN_PRESET_ID:
+            continue
+        count += 1
+    return count
+
 PROJECT_REVIEW_TEMPLATE_MARKER = "SPINDREL_REVIEW_CMD_"
 DEFAULT_DEV_TARGET_PORT_RANGE = (31_000, 32_999)
 PROJECT_REVIEW_QUEUE_STATES = (

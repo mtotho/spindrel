@@ -10,6 +10,7 @@ from app.db.models import Channel, ExecutionReceipt, IssueWorkPack, Project, Pro
 from app.services.project_coding_runs import (
     ProjectCodingRunCreate,
     ProjectCodingRunReviewFinalize,
+    ProjectConcurrencyCapExceeded,
     ProjectMachineTargetGrant,
     allocate_project_run_dev_targets,
     _review_summary,
@@ -257,6 +258,66 @@ async def test_create_project_coding_run_uses_explicit_repo_path(db_session):
     assert run_cfg["repo"] == {"name": "spindrel", "path": "spindrel", "url": None}
     assert run_cfg["base_branch"] == "development"
     assert "Repository path: spindrel" in task.prompt
+
+
+@pytest.mark.asyncio
+async def test_create_project_coding_run_enforces_concurrency_cap(db_session):
+    """Phase 4BB.4 - Blueprint `max_concurrent_runs=1` lets the first run launch
+    and rejects the second with `ProjectConcurrencyCapExceeded` until the first
+    finishes."""
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Capped",
+        slug="capped",
+        root_path="common/projects/capped",
+        metadata_={
+            "blueprint_snapshot": {
+                "repos": [{"name": "p", "path": "p", "branch": "main"}],
+                "max_concurrent_runs": 1,
+            }
+        },
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    first = await create_project_coding_run(
+        db_session,
+        project,
+        ProjectCodingRunCreate(channel_id=channel_id, request="first"),
+    )
+    assert first.status == "pending"
+
+    with pytest.raises(ProjectConcurrencyCapExceeded) as excinfo:
+        await create_project_coding_run(
+            db_session,
+            project,
+            ProjectCodingRunCreate(channel_id=channel_id, request="second"),
+        )
+    assert excinfo.value.cap == 1
+    assert excinfo.value.in_flight == 1
+
+    # Once the first run completes, the cap frees up.
+    first.status = "completed"
+    await db_session.commit()
+
+    third = await create_project_coding_run(
+        db_session,
+        project,
+        ProjectCodingRunCreate(channel_id=channel_id, request="third"),
+    )
+    assert third.status == "pending"
 
 
 @pytest.mark.asyncio

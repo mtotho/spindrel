@@ -9,6 +9,7 @@ def test_generic_runtime_project_skills_do_not_reference_spindrel_repo_dev_detai
         ROOT / "skills" / "project" / "index.md",
         ROOT / "skills" / "project" / "plan" / "prd.md",
         ROOT / "skills" / "project" / "plan" / "run_packs.md",
+        ROOT / "skills" / "project" / "plan" / "audit_to_runs.md",
         ROOT / "skills" / "project" / "runs" / "implement.md",
         ROOT / "skills" / "project" / "runs" / "review.md",
         ROOT / "skills" / "project" / "runs" / "recovery.md",

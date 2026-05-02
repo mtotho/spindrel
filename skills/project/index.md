@@ -42,11 +42,25 @@ If the user is dumping rough bugs or ideas in any stage, recognise it and load
 `project/intake` for the capture path. Intake is conversational; it never
 launches work.
 
+If the user asks for a *thematic sweep* of the Project ("deep security
+audit", "find all the slow endpoints", "sweep for accessibility issues"),
+load `project/plan/audit_to_runs`. That skill chains research → findings
+artifact → Run Packs → bounded launch loop → review cadence end-to-end.
+It is the recipe behind the dream "one prompt becomes a body of work" flow.
+
 If a run is in a non-terminal failure state (`failed` / `stalled`,
 `changes_requested`, `missing_evidence`, `blocked`, or a loop iteration
 returned `needs_review` / `blocked`), load `project/runs/recovery` to pick
 between `continue`, `retry`, `hand_off`, and `abandon` instead of treating
 it as a normal review.
+
+Before launching another implementation run (single or batch) or starting a
+bounded run loop, call `get_project_orchestration_policy`. It returns the
+effective concurrency cap with live `in_flight` and `headroom`, the stall /
+turn timeouts with their source (`blueprint` vs `default` vs `unset`), and
+the raw `## policy` section from `.spindrel/WORKFLOW.md` when present. If
+`concurrency.saturated` is true, do not launch - tell the user the cap and
+ask whether to wait, raise the Blueprint cap, or cancel a pending run.
 
 ## Work Surface Discipline
 

@@ -61,6 +61,7 @@ from app.services.project_dependency_stacks import (
 from app.services.project_setup import list_project_setup_runs, load_project_setup_plan, run_project_setup
 from app.services.project_runtime import load_project_runtime_environment
 from app.services.project_factory_state import get_project_factory_state
+from app.services.project_orchestration_policy import get_project_orchestration_policy
 from app.services.projects import (
     materialize_project_blueprint,
     normalize_project_intake_kind,
@@ -481,6 +482,16 @@ class ProjectFactoryReviewInboxOut(BaseModel):
     summary: dict = Field(default_factory=dict)
     items: list[dict] = Field(default_factory=list)
     projects: list[dict] = Field(default_factory=list)
+
+
+class ProjectOrchestrationPolicyOut(BaseModel):
+    project: dict
+    blueprint_applied: bool
+    concurrency: dict
+    timeouts: dict
+    intake: dict
+    canonical_repo: dict
+    repo_workflow: dict
 
 
 class ProjectFactoryStateOut(BaseModel):
@@ -1167,6 +1178,18 @@ async def get_project_factory_state_endpoint(
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
     return await get_project_factory_state(db, project)
+
+
+@router.get("/{project_id}/orchestration-policy", response_model=ProjectOrchestrationPolicyOut)
+async def get_project_orchestration_policy_endpoint(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return await get_project_orchestration_policy(db, project)
 
 
 @router.get("/{project_id}", response_model=ProjectOut)

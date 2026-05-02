@@ -1582,6 +1582,68 @@ Do this end to end:
     )
 
 
+async def _project_status_handler(ctx: SlashCommandContext) -> SlashCommandResult:
+    """Render a copyable prompt that drives the agent through the project skill
+    cluster's first-action: read the factory state + orchestration policy and
+    report the stage in plain language. Mirrors `/project-init` shape so the
+    UI can render a single prompt-card for both."""
+    channel = ctx.channel
+    if channel is None and ctx.session is not None:
+        parent_channel_id = ctx.session.channel_id or ctx.session.parent_channel_id
+        channel = await ctx.db.get(Channel, parent_channel_id) if parent_channel_id else None
+    project: Project | None = None
+    if channel is not None and channel.project_id is not None:
+        project = await ctx.db.get(Project, channel.project_id)
+
+    if project is None:
+        title = "Project status needs a Project-bound channel"
+        prompt = (
+            "This channel is not attached to a Project yet. Attach the channel "
+            "to a Project from Project settings, then run /project-status again."
+        )
+        status = "blocked"
+        project_payload: dict[str, Any] | None = None
+    else:
+        title = f"Project status: {project.name}"
+        status = "ready"
+        project_payload = {
+            "id": str(project.id),
+            "name": project.name,
+            "root_path": project.root_path,
+        }
+        prompt = f"""Report the current status of this Project.
+
+Project:
+- id: {project.id}
+- root: {project.root_path}
+
+Use the project skill cluster's first-action exactly:
+1. Call `get_project_factory_state` and tell me the `current_stage` in one sentence of plain language.
+2. Call `get_project_orchestration_policy` and tell me whether the concurrency cap is saturated, with `in_flight` / `cap` / `headroom`.
+3. List the suggested next action from the factory state's `suggested_next_action`.
+4. List counts of: pending intake, proposed Run Packs, ready_for_review runs, in_flight runs, runs in the last 24h.
+5. End with one short bullet list of what I can ask for next given the current stage. Do not load any other skill or take any action - this is a read-only status pass.
+"""
+
+    payload = {
+        "status": status,
+        "title": title,
+        "project": project_payload,
+        "prompt": prompt,
+        "skill_id": "project",
+        "api_hints": [
+            "GET /api/v1/projects/{project_id}/factory-state",
+            "GET /api/v1/projects/{project_id}/orchestration-policy",
+        ],
+    }
+    return SlashCommandResult(
+        command_id="project-status",
+        result_type="project_init_prompt",
+        payload=payload,
+        fallback_text=prompt,
+    )
+
+
 async def _find_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     """Keyword search over recent messages in the current channel.
 
@@ -1770,6 +1832,14 @@ _register(SlashCommandSpec(
     description="Show a Project initialization prompt for Blueprint, skills, dependency stack, and readiness setup",
     surfaces=("channel", "session"),
     handler=_project_init_handler,
+))
+
+_register(SlashCommandSpec(
+    id="project-status",
+    label="/project-status",
+    description="Show this Project's current stage, concurrency cap, suggested next action, and what to ask for next",
+    surfaces=("channel", "session"),
+    handler=_project_status_handler,
 ))
 
 _register(SlashCommandSpec(

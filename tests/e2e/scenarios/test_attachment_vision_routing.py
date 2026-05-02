@@ -66,6 +66,15 @@ def _routing_events(trace: dict) -> list[dict]:
     ]
 
 
+async def _image_attachment_id(client: E2EClient, session_id: str, filename: str) -> str:
+    messages = await client.get_session_messages(session_id, limit=20)
+    for message in messages:
+        for attachment in message.get("attachments") or []:
+            if attachment.get("filename") == filename:
+                return str(attachment["id"])
+    raise AssertionError(f"Could not find attachment {filename!r} in session messages: {messages!r}")
+
+
 @pytest.fixture
 async def vision_bot(client: E2EClient) -> str:
     provider_resp = await client.get(f"/api/v1/admin/providers/{VISION_PROVIDER_ID}")
@@ -96,6 +105,10 @@ async def vision_bot(client: E2EClient) -> str:
             "tools. For a previous image, use view_attachment to load the old pixels "
             "into your current context before answering. Reply tersely."
         ),
+    )
+    await client.update_bot(
+        bot_id,
+        {"pinned_tools": ["view_attachment", "describe_attachment", "list_attachments"]},
     )
     yield bot_id
     await client.delete_bot(bot_id)
@@ -164,12 +177,14 @@ async def test_previous_attachment_can_be_reanalyzed_by_loading_pixels(
     )
     assert "stored" in first.response.lower()
 
+    attachment_id = await _image_attachment_id(client, first.session_id, "blue-square.png")
+    lookup_channel_id = client.new_channel_id()
     second = await client.chat(
-        "Look back at the previous image. Use view_attachment to load the previous "
-        "attachment into your current context, then answer with exactly one dominant "
+        f"Use view_attachment to load previous image attachment {attachment_id} into "
+        "your current context. After loading it, answer with exactly one dominant "
         "color word.",
         bot_id=vision_bot,
-        channel_id=channel_id,
+        channel_id=lookup_channel_id,
         timeout=120,
     )
 

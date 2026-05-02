@@ -11,6 +11,62 @@ The Project binding is the normal primitive. Channel settings no longer expose
 the old path-only configuration; attach a channel to a Project so all
 WorkSurface consumers resolve the same root.
 
+## From Idea to Merged Change in a Project Channel
+
+End-user journey through the Project Factory. Each step names the skill and
+tools that fire so a small model can stay on rails, and so a human can grep
+this guide instead of reverse-engineering chat.
+
+1. **Attach a channel to a Project.** UI Project picker, or the channel is
+   pre-bound at creation. Without this, none of the project skills will load.
+2. **Type what you want, in plain English.** "Build feature X.", "the Y
+   page is slow.", "deep security audit and fix what you find." The bot
+   loads `skills/project/index.md` and runs its first action: call
+   `get_project_factory_state` to learn the current stage.
+3. **The cluster routes by stage**, not by phrase-matching:
+   `unconfigured` → `project/setup/init`; `ready_no_work` → ask what to
+   build; `planning` → `project/plan/prd`; `shaping_packs` →
+   `project/plan/run_packs`; `runs_in_flight` → `project/runs/implement` or
+   `project/runs/review`; `needs_review` → `project/runs/review`;
+   `reviewed_idle` → ask what's next. Failure-state runs route to
+   `project/runs/recovery`.
+4. **Thematic sweeps load the audit recipe.** "Deep security audit" or
+   similar loads `project/plan/audit_to_runs`, which chains research →
+   findings artifact → Run Packs → bounded launch loop → review cadence.
+5. **Bug dumps load the intake skill.** `project/intake` writes to the
+   convention configured in the Project's `intake_config` (or to the
+   `repo_workflow.sections.intake` override from `.spindrel/WORKFLOW.md`).
+   Intake is conversational; it never launches work.
+6. **Plans become Run Packs.** `project/plan/run_packs` calls
+   `propose_run_packs` against a PRD, audit artifact, or selected intake
+   notes. Run Packs land as `proposed` and need a human go-ahead.
+7. **The user reviews and launches.** Mission Control batch-launch fires
+   `launch_issue_work_packs_project_runs`, which respects the Blueprint
+   `max_concurrent_runs` cap (returns `deferred` for packs over the cap
+   instead of exploding). The agent should call
+   `get_project_orchestration_policy` first and refuse to launch when
+   `concurrency.saturated` is true.
+8. **Runs execute under a bounded loop.** `loop_policy` on the task drives
+   self-continuation; each iteration ends with a Project run receipt that
+   carries `loop_decision ∈ {continue, done, needs_review, blocked}`.
+9. **Reviewers gate the merge.** `project/runs/review` opens a review
+   session against a `ready_for_review` run; reviewer feedback either
+   accepts, requests changes (which spawns a continuation), or blocks.
+10. **Recovery, not silent retry.** When a run lands in `failed`,
+    `stalled`, `blocked`, or returns `loop_decision=blocked`, the
+    `project/runs/recovery` skill picks between `continue`, `retry`,
+    `hand_off`, and `abandon` instead of treating it as a normal review.
+11. **Slash command shortcuts.** `/project-init` runs the setup recipe;
+    `/project-status` reads `factory-state` + `orchestration-policy` and
+    reports stage + cap + suggested next action. Both are read-only
+    primers; neither launches work on its own.
+
+The whole flow uses one substrate: `get_project_factory_state` and
+`get_project_orchestration_policy` are the only entry-point reads; everything
+else (intake, plan, run, review, recovery, schedule) is a skill that edits
+that substrate. New behaviors should land as a skill recipe before they
+land as a tool.
+
 ## Project Roots
 
 ![Project file browser rooted at the shared Project](../images/project-workspace-detail.png)

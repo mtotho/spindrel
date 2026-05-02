@@ -2289,24 +2289,36 @@ async def launch_issue_work_packs_project_runs(
     if project is None or channel is None:
         raise ValidationError("No launchable work packs were selected.")
 
-    from app.services.project_coding_runs import ProjectCodingRunCreate, create_project_coding_run, get_project_coding_run
+    from app.services.project_coding_runs import (
+        ProjectCodingRunCreate,
+        ProjectConcurrencyCapExceeded,
+        create_project_coding_run,
+        get_project_coding_run,
+    )
 
     launch_batch_id = f"issue-work-pack-batch:{uuid.uuid4()}"
     launched_at = _now()
     launched: list[tuple[IssueWorkPack, Task]] = []
+    deferred: list[dict[str, Any]] = []
+    cap_block: dict[str, Any] | None = None
     clean_note = str(note or "").strip()
     for pack in packs:
-        task = await create_project_coding_run(
-            db,
-            project,
-            ProjectCodingRunCreate(
-                channel_id=channel.id,
-                request=_issue_work_pack_launch_request(pack),
-                source_work_pack_id=pack.id,
-                loop_policy=loop_policy,
-            ),
-            commit=False,
-        )
+        try:
+            task = await create_project_coding_run(
+                db,
+                project,
+                ProjectCodingRunCreate(
+                    channel_id=channel.id,
+                    request=_issue_work_pack_launch_request(pack),
+                    source_work_pack_id=pack.id,
+                    loop_policy=loop_policy,
+                ),
+                commit=False,
+            )
+        except ProjectConcurrencyCapExceeded as exc:
+            cap_block = {"cap": exc.cap, "in_flight": exc.in_flight, "reason": str(exc)}
+            deferred.append({"work_pack_id": str(pack.id), "reason": "concurrency_cap"})
+            continue
         task_cfg = dict(task.execution_config or {})
         run_cfg = dict(task_cfg.get("project_coding_run") or {})
         run_cfg["launch_batch_id"] = launch_batch_id
@@ -2339,6 +2351,8 @@ async def launch_issue_work_packs_project_runs(
         "count": len(launched),
         "work_packs": work_packs,
         "runs": runs,
+        "deferred": deferred,
+        "concurrency_cap_block": cap_block,
     }
 
 

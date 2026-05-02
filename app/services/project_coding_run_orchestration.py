@@ -21,9 +21,11 @@ from app.services.project_coding_run_lib import (
     PROJECT_CODING_RUN_PRESET_ID,
     ProjectCodingRunContinue,
     ProjectCodingRunCreate,
+    ProjectConcurrencyCapExceeded,
     ProjectMachineTargetGrant,
     ProjectTaskExecutionContext,
     _attach_task_machine_grant,
+    count_active_project_coding_implementations,
     _latest_run_receipts_by_task,
     _lineage_config,
     _load_project_coding_task,
@@ -154,8 +156,15 @@ async def create_project_coding_run(
     *,
     commit: bool = True,
 ) -> Task:
-    if not project_snapshot(project):
+    snapshot = project_snapshot(project)
+    if not snapshot:
         raise ValueError("Project coding runs require an applied Blueprint snapshot. Create a Blueprint from this Project first.")
+    cap_raw = snapshot.get("max_concurrent_runs")
+    cap = int(cap_raw) if isinstance(cap_raw, int) and cap_raw > 0 else None
+    if cap is not None:
+        in_flight = await count_active_project_coding_implementations(db, project)
+        if in_flight >= cap:
+            raise ProjectConcurrencyCapExceeded(cap=cap, in_flight=in_flight)
     channel = await db.get(Channel, body.channel_id)
     if channel is None:
         raise ValueError("channel not found")
