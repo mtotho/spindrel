@@ -24,6 +24,7 @@ from app.services.project_coding_runs import (
     list_project_coding_runs,
     list_project_coding_run_schedules,
     project_coding_run_lifecycle_summary,
+    project_coding_run_phase,
     project_coding_run_defaults,
     project_coding_run_review_next_action,
     project_coding_run_review_queue_state,
@@ -131,6 +132,88 @@ def test_project_coding_run_review_queue_state_uses_existing_run_signals():
     })
     assert blocked_lifecycle["phase"] == "setup_blocked"
     assert blocked_lifecycle["blocker"] == "Fresh Project instance unavailable"
+
+
+def test_project_coding_run_phase_derives_symphony_equivalent_activity_phase():
+    """run_phase tracks what the run is doing right now, not the operator queue.
+
+    Distinct from review_queue_state and from the legacy lifecycle.phase
+    headline. Order of precedence: failed > reviewed > stalled > review_ready
+    > handoff > testing > editing > branching > preparing.
+    """
+    base = {"task": {"status": "running"}, "review": {"status": "pending", "evidence": {}}}
+
+    assert project_coding_run_phase(base) == "preparing"
+
+    branched = {
+        **base,
+        "review": {"status": "pending", "evidence": {}, "steps": {"branch": {"status": "succeeded"}}},
+    }
+    assert project_coding_run_phase(branched) == "branching"
+
+    editing = {
+        **base,
+        "review": {"status": "pending", "evidence": {"changed_files_count": 3}, "steps": {"branch": {"status": "succeeded"}}},
+    }
+    assert project_coding_run_phase(editing) == "editing"
+
+    testing = {
+        **base,
+        "review": {
+            "status": "pending",
+            "evidence": {"changed_files_count": 3, "tests_count": 2},
+            "steps": {"branch": {"status": "succeeded"}},
+        },
+    }
+    assert project_coding_run_phase(testing) == "testing"
+
+    handed_off = {
+        "task": {"status": "complete"},
+        "receipt": {"summary": "Done"},
+        "review": {
+            "status": "pending_evidence",
+            "handoff_url": "https://github.com/x/y/pull/1",
+            "evidence": {"changed_files_count": 3, "tests_count": 2},
+        },
+    }
+    # missing_evidence queue state with handoff present surfaces as handoff
+    assert project_coding_run_phase(handed_off) == "handoff"
+
+    ready = {
+        "status": "completed",
+        "task": {"status": "complete"},
+        "receipt": {"summary": "Done"},
+        "review": {
+            "status": "ready_for_review",
+            "handoff_url": "https://github.com/x/y/pull/1",
+            "evidence": {"tests_count": 1, "screenshots_count": 1, "changed_files_count": 2, "dev_targets_count": 1},
+        },
+    }
+    assert project_coding_run_phase(ready) == "review_ready"
+
+    reviewed = {**ready, "review": {**ready["review"], "reviewed": True, "status": "reviewed"}}
+    assert project_coding_run_phase(reviewed) == "reviewed"
+
+    failed = {"task": {"status": "failed"}, "review": {"status": "failed", "evidence": {}}}
+    assert project_coding_run_phase(failed) == "failed"
+
+    # Sweep marker (4BB.2) flips run_phase to stalled even though queue_state
+    # might still report blocked/reviewing.
+    stalled = {
+        **editing,
+        "readiness": {"stalled": True, "blockers": []},
+    }
+    assert project_coding_run_phase(stalled) == "stalled"
+    stalled_via_work_surface = {
+        **editing,
+        "work_surface": {"run_phase_override": "stalled"},
+    }
+    assert project_coding_run_phase(stalled_via_work_surface) == "stalled"
+
+    # Lifecycle summary exposes both axes.
+    lifecycle = project_coding_run_lifecycle_summary(ready)
+    assert lifecycle["run_phase"] == "review_ready"
+    assert lifecycle["phase"] == "needs_review"  # legacy headline preserved
 
 
 @pytest.mark.asyncio

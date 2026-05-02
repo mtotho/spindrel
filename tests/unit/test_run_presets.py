@@ -77,7 +77,9 @@ def test_project_coding_run_defaults_to_fresh_project_receipt_flow():
     assert "publish_project_run_receipt" in defaults["tools"]
     assert "run_e2e_tests" not in defaults["tools"]
     assert defaults["skills"] == [
-        "workspace/project_coding_runs",
+        "project",
+        "project/runs/implement",
+        "project/runs/loop",
         "workspace/files",
         "workspace/member",
     ]
@@ -101,7 +103,8 @@ def test_project_coding_run_review_defaults_to_selected_run_finalizer():
     assert "get_project_coding_run_review_context" in defaults["tools"]
     assert "prepare_project_run_handoff" in defaults["tools"]
     assert defaults["skills"] == [
-        "workspace/project_coding_runs",
+        "project",
+        "project/runs/review",
         "workspace/files",
         "workspace/member",
     ]

@@ -172,6 +172,7 @@ async def run_voice_pipeline(
 
     # Step 2: Dispatch to Spindrel
     try:
+        device_id = client_id.removeprefix("wyoming:")
         result = await agent.submit_chat(
             message=transcript,
             bot_id=bot_id,
@@ -180,7 +181,18 @@ async def run_voice_pipeline(
             dispatch_type="wyoming",
             dispatch_config={
                 "type": "wyoming",
-                "device_id": client_id.removeprefix("wyoming:"),
+                "device_id": device_id,
+            },
+            # source="wyoming" places the transcript in EXTERNAL_UNTRUSTED_SOURCES
+            # so app/routers/chat/_routes.py wraps it in <untrusted-data> before
+            # the LLM sees it. The other two Wyoming callers
+            # (pipeline_orchestrator.py, esphome_client.py) already do this; this
+            # path was the gap noted in R1 Phase 1.
+            msg_metadata={
+                "source": "wyoming",
+                "sender_type": "human",
+                "sender_id": f"wyoming:{device_id}",
+                "sender_display_name": device_id,
             },
         )
     except Exception:

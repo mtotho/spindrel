@@ -5,6 +5,7 @@ import {
 } from "./useChannelEvents";
 import {
   resetWidgetStreamSubscriptionsForSource,
+  shouldDeliverWidgetStreamEvent,
   upsertWidgetStreamSubscription,
   type WidgetStreamSubscription,
 } from "./widgetStreamBrokerState";
@@ -29,6 +30,7 @@ function debugBroker(channelId: string, message: string, count: number): void {
     subscriptions: count,
   });
 }
+
 
 /**
  * Host-side widget stream broker.
@@ -135,7 +137,7 @@ export function useWidgetStreamBroker(channelId: string | undefined): void {
     // defensive against a handler mutating subsRef from inside the iframe.
     const snapshot = subsRef.current.slice();
     for (const sub of snapshot) {
-      if (sub.kinds && !sub.kinds.includes(kind)) continue;
+      if (!shouldDeliverWidgetStreamEvent(sub, kind)) continue;
       try {
         sub.source.postMessage(
           {

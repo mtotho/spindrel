@@ -13,6 +13,7 @@ The built-in skill library is clustered by theme. Each cluster has its own `inde
 ## Clusters
 
 - **[workspace](workspace/index.md)** — file tool, channel files, knowledge bases, attachments, docker stacks, container operations.
+- **[project](project/index.md)** — Project Factory: setup, planning, intake, Run Packs, coding runs, review, follow-up. Routes by Project state, not user phrasing.
 - **[history_and_memory](history_and_memory/index.md)** — chat history, session model, memory hygiene, cross-session search.
 - **[widgets](widgets/index.md)** — all three widget kinds (tool, HTML, native), dashboards, SDK, handlers, styling, manifest.
 - **[pipelines](pipelines/index.md)** — task pipelines (authoring + creation), step types, scheduling.

@@ -288,8 +288,8 @@ class TestSlashCommandProjectInit:
         assert body["command_id"] == "project-init"
         assert body["result_type"] == "project_init_prompt"
         assert body["payload"]["project"]["id"] == str(project.id)
-        assert body["payload"]["skill_id"] == "workspace/project_init"
-        assert "Use the workspace/project_init skill" in body["fallback_text"]
+        assert body["payload"]["skill_id"] == "project/setup/init"
+        assert "Use the project/setup/init skill" in body["fallback_text"]
         assert ".spindrel/project-runbook.md" in body["fallback_text"]
         assert "Project Dependency Stack" in body["fallback_text"]
 

@@ -94,3 +94,19 @@ def test_assist_fallback_turns_note_intent_into_starter_scaffold():
     assert "## Sour Dough" in proposal["replacement_markdown"]
     assert "### What this note is for" in proposal["replacement_markdown"]
     assert "- Topic: sour dough" in proposal["replacement_markdown"]
+
+
+def test_assist_expand_selection_turns_placeholder_into_detail_scaffold():
+    proposal = build_assist_proposal(
+        "# Untitled\n\nplease add more details here\n",
+        selection={"start": 13, "end": 41, "text": "please add more details here"},
+        instruction="Add useful detail for the selected note section.",
+        mode="expand_selection",
+        fallback_reason="fallback",
+    )
+
+    assert proposal["target"] == "selection"
+    assert "### Details" in proposal["replacement_markdown"]
+    assert "- Context:" in proposal["replacement_markdown"]
+    assert "please add more details here" not in proposal["replacement_markdown"]
+    assert proposal["diff"]

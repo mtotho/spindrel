@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   BookOpen,
@@ -33,6 +34,7 @@ type AppliedNotice = { message: string; undoBody?: string };
 export default function NoteWorkspacePage() {
   const { channelId, slug } = useParams<{ channelId: string; slug: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const channelQuery = useChannel(channelId);
   const noteQuery = useChannelNote(channelId, slug ?? null);
   const writeNote = useWriteChannelNote(channelId ?? "");
@@ -48,7 +50,6 @@ export default function NoteWorkspacePage() {
   const [baseHash, setBaseHash] = useState<string | null>(null);
   const [selection, setSelection] = useState<SelectionState>({ start: 0, end: 0, text: "" });
   const [preview, setPreview] = useState(false);
-  const [customInstruction, setCustomInstruction] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [aiFlash, setAiFlash] = useState(false);
@@ -59,11 +60,14 @@ export default function NoteWorkspacePage() {
   const [autoSaveState, setAutoSaveState] = useState<AutoSaveState>("idle");
   const [autoSaveError, setAutoSaveError] = useState<string | null>(null);
   const savedContentRef = useRef("");
+  const loadedContentHashRef = useRef<string | null>(null);
   const saveInFlightRef = useRef(false);
   const latestDraftRef = useRef("");
 
   useEffect(() => {
     if (!note) return;
+    if (loadedContentHashRef.current === note.content_hash && savedContentRef.current === note.content) return;
+    loadedContentHashRef.current = note.content_hash;
     const split = splitFrontmatter(note.content);
     setFrontmatter(split.frontmatter);
     setBodyDraft(split.body);
@@ -86,6 +90,7 @@ export default function NoteWorkspacePage() {
   }, [fullDraft]);
   const dirty = Boolean(note && fullDraft !== savedContentRef.current);
   const selectedText = selection.text.trim();
+  const noteVersionPath = note?.workspace_path ?? note?.path ?? null;
   const modelOptions = useMemo(() => {
     return (modelGroupsQuery.data ?? []).flatMap((group) =>
       group.models.map((model) => ({
@@ -138,13 +143,35 @@ export default function NoteWorkspacePage() {
     return () => window.clearTimeout(timer);
   }, [baseHash, channelId, fullDraft, note, saveDraft, slug]);
 
-  const handleAssist = useCallback(async (mode: string) => {
+  const refreshNoteFromDisk = useCallback(() => {
+    if (!channelId || !slug) return;
+    void queryClient.invalidateQueries({ queryKey: ["channel-note", channelId, slug] });
+    void queryClient.invalidateQueries({ queryKey: ["channel-notes", channelId] });
+    if (noteVersionPath) {
+      void queryClient.invalidateQueries({ queryKey: ["channel-workspace-file-versions", channelId, noteVersionPath] });
+    }
+  }, [channelId, noteVersionPath, queryClient, slug]);
+
+  useEffect(() => {
+    if (!chatOpen || dirty) return;
+    refreshNoteFromDisk();
+    const timer = window.setInterval(refreshNoteFromDisk, 1800);
+    return () => window.clearInterval(timer);
+  }, [chatOpen, dirty, refreshNoteFromDisk]);
+
+  const closeChat = useCallback(() => {
+    setChatOpen(false);
+    refreshNoteFromDisk();
+  }, [refreshNoteFromDisk]);
+
+  const handleAssist = useCallback(async (mode: string, overrideInstruction?: string) => {
     if (!slug) return;
     const activeSelection = selectedText ? selection : null;
+    const instruction = overrideInstruction;
     const next = await assistNote.mutateAsync({
       slug,
       mode,
-      instruction: mode === "custom" ? customInstruction : undefined,
+      instruction,
       selection: activeSelection,
       base_hash: baseHash,
       content: fullDraft,
@@ -175,11 +202,17 @@ export default function NoteWorkspacePage() {
     setBodyDraft(nextBody);
     setSelectionRequest({ id: Date.now(), start: changedStart, end: changedEnd });
     setAppliedNotice({ message: next.rationale || "Updated the note draft.", undoBody: previousBody });
-    setCustomInstruction("");
     setAiFlash(true);
     window.setTimeout(() => setAiFlash(false), 900);
     window.setTimeout(() => setAppliedNotice((current) => current?.undoBody === previousBody ? null : current), 5200);
-  }, [assistModel, assistNote, assistProviderId, baseHash, bodyDraft, customInstruction, fullDraft, selectedText, selection, slug]);
+  }, [assistModel, assistNote, assistProviderId, baseHash, bodyDraft, fullDraft, selectedText, selection, slug]);
+
+  const handleSelectionAssist = useCallback(() => {
+    const instruction = selectedText
+      ? "Treat the selected Markdown as the user's focus. If it is a placeholder or instruction, replace it with useful note content, specific questions, or a practical scaffold. Do not return a no-op."
+      : "Improve the current note with useful structure and concrete next details. Do not return a no-op.";
+    void handleAssist(selectedText ? "expand_selection" : "clarify_structure", instruction);
+  }, [handleAssist, selectedText]);
 
   const undoAppliedChange = useCallback(() => {
     if (!appliedNotice?.undoBody) return;
@@ -285,7 +318,7 @@ export default function NoteWorkspacePage() {
         <Link to={`/channels/${encodeURIComponent(channelId)}`} className="text-accent hover:underline">Channel</Link>
       </div>
 
-      <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden px-4 pb-4 sm:px-6 lg:px-8 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <main className="min-h-0 flex-1 overflow-hidden px-4 pb-4 sm:px-6 lg:px-8">
         <section className={`relative min-h-0 overflow-hidden rounded-md bg-surface-raised/45 ${aiFlash ? "note-ai-flash" : ""}`}>
           {preview ? (
             <div className="h-full overflow-auto bg-surface px-8 py-7">
@@ -305,6 +338,14 @@ export default function NoteWorkspacePage() {
               Updating the note draft...
             </div>
           )}
+          {selectedText && !preview && !assistNote.isPending && (
+            <SelectionAssistBar
+              selectedLength={selectedText.length}
+              onAssist={handleSelectionAssist}
+              onChat={() => setChatOpen(true)}
+              onDismiss={() => setSelection({ start: 0, end: 0, text: "" })}
+            />
+          )}
           {appliedNotice && (
             <div className="absolute inset-x-6 bottom-6 flex items-center gap-2 rounded-md border border-accent/20 bg-surface/90 px-3 py-2 text-[12px] text-text-muted shadow-lg shadow-black/20 backdrop-blur">
               <Sparkles size={14} className="shrink-0 text-accent" />
@@ -321,61 +362,18 @@ export default function NoteWorkspacePage() {
             </div>
           )}
         </section>
-
-        <aside className="flex min-h-0 flex-col gap-3 rounded-md bg-surface-raised/55 p-3">
-          <div className="flex shrink-0 items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-emphasis/10 text-emphasis">
-              <Wand2 size={15} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-[12px] font-medium text-text">Magic edit</div>
-              <div className="text-[11px] text-text-dim">{targetLabel}</div>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => void handleAssist("clarify_structure")}
-            disabled={assistNote.isPending}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-accent/[0.10] px-3 py-2 text-[12px] font-medium text-accent hover:bg-accent/[0.16] disabled:opacity-40"
-          >
-            <Sparkles size={14} />
-            Clarify & Structure
-          </button>
-
-          <div className="flex shrink-0 flex-col gap-2 rounded-md bg-input p-2">
-            <textarea
-              value={customInstruction}
-              onChange={(event) => setCustomInstruction(event.target.value)}
-              placeholder="Tell the assistant what to change"
-              className="min-h-[84px] resize-none bg-transparent text-[13px] leading-relaxed text-text outline-none placeholder:text-text-dim"
-            />
-            <button
-              type="button"
-              onClick={() => void handleAssist("custom")}
-              disabled={!customInstruction.trim() || assistNote.isPending}
-              className="self-end rounded-md px-2.5 py-1.5 text-[12px] text-accent hover:bg-surface-overlay disabled:opacity-40"
-            >
-              Propose
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setChatOpen(true)}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-[12px] text-text-muted hover:bg-surface-overlay"
-          >
-            <MessageSquare size={14} />
-            Open note chat
-          </button>
-
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <div className="flex h-full items-center rounded-md border border-dashed border-surface-border px-3 py-4 text-[12px] leading-relaxed text-text-dim">
-              Highlight text or write an instruction. Magic edit applies to the draft and briefly highlights the changed text.
-            </div>
-          </div>
-        </aside>
       </main>
+
+      {!chatOpen && note.session_id && botId && (
+        <button
+          type="button"
+          onClick={() => setChatOpen(true)}
+          className="fixed bottom-5 right-5 z-30 inline-flex items-center gap-2 rounded-md border border-surface-border/60 bg-surface-overlay px-3 py-2 text-[12px] font-medium text-text hover:bg-surface-raised"
+        >
+          <MessageSquare size={14} className="text-accent" />
+          Note chat
+        </button>
+      )}
 
       {note.session_id && botId && (
         <ChatSession
@@ -402,7 +400,7 @@ export default function NoteWorkspacePage() {
           }}
           shape="dock"
           open={chatOpen}
-          onClose={() => setChatOpen(false)}
+          onClose={closeChat}
           title={`Note: ${note.title}`}
           dockCollapsedTitle="Note assistant"
           dockCollapsedSubtitle={note.title}
@@ -637,6 +635,51 @@ function AutoSaveIndicator({
         <Check size={13} />
       )}
       <span className="hidden sm:inline">{label}</span>
+    </div>
+  );
+}
+
+function SelectionAssistBar({
+  selectedLength,
+  onAssist,
+  onChat,
+  onDismiss,
+}: {
+  selectedLength: number;
+  onAssist: () => void;
+  onChat: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="absolute bottom-6 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-md border border-surface-border/60 bg-surface-overlay px-2 py-1.5 text-[12px] text-text-muted">
+      <div className="flex items-center gap-1.5 px-1.5">
+        <Wand2 size={14} className="text-emphasis" />
+        <span>{selectedLength} selected</span>
+      </div>
+      <button
+        type="button"
+        onClick={onAssist}
+        className="inline-flex items-center gap-1.5 rounded-md bg-accent/[0.12] px-2.5 py-1.5 font-medium text-accent hover:bg-accent/[0.18]"
+      >
+        <Sparkles size={13} />
+        Add detail
+      </button>
+      <button
+        type="button"
+        onClick={onChat}
+        className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-text-muted hover:bg-surface-raised hover:text-text"
+      >
+        <MessageSquare size={13} />
+        Chat
+      </button>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="flex h-7 w-7 items-center justify-center rounded-md text-text-dim hover:bg-surface-raised hover:text-text"
+        aria-label="Dismiss selection actions"
+      >
+        <X size={13} />
+      </button>
     </div>
   );
 }

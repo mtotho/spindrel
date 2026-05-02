@@ -20,18 +20,7 @@ Everything a bot does with files, containers, and knowledge lives under `workspa
 
 - [Files](files.md)
   The `file` tool — read / write / append / edit / replace_section / archive_older_than / batch / grep / glob. The authoritative guide for workspace file operations.
-- [Project Coding Runs](project_coding_runs.md)
-  Project-scoped implementation/review runs, handoff receipts, e2e evidence, and finalization.
-- [Project Lifecycle](project_lifecycle.md)
-  End-to-end Project factory flow: setup, PRD, stories, runs, review, follow-up, and cleanup.
-- [Project PRD](project_prd.md)
-  Conversational creation or update of repo-owned product requirements, feature briefs, and track plans.
-- [Project Stories](project_stories.md)
-  Break PRDs, tracks, or planning conversations into discrete stories and optional Work Packs.
-- [Project Init](project_init.md)
-  Inspect and initialize a Project's Blueprint, channel skills, dependency stack, runtime env, and readiness.
-- [Issue Intake](issue_intake.md)
-  Conversational issue capture into Mission Control Review before Operator triage and approved Project runs.
+- **Project work** lives under the [`project/`](../project/index.md) cluster. Load `project` first in any Project-bound channel; it routes to setup/init, plan/prd, plan/run_packs, intake, runs/implement, runs/review, runs/scheduled, and runs/loop based on Project Factory stage.
 - [Channel Workspaces](channel_workspaces.md)
   How to use a channel's workspace directory: active vs archived files, workspace vs memory, cross-channel search.
 - [Workspace Member](member.md)
@@ -46,9 +35,8 @@ Everything a bot does with files, containers, and knowledge lives under `workspa
 ## The Short Version
 
 - **`file` tool** for every content op on workspace files. Reach for `batch` when you have three or more ops to group atomically.
-- Runtime skill IDs use the historical `workspace/` namespace because Project, file, channel, and dependency work all happen on a work surface. In user-facing language, call these Project skills.
-- Project lifecycle entry points are `workspace/project_lifecycle`, `workspace/project_prd`, and `workspace/project_stories`; mention them directly, for example `@skill:workspace/project_prd`.
-- For ad hoc Project-bound repo work, use normal shell/file tools and explicit composer context (`@file:<path>`, `@project:dependencies`, skill mentions such as `@skill:workspace/project_prd`) instead of a broad runtime Project-development skill.
+- Project work lives in the `project/` cluster. Load `project` first; it routes by Project Factory stage. Mention sub-skills directly, e.g. `@skill:project/plan/prd`.
+- For ad hoc Project-bound repo work, use normal shell/file tools and explicit composer context (`@file:<path>`, `@project:dependencies`) rather than loading a broad runtime project skill.
 - **`workspace/memory/`** for durable structured notes. **Knowledge base folders** (`workspace/knowledge-base/`) for retrievable facts.
 - **Attachments** are channel-scoped uploads; use `list_attachments` / `get_attachment` to surface them.
 - **Docker stacks** live under `workspace/stacks/`; bot owns the compose file, container lifecycle is bot-managed.

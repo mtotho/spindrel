@@ -6,10 +6,11 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_generic_runtime_project_skills_do_not_reference_spindrel_repo_dev_details():
     runtime_paths = [
-        ROOT / "skills" / "workspace" / "project_lifecycle.md",
-        ROOT / "skills" / "workspace" / "project_prd.md",
-        ROOT / "skills" / "workspace" / "project_stories.md",
-        ROOT / "skills" / "workspace" / "project_coding_runs.md",
+        ROOT / "skills" / "project" / "index.md",
+        ROOT / "skills" / "project" / "plan" / "prd.md",
+        ROOT / "skills" / "project" / "plan" / "run_packs.md",
+        ROOT / "skills" / "project" / "runs" / "implement.md",
+        ROOT / "skills" / "project" / "runs" / "review.md",
         ROOT / "skills" / "agent_readiness" / "operator.md",
     ]
     forbidden = [
@@ -28,13 +29,15 @@ def test_generic_runtime_project_skills_do_not_reference_spindrel_repo_dev_detai
             assert needle not in text, f"{path.relative_to(ROOT)} leaks {needle!r}"
 
 
-def test_runtime_project_skill_index_exposes_lifecycle_without_slash_command_dependency():
-    text = (ROOT / "skills" / "workspace" / "index.md").read_text()
+def test_runtime_project_skill_index_exposes_cluster_without_slash_command_dependency():
+    text = (ROOT / "skills" / "project" / "index.md").read_text()
 
-    assert "workspace/project_lifecycle" in text
-    assert "workspace/project_prd" in text
-    assert "workspace/project_stories" in text
-    assert "@skill:workspace/project_prd" in text
+    assert "get_project_factory_state" in text
+    assert "project/setup/init" in text
+    assert "project/plan/prd" in text
+    assert "project/plan/run_packs" in text
+    assert "project/runs/implement" in text
+    assert "project/runs/review" in text
     assert "slash command" not in text.lower()
 
 
@@ -47,7 +50,7 @@ def test_repo_local_spindrel_skills_document_inside_spindrel_project_handoff():
         ROOT / ".agents" / "skills" / "agentic-readiness" / "SKILL.md"
     ).read_text()
 
-    assert "workspace/project_coding_runs" in e2e
+    assert "project/runs/implement" in e2e
     assert "Project-local guidance" in e2e
     assert "composer file mentions" in e2e
     normalized_e2e = " ".join(e2e.split())

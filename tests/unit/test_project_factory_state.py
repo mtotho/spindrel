@@ -192,7 +192,7 @@ async def test_get_project_factory_state_unconfigured_for_brand_new_project(db_s
     assert state["runs"]["total"] == 0
     suggested = state["suggested_next_action"]
     assert suggested["stage"] == "unconfigured"
-    assert suggested["skill_id_to_load"] == "workspace/project_init"
+    assert suggested["skill_id_to_load"] == "project/setup/init"
 
 
 @pytest.mark.asyncio
@@ -273,4 +273,4 @@ async def test_get_project_factory_state_counts_pending_intake_and_packs(db_sess
     assert state["run_packs"]["needs_info"] == 1
     # configured + proposed packs => shaping_packs
     assert state["current_stage"] == "shaping_packs"
-    assert state["suggested_next_action"]["skill_id_to_load"] == "workspace/project_stories"
+    assert state["suggested_next_action"]["skill_id_to_load"] == "project/plan/run_packs"

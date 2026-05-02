@@ -1545,7 +1545,7 @@ Project:
 - id: {project.id}
 - root: {project.root_path}
 
-Use the workspace/project_init skill.
+Use the project/setup/init skill.
 
 Do this end to end:
 1. Inspect the Project root as a normal checkout. Read repo instructions, setup docs, env examples, compose files, test scripts, and child git remotes.
@@ -1553,7 +1553,7 @@ Do this end to end:
 3. Check Project readiness with the Project APIs/tools: setup, runtime env, dependency stack, attached channels, and enrolled skills.
 4. If there is no applied Blueprint, create one from the current Project and apply it.
 5. Sanitize Blueprint repo declarations: no tokens in remote URLs, correct repo paths, intended base branches.
-6. Enroll the Project workflow skills needed by the attached channels: workspace/issue_intake, workspace/project_coding_runs, workspace/docker_stacks, and agent_readiness/operator when relevant.
+6. Enroll the Project workflow skills needed by the attached channels: project, project/intake, project/runs/implement, workspace/docker_stacks, and agent_readiness/operator when relevant.
 7. If the repo needs Docker-backed services, configure a Project Dependency Stack from a Project-local compose file for backing services only. Do not put the app server in the stack; agents should start app/dev servers from source on assigned or unused ports.
 8. Declare runtime env keys, required secret slots, setup commands, and dev targets only when the repo evidence supports them.
 9. Re-check readiness and report exactly what changed, what is ready, and what still needs a user decision.
@@ -1564,7 +1564,7 @@ Do this end to end:
         "title": title,
         "project": project_payload,
         "prompt": prompt,
-        "skill_id": "workspace/project_init",
+        "skill_id": "project/setup/init",
         "api_hints": [
             "GET /api/v1/projects",
             "POST /api/v1/projects/{project_id}/blueprint-from-current",

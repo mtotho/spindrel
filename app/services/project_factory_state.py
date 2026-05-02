@@ -213,54 +213,54 @@ def _suggested_next_action(stage: str, *, blueprint_applied: bool, runtime_ready
             return {
                 "stage": stage,
                 "headline": "This Project has no applied Blueprint. Inspect the repo and apply one.",
-                "skill_id_to_load": "workspace/project_init",
+                "skill_id_to_load": "project/setup/init",
                 "why": "blueprint_applied=false",
             }
         return {
             "stage": stage,
             "headline": "Project runtime env is not ready. Resolve missing secrets or env declarations.",
-            "skill_id_to_load": "workspace/project_init",
+            "skill_id_to_load": "project/setup/init",
             "why": "runtime_env.ready=false",
         }
     if stage == "needs_review":
         return {
             "stage": stage,
             "headline": "One or more runs are ready for review.",
-            "skill_id_to_load": "workspace/project_coding_runs",
+            "skill_id_to_load": "project/runs/review",
             "why": "ready_for_review>0 and no active review task",
         }
     if stage == "runs_in_flight":
         return {
             "stage": stage,
             "headline": "Runs are in progress or need follow-up. Inspect the Runs cockpit.",
-            "skill_id_to_load": "workspace/project_coding_runs",
+            "skill_id_to_load": "project/runs/implement",
             "why": "implementation/review/follow-up runs active",
         }
     if stage == "shaping_packs":
         return {
             "stage": stage,
             "headline": "Run Packs are proposed but not launched. Review and launch or revise.",
-            "skill_id_to_load": "workspace/project_stories",
+            "skill_id_to_load": "project/plan/run_packs",
             "why": "proposed/needs_info packs exist with no in-flight runs",
         }
     if stage == "planning":
         return {
             "stage": stage,
             "headline": "A PRD or planning artifact exists. Continue shaping it into Run Packs when ready.",
-            "skill_id_to_load": "workspace/project_prd",
+            "skill_id_to_load": "project/plan/prd",
             "why": "PRD/brief signal present and no shaping/in-flight work",
         }
     if stage == "ready_no_work":
         return {
             "stage": stage,
             "headline": "Project is configured and idle. Ask the user what to build, or capture intake.",
-            "skill_id_to_load": "workspace/project_lifecycle",
+            "skill_id_to_load": "project",
             "why": "configured with zero intake, zero packs, zero runs",
         }
     return {
         "stage": stage,
         "headline": "All runs reviewed. Capture new intake or start a new PRD when ready.",
-        "skill_id_to_load": "workspace/project_lifecycle",
+        "skill_id_to_load": "project",
         "why": "all runs reviewed and no pending intake/packs",
     }
 

@@ -35,7 +35,7 @@ Safe fixes in propose_and_fix mode are limited to dashboard operations: move/res
 
 PROJECT_CODING_RUN_PROMPT = """Implement the requested Project task in this Project workspace.
 
-Before editing, load the `workspace/project_coding_runs` runtime skill if it is not already loaded.
+Before editing, load the `project/runs/implement` runtime skill if it is not already loaded.
 Before changing files, inspect the workspace state and get latest from the Project's configured development branch when it is safe to do so. Use the Project root as the working directory for file, exec, harness, and screenshot work. If this run is in a fresh Project instance, keep changes inside that instance.
 If you are running through a Codex or Claude Code harness, use native tools for repo-local file edits, shell commands, tests, and app/dev server processes. Do not wrap unit tests in Docker, Dockerfile.test, or docker compose. Docker-backed dependencies must use the task-granted Project Dependency Stack tools; do not rely on ambient Docker/socket access from the native shell.
 If the Project declares a Dependency Stack, use get_project_dependency_stack and manage_project_dependency_stack for Docker-backed databases/dependencies, logs, restarts, rebuilds, and service commands. Use the returned/injected dependency env in repo-local scripts. Start app/dev servers yourself with native bash on your own unused or assigned port. Do not run raw docker or docker compose in the harness shell, and do not use dependency stacks to run unit tests.
@@ -52,7 +52,7 @@ Expected workflow:
 
 PROJECT_CODING_RUN_REVIEW_PROMPT = """Review the selected Project coding runs and finalize only accepted work.
 
-Before deciding, load the `workspace/project_coding_runs` runtime skill if it is not already loaded and call get_project_coding_run_review_context for the current review task. For ad hoc latest-run or latest-review questions outside a review session, call get_project_coding_run_details instead.
+Before deciding, load the `project/runs/review` runtime skill if it is not already loaded and call get_project_coding_run_review_context for the current review task. For ad hoc latest-run or latest-review questions outside a review session, call get_project_coding_run_details instead.
 Use the Project root as the working directory. Inspect each selected run's task, receipt, PR, tests, screenshots, and reviewer-visible evidence before making a decision. If the operator asked you to merge accepted PRs, merge only the runs you accept.
 If you are running through a Codex or Claude Code harness, use native tools for repo-local inspection, test commands, and app/dev server checks. Do not wrap unit tests in Docker, Dockerfile.test, or docker compose. Docker-backed dependency control, merge/finalizer actions, and receipts must use task-granted Spindrel tools.
 If stack-backed dependencies are needed, use get_project_dependency_stack and manage_project_dependency_stack; do not use raw docker or docker compose in the harness shell, and do not use dependency stacks to run unit tests.
@@ -157,7 +157,9 @@ PROJECT_CODING_RUN = RunPreset(
         task_type="agent",
         trigger_config={"type": "manual"},
         skills=(
-            "workspace/project_coding_runs",
+            "project",
+            "project/runs/implement",
+            "project/runs/loop",
             "workspace/files",
             "workspace/member",
         ),
@@ -199,7 +201,8 @@ PROJECT_CODING_RUN_REVIEW = RunPreset(
         task_type="agent",
         trigger_config={"type": "manual"},
         skills=(
-            "workspace/project_coding_runs",
+            "project",
+            "project/runs/review",
             "workspace/files",
             "workspace/member",
         ),

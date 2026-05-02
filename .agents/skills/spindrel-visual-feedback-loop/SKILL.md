@@ -13,7 +13,7 @@ then record what changed and what still looks wrong.
 This is Project-local guidance, not a Spindrel runtime skill. If you are
 inside Spindrel working on this repository as a Project, treat this file as
 selected Project-local guidance for ad hoc UI work. For a formal coding/review
-run, use `workspace/project_coding_runs` first. Use this skill only for the
+run, use `project/runs/implement` first. Use this skill only for the
 Spindrel repository's own screenshot commands and artifact conventions.
 
 Screenshots are not decorative. They are the agent's feedback loop and the

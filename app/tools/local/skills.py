@@ -62,8 +62,12 @@ logger = logging.getLogger(__name__)
 async def get_skill(skill_id: str, refresh: bool = False) -> str:
     """Fetch the full content of a skill from DB."""
     from app.agent.context import current_channel_id, current_skills_in_context
+    from app.services.skill_aliases import resolve_skill_id
     bot_id = current_bot_id.get()
     channel_id = current_channel_id.get()
+
+    requested_id = skill_id
+    skill_id = resolve_skill_id(skill_id)
 
     if bot_id and skill_id.startswith("bots/") and not skill_id.startswith(f"bots/{bot_id}/"):
         return json.dumps({"id": skill_id, "error": f"Skill '{skill_id}' is not configured for this bot."}, ensure_ascii=False)

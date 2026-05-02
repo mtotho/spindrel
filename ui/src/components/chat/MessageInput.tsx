@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, type DragEvent } from "react";
+import { memo, useState, useRef, useCallback, useEffect, type DragEvent } from "react";
 import { AlertCircle, Check, FileText, Image as ImageIcon, Loader2, Mic, Send, Square, UploadCloud, X } from "lucide-react";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useAudioRecorder } from "../../hooks/useAudioRecorder";
@@ -111,7 +111,7 @@ function tapHaptic(pattern: number | number[] = 8) {
   try { (navigator as Navigator & { vibrate?: (p: number | number[]) => boolean }).vibrate?.(pattern); } catch { /* ignore */ }
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason = null, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, currentSessionId, toolContextChannelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, planModeControl = "auto", onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessEffortValues = [], harnessCurrentModel = null, harnessCurrentEffort = null, harnessDefaultModel = null, harnessDefaultEffort = null, harnessApprovalMode = null, onHarnessModelChange, onHarnessEffortChange, onHarnessApprovalModeCycle, harnessModelMutating = false, harnessApprovalModeMutating = false }: Props) {
+function MessageInputImpl({ onSend, onSendAudio, disabled, sendDisabledReason = null, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, currentSessionId, toolContextChannelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, planModeControl = "auto", onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessEffortValues = [], harnessCurrentModel = null, harnessCurrentEffort = null, harnessDefaultModel = null, harnessDefaultEffort = null, harnessApprovalMode = null, onHarnessModelChange, onHarnessEffortChange, onHarnessApprovalModeCycle, harnessModelMutating = false, harnessApprovalModeMutating = false }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -989,3 +989,11 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
       </div>
     );
 }
+
+// Memoized to skip re-renders during streaming text deltas. The channel page
+// rebuilds chatState ~50×/sec while a turn is in flight; without memo the
+// composer (Tiptap host, slash list, draft files, audio recorder) re-renders
+// every time. Default ref equality is enough now that the parent stabilizes
+// callbacks/arrays via useCallback/useMemo and the module-level empty-array
+// singletons.
+export const MessageInput = memo(MessageInputImpl);

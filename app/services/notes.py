@@ -282,7 +282,9 @@ def build_assist_proposal(
     target = "selection" if selection and selection.get("text") else "document"
     source = str(selection.get("text")) if target == "selection" else content
     replacement = _strip_note_frontmatter(source).strip()
-    if mode == "clarify_structure":
+    if mode == "expand_selection":
+        replacement = _deterministic_expand_selection_markdown(replacement, instruction or "")
+    elif mode == "clarify_structure":
         replacement = _deterministic_clarify_markdown(replacement)
     elif instruction:
         replacement = _deterministic_instruction_markdown(replacement, instruction)
@@ -396,6 +398,38 @@ def _deterministic_instruction_markdown(markdown: str, instruction: str) -> str:
     )
 
 
+def _deterministic_expand_selection_markdown(markdown: str, instruction: str) -> str:
+    text = markdown.strip()
+    lowered = text.lower()
+    instruction_like = (
+        not text
+        or len(text.split()) <= 8
+        or any(phrase in lowered for phrase in ("add more detail", "add more details", "more details here", "fill this in", "tbd", "todo"))
+    )
+    if instruction_like:
+        return (
+            "### Details\n\n"
+            "- Context: _What is this section about?_\n"
+            "- What matters: _Add the important facts, decisions, constraints, or examples._\n"
+            "- Current state: _Capture what is known right now._\n"
+            "- Follow-up: _Note what should be checked or expanded next._\n"
+        )
+    if re.search(r"^#{1,6}\s+", text, flags=re.MULTILINE):
+        return (
+            f"{text.rstrip()}\n\n"
+            "- Summary: _Add the high-level takeaway._\n"
+            "- Details: _Add concrete facts, examples, links, or decisions._\n"
+            "- Next step: _Add what should happen next._\n"
+        )
+    return (
+        f"{text.rstrip()}\n\n"
+        "### Details\n\n"
+        "- Background: _Add the useful context._\n"
+        "- Specifics: _Add concrete examples, constraints, decisions, or references._\n"
+        "- Open question: _Add what is still unclear._\n"
+    )
+
+
 async def build_ai_assist_proposal(
     *,
     bot: Any,
@@ -422,10 +456,15 @@ async def build_ai_assist_proposal(
             getattr(bot, "model_provider_id", None),
         )
         client = get_llm_client(provider_id)
+        assist_instruction = instruction or (
+            "Expand the selected Markdown into useful note content. If the selection is a placeholder or an instruction, replace it with concrete Markdown scaffolding and questions. Do not return a no-op."
+            if mode == "expand_selection"
+            else "Clarify and structure the Markdown while preserving the user's meaning."
+        )
         prompt = {
             "mode": mode,
             "target": target,
-            "instruction": instruction or "Clarify and structure the Markdown while preserving the user's meaning.",
+            "instruction": assist_instruction,
             "markdown": source,
         }
         response = await client.chat.completions.create(
@@ -439,6 +478,9 @@ async def build_ai_assist_proposal(
                         "You assist with Spindrel Notes. Return only JSON with keys "
                         "replacement_markdown and rationale. Preserve user-authored facts, "
                         "write valid Markdown, do not remove content unless explicitly asked, "
+                        "do not say content already looks good when the user selected text for expansion, "
+                        "and if a selection is only a placeholder or request, replace it with a useful "
+                        "Markdown scaffold with specific questions/placeholders. "
                         "and occasionally suggest summary/tags/category inside Markdown/frontmatter "
                         "only when the provided text supports them."
                     ),

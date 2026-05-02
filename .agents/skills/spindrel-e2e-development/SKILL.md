@@ -10,7 +10,7 @@ If you are reading this from inside Spindrel while working on this repository
 as a Project, treat it as Project-local guidance only. For ad hoc development,
 use the Project root normally and ask the user to attach relevant files with
 composer file mentions when needed. For formal Project coding/review runs, use
-the runtime skill `workspace/project_coding_runs`.
+the runtime skill `project/runs/implement` (review work uses `project/runs/review`).
 
 ## Start Here
 

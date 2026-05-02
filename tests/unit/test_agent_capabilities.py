@@ -283,13 +283,13 @@ def test_skill_opportunities_recommend_issue_intake_for_project_planning():
     assert payload["creation_candidates"] == []
     by_feature = {entry["feature_id"]: entry for entry in payload["recommended_now"]}
     work_pack = by_feature["project_work_pack_creation"]
-    assert work_pack["skill_ids"] == ["workspace/project_lifecycle", "workspace/project_stories", "workspace/issue_intake"]
-    assert work_pack["first_action"] == 'get_skill("workspace/project_lifecycle")'
+    assert work_pack["skill_ids"] == ["project", "project/plan/run_packs", "project/intake"]
+    assert work_pack["first_action"] == 'get_skill("project")'
     assert work_pack["coverage_status"] == "covered"
     assert work_pack["suggested_owner"] == "existing_runtime_skill"
-    assert work_pack["missing_skill_ids"] == ["workspace/project_lifecycle", "workspace/project_stories", "workspace/issue_intake"]
-    assert work_pack["labels"]["workspace/project_lifecycle"] == "Project lifecycle"
-    assert work_pack["labels"]["workspace/project_stories"] == "Project stories"
+    assert work_pack["missing_skill_ids"] == ["project", "project/plan/run_packs", "project/intake"]
+    assert work_pack["labels"]["project"] == "Project (cluster index)"
+    assert work_pack["labels"]["project/plan/run_packs"] == "Project Run Packs"
     assert work_pack["model_support"] == "recommended_for_small_models"
 
 
@@ -373,12 +373,14 @@ def test_skill_opportunities_recommend_project_coding_run_runtime_skill():
     by_feature = {entry["feature_id"]: entry for entry in payload["recommended_now"]}
     project = by_feature["project_coding_run"]
     assert project["skill_ids"] == [
-        "workspace/project_coding_runs",
-        "workspace/files",
-        "workspace/member",
+        "project",
+        "project/runs/implement",
+        "project/runs/review",
     ]
-    assert project["first_action"] == 'get_skill("workspace/project_coding_runs")'
-    assert project["labels"]["workspace/project_coding_runs"] == "Project coding runs"
+    assert project["first_action"] == 'get_skill("project")'
+    assert project["labels"]["project"] == "Project (cluster index)"
+    assert project["labels"]["project/runs/implement"] == "Project implementation runs"
+    assert project["labels"]["project/runs/review"] == "Project run review"
     assert project["coverage_status"] == "covered"
 
 

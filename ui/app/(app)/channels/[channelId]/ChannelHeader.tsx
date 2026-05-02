@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo } from "react";
 import { useMatch, useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import {
@@ -133,7 +133,7 @@ function formatScratchHeaderTimestamp(iso?: string | null): string | null {
   });
 }
 
-export function ChannelHeader({
+function ChannelHeaderImpl({
   channelId,
   displayName,
   bot,
@@ -1224,6 +1224,12 @@ export function ChannelHeader({
     </header>
   );
 }
+
+// Memoized so streaming text deltas in the channel page don't re-render the
+// header chrome (breadcrumb, badges, controls). Header has no state derived
+// from streaming content — `contextBudget` ref is stable across deltas
+// because the chat-store spread preserves it.
+export const ChannelHeader = memo(ChannelHeaderImpl);
 
 /**
  * Harness chrome — runtime/model/context badges, scoped to a single

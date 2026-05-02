@@ -54,6 +54,21 @@ PROJECT_REVIEW_QUEUE_PRIORITY = {
     "reviewing": 70,
     "reviewed": 90,
 }
+# Symphony-equivalent fine-grained activity phases for a single Project coding
+# run. Distinct from `review_queue_state` (operator-facing queue) and from the
+# legacy `lifecycle.phase` headline; this enum tracks *what the run is doing
+# right now*. `stalled` is populated by the background sweep in Phase 4BB.2.
+PROJECT_RUN_PHASES = (
+    "preparing",
+    "branching",
+    "editing",
+    "testing",
+    "handoff",
+    "review_ready",
+    "reviewed",
+    "failed",
+    "stalled",
+)
 VALID_PROJECT_RUN_LOOP_DECISIONS = ("done", "continue", "blocked", "needs_review")
 DEFAULT_PROJECT_RUN_LOOP_MAX_ITERATIONS = 3
 MAX_PROJECT_RUN_LOOP_ITERATIONS = 8
@@ -1043,6 +1058,46 @@ def project_coding_run_review_next_action(state: str) -> str:
     return "Inspect the blocker before continuing."
 
 
+def project_coding_run_phase(row: dict[str, Any]) -> str:
+    """Symphony-equivalent fine-grained activity phase for a single run.
+
+    Derived from receipt evidence, review handoff, queue state, and explicit
+    stall markers. Order of precedence (highest first): ``failed`` >
+    ``reviewed`` > ``stalled`` > ``review_ready`` > ``handoff`` > ``testing``
+    > ``editing`` > ``branching`` > ``preparing``.
+    """
+    review = row.get("review") if isinstance(row.get("review"), dict) else {}
+    task = row.get("task") if isinstance(row.get("task"), dict) else {}
+    work_surface = row.get("work_surface") if isinstance(row.get("work_surface"), dict) else {}
+    readiness = row.get("readiness") if isinstance(row.get("readiness"), dict) else {}
+    evidence = review.get("evidence") if isinstance(review.get("evidence"), dict) else {}
+    steps = review.get("steps") if isinstance(review.get("steps"), dict) else {}
+    queue_state = str(row.get("review_queue_state") or project_coding_run_review_queue_state(row))
+    review_status = str(review.get("status") or "").strip()
+    task_status = str(task.get("status") or row.get("status") or "").lower()
+
+    if task_status == "failed" or review_status == "failed":
+        return "failed"
+    if review.get("reviewed") or review_status == "reviewed":
+        return "reviewed"
+    # Sweep marker: 4BB.2 sets ``work_surface.run_phase_override`` or
+    # ``readiness.stalled`` when a run has crossed its activity timeout.
+    if work_surface.get("run_phase_override") == "stalled" or readiness.get("stalled"):
+        return "stalled"
+    if queue_state == "ready_for_review":
+        return "review_ready"
+    if review.get("handoff_url"):
+        return "handoff"
+    if int(evidence.get("tests_count") or 0) > 0 or int(evidence.get("dev_targets_count") or 0) > 0:
+        return "testing"
+    if int(evidence.get("changed_files_count") or 0) > 0:
+        return "editing"
+    branch_step = steps.get("branch") if isinstance(steps.get("branch"), dict) else {}
+    if str(branch_step.get("status") or "").lower() == "succeeded":
+        return "branching"
+    return "preparing"
+
+
 def project_coding_run_lifecycle_summary(row: dict[str, Any]) -> dict[str, Any]:
     """Human/agent-facing lifecycle summary derived from existing run state."""
     review = row.get("review") if isinstance(row.get("review"), dict) else {}
@@ -1106,6 +1161,7 @@ def project_coding_run_lifecycle_summary(row: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "phase": phase,
+        "run_phase": project_coding_run_phase(row),
         "headline": headline,
         "next_action": next_action,
         "primary_link": primary_link,

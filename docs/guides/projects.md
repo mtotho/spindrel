@@ -47,18 +47,18 @@ runbook is the clearer long-term home for policy that should version with the
 Project.
 
 From any Project-bound channel, run `/project-init` to get a copyable prompt
-for the current agent. That prompt points the agent at the generic
-`workspace/project_init` skill and asks it to inspect the repository, create or
+for the current agent. That prompt points the agent at the
+`project/setup/init` skill and asks it to inspect the repository, create or
 repair the applied Blueprint, sanitize repo declarations, enroll the needed
 Project workflow skills, configure a Dependency Stack from a Project-local
 compose file when the repo needs backing services, and report readiness.
 
 For planning, users should not need to remember a command name. Mention or load
-the Project lifecycle skill (`@skill:workspace/project_lifecycle` or
-`get_skill("workspace/project_lifecycle")`) when a conversation is becoming a
-feature track, PRD, story list, issue-intake sweep, coding run, review, or
-follow-up. The `workspace/` prefix is only the runtime skill namespace; the
-user-facing concept is Project lifecycle, Project PRD, and Project stories.
+the Project cluster index (`@skill:project` or `get_skill("project")`) when a
+conversation is becoming a feature track, PRD, Run Pack list, issue-intake
+sweep, coding run, review, or follow-up. The cluster index calls
+`get_project_factory_state` first and routes to the right sub-skill based on
+the current Project Factory stage.
 
 ## Blueprints
 
@@ -268,7 +268,7 @@ then links to the created task. The follow-up uses the existing continuation
 path, preserving Project, channel, repo, branch, PR handoff, parent/root
 lineage, and prior evidence context.
 
-Review sessions use the `workspace/project_coding_runs` runtime skill and should
+Review sessions use the `project/runs/review` runtime skill and should
 call `get_project_coding_run_review_context` before finalizing selected runs.
 That read-only manifest returns the selected run list, evidence counts, handoff
 URLs, runtime/e2e/GitHub readiness, merge defaults, and finalization rules from
@@ -283,8 +283,8 @@ more proposed work packs from the current conversation and automatically creates
 backing issue-intake source records when the agent does not provide existing
 source item ids. `report_issue_work_packs` stays reserved for scheduled
 issue-intake triage tasks.
-Agent Capabilities recommends `workspace/project_lifecycle`,
-`workspace/project_stories`, and `workspace/issue_intake` during Project-bound
+Agent Capabilities recommends `project`, `project/plan/run_packs`, and
+`project/intake` during Project-bound
 planning sessions so ordinary Codex/Claude agents can use the LLM to turn a PRD,
 plan, or rough issue list into proposed packs without a separate triage bot. The
 work-pack launch prompt should carry enough verification expectations for a

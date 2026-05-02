@@ -34,7 +34,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse, urlunparse
 
 import pytest
@@ -875,6 +875,133 @@ async def _capture_harness_question_screenshot(
         finally:
             await browser.close()
     return out_path
+
+
+async def _wait_for_harness_question_message(
+    client: E2EClient,
+    *,
+    session_id: str,
+    marker: str,
+    timeout: float = 60.0,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        messages = await client.get_session_messages(session_id, limit=40)
+        for message in messages:
+            metadata = _message_metadata(message)
+            if metadata.get("kind") != "harness_question":
+                continue
+            interaction = metadata.get("harness_interaction")
+            if not isinstance(interaction, dict):
+                continue
+            if interaction.get("status") not in (None, "pending"):
+                continue
+            if marker in json.dumps(interaction):
+                return message, interaction
+        await asyncio.sleep(1)
+    raise AssertionError(f"Timed out waiting for harness question marker {marker!r}")
+
+
+async def _answer_harness_question_message(
+    client: E2EClient,
+    *,
+    session_id: str,
+    message: dict[str, Any],
+    interaction: dict[str, Any],
+    answer_text: str,
+    selected_options: list[str],
+) -> None:
+    questions = interaction.get("questions")
+    assert isinstance(questions, list) and questions, interaction
+    answers: list[dict[str, Any]] = []
+    for question in questions:
+        assert isinstance(question, dict), interaction
+        question_id = str(question.get("id") or question.get("question_id") or "").strip()
+        assert question_id, interaction
+        answers.append({
+            "question_id": question_id,
+            "answer": answer_text,
+            "selected_options": selected_options,
+        })
+
+    interaction_id = str(message.get("id") or "").strip()
+    assert interaction_id, message
+    resp = await client._client.post(
+        f"/api/v1/sessions/{session_id}/harness-interactions/{interaction_id}/answer",
+        json={"answers": answers, "notes": f"Queued follow-up e2e answer {answer_text}"},
+    )
+    resp.raise_for_status()
+
+
+async def _wait_for_session_message_text(
+    client: E2EClient,
+    *,
+    session_id: str,
+    marker: str,
+    role: str | None = None,
+    timeout: float = 120.0,
+) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        messages = await client.get_session_messages(session_id, limit=80)
+        if any(
+            (role is None or message.get("role") == role)
+            and marker in str(message.get("content") or "")
+            for message in messages
+        ):
+            return
+        await asyncio.sleep(2)
+    raise AssertionError(f"Timed out waiting for persisted message marker {marker!r}")
+
+
+async def _wait_for_turn_event_kind(
+    client: E2EClient,
+    *,
+    channel_id: str,
+    turn_id: str,
+    kind: str,
+    payload_predicate: Callable[[dict[str, Any]], bool] | None = None,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    params = {"since": "0"}
+    while time.monotonic() < deadline:
+        async with client._client.stream(
+            "GET",
+            f"/api/v1/channels/{channel_id}/events",
+            params=params,
+            timeout=timeout,
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if time.monotonic() >= deadline:
+                    break
+                stripped = line.strip()
+                if not stripped or stripped.startswith(":"):
+                    continue
+                if stripped.startswith("data: "):
+                    stripped = stripped[6:]
+                try:
+                    event = json.loads(stripped)
+                except json.JSONDecodeError:
+                    continue
+                payload = event.get("payload") or {}
+                if (
+                    event.get("kind") == kind
+                    and str(payload.get("turn_id") or "") == str(turn_id)
+                    and (payload_predicate is None or payload_predicate(dict(payload)))
+                ):
+                    return dict(payload)
+                if event.get("kind") == "replay_lapsed":
+                    replay_cursor = payload.get("oldest_available")
+                    if isinstance(replay_cursor, int) and replay_cursor >= 0:
+                        params["since"] = str(replay_cursor)
+                        break
+            else:
+                await asyncio.sleep(1)
+                continue
+            await asyncio.sleep(1)
+    raise AssertionError(f"Timed out waiting for event {kind!r} on turn {turn_id!r}")
 
 
 async def _send_native_cli_prompt_via_ui(
@@ -3054,6 +3181,232 @@ async def test_live_claude_ask_user_question_card_round_trip(
             screenshot_name="harness-claude-ask-user-question-card-dark",
         )
         assert screenshot.is_file(), f"Claude AskUserQuestion screenshot was not written: {screenshot}"
+
+
+@pytest.mark.asyncio
+async def test_live_claude_busy_turn_queues_followup_and_resumes(
+    client: E2EClient,
+) -> None:
+    _requires_tier("plan")
+    case = next(harness for harness in HARNESSES if harness.name == "claude")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    await client.set_session_approval_mode(session_id, "bypassPermissions")
+    marker = f"queued-followup-{uuid.uuid4().hex[:8]}"
+    selected = f"Queue option {marker}"
+    first_answer = f"First answer {marker}"
+    first_expected = f"first turn unblocked {marker} {selected} {first_answer}"
+    queued_expected = f"queued followup executed {marker}"
+
+    first_turn = asyncio.create_task(
+        client.chat_session_stream(
+            (
+                "Claude queued follow-up parity test. Use the native AskUserQuestion tool exactly once. "
+                f"Ask one required question with id `scope`, question text `Blocking question for {marker}?`, "
+                f"and option label `{selected}`. After the user answers, do not call any other tools. "
+                f"Reply exactly: {first_expected}"
+            ),
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_plan_timeout(),
+        )
+    )
+    try:
+        question_message, interaction = await _wait_for_harness_question_message(
+            client,
+            session_id=session_id,
+            marker=marker,
+        )
+
+        queued_payload = {
+            "message": (
+                "This message was sent while the Claude harness turn was blocked. "
+                f"Do not call tools. Reply exactly: {queued_expected}"
+            ),
+            "bot_id": bot_id,
+            "channel_id": channel_id,
+            "session_id": session_id,
+            "external_delivery": "none",
+            "msg_metadata": {"sender_type": "human", "source": "e2e-test"},
+        }
+        queued_resp = await client._client.post("/chat", json=queued_payload)
+        queued_resp.raise_for_status()
+        queued_body = queued_resp.json()
+        assert queued_body.get("queued") is True, queued_body
+        assert queued_body.get("task_id"), queued_body
+
+        await _answer_harness_question_message(
+            client,
+            session_id=session_id,
+            message=question_message,
+            interaction=interaction,
+            answer_text=first_answer,
+            selected_options=[selected],
+        )
+        first_result = await first_turn
+        _assert_clean_turn(first_result)
+        assert first_expected in first_result.response_text
+    finally:
+        if not first_turn.done():
+            first_turn.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await first_turn
+
+    await _wait_for_session_message_text(
+        client,
+        session_id=session_id,
+        marker=queued_expected,
+        role="assistant",
+        timeout=_plan_timeout(),
+    )
+
+    messages = await client.get_session_messages(session_id, limit=80)
+    ordered_messages = sorted(messages, key=lambda message: str(message.get("created_at") or ""))
+    contents = [str(message.get("content") or "") for message in ordered_messages]
+    assert any(first_expected in content for content in contents)
+    assert any(queued_expected in content for content in contents)
+    first_index = next(
+        i for i, message in enumerate(ordered_messages)
+        if message.get("role") == "assistant" and first_expected in str(message.get("content") or "")
+    )
+    queued_user_index = next(
+        i for i, message in enumerate(ordered_messages)
+        if message.get("role") == "user"
+        and "while the Claude harness turn was blocked" in str(message.get("content") or "")
+    )
+    queued_assistant_index = next(
+        i for i, message in enumerate(ordered_messages)
+        if message.get("role") == "assistant" and queued_expected in str(message.get("content") or "")
+    )
+    assert queued_user_index < queued_assistant_index
+    assert first_index < queued_assistant_index
+
+    if _should_capture_screenshots("harness-claude-queued-followup"):
+        screenshot = await _capture_session_marker_screenshot(
+            client,
+            channel_id=channel_id,
+            session_id=session_id,
+            marker=queued_expected,
+            screenshot_name="queues/harness-claude-queued-followup-dark",
+        )
+        assert screenshot.is_file(), f"Claude queued follow-up screenshot was not written: {screenshot}"
+
+
+@pytest.mark.asyncio
+async def test_live_codex_busy_turn_queues_followup_and_resumes(
+    client: E2EClient,
+) -> None:
+    _requires_tier("plan")
+    case = next(harness for harness in HARNESSES if harness.name == "codex")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    await client.set_session_approval_mode(session_id, "bypassPermissions")
+    marker = f"codex-queued-followup-{uuid.uuid4().hex[:8]}"
+    first_expected = f"codex busy turn finished {marker}"
+    queued_expected = f"codex queued followup executed {marker}"
+
+    first_payload = {
+        "message": (
+            "Codex queued follow-up parity test. First run exactly one native shell command: "
+            f"`sleep 12 && printf 'codex busy marker {marker}\\n'`. "
+            "After that command completes, do not call any other tools. "
+            f"Reply exactly: {first_expected}"
+        ),
+        "bot_id": bot_id,
+        "channel_id": channel_id,
+        "session_id": session_id,
+        "external_delivery": "none",
+        "msg_metadata": {"sender_type": "human", "source": "e2e-test"},
+    }
+    first_resp = await client._client.post("/chat", json=first_payload)
+    first_resp.raise_for_status()
+    first_body = first_resp.json()
+    turn_id = str(first_body.get("turn_id") or "")
+    assert turn_id, first_body
+
+    tool_start = await _wait_for_turn_event_kind(
+        client,
+        channel_id=channel_id,
+        turn_id=turn_id,
+        kind="turn_stream_tool_start",
+        payload_predicate=lambda payload: any(
+            needle in json.dumps(payload).lower()
+            for needle in ("sleep 12", "shell", "bash", "exec")
+        ),
+        timeout=60.0,
+    )
+    tool_text = json.dumps(tool_start).lower()
+    assert "sleep 12" in tool_text or "shell" in tool_text or "bash" in tool_text, tool_start
+
+    queued_payload = {
+        "message": (
+            "This message was sent while the Codex harness turn was executing a native shell command. "
+            f"Do not call tools. Reply exactly: {queued_expected}"
+        ),
+        "bot_id": bot_id,
+        "channel_id": channel_id,
+        "session_id": session_id,
+        "external_delivery": "none",
+        "msg_metadata": {"sender_type": "human", "source": "e2e-test"},
+    }
+    queued_resp = await client._client.post("/chat", json=queued_payload)
+    queued_resp.raise_for_status()
+    queued_body = queued_resp.json()
+    assert queued_body.get("queued") is True, queued_body
+    assert queued_body.get("task_id"), queued_body
+
+    turn_end = await _wait_for_turn_event_kind(
+        client,
+        channel_id=channel_id,
+        turn_id=turn_id,
+        kind="turn_ended",
+        timeout=_plan_timeout(),
+    )
+    assert not turn_end.get("error"), turn_end
+
+    await _wait_for_session_message_text(
+        client,
+        session_id=session_id,
+        marker=first_expected,
+        role="assistant",
+        timeout=_plan_timeout(),
+    )
+    await _wait_for_session_message_text(
+        client,
+        session_id=session_id,
+        marker=queued_expected,
+        role="assistant",
+        timeout=_plan_timeout(),
+    )
+
+    messages = await client.get_session_messages(session_id, limit=80)
+    ordered_messages = sorted(messages, key=lambda message: str(message.get("created_at") or ""))
+    first_index = next(
+        i for i, message in enumerate(ordered_messages)
+        if message.get("role") == "assistant" and first_expected in str(message.get("content") or "")
+    )
+    queued_user_index = next(
+        i for i, message in enumerate(ordered_messages)
+        if message.get("role") == "user"
+        and "while the Codex harness turn was executing" in str(message.get("content") or "")
+    )
+    queued_assistant_index = next(
+        i for i, message in enumerate(ordered_messages)
+        if message.get("role") == "assistant" and queued_expected in str(message.get("content") or "")
+    )
+    assert queued_user_index < queued_assistant_index
+    assert first_index < queued_assistant_index
+
+    if _should_capture_screenshots("harness-codex-queued-followup"):
+        screenshot = await _capture_session_marker_screenshot(
+            client,
+            channel_id=channel_id,
+            session_id=session_id,
+            marker=queued_expected,
+            screenshot_name="queues/harness-codex-queued-followup-dark",
+        )
+        assert screenshot.is_file(), f"Codex queued follow-up screenshot was not written: {screenshot}"
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)

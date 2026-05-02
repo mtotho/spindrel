@@ -95,6 +95,12 @@ const TerminalPanel = lazy(() =>
 
 const CENTER_PANEL_GUTTER_PX = 6;
 
+// Stable empty-array refs for memoized props. Using a fresh `[]` literal as a
+// fallback breaks React.memo on every render when the underlying source is
+// nullish. Module-level singletons stay reference-equal forever.
+const EMPTY_HARNESS_MODELS: string[] = [];
+const EMPTY_HARNESS_EFFORTS: string[] = [];
+
 /** Collapsed panel spine: the closed panel still occupies an honest slot in
  *  the row instead of relying on hidden edge hover or floating grabbers. */
 function CollapsedPanelSpine({
@@ -886,7 +892,45 @@ export default function ChatScreen() {
     && topTabs.length === 0;
 
   // ---- Shared message input props ----
-  const messageInputProps = {
+  // Stabilize the inputs that previously broke MessageInput's React.memo:
+  //   - Empty-array fallbacks (`?? []`) → module-level singletons.
+  //   - Inline arrow handlers → useCallback.
+  //   - O(N) reduce over invertedData → useMemo.
+  // After this, the only churn left is `isStreaming` (boolean) and other
+  // primitives that flip on real state changes — exactly what we want.
+  const harnessAvailableModels = harnessCaps?.available_models ?? EMPTY_HARNESS_MODELS;
+  const harnessEffortValues = (
+    harnessCaps?.model_options?.find((m) => m.id === harnessSettings?.model)?.effort_values
+    ?? harnessCaps?.effort_values
+    ?? EMPTY_HARNESS_EFFORTS
+  );
+  const onHarnessModelChange = useCallback((model: string | null) => {
+    const sid = headerHarnessSessionId;
+    if (!sid) return;
+    setHarnessSettings.mutate({ sessionId: sid, patch: { model } });
+  }, [headerHarnessSessionId, setHarnessSettings]);
+  const onHarnessEffortChange = useCallback((effort: string | null) => {
+    const sid = headerHarnessSessionId;
+    if (!sid) return;
+    setHarnessSettings.mutate({ sessionId: sid, patch: { effort } });
+  }, [headerHarnessSessionId, setHarnessSettings]);
+  const onConfigOverheadClick = useCallback(() => {
+    setBotInfoBotId(channel?.bot_id || null);
+  }, [channel?.bot_id, setBotInfoBotId]);
+  const onApprovePlan = useMemo(
+    () => (sessionPlan.mode === "planning" && sessionPlan.data
+      ? () => sessionPlan.approvePlan.mutate()
+      : undefined),
+    [sessionPlan.mode, sessionPlan.data, sessionPlan.approvePlan],
+  );
+  const harnessCostTotal = useMemo(() => {
+    if (!bot?.harness_runtime) return null;
+    return invertedData.reduce((sum, m) => {
+      const c = (m.metadata as { harness?: { cost_usd?: number } } | undefined)?.harness?.cost_usd;
+      return typeof c === "number" ? sum + c : sum;
+    }, 0);
+  }, [bot?.harness_runtime, invertedData]);
+  const messageInputProps = useMemo(() => ({
     onSend: handleSend,
     onSendAudio: handleSendAudio,
     disabled: isPaused,
@@ -895,7 +939,7 @@ export default function ChatScreen() {
       : autoCompactPressure === "hard" && autoCompactRunning
         ? "Native compaction is running. Send after it finishes."
         : null,
-    isStreaming: Object.keys(chatState.turns).length > 0 || chatState.isProcessing,
+    isStreaming: selectIsStreaming(chatState) || chatState.isProcessing,
     onCancel: handleCancel,
     modelOverride: turnModelOverride,
     modelProviderIdOverride: turnProviderIdOverride,
@@ -906,36 +950,19 @@ export default function ChatScreen() {
     // POST /sessions/{id}/harness-settings instead of channel.model_override).
     hideModelOverride: false,
     harnessRuntime: bot?.harness_runtime ?? null,
-    harnessAvailableModels: harnessCaps?.available_models ?? [],
-    harnessEffortValues: (
-      harnessCaps?.model_options?.find((m) => m.id === harnessSettings?.model)?.effort_values
-      ?? harnessCaps?.effort_values
-      ?? []
-    ),
+    harnessAvailableModels,
+    harnessEffortValues,
     harnessCurrentModel: harnessSettings?.model ?? null,
     harnessCurrentEffort: harnessSettings?.effort ?? null,
     harnessApprovalMode: bot?.harness_runtime
       ? sessionApprovalMode?.mode ?? "bypassPermissions"
       : null,
-    onHarnessModelChange: (model: string | null) => {
-      const sid = headerHarnessSessionId;
-      if (!sid) return;
-      setHarnessSettings.mutate({ sessionId: sid, patch: { model } });
-    },
-    onHarnessEffortChange: (effort: string | null) => {
-      const sid = headerHarnessSessionId;
-      if (!sid) return;
-      setHarnessSettings.mutate({ sessionId: sid, patch: { effort } });
-    },
+    onHarnessModelChange,
+    onHarnessEffortChange,
     onHarnessApprovalModeCycle: bot?.harness_runtime ? handleCycleHarnessApprovalMode : undefined,
     harnessModelMutating: setHarnessSettings.isPending,
     harnessApprovalModeMutating: setApprovalMode.isPending,
-    harnessCostTotal: bot?.harness_runtime
-      ? invertedData.reduce((sum, m) => {
-          const c = (m.metadata as { harness?: { cost_usd?: number } } | undefined)?.harness?.cost_usd;
-          return typeof c === "number" ? sum + c : sum;
-        }, 0)
-      : null,
+    harnessCostTotal,
     currentBotId: channel?.bot_id,
     isMultiBot: (channel?.member_bots?.length ?? 0) > 0,
     channelId,
@@ -946,7 +973,7 @@ export default function ChatScreen() {
     onEditQueue: editQueue,
     onSendNow: handleSendNow,
     configOverhead: configOverheadData?.overhead_pct ?? null,
-    onConfigOverheadClick: () => setBotInfoBotId(channel?.bot_id || null),
+    onConfigOverheadClick,
     chatMode,
     planMode: sessionPlan.mode,
     hasPlan: sessionPlan.hasPlan,
@@ -954,21 +981,39 @@ export default function ChatScreen() {
     canTogglePlanMode: !!currentPlanSessionId,
     planModeControl: channel?.config?.plan_mode_control ?? "auto",
     onTogglePlanMode: currentPlanSessionId ? handleTogglePlanMode : undefined,
-    onApprovePlan: sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined,
-  };
+    onApprovePlan,
+  }), [
+    handleSend, handleSendAudio, isPaused, pendingHarnessQuestion,
+    autoCompactPressure, autoCompactRunning, chatState, handleCancel,
+    turnModelOverride, turnProviderIdOverride, handleModelOverrideChange,
+    channel?.model_override, channel?.bot_id, channel?.member_bots?.length,
+    channel?.config?.plan_mode_control, bot?.model, bot?.harness_runtime,
+    harnessAvailableModels, harnessEffortValues, harnessSettings?.model,
+    harnessSettings?.effort, sessionApprovalMode?.mode, onHarnessModelChange,
+    onHarnessEffortChange, handleCycleHarnessApprovalMode,
+    setHarnessSettings.isPending, setApprovalMode.isPending, harnessCostTotal,
+    channelId, handleSlashCommand, isQueued, queuedMessageText, cancelQueue,
+    editQueue, handleSendNow, configOverheadData?.overhead_pct,
+    onConfigOverheadClick, chatMode, sessionPlan.mode, sessionPlan.hasPlan,
+    planBusy, currentPlanSessionId, handleTogglePlanMode, onApprovePlan,
+  ]);
 
   // ---- Shared message area props ----
-  const messageAreaProps = {
+  const pendingApprovalsSlot = useCallback(
+    (liveApprovalIds: Set<string>) => (
+      channelId
+        ? <ChannelPendingApprovals channelId={channelId} liveApprovalIds={liveApprovalIds} chatMode={chatMode} />
+        : null
+    ),
+    [channelId, chatMode],
+  );
+  const messageAreaProps = useMemo(() => ({
     invertedData: visibleInvertedData,
     renderMessage,
     chatState,
     bot,
     botId: channel?.bot_id,
-    pendingApprovalsSlot: channelId
-      ? (liveApprovalIds: Set<string>) => (
-          <ChannelPendingApprovals channelId={channelId} liveApprovalIds={liveApprovalIds} chatMode={chatMode} />
-        )
-      : undefined,
+    pendingApprovalsSlot: channelId ? pendingApprovalsSlot : undefined,
     isLoading,
     isFetchingNextPage,
     hasNextPage,
@@ -979,12 +1024,17 @@ export default function ChatScreen() {
     channelId,
     sessionId: channel?.active_session_id,
     onOpenMessageSession: handleOpenFindResultSession,
-  };
+  }), [
+    visibleInvertedData, renderMessage, chatState, bot, channel?.bot_id,
+    channel?.active_session_id, channelId, pendingApprovalsSlot, isLoading,
+    isFetchingNextPage, hasNextPage, handleLoadMore, t, chatMode,
+    handleOpenFindResultSession,
+  ]);
   const primarySessionResumeSlot = useSessionResumeCard({
     sessionId: channel?.active_session_id,
     channelId,
     messages: invertedData,
-    isActive: Object.keys(chatState.turns).length > 0 || !!chatState.isProcessing,
+    isActive: selectIsStreaming(chatState) || !!chatState.isProcessing,
     chatMode,
     seed: {
       surfaceKind: "primary",
