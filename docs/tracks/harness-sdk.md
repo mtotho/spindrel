@@ -540,6 +540,34 @@ Approval mapping intent (final values from schema):
   CLI-first marker through the app-server path, even though app-server-created
   Codex threads still round-trip through native CLI and back to chat. Track
   this separately as a Codex app-server/CLI session compatibility gap.
+- 2026-05-02 Claude native filesystem-source hardening: reviewed the current
+  Claude Agent SDK feature docs and made the adapter pass
+  `setting_sources=["user", "project", "local"]` whenever the installed Python
+  SDK exposes that option. This keeps `CLAUDE.md`, `.claude/rules`, project/user
+  skills, hooks, agents, and local settings explicitly loaded through Claude's
+  native filesystem settings path instead of relying on an implicit SDK default.
+  Unit coverage pins the option-shape behavior and preserves explicit overrides.
+- 2026-05-02 Claude native slash passthrough hardening: project-local
+  `/skill-name` invocation failed locally when Spindrel attached its MCP bridge
+  and host context wrappers to a native slash prompt. Direct CLI verification in
+  the same cwd proved `setting_sources` was not the blocker. The Claude adapter
+  now sends native slash prompts as the exact user slash line, without Spindrel
+  bridge MCP tools or host hint/system-prompt injection. Unit coverage pins both
+  the bridge skip and the hint suppression, and the local Claude skill lane
+  passed against the owned native API.
+- 2026-05-02 Claude restricted-mode skill parity: the Agent SDK docs state that
+  filesystem skills are enabled by adding `Skill` to `allowed_tools`. The
+  adapter now keeps non-mutating native `Skill`, `TodoWrite`, and `ToolSearch`
+  available in default/accept-edits/plan modes while still routing mutating and
+  orchestration tools such as Bash/Edit/Write/Agent/Task through native
+  permissions or Spindrel approval. Unit coverage now guards that split.
+- 2026-05-02 Claude SDK plugin option parity: the Agent SDK supports loading
+  local plugins through the `plugins` option. The adapter now maps explicit
+  per-session runtime settings (`claude_plugins`, or `plugins` within the
+  Claude adapter) into SDK local plugin configs, resolving relative paths
+  against the harness cwd. This remains runtime-owned plugin loading, not
+  Spindrel plugin registry sync. Unit coverage guards relative/absolute path
+  mapping, explicit override preservation, and unsupported plugin-entry skips.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

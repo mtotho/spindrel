@@ -60,6 +60,7 @@ PRESETS: dict[str, tuple[Slice, ...]] = {
         Slice("core", "core_streams_partial_text_before_final"),
         Slice("skills", "native_image_semantic_reasoning"),
         Slice("project", "project_instruction_file_discovery"),
+        Slice("skills", "claude_sdk_local_plugin_skill_invocation", "__off__"),
         Slice("skills", "claude and claude_native_todo_progress_persists"),
         Slice("skills", "claude and claude_native_toolsearch_persists"),
         Slice("skills", "claude and claude_native_subagent_persists"),
@@ -84,6 +85,7 @@ PRESETS: dict[str, tuple[Slice, ...]] = {
         Slice("skills", "native_image_input_manifest"),
         Slice("skills", "native_image_semantic_reasoning"),
         Slice("skills", "claude_project_local_native_skill_invocation"),
+        Slice("skills", "claude_sdk_local_plugin_skill_invocation", "__off__"),
         Slice("replay", "persisted_tool_replay_survives_refetch"),
     ),
     "deep": (
@@ -99,6 +101,7 @@ PRESETS: dict[str, tuple[Slice, ...]] = {
         Slice("skills", "native_image_input_manifest"),
         Slice("skills", "native_image_semantic_reasoning"),
         Slice("skills", "claude_project_local_native_skill_invocation"),
+        Slice("skills", "claude_sdk_local_plugin_skill_invocation", "__off__"),
         Slice("project", "project_instruction_file_discovery"),
         Slice("skills", "claude and claude_native_todo_progress_persists"),
         Slice("skills", "claude and claude_native_toolsearch_persists"),

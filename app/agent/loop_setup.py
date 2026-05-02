@@ -79,6 +79,7 @@ async def stream_loop_setup(
         model_override=model_override,
         provider_id_override=provider_id_override,
         context_profile_name=context_profile_name,
+        run_control_policy=run_control_policy,
         settings_obj=settings_obj,
     )
     effective_max_iterations = loop_config.effective_max_iterations

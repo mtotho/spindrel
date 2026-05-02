@@ -480,6 +480,9 @@ async def _enforce_session_plan_write_policy(operation: str, resolved_path: str,
     "domains": ["workspace_files"],
     "exposure": "ambient",
     "auto_inject": ["workspace_files_memory"],
+    "context_policy": {
+        "cacheable": {"arg": "operation", "values": [None, "read", "history"], "otherwise": False}
+    },
 }, returns={
     "oneOf": [
         {

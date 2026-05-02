@@ -12,6 +12,16 @@ from integrations.claude_code.harness import (  # noqa: E402
 import uuid
 
 
+def _hint() -> HarnessContextHint:
+    return HarnessContextHint(
+        kind="channel_prompt",
+        text="Read AGENTS.md first.",
+        source="project",
+        priority="instruction",
+        created_at="2026-05-02T00:00:00Z",
+    )
+
+
 def _ctx(*, context_hints=()) -> TurnContext:
     return TurnContext(
         spindrel_session_id=uuid.uuid4(),
@@ -44,12 +54,7 @@ def test_claude_native_cli_command_resumes_session_with_settings():
 
 
 def test_claude_prompt_keeps_user_request_before_host_hints():
-    hint = HarnessContextHint(
-        kind="channel_prompt",
-        text="Read AGENTS.md first.",
-        source="project",
-        priority="instruction",
-    )
+    hint = _hint()
 
     text = _prompt_with_context_hints("Fix the upload bug.", _ctx(context_hints=(hint,)))
 
@@ -62,12 +67,7 @@ def test_claude_system_prompt_append_carries_instruction_hints_when_supported():
         def __init__(self, *, system_prompt=None):
             self.system_prompt = system_prompt
 
-    hint = HarnessContextHint(
-        kind="channel_prompt",
-        text="Read AGENTS.md first.",
-        source="project",
-        priority="instruction",
-    )
+    hint = _hint()
     options_kwargs = {}
 
     assert _set_context_hint_system_prompt_kwarg(Options, options_kwargs, _ctx(context_hints=(hint,)))

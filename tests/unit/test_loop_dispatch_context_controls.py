@@ -37,12 +37,14 @@ def _tc(name: str, args: str, call_id: str) -> dict:
     }
 
 
-def _settings() -> SimpleNamespace:
-    return SimpleNamespace(
+def _settings(**overrides) -> SimpleNamespace:
+    defaults = dict(
         PARALLEL_TOOL_EXECUTION=True,
         PARALLEL_TOOL_MAX_CONCURRENT=5,
         TOOL_TURN_AGGREGATE_CAP_CHARS=0,
     )
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
 
 
 def _summarize_settings() -> SimpleNamespace:
@@ -52,6 +54,9 @@ def _summarize_settings() -> SimpleNamespace:
         model="",
         max_tokens=0,
         exclude=frozenset(),
+        hard_cap=0,
+        aggregate_cap_chars=0,
+        in_loop_pruning_mode="pressure",
     )
 
 
@@ -171,3 +176,50 @@ async def test_repeated_report_issue_is_blocked_after_first_call():
         for event in events
     )
     assert "Only one call to this reporting tool is allowed" in state.messages[-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_sequential_tool_results_respect_aggregate_cap():
+    async def _dispatch(**kwargs):
+        body = "a" * 10_000 if kwargs["name"] == "read_a" else "b" * 10_000
+        return ToolCallResult(
+            result_for_llm=body,
+            tool_event={"type": "tool_result", "tool": kwargs["name"], "result": body},
+        )
+
+    settings = _summarize_settings()
+    settings.aggregate_cap_chars = 12_000
+    state = LoopRunState(messages=[{"role": "user", "content": "hi"}])
+    tool_calls = [
+        _tc("read_a", "{}", "tc_1"),
+        _tc("read_b", "{}", "tc_2"),
+    ]
+
+    with patch("app.agent.loop_dispatch.get_tool_safety_tier", return_value="readonly"):
+        events = [
+            event async for event in dispatch_iteration_tool_calls(
+                accumulated_tool_calls=tool_calls,
+                ctx=_ctx(),
+                state=state,
+                iteration=0,
+                provider_id="openai",
+                summarize_settings=settings,
+                skip_tool_policy=False,
+                effective_allowed=None,
+                settings_obj=_settings(PARALLEL_TOOL_EXECUTION=False),
+                session_lock_manager=SimpleNamespace(is_cancel_requested=lambda session_id: False),
+                dispatch_tool_call_fn=_dispatch,
+                is_client_tool_fn=lambda name: False,
+            )
+        ]
+
+    tool_messages = [m for m in state.messages if m.get("role") == "tool"]
+    assert len(tool_messages) == 2
+    assert len(tool_messages[0]["content"]) == 10_000
+    assert "Turn-aggregate cap" in tool_messages[1]["content"]
+    raw_chars = sum(
+        len(m["content"].split("\n\n[Turn-aggregate cap:", 1)[0])
+        for m in tool_messages
+    )
+    assert raw_chars <= 12_000
+    assert any(event.get("type") == "tool_result" and event.get("tool") == "read_b" for event in events)

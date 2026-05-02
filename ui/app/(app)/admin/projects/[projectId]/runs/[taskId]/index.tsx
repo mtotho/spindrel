@@ -199,7 +199,6 @@ export default function ProjectRunDetail() {
   const canContinue = Boolean(run.review?.actions?.can_continue || run.review?.recovery?.can_continue) && !latestFollowUpId;
   const recoveryIcon = canContinue || latestFollowUpId ? <MessageSquarePlus size={14} /> : run.review?.reviewed ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />;
   const recoveryMeta = canContinue ? "can continue" : latestFollowUpId ? "follow-up" : run.review?.reviewed ? "closed" : "blocked";
-  const recoveryNeedsAttention = !run.review?.reviewed && (canContinue || Boolean(latestFollowUpId) || ["blocked", "changes_requested"].includes(String(reviewStatus(run))));
   const terminalReviewed = isTerminalReviewed(run);
   const prMerged = Boolean(run.review?.merged_at);
   const submitFollowUp = () => {
@@ -259,8 +258,8 @@ export default function ProjectRunDetail() {
       <PageHeader
         variant="detail"
         chrome="flow"
-        title="Project run"
-        subtitle={`${project.name} · ${formatRunTime(run.updated_at || run.created_at)}`}
+        title={problemTitle(run)}
+        subtitle={`${project.name} · ${formatRunTime(run.updated_at || run.created_at)} · ${reviewStatus(run).replaceAll("_", " ")}`}
         backTo={`/admin/projects/${project.id}#runs`}
         right={
           <div className="flex flex-wrap items-center justify-end gap-1.5">
@@ -286,6 +285,17 @@ export default function ProjectRunDetail() {
                 <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-text-muted">{problemSummary(run)}</p>
                 <div className="mt-3 text-xs text-text-dim">{sourceLine(run)}</div>
               </div>
+              {run.source_work_pack && (
+                <div className="rounded-md bg-surface-overlay/25 px-3 py-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">Source Work Pack</div>
+                  <div className="mt-1 text-sm font-semibold text-text">{run.source_work_pack.title}</div>
+                  <div className="mt-1 text-xs leading-5 text-text-muted">
+                    {[run.source_work_pack.category?.replaceAll("_", " "), run.source_work_pack.status, run.source_work_pack.confidence != null ? `confidence ${run.source_work_pack.confidence}` : null]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </div>
+                </div>
+              )}
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-overlay/25 px-3 py-2">
                 <div className="text-xs leading-5 text-text-muted">
                   {terminalReviewed
@@ -350,7 +360,7 @@ export default function ProjectRunDetail() {
             </div>
           </Section>
 
-          {recoveryNeedsAttention ? null : recoverySection}
+          {recoverySection}
 
           <Section title="Review Decision" description="Reviewer outcome, merge metadata, blockers, and detailed review notes.">
             <div className="flex flex-col gap-2">

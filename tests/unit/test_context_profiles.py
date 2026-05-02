@@ -61,9 +61,8 @@ def test_task_none_overrides_keep_iterations():
 
 
 def test_chat_profile_inherits_global_keep_iterations():
-    """Chat profile must NOT override — it uses the global setting (2) so
-    normal turns stay compact."""
-    assert get_context_profile("chat_lean").keep_iterations_override is None
+    """Chat profile uses a compact native-loop observation window."""
+    assert get_context_profile("chat_lean").keep_iterations_override == 2
 
 
 def test_trim_messages_to_recent_turns_preserves_system_prefix():

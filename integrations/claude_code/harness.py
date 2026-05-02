@@ -82,11 +82,15 @@ _CLAUDE_TTY_ONLY_MANAGEMENT_COMMANDS = {"hooks", "status", "doctor"}
 # allowlist itself is mode-driven:
 #
 #   bypassPermissions: full set; SDK runs everything, can_use_tool short-circuits in helper
-#   acceptEdits / default / plan: read-only set; everything else routes to can_use_tool
+#   acceptEdits / default / plan: non-mutating set; everything else routes to can_use_tool
 #
 # Edit/Write are NOT in the restricted set — the SDK's ``acceptEdits``
 # permission_mode auto-approves them through a separate gate (verified
 # against SDK 0.1.68 source).
+# Skill / TodoWrite / ToolSearch are non-mutating native Claude Code surfaces.
+# The SDK docs require "Skill" in allowed_tools for filesystem skills to be
+# available, and TodoWrite/ToolSearch are UI/progress/discovery tools rather
+# than workspace mutation surfaces.
 # AskUserQuestion is intentionally NOT in either allowlist: it must route
 # through can_use_tool so Spindrel can render a durable native question card
 # instead of letting the SDK's transient prompt surface handle it.
@@ -95,7 +99,10 @@ _BYPASS_ALLOWED: tuple[str, ...] = (
     "Task", "Agent", "Skill", "TodoWrite", "ToolSearch",
     "WebFetch", "WebSearch", "ExitPlanMode",
 )
-_RESTRICTED_ALLOWED: tuple[str, ...] = ("Read", "Glob", "Grep", "WebSearch")
+_RESTRICTED_ALLOWED: tuple[str, ...] = (
+    "Read", "Glob", "Grep", "WebSearch",
+    "Skill", "TodoWrite", "ToolSearch",
+)
 _TEXT_RESULT_TOOLS: frozenset[str] = frozenset({"Read", "Bash", "Glob", "Grep"})
 _PROGRESS_RESULT_TOOLS: frozenset[str] = frozenset({"TodoWrite"})
 _DISCOVERY_RESULT_TOOLS: frozenset[str] = frozenset({"ToolSearch"})
@@ -272,6 +279,7 @@ def _build_claude_query_input(
     ctx: TurnContext,
     *,
     instruction_hints_in_system: bool = False,
+    suppress_context_hints: bool = False,
 ) -> tuple[
     str | AsyncIterator[dict[str, Any]],
     tuple[Mapping[str, Any], ...],
@@ -279,7 +287,7 @@ def _build_claude_query_input(
 ]:
     """Build Claude SDK input, preserving the plain-string path when possible."""
 
-    text = _prompt_with_context_hints(
+    text = prompt if suppress_context_hints else _prompt_with_context_hints(
         prompt,
         ctx,
         include_instruction_hints=not instruction_hints_in_system,
@@ -513,12 +521,17 @@ class ClaudeCodeRuntime:
         _set_env_kwarg(ClaudeAgentOptions, options_kwargs, ctx.env)
         _set_partial_message_streaming_kwarg(ClaudeAgentOptions, options_kwargs)
         _set_streaming_permission_hooks(ClaudeAgentOptions, options_kwargs)
-        instruction_hints_in_system = _set_context_hint_system_prompt_kwarg(
-            ClaudeAgentOptions,
-            options_kwargs,
-            ctx,
-        )
-        # ctx.runtime_settings is reserved for future Claude/Codex-specific knobs.
+        _set_native_filesystem_feature_kwargs(ClaudeAgentOptions, options_kwargs)
+        _set_claude_plugin_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
+        native_slash_passthrough = _is_native_slash_passthrough_prompt(prompt)
+        instruction_hints_in_system = False
+        if not native_slash_passthrough:
+            instruction_hints_in_system = _set_context_hint_system_prompt_kwarg(
+                ClaudeAgentOptions,
+                options_kwargs,
+                ctx,
+            )
+        # ctx.runtime_settings is reserved for runtime-specific SDK knobs.
 
         result_meta: dict[str, Any] = {"claude_spindrel_tool_results": {}}
 
@@ -530,7 +543,13 @@ class ClaudeCodeRuntime:
                 bridge_results=result_meta["claude_spindrel_tool_results"],
             )
 
-        await apply_tool_bridge(ctx, self, attach=_attach)
+        if native_slash_passthrough:
+            logger.debug(
+                "claude-code: skipping Spindrel MCP bridge for native slash passthrough %r",
+                prompt.split(maxsplit=1)[0],
+            )
+        else:
+            await apply_tool_bridge(ctx, self, attach=_attach)
 
         opts = ClaudeAgentOptions(**options_kwargs)
 
@@ -543,6 +562,7 @@ class ClaudeCodeRuntime:
             prompt,
             ctx,
             instruction_hints_in_system=instruction_hints_in_system,
+            suppress_context_hints=native_slash_passthrough,
         )
 
         async with ClaudeSDKClient(options=opts) as client:
@@ -629,6 +649,8 @@ class ClaudeCodeRuntime:
         _set_env_kwarg(ClaudeAgentOptions, options_kwargs, ctx.env)
         _set_partial_message_streaming_kwarg(ClaudeAgentOptions, options_kwargs)
         _set_streaming_permission_hooks(ClaudeAgentOptions, options_kwargs)
+        _set_native_filesystem_feature_kwargs(ClaudeAgentOptions, options_kwargs)
+        _set_claude_plugin_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
         opts = ClaudeAgentOptions(**options_kwargs)
 
         result_meta: dict[str, Any] = {}
@@ -710,6 +732,8 @@ class ClaudeCodeRuntime:
         _set_env_kwarg(ClaudeAgentOptions, options_kwargs, ctx.env)
         _set_partial_message_streaming_kwarg(ClaudeAgentOptions, options_kwargs)
         _set_streaming_permission_hooks(ClaudeAgentOptions, options_kwargs)
+        _set_native_filesystem_feature_kwargs(ClaudeAgentOptions, options_kwargs)
+        _set_claude_plugin_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
 
         text_parts: list[str] = []
         usage: Any = None
@@ -1210,6 +1234,114 @@ def _set_partial_message_streaming_kwarg(
             "claude-code: installed ClaudeAgentOptions exposes no partial-message "
             "streaming kwarg; text will arrive as complete AssistantMessage blocks"
         )
+
+
+def _set_native_filesystem_feature_kwargs(
+    options_cls: Any,
+    options_kwargs: dict[str, Any],
+) -> None:
+    """Keep Claude Code's filesystem-owned features explicitly enabled.
+
+    Claude's Agent SDK loads user/project/local settings by default today, but
+    Spindrel is acting as a wrapper around the native runtime. Passing the
+    documented sources makes that boundary explicit: CLAUDE.md/rules, native
+    skills, hooks, slash commands, agents, and local settings stay runtime-owned
+    and loaded from the harness cwd/config dirs.
+    """
+    try:
+        sig = inspect.signature(options_cls)
+        names = set(sig.parameters)
+    except Exception:
+        names = set(getattr(options_cls, "__annotations__", {}) or {})
+    if "setting_sources" in names and "setting_sources" not in options_kwargs:
+        options_kwargs["setting_sources"] = ["user", "project", "local"]
+    elif "settingSources" in names and "settingSources" not in options_kwargs:
+        options_kwargs["settingSources"] = ["user", "project", "local"]
+
+
+def _set_claude_plugin_kwargs(
+    options_cls: Any,
+    options_kwargs: dict[str, Any],
+    ctx: TurnContext,
+) -> None:
+    """Thread explicit local Claude plugin paths into the SDK.
+
+    This is intentionally not Spindrel plugin sync. It is a thin pass-through
+    for Claude SDK's documented ``plugins`` option, with paths supplied by the
+    per-session Claude runtime settings bag:
+
+      {"claude_plugins": ["/path/to/plugin", {"type": "local", "path": "..."}]}
+
+    ``plugins`` is also accepted for convenience inside the Claude adapter only.
+    """
+    if "plugins" in options_kwargs:
+        return
+    try:
+        sig = inspect.signature(options_cls)
+        names = set(sig.parameters)
+    except Exception:
+        names = set(getattr(options_cls, "__annotations__", {}) or {})
+    if "plugins" not in names:
+        return
+
+    raw_plugins = _runtime_setting_first(ctx.runtime_settings, "claude_plugins", "plugins")
+    plugin_configs = _normalize_claude_plugin_configs(raw_plugins, cwd=ctx.workdir)
+    if plugin_configs:
+        options_kwargs["plugins"] = plugin_configs
+
+
+def _runtime_setting_first(settings: Mapping[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in settings:
+            return settings[key]
+    return None
+
+
+def _normalize_claude_plugin_configs(raw: Any, *, cwd: str) -> list[dict[str, str]]:
+    if raw is None:
+        return []
+    if isinstance(raw, (str, os.PathLike)):
+        items: list[Any] = [raw]
+    elif isinstance(raw, (list, tuple)):
+        items = list(raw)
+    else:
+        logger.warning(
+            "claude-code: ignoring runtime_settings.claude_plugins with invalid type %s",
+            type(raw).__name__,
+        )
+        return []
+
+    configs: list[dict[str, str]] = []
+    for item in items:
+        plugin_type = "local"
+        path_value: Any = item
+        if isinstance(item, Mapping):
+            plugin_type = str(item.get("type") or "local")
+            path_value = item.get("path")
+        if plugin_type != "local":
+            logger.warning(
+                "claude-code: ignoring unsupported Claude SDK plugin type %r",
+                plugin_type,
+            )
+            continue
+        if not isinstance(path_value, (str, os.PathLike)):
+            logger.warning("claude-code: ignoring Claude SDK plugin entry without path")
+            continue
+        raw_path = os.path.expandvars(os.path.expanduser(os.fspath(path_value))).strip()
+        if not raw_path:
+            continue
+        resolved = raw_path if os.path.isabs(raw_path) else os.path.join(cwd, raw_path)
+        configs.append({"type": "local", "path": os.path.abspath(resolved)})
+    return configs
+
+
+def _is_native_slash_passthrough_prompt(prompt: str) -> bool:
+    """Return true for slash commands that should stay purely runtime-native."""
+    stripped = (prompt or "").lstrip()
+    if not stripped.startswith("/"):
+        return False
+    # Escaped Markdown/code text should not change bridge behavior.
+    return not stripped.startswith(("///", "/ "))
 
 
 def _set_context_hint_system_prompt_kwarg(

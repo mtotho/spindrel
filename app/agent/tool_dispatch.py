@@ -1360,6 +1360,7 @@ async def dispatch_tool_call(
     summarize_model: str,
     summarize_max_tokens: int,
     summarize_exclude: set[str],
+    tool_result_hard_cap: int | None = None,
     # Compaction flag for event tagging
     compaction: bool,
     # Policy override — skip check when re-dispatching after approval
@@ -1559,7 +1560,9 @@ async def dispatch_tool_call(
 
     # Hard-cap: truncate very large results before they enter the context window.
     # Full result is stored in DB (below) so the bot can retrieve on demand.
-    _hard_cap = settings.TOOL_RESULT_HARD_CAP
+    _hard_cap = tool_result_hard_cap
+    if _hard_cap is None:
+        _hard_cap = settings.TOOL_RESULT_HARD_CAP
     if _hard_cap and len(result_for_llm) > _hard_cap:
         result_for_llm = (
             result_for_llm[:_hard_cap]

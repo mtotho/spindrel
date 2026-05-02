@@ -328,6 +328,12 @@ Do not report a workflow as visually verified when the screenshot only shows
 the final generated page. If the claim is that Spindrel created, ran, reviewed,
 or recorded work, include Spindrel UI screenshots proving that path.
 
+Do not wait for a shared deployment to take screenshots of local UI changes.
+Local dev mode agents should run the patched API/UI from the current checkout
+on their own generated port, capture against that local server, and inspect the
+images before closeout. Shared/live server captures are useful after deploy but
+do not replace the local visual feedback loop.
+
 Screenshot staging should be deterministic for documentation artifacts. If a
 capture needs a transcript, inject fixture messages or seed durable rows instead
 of relying on a live model turn. Local screenshot data can survive app rebuilds

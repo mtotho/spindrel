@@ -379,6 +379,7 @@ def _resolve_loop_config(
     model_override: str | None,
     provider_id_override: str | None,
     context_profile_name: str | None,
+    run_control_policy: dict[str, Any] | None = None,
     settings_obj: Any | None = None,
 ) -> LoopRunConfig:
     """Resolve per-run config: iterations, model, provider, effort overlay, summarize settings."""
@@ -390,10 +391,19 @@ def _resolve_loop_config(
     cfg = settings_obj or default_settings
 
     in_loop_keep_iterations = cfg.IN_LOOP_PRUNING_KEEP_ITERATIONS
+    in_loop_pruning_mode = "pressure"
+    hard_cap = int(getattr(cfg, "TOOL_RESULT_HARD_CAP", 0) or 0)
+    aggregate_cap = int(getattr(cfg, "TOOL_TURN_AGGREGATE_CAP_CHARS", 0) or 0)
     if context_profile_name:
-        profile_override = get_context_profile(context_profile_name).keep_iterations_override
-        if profile_override is not None:
-            in_loop_keep_iterations = profile_override
+        profile = get_context_profile(context_profile_name)
+        if profile.keep_iterations_override is not None:
+            in_loop_keep_iterations = profile.keep_iterations_override
+        if profile.in_loop_pruning_mode in {"always", "pressure"}:
+            in_loop_pruning_mode = profile.in_loop_pruning_mode
+        if profile.tool_result_hard_cap is not None:
+            hard_cap = profile.tool_result_hard_cap
+        if profile.tool_turn_aggregate_cap_chars is not None:
+            aggregate_cap = profile.tool_turn_aggregate_cap_chars
 
     max_iterations_source = "global"
     if max_iterations:
@@ -415,6 +425,23 @@ def _resolve_loop_config(
         effective_model_params["effort"] = effort_now
 
     trc = bot.tool_result_config or {}
+    hard_cap = int(trc.get("hard_cap", hard_cap) or 0)
+    aggregate_cap = int(trc.get("aggregate_cap_chars", aggregate_cap) or 0)
+    observation_policy = (
+        (run_control_policy or {}).get("observation")
+        if isinstance((run_control_policy or {}).get("observation"), dict)
+        else {}
+    )
+    if observation_policy:
+        if observation_policy.get("keep_iterations") is not None:
+            in_loop_keep_iterations = max(1, int(observation_policy.get("keep_iterations") or 1))
+        mode = str(observation_policy.get("in_loop_pruning_mode") or "").strip()
+        if mode in {"always", "pressure"}:
+            in_loop_pruning_mode = mode
+        if observation_policy.get("hard_cap") is not None:
+            hard_cap = max(0, int(observation_policy.get("hard_cap") or 0))
+        if observation_policy.get("aggregate_cap_chars") is not None:
+            aggregate_cap = max(0, int(observation_policy.get("aggregate_cap_chars") or 0))
     summarize_settings = SummarizeSettings(
         enabled=trc["enabled"] if "enabled" in trc else cfg.TOOL_RESULT_SUMMARIZE_ENABLED,
         threshold=trc.get("threshold") or cfg.TOOL_RESULT_SUMMARIZE_THRESHOLD,
@@ -422,6 +449,9 @@ def _resolve_loop_config(
         max_tokens=trc.get("max_tokens") or cfg.TOOL_RESULT_SUMMARIZE_MAX_TOKENS,
         exclude=frozenset(cfg.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS)
               | frozenset(trc.get("exclude_tools") or []),
+        hard_cap=hard_cap,
+        aggregate_cap_chars=aggregate_cap,
+        in_loop_pruning_mode=in_loop_pruning_mode,
     )
     return LoopRunConfig(
         effective_max_iterations=effective_max_iterations,

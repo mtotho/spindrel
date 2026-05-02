@@ -261,7 +261,7 @@ class TestSlashCommandHelp:
 
 
 class TestSlashCommandProjectInit:
-    async def test_project_init_returns_copyable_project_prompt(self, client, db_session):
+    async def test_project_init_returns_copyable_project_runbook_prompt(self, client, db_session):
         workspace = SharedWorkspace(name=f"slash-project-init-{uuid.uuid4().hex[:8]}")
         db_session.add(workspace)
         await db_session.flush()
@@ -290,6 +290,7 @@ class TestSlashCommandProjectInit:
         assert body["payload"]["project"]["id"] == str(project.id)
         assert body["payload"]["skill_id"] == "workspace/project_init"
         assert "Use the workspace/project_init skill" in body["fallback_text"]
+        assert ".spindrel/project-runbook.md" in body["fallback_text"]
         assert "Project Dependency Stack" in body["fallback_text"]
 
 

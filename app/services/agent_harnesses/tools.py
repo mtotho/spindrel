@@ -503,6 +503,9 @@ def _summarize_settings_for(bot_model: str | None) -> SummarizeSettings:
         model=settings.TOOL_RESULT_SUMMARIZE_MODEL or bot_model or "",
         max_tokens=settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS,
         exclude=frozenset(settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS),
+        hard_cap=settings.TOOL_RESULT_HARD_CAP,
+        aggregate_cap_chars=settings.TOOL_TURN_AGGREGATE_CAP_CHARS,
+        in_loop_pruning_mode="pressure",
     )
 
 

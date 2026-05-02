@@ -80,6 +80,7 @@ function ProjectBasicsSection({
   const attachedCount = channels?.length ?? project.attached_channel_count ?? 0;
   const setupReady = setup?.plan?.ready ?? false;
   const runtimeReady = runtimeEnv?.ready ?? false;
+  const runbookPath = project.prompt_file_path || ".spindrel/project-runbook.md";
   return (
     <Section
       title="Basics"
@@ -109,6 +110,12 @@ function ProjectBasicsSection({
           title="Runtime env"
           description={runtimeReady ? "Runtime keys are ready for Project terminals, exec, and harness turns." : runtimeEnv?.missing_secrets?.join(", ") || "Runtime env is not ready."}
           meta={<StatusBadge label={runtimeReady ? "Ready" : "Needs binding"} variant={runtimeReady ? "success" : "warning"} />}
+        />
+        <SettingsControlRow
+          leading={<FileText size={14} />}
+          title="Project Runbook"
+          description={<span className="font-mono">{runbookPath}</span>}
+          meta={<StatusBadge label={project.prompt_file_path ? "Configured" : "Recommended"} variant={project.prompt_file_path ? "success" : "info"} />}
         />
       </div>
     </Section>
@@ -206,6 +213,7 @@ function ProjectOverviewSection({
   const setupReady = setup?.plan?.ready ?? false;
   const runtimeReady = runtimeEnv?.ready ?? false;
   const attachedCount = channels?.length ?? project.attached_channel_count ?? 0;
+  const runbookPath = project.prompt_file_path || ".spindrel/project-runbook.md";
   const activeInstances = (instances ?? []).filter((instance) => !["deleted", "expired"].includes(instance.status));
   const dependencyConfigured = Boolean(project.metadata_?.blueprint_snapshot?.dependency_stack);
   const activeRuns = runs.filter(isActiveCodingRun);
@@ -230,8 +238,8 @@ function ProjectOverviewSection({
     <div data-testid="project-overview-home" className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
       <AnchorSection
         icon={<FolderGit2 size={15} />}
-        eyebrow="Project pulse"
-        title="Ready for agent work"
+        eyebrow="Project factory"
+        title="Factory status"
         meta={newestActivityLabel(runs)}
         emphasis="primary"
         action={<ActionButton label="Start run" icon={<Play size={14} />} size="small" onPress={() => setTab("runs")} />}
@@ -277,6 +285,14 @@ function ProjectOverviewSection({
             meta={<StatusBadge label={setupReady ? "Ready" : "Needs setup"} variant={setupReady ? "success" : "warning"} />}
             onClick={() => setTab("setup")}
           />
+          <SettingsControlRow
+            compact
+            leading={<FileText size={14} />}
+            title="Project Runbook"
+            description={runbookPath}
+            meta={<StatusBadge label={project.prompt_file_path ? "Configured" : "Recommended"} variant={project.prompt_file_path ? "success" : "info"} />}
+            onClick={() => setTab("settings")}
+          />
         </div>
       </AnchorSection>
 
@@ -316,7 +332,7 @@ function ProjectOverviewSection({
           <AnchorSection
             icon={<GitPullRequest size={15} />}
             eyebrow="Agent work"
-            title="Recent runs"
+            title="Recent coding runs"
             meta={`${runs.length} total`}
             action={<ActionButton label="Open runs" icon={<ExternalLink size={14} />} size="small" variant="secondary" onPress={() => setTab("runs")} />}
           >
@@ -328,7 +344,7 @@ function ProjectOverviewSection({
                   key={run.id}
                   leading={<GitPullRequest size={14} />}
                   title={run.task.title || run.request || "Project run"}
-                  description={run.review?.blocker || run.review?.review_summary || run.request || "No run summary yet"}
+                  description={run.review?.blocker || run.review?.review_summary || run.source_work_pack?.summary || run.request || "No run summary yet"}
                   meta={
                     <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5">
                       <StatusBadge label={run.review?.status || run.status} variant={run.review?.blocker || run.status === "failed" ? "danger" : run.review?.actions?.can_mark_reviewed ? "info" : run.status === "running" ? "warning" : "neutral"} />
@@ -413,6 +429,13 @@ function ProjectOverviewSection({
                 description={`${readyBatches.length} batch${readyBatches.length === 1 ? "" : "es"} waiting for review action`}
                 meta={<StatusBadge label={readyBatches.length > 0 ? "Ready" : "Clear"} variant={readyBatches.length > 0 ? "info" : "success"} />}
                 onClick={() => setTab("runs")}
+              />
+              <SettingsControlRow
+                compact
+                leading={<FileText size={14} />}
+                title="Tracker boundary"
+                description="Spindrel coordinates capture, launch, execution, and review; GitHub or Linear remains the durable tracker when linked."
+                meta={<QuietPill label="coordination" />}
               />
             </div>
           </AnchorSection>
@@ -1442,7 +1465,7 @@ export default function ProjectDetail() {
 
               <Section
                 title="Instructions"
-                description="Shared turn guidance for channels attached to this Project."
+                description="Shared turn guidance for channels attached to this Project. The Project Runbook is the repo-owned policy file agents should inspect and maintain."
                 action={
                   <div className="flex items-center gap-2">
                     <SaveStatusPill
@@ -1463,17 +1486,17 @@ export default function ProjectDetail() {
                     value={prompt}
                     onChange={setPrompt}
                     label="Project instructions"
-                    placeholder="Optional instructions shared by every attached channel..."
-                    helpText="Applied before channel-level prompt content for Project-bound turns."
+                    placeholder="Optional inline instructions shared by every attached channel..."
+                    helpText="Applied before channel-level prompt content for Project-bound turns, then combined with the Project Runbook when configured."
                     rows={7}
                     fieldType="project_prompt"
                     generateContext={`Project: ${project.name}. Root: /${project.root_path}`}
                   />
-                  <FormRow label="Prompt file" description="Optional Project-root relative file that can own these instructions later.">
+                  <FormRow label="Project Runbook" description="Project-root relative policy file for branch rules, test commands, e2e/screenshot expectations, dependency stack usage, and tracker handoff.">
                     <TextInput
                       value={promptFilePath}
                       onChangeText={setPromptFilePath}
-                      placeholder=".spindrel/project-prompt.md"
+                      placeholder=".spindrel/project-runbook.md"
                     />
                   </FormRow>
                 </div>

@@ -18,7 +18,8 @@ WorkSurface consumers resolve the same root.
 Open `/admin/projects` to create or inspect shared roots. A Project owns:
 
 - a workspace-relative root path such as `common/projects/spindrel`;
-- optional Project instructions and prompt-file path;
+- optional Project instructions and a Project Runbook path such as
+  `.spindrel/project-runbook.md`;
 - Project-scoped knowledge under `.spindrel/knowledge-base`;
 - channel membership for every channel that should use that root.
 
@@ -28,7 +29,22 @@ preparation, **Runs** for agent coding-run launch and receipts, **Instances**
 for fresh workspaces created from the applied snapshot, **Settings** for
 instructions and Blueprint metadata, and **Channels** for membership.
 The Settings tab includes a compact Basics block for the root URI, attached
-channel count, setup readiness, and runtime environment readiness.
+channel count, setup readiness, Project Runbook, and runtime environment
+readiness.
+
+## Project Runbook
+
+The Project Runbook is Spindrel's repo-owned policy file for agent work. The
+recommended path is `.spindrel/project-runbook.md`. It plays the same role that
+Symphony's `WORKFLOW.md` plays in that service: the repository owns the
+instructions that tell agents how to work safely and how to prove completion.
+
+Use the runbook for branch/base-branch expectations, repo-local test commands,
+dependency stack usage, dev-target/server instructions, screenshot/e2e evidence
+requirements, PR or external-tracker handoff rules, and what a review-ready
+receipt should include. Inline Project instructions are still allowed, but the
+runbook is the clearer long-term home for policy that should version with the
+Project.
 
 From any Project-bound channel, run `/project-init` to get a copyable prompt
 for the current agent. That prompt points the agent at the generic
@@ -42,9 +58,9 @@ compose file when the repo needs backing services, and report readiness.
 ![Project Blueprint library](../images/project-workspace-blueprints.png)
 
 Project Blueprints are reusable recipes for creating Projects. A Blueprint can
-declare a default root pattern, Project prompt, starter folders/files, knowledge
-files, repo declarations, setup commands, a Dependency Stack spec, env defaults,
-and required secret binding slots.
+declare a default root pattern, Project instructions, Project Runbook path,
+starter folders/files, knowledge files, repo declarations, setup commands, a
+Dependency Stack spec, env defaults, and required secret binding slots.
 
 ![Project Blueprint editor with starter files and declarations](../images/project-workspace-blueprint-editor.png)
 
@@ -139,6 +155,14 @@ prompt tells the agent to update from the base branch, switch to the generated
 branch, use Project runtime env, use the granted e2e/machine target only when
 attached to the task, run e2e checks when relevant, and publish
 `publish_project_run_receipt` evidence.
+
+Spindrel records coordination state, not the canonical external issue tracker.
+Issue Intake captures rough notes, Work Packs turn those notes into launchable
+task packets, Project coding runs track execution/review, and receipts preserve
+evidence. When GitHub, Linear, or another tracker is linked, that external
+system remains the durable source of truth for issues, PRs, comments, and
+long-term project planning; Spindrel should link to it and coordinate around it
+rather than duplicating it.
 
 Project coding agents that use Codex or Claude Code are harness agents: native
 tools own file edits and repo-local commands inside the Project root, including
@@ -342,7 +366,7 @@ artifacts, not ad hoc local captures:
 
 | Artifact | What it proves |
 |---|---|
-| [Project work hub](../images/project-workspace-detail.png) | Project detail opens as an agent-work home with pulse, runs, readiness, channels, work-surface entry points, and both coding-run review plus raw Issue Intake/work-pack review links. |
+| [Project work hub](../images/project-workspace-detail.png) | Project detail opens as an agent-work home with Factory Status, Project Runbook, runs, readiness, channels, work-surface entry points, and both coding-run review plus raw Issue Intake/work-pack review links. |
 | [Home Action Inbox](../images/home.png) | Home separates actionable replies, Project reviews, issue intake, Mission Control findings, and health from raw Attention noise. |
 | [Rail Inbox](../images/home-inbox.png) | The left rail Inbox groups review-ready work and unread replies without making raw Attention counts look urgent. |
 | [Project Review Inbox](../images/project-workspace-review-inbox.png) | Operator queue with ready, changes-requested, follow-up, missing-evidence, and blocked states plus source Work Pack launch-batch provenance. |

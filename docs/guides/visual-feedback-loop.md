@@ -307,6 +307,11 @@ Run the normal UI typecheck after related UI changes:
 cd ui && npx tsc --noEmit --pretty false
 ```
 
+Local UI patches do not need to be deployed before screenshot review. Start the
+patched app from the current checkout on the agent-owned local e2e port, point
+the screenshot runner or Playwright script at that URL, and inspect the images.
+Use a shared deployed server only for explicit post-deploy verification.
+
 ## Harness Parity Run
 
 External harness parity screenshots use real live harness sessions rather than

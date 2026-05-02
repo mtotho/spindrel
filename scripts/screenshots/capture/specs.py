@@ -4084,9 +4084,10 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         wait_kind="function",
         wait_arg=(
             "!!document.querySelector('[data-testid=\"project-overview-home\"]') "
-            "&& document.body.innerText.toLowerCase().includes('project pulse') "
-            "&& document.body.innerText.toLowerCase().includes('ready for agent work') "
-            "&& document.body.innerText.toLowerCase().includes('recent runs')"
+            "&& document.body.innerText.toLowerCase().includes('project factory') "
+            "&& document.body.innerText.toLowerCase().includes('factory status') "
+            "&& document.body.innerText.toLowerCase().includes('recent coding runs') "
+            "&& document.body.innerText.toLowerCase().includes('project runbook')"
         ),
         output="project-workspace-detail.png",
         color_scheme="dark",

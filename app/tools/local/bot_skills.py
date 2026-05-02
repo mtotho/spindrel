@@ -1131,6 +1131,9 @@ async def _handle_delete_script(ctx: _SkillActionContext, *, name: str, script_n
     "domains": ["skill_authoring"],
     "exposure": "ambient",
     "auto_inject": ["workspace_files_memory"],
+    "context_policy": {
+        "sticky_when": {"arg": "action", "equals": "get"}
+    },
 })
 async def manage_bot_skill(
     action: str,

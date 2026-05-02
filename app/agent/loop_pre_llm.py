@@ -37,6 +37,7 @@ async def stream_loop_pre_llm_iteration(
     soft_current_prompt_tokens: int,
     target_seconds: int,
     in_loop_keep_iterations: int,
+    in_loop_pruning_mode: str,
     settings_obj: Any,
     session_lock_manager: Any,
     merge_activated_tools_fn: Any,
@@ -122,6 +123,7 @@ async def stream_loop_pre_llm_iteration(
             soft_current_prompt_tokens=soft_current_prompt_tokens,
             target_seconds=target_seconds,
             in_loop_keep_iterations=in_loop_keep_iterations,
+            in_loop_pruning_mode=in_loop_pruning_mode,
             settings_obj=settings_obj,
             prune_in_loop_tool_results_fn=prune_in_loop_tool_results_fn,
             should_prune_in_loop_fn=should_prune_in_loop_fn,
@@ -196,6 +198,7 @@ async def _stream_pre_llm_pruning(
     soft_current_prompt_tokens: int,
     target_seconds: int,
     in_loop_keep_iterations: int,
+    in_loop_pruning_mode: str,
     settings_obj: Any,
     prune_in_loop_tool_results_fn: Any,
     should_prune_in_loop_fn: Any,
@@ -321,12 +324,15 @@ async def _stream_pre_llm_pruning(
             tool_schema_tokens = estimate_tokens("x" * tool_schema_chars)
         except Exception:
             tool_schema_tokens = 0
-    should_prune, utilization = should_prune_in_loop_fn(
-        messages,
-        available_budget_tokens=available_budget_tokens,
-        pressure_threshold=settings_obj.IN_LOOP_PRUNING_PRESSURE_THRESHOLD,
-        tool_schema_tokens=tool_schema_tokens,
-    )
+    if in_loop_pruning_mode == "always":
+        should_prune, utilization = True, None
+    else:
+        should_prune, utilization = should_prune_in_loop_fn(
+            messages,
+            available_budget_tokens=available_budget_tokens,
+            pressure_threshold=settings_obj.IN_LOOP_PRUNING_PRESSURE_THRESHOLD,
+            tool_schema_tokens=tool_schema_tokens,
+        )
     if not should_prune:
         return
 
@@ -339,11 +345,11 @@ async def _stream_pre_llm_pruning(
         return
 
     logger.info(
-        "In-loop pruning: %d tool results pruned (saved %d chars) at iter %d (utilization=%.2f)",
+        "In-loop pruning: %d tool results pruned (saved %d chars) at iter %d (utilization=%s)",
         stats["pruned_count"],
         stats["chars_saved"],
         iteration + 1,
-        utilization,
+        "profile" if utilization is None else f"{utilization:.2f}",
     )
     yield _event_with_compaction_tag({
         "type": "context_pruning",
@@ -355,7 +361,7 @@ async def _stream_pre_llm_pruning(
         "scope": "in_loop",
         "keep_iterations": in_loop_keep_iterations,
         "live_history_utilization": utilization,
-        "triggered_by": "pressure",
+        "triggered_by": "profile" if in_loop_pruning_mode == "always" else "pressure",
     }, ctx.compaction)
     if ctx.correlation_id is not None:
         safe_create_task_fn(record_trace_event_fn(
@@ -374,7 +380,7 @@ async def _stream_pre_llm_pruning(
                 "iteration": iteration + 1,
                 "keep_iterations": in_loop_keep_iterations,
                 "live_history_utilization": utilization,
-                "triggered_by": "pressure",
+                "triggered_by": "profile" if in_loop_pruning_mode == "always" else "pressure",
             },
         ))
 

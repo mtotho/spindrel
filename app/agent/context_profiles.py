@@ -42,6 +42,13 @@ class ContextProfile:
     # window than chat because they sweep many channels per run and otherwise
     # re-fetch pruned tool results via ``section="tool:<uuid>"``.
     keep_iterations_override: int | None = None
+    # Tool-observation controls tune the already-existing result capping and
+    # in-loop pruning path by profile. ``always`` means prune after each tool
+    # iteration once there is an older iteration to compact; ``pressure`` keeps
+    # the historical context-window pressure gate.
+    in_loop_pruning_mode: str | None = None
+    tool_result_hard_cap: int | None = None
+    tool_turn_aggregate_cap_chars: int | None = None
 
     def to_policy_dict(self) -> dict[str, Any]:
         return {
@@ -56,6 +63,9 @@ class ContextProfile:
             "memory_bootstrap_max_chars": self.memory_bootstrap_max_chars,
             "section_index_count_default": self.section_index_count_default,
             "section_index_verbosity_default": self.section_index_verbosity_default,
+            "in_loop_pruning_mode": self.in_loop_pruning_mode,
+            "tool_result_hard_cap": self.tool_result_hard_cap,
+            "tool_turn_aggregate_cap_chars": self.tool_turn_aggregate_cap_chars,
         }
 
 
@@ -86,6 +96,10 @@ _PROFILES: dict[str, ContextProfile] = {
         memory_bootstrap_max_chars=4000,
         section_index_count_default=8,
         section_index_verbosity_default="compact",
+        keep_iterations_override=2,
+        in_loop_pruning_mode="always",
+        tool_result_hard_cap=12000,
+        tool_turn_aggregate_cap_chars=30000,
     ),
     "chat_standard": ContextProfile(
         name="chat_standard",
@@ -116,6 +130,10 @@ _PROFILES: dict[str, ContextProfile] = {
         memory_bootstrap_max_chars=8000,
         section_index_count_default=10,
         section_index_verbosity_default="standard",
+        keep_iterations_override=2,
+        in_loop_pruning_mode="always",
+        tool_result_hard_cap=12000,
+        tool_turn_aggregate_cap_chars=30000,
     ),
     "chat_rich": ContextProfile(
         name="chat_rich",
@@ -146,6 +164,10 @@ _PROFILES: dict[str, ContextProfile] = {
             "pinned_widgets",
             "tool_refusal_guard",
         ),
+        keep_iterations_override=2,
+        in_loop_pruning_mode="always",
+        tool_result_hard_cap=16000,
+        tool_turn_aggregate_cap_chars=40000,
     ),
     "planning": ContextProfile(
         name="planning",
@@ -230,6 +252,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_skill_index=False,
         optional_static_injections=("context_profile_note",),
         keep_iterations_override=8,
+        in_loop_pruning_mode="pressure",
     ),
     "heartbeat": ContextProfile(
         name="heartbeat",
@@ -248,6 +271,10 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_tool_index=False,
         allow_skill_index=False,
         optional_static_injections=("context_profile_note",),
+        keep_iterations_override=1,
+        in_loop_pruning_mode="always",
+        tool_result_hard_cap=6000,
+        tool_turn_aggregate_cap_chars=12000,
     ),
 }
 

@@ -1852,7 +1852,7 @@ async def test_live_harness_claude_project_local_native_skill_invocation(
 
     channel_id, session_id, bot_id = await _fresh_session(client, case)
     await _configure_low_cost_session(client, case, session_id)
-    await client.set_session_approval_mode(session_id, "bypassPermissions")
+    await client.set_session_approval_mode(session_id, "default")
     original_settings = await client.get_channel_settings(channel_id)
     expected_project_path = _project_path()
     marker = uuid.uuid4().hex[:12]
@@ -1920,6 +1920,114 @@ async def test_live_harness_claude_project_local_native_skill_invocation(
         )
         restored = True
     assert restored
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_claude_sdk_local_plugin_skill_invocation(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("skills")
+    if case.name != "claude":
+        pytest.skip("Claude SDK owns local plugin loading")
+
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    await client.set_session_approval_mode(session_id, "default")
+    original_channel_settings = await client.get_channel_settings(channel_id)
+    original_harness_settings = await client.get_session_harness_settings(session_id)
+    expected_project_path = _project_path()
+    marker = uuid.uuid4().hex[:12]
+    plugin_name = f"harness-plugin-{marker}"
+    skill_name = "echo"
+    expected_phrase = f"NATIVE_PLUGIN_SKILL_LOADED_{marker}"
+    plugin_root = f"{expected_project_path}/plugins/{plugin_name}"
+    manifest_dir = f"{plugin_root}/.claude-plugin"
+    skill_root = f"{plugin_root}/skills/{skill_name}"
+    workspace_id: str | None = None
+
+    try:
+        await client.patch_channel_settings(channel_id, {"project_path": expected_project_path})
+        status = await _assert_harness_project_cwd(
+            client,
+            channel_id=channel_id,
+            session_id=session_id,
+            expected_project_path=expected_project_path,
+        )
+        project_dir = status.get("project_dir") or {}
+        workspace_id = str(project_dir.get("workspace_id") or "")
+        assert workspace_id, status
+
+        await client.mkdir_workspace_path(workspace_id, f"{expected_project_path}/plugins")
+        await client.mkdir_workspace_path(workspace_id, plugin_root)
+        await client.mkdir_workspace_path(workspace_id, manifest_dir)
+        await client.mkdir_workspace_path(workspace_id, f"{plugin_root}/skills")
+        await client.mkdir_workspace_path(workspace_id, skill_root)
+        await client.write_workspace_file(
+            workspace_id,
+            f"{manifest_dir}/plugin.json",
+            json.dumps(
+                {
+                    "name": plugin_name,
+                    "description": "Harness parity local Claude SDK plugin fixture",
+                    "version": "1.0.0",
+                    "author": {"name": "Spindrel Harness"},
+                },
+                indent=2,
+            ),
+        )
+        await client.write_workspace_file(
+            workspace_id,
+            f"{skill_root}/SKILL.md",
+            (
+                "---\n"
+                "description: Harness parity fixture proving Claude SDK local plugin skill invocation.\n"
+                "disable-model-invocation: true\n"
+                "---\n\n"
+                "# Harness Plugin Skill Fixture\n\n"
+                "When this skill is invoked, reply exactly with this text and nothing else:\n"
+                f"{expected_phrase}\n"
+            ),
+        )
+
+        settings_resp = await client._client.post(
+            f"/api/v1/sessions/{session_id}/harness-settings",
+            json={"runtime_settings": {"claude_plugins": [f"plugins/{plugin_name}"]}},
+        )
+        settings_resp.raise_for_status()
+
+        result = await client.chat_session_stream(
+            f"/{plugin_name}:{skill_name}",
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_timeout(),
+        )
+        _assert_clean_turn(result)
+        assert expected_phrase in result.response_text
+
+        messages = await client.get_session_messages(session_id, limit=20)
+        assert any(
+            expected_phrase in str(message.get("content") or "")
+            for message in _assistant_messages(messages)
+        ), "Claude SDK local plugin skill invocation did not persist in assistant transcript"
+    finally:
+        if workspace_id:
+            with contextlib.suppress(Exception):
+                await client.delete_workspace_path(workspace_id, plugin_root)
+        with contextlib.suppress(Exception):
+            await client._client.post(
+                f"/api/v1/sessions/{session_id}/harness-settings",
+                json={"runtime_settings": original_harness_settings.get("runtime_settings") or {}},
+            )
+        await client.patch_channel_settings(
+            channel_id,
+            {
+                "project_workspace_id": original_channel_settings.get("project_workspace_id"),
+                "project_path": original_channel_settings.get("project_path"),
+            },
+        )
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)

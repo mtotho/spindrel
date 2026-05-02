@@ -498,14 +498,9 @@ class TestRetrievalPointers:
         assert messages[6]["content"].startswith("[Tool result pruned")
         assert "web_search" in messages[6]["content"]
 
-    def test_sticky_tool_names_constant_includes_skill_tools(self):
-        """The exported constant must include both skill tool names."""
-        assert "get_skill" in STICKY_TOOL_NAMES
-        assert "get_skill_list" in STICKY_TOOL_NAMES
-
-    def test_sticky_tool_names_includes_memory_file(self):
-        """get_memory_file is sticky so hygiene runs don't re-fetch MEMORY.md."""
-        assert "get_memory_file" in STICKY_TOOL_NAMES
+    def test_sticky_tool_names_constant_is_compat_only(self):
+        """Sticky behavior is now tool metadata, not a runtime name list."""
+        assert STICKY_TOOL_NAMES == frozenset()
 
     def test_mixed_record_id_and_no_record_id(self):
         """Messages with and without record IDs should get appropriate markers."""

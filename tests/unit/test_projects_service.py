@@ -61,7 +61,7 @@ def test_materialize_project_blueprint_creates_starter_surface(tmp_path):
         name="Starter",
         slug="starter",
         default_root_path_pattern="common/projects/{slug}",
-        prompt_file_path=".spindrel/project-prompt.md",
+        prompt_file_path=".spindrel/project-runbook.md",
         folders=["docs"],
         files={"README.md": "# Starter\n"},
         knowledge_files={"overview.md": "Knowledge\n"},
@@ -204,11 +204,11 @@ async def test_project_work_surface_exposes_policy(monkeypatch, tmp_path):
         name="Common Projects",
         slug="common-projects",
         root_path="common/projects",
-        prompt="Inline project prompt.",
-        prompt_file_path=".spindrel/project-prompt.md",
+        prompt="Inline project instructions.",
+        prompt_file_path=".spindrel/project-runbook.md",
     )
     project_dir = project_directory_from_project(project)
-    prompt_file = tmp_path / "shared" / str(workspace_id) / "common" / "projects" / ".spindrel" / "project-prompt.md"
+    prompt_file = tmp_path / "shared" / str(workspace_id) / "common" / "projects" / ".spindrel" / "project-runbook.md"
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
     prompt_file.write_text("Prompt from file.")
     channel_id = uuid.uuid4()
@@ -233,7 +233,7 @@ async def test_project_work_surface_exposes_policy(monkeypatch, tmp_path):
     assert surface.project_id == str(project_id)
     assert surface.project_name == "Common Projects"
     assert surface.channel_id == str(channel_id)
-    assert surface.prompt == "Inline project prompt.\n\nPrompt from file."
+    assert surface.prompt == "Inline project instructions.\n\nPrompt from file."
     assert surface.payload()["project_id"] == str(project_id)
 
 

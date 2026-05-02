@@ -46,6 +46,10 @@ from integrations.claude_code.harness import _build_claude_query_input  # noqa: 
 from integrations.claude_code.harness import _allowed_tools_for_mode  # noqa: E402
 from integrations.claude_code.harness import _bridge_message  # noqa: E402
 from integrations.claude_code.harness import _extract_claude_system_slash_commands  # noqa: E402
+from integrations.claude_code.harness import _is_native_slash_passthrough_prompt  # noqa: E402
+from integrations.claude_code.harness import _normalize_claude_plugin_configs  # noqa: E402
+from integrations.claude_code.harness import _set_claude_plugin_kwargs  # noqa: E402
+from integrations.claude_code.harness import _set_native_filesystem_feature_kwargs  # noqa: E402
 from integrations.claude_code.harness import _set_partial_message_streaming_kwarg  # noqa: E402
 
 
@@ -96,6 +100,7 @@ def _ctx(
     session_plan_mode: str = "chat",
     workdir: str = "/tmp",
     input_manifest: HarnessInputManifest | None = None,
+    runtime_settings: dict | None = None,
 ) -> TurnContext:
     """Build a TurnContext for bridge tests. Default mode suppresses the
     bypass-mode audit pair so existing tests stay focused on the primary
@@ -110,6 +115,7 @@ def _ctx(
         permission_mode=mode,
         db_session_factory=async_session,
         session_plan_mode=session_plan_mode,
+        runtime_settings=runtime_settings or {},
         input_manifest=input_manifest or HarnessInputManifest(),
     )
 
@@ -151,6 +157,107 @@ def test_partial_message_streaming_kwarg_is_enabled_when_sdk_supports_it():
     assert options_kwargs == {"include_partial_messages": True}
 
 
+def test_native_filesystem_feature_sources_are_explicit_when_sdk_supports_them():
+    class Options:
+        def __init__(self, setting_sources: list[str] | None = None) -> None:
+            self.setting_sources = setting_sources
+
+    options_kwargs: dict = {}
+
+    _set_native_filesystem_feature_kwargs(Options, options_kwargs)
+
+    assert options_kwargs == {"setting_sources": ["user", "project", "local"]}
+
+
+def test_native_filesystem_feature_sources_preserve_explicit_override():
+    class Options:
+        def __init__(self, setting_sources: list[str] | None = None) -> None:
+            self.setting_sources = setting_sources
+
+    options_kwargs: dict = {"setting_sources": ["project"]}
+
+    _set_native_filesystem_feature_kwargs(Options, options_kwargs)
+
+    assert options_kwargs == {"setting_sources": ["project"]}
+
+
+def test_claude_plugin_runtime_settings_map_to_sdk_local_plugin_configs():
+    class Options:
+        def __init__(self, plugins: list[dict] | None = None) -> None:
+            self.plugins = plugins
+
+    ctx = _ctx(
+        workdir="/workspace/project",
+        runtime_settings={
+            "claude_plugins": [
+                ".claude/plugins/reviewer",
+                {"type": "local", "path": "/opt/claude/plugins/auditor"},
+            ],
+        },
+    )
+    options_kwargs: dict = {}
+
+    _set_claude_plugin_kwargs(Options, options_kwargs, ctx)
+
+    assert options_kwargs == {
+        "plugins": [
+            {"type": "local", "path": "/workspace/project/.claude/plugins/reviewer"},
+            {"type": "local", "path": "/opt/claude/plugins/auditor"},
+        ]
+    }
+
+
+def test_claude_plugin_runtime_settings_accept_generic_plugins_key_in_claude_adapter():
+    class Options:
+        def __init__(self, plugins: list[dict] | None = None) -> None:
+            self.plugins = plugins
+
+    ctx = _ctx(
+        workdir="/workspace/project",
+        runtime_settings={"plugins": ["plugins/local-fixture"]},
+    )
+    options_kwargs: dict = {}
+
+    _set_claude_plugin_kwargs(Options, options_kwargs, ctx)
+
+    assert options_kwargs == {
+        "plugins": [{"type": "local", "path": "/workspace/project/plugins/local-fixture"}]
+    }
+
+
+def test_claude_plugin_runtime_settings_preserve_explicit_override():
+    class Options:
+        def __init__(self, plugins: list[dict] | None = None) -> None:
+            self.plugins = plugins
+
+    ctx = _ctx(runtime_settings={"claude_plugins": ["/runtime/plugin"]})
+    options_kwargs: dict = {"plugins": [{"type": "local", "path": "/explicit/plugin"}]}
+
+    _set_claude_plugin_kwargs(Options, options_kwargs, ctx)
+
+    assert options_kwargs == {"plugins": [{"type": "local", "path": "/explicit/plugin"}]}
+
+
+def test_normalize_claude_plugin_configs_ignores_unsupported_entries():
+    assert _normalize_claude_plugin_configs(
+        [
+            {"type": "marketplace", "path": "/not-local"},
+            {"type": "local"},
+            "",
+            "relative-plugin",
+        ],
+        cwd="/workspace/project",
+    ) == [{"type": "local", "path": "/workspace/project/relative-plugin"}]
+
+
+def test_native_slash_passthrough_prompts_skip_spindrel_bridge():
+    assert _is_native_slash_passthrough_prompt("/project-skill") is True
+    assert _is_native_slash_passthrough_prompt("  /plugin-name:skill arg") is True
+    assert _is_native_slash_passthrough_prompt("Use /project-skill") is False
+    assert _is_native_slash_passthrough_prompt("/ not actually a command") is False
+    assert _is_native_slash_passthrough_prompt("/// markdown separator") is False
+
+
 def test_bypass_allowed_tools_include_native_claude_code_sdk_surfaces():
     allowed = set(_allowed_tools_for_mode("bypassPermissions"))
 
@@ -162,10 +269,12 @@ def test_restricted_allowed_tools_do_not_bypass_mutating_or_orchestration_surfac
     allowed = set(_allowed_tools_for_mode("default"))
 
     assert {"Read", "Glob", "Grep", "WebSearch"}.issubset(allowed)
-    assert "Skill" not in allowed
+    assert {"Skill", "TodoWrite", "ToolSearch"}.issubset(allowed)
     assert "Agent" not in allowed
-    assert "TodoWrite" not in allowed
     assert "AskUserQuestion" not in allowed
+    assert "Bash" not in allowed
+    assert "Edit" not in allowed
+    assert "Write" not in allowed
 
 
 def test_stream_event_text_deltas_emit_incremental_tokens_and_suppress_duplicate_final_text():
@@ -229,6 +338,37 @@ async def test_claude_query_input_keeps_plain_string_without_images():
     query_input, runtime_items, warnings = _build_claude_query_input("Hello", _ctx())
 
     assert query_input == "Hello"
+    assert runtime_items == ()
+    assert warnings == ()
+
+
+@pytest.mark.asyncio
+async def test_claude_query_input_can_suppress_host_hints_for_native_slash_passthrough():
+    from integrations.sdk import HarnessContextHint
+
+    ctx = _ctx()
+    ctx = TurnContext(
+        **{
+            **ctx.__dict__,
+            "context_hints": (
+                HarnessContextHint(
+                    kind="channel_prompt",
+                    text="Read AGENTS.md first.",
+                    source="project",
+                    priority="instruction",
+                    created_at="2026-05-02T00:00:00Z",
+                ),
+            ),
+        }
+    )
+
+    query_input, runtime_items, warnings = _build_claude_query_input(
+        "/project-skill",
+        ctx,
+        suppress_context_hints=True,
+    )
+
+    assert query_input == "/project-skill"
     assert runtime_items == ()
     assert warnings == ()
 
@@ -550,7 +690,10 @@ def test_tool_result_list_content_joins_text_items():
         result_meta={},
     )
 
-    assert emitter.calls[0][1]["result_summary"] == "line one\nline two"
+    result = emitter.calls[0][1]
+    assert result["result_summary"] == "line one"
+    assert result["envelope"]["body"] == "line one\nline two"
+    assert result["summary"]["preview_text"] == "line one"
 
 
 def test_edit_tool_result_emits_runtime_supplied_diff_envelope():

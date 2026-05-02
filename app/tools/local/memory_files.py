@@ -214,6 +214,7 @@ async def search_memory(query: str) -> str:
     "domains": ["memory"],
     "exposure": "ambient",
     "auto_inject": ["workspace_files_memory"],
+    "context_policy": {"retention": "sticky_reference"},
 }, returns={
     "type": "object",
     "properties": {
@@ -362,6 +363,9 @@ def _memory_diff_stats(diff_text: str) -> tuple[int, int]:
     "domains": ["memory"],
     "exposure": "ambient",
     "auto_inject": ["workspace_files_memory"],
+    "context_policy": {
+        "cacheable": {"arg": "action", "values": [None, "get", "list", "search", "read"], "otherwise": False}
+    },
 }, returns={
     "type": "object",
     "properties": {

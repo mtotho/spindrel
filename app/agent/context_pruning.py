@@ -16,18 +16,10 @@ logger = logging.getLogger(__name__)
 _BEGIN_MARKER = "--- BEGIN RECENT CONVERSATION HISTORY ---"
 _END_MARKER = "--- END RECENT CONVERSATION HISTORY ---"
 
-# Tool names whose output is reference material (skills, runbooks) that
-# the bot needs to keep referring back to across multiple turns.  Tool
-# dispatch sets ``_no_prune=True`` on the resulting tool message so the
-# pruner skips it.  Pruning is the consumer; the loop is the producer.
-STICKY_TOOL_NAMES: frozenset[str] = frozenset({
-    "get_skill",
-    "get_skill_list",
-    # Memory files (MEMORY.md, daily logs) are re-fetched repeatedly during
-    # hygiene runs — keep them verbatim so the bot doesn't burn iterations
-    # asking for the same file across pruning cycles.
-    "get_memory_file",
-})
+# Compatibility export for older imports. Sticky/reference behavior is declared
+# by each tool's ``tool_metadata.context_policy`` and materialized by dispatch
+# as ``_no_prune=True`` on the tool message.
+STICKY_TOOL_NAMES: frozenset[str] = frozenset()
 
 
 _PRUNED_ARGS_SENTINEL = "_spindrel_pruned_tool_args"

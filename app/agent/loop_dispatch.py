@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.agent.bots import BotConfig
-from app.agent.context_pruning import STICKY_TOOL_NAMES
 from app.agent.hooks import HookContext, fire_hook
 from app.agent.loop_cycle_detection import make_signature
 from app.agent.loop_helpers import _append_transcript_tool_entry
@@ -39,14 +38,16 @@ def _tool_call_cache_key(tc: dict[str, Any]) -> Any:
 
 
 def _tool_call_is_cacheable(name: str, args: Any = None) -> bool:
-    if name == "file":
-        parsed = _parse_tool_args(args)
-        operation = parsed.get("operation") if isinstance(parsed, dict) else None
-        return operation in {None, "read", "history"}
-    if name == "memory":
-        parsed = _parse_tool_args(args)
-        action = parsed.get("action") if isinstance(parsed, dict) else None
-        return action in {None, "get", "list", "search", "read"}
+    metadata = get_tool_metadata(name)
+    policy = metadata.get("context_policy") if isinstance(metadata.get("context_policy"), dict) else {}
+    cacheable = policy.get("cacheable") if isinstance(policy, dict) else None
+    if isinstance(cacheable, bool):
+        return cacheable
+    if isinstance(cacheable, dict):
+        if _metadata_arg_predicate_matches(cacheable, args):
+            return True
+        if cacheable.get("otherwise") is not None:
+            return bool(cacheable.get("otherwise"))
     return get_tool_safety_tier(name) == "readonly"
 
 
@@ -83,31 +84,51 @@ def _parse_tool_args(args: Any) -> Any:
     return args
 
 
-def _is_tool_id_refetch(args: Any) -> bool:
-    """True when a read_conversation_history call targets a prior tool result
-    by ID (section="tool:<uuid>")."""
+def _metadata_arg_predicate_matches(predicate: dict[str, Any], args: Any) -> bool:
     parsed = _parse_tool_args(args)
     if not isinstance(parsed, dict):
         return False
-    section = parsed.get("section")
-    if not isinstance(section, str):
+    arg_name = predicate.get("arg")
+    if not isinstance(arg_name, str) or not arg_name:
         return False
-    return section.strip().lower().startswith("tool:")
+    value = parsed.get(arg_name)
+    if "prefix" in predicate:
+        prefix = str(predicate.get("prefix") or "").strip().lower()
+        return isinstance(value, str) and value.strip().lower().startswith(prefix)
+    if "values" in predicate:
+        values = predicate.get("values")
+        if not isinstance(values, list):
+            return False
+        normalized = None if value is None else str(value).strip().lower()
+        normalized_values = {
+            None if item is None else str(item).strip().lower()
+            for item in values
+        }
+        return normalized in normalized_values
+    if "equals" in predicate:
+        expected = predicate.get("equals")
+        if expected is None:
+            return value is None
+        return str(value).strip().lower() == str(expected).strip().lower()
+    return False
 
 
-def _is_skill_get(args: Any) -> bool:
-    """True when a manage_bot_skill call is the read-only ``action="get"`` path.
-
-    Skill bodies returned via ``manage_bot_skill(action="get", ...)`` are
-    reference material the bot keeps consulting — same justification as
-    ``get_skill`` in ``STICKY_TOOL_NAMES``. Covers both single-name and
-    batch (``names=[...]``) variants.
-    """
-    parsed = _parse_tool_args(args)
-    if not isinstance(parsed, dict):
+def _tool_result_is_sticky(name: str, args: Any = None) -> bool:
+    metadata = get_tool_metadata(name)
+    policy = metadata.get("context_policy") if isinstance(metadata.get("context_policy"), dict) else {}
+    if not isinstance(policy, dict):
         return False
-    action = parsed.get("action")
-    return isinstance(action, str) and action.strip().lower() == "get"
+    if policy.get("retention") == "sticky_reference":
+        return True
+    sticky_when = policy.get("sticky_when")
+    if isinstance(sticky_when, dict):
+        return _metadata_arg_predicate_matches(sticky_when, args)
+    if isinstance(sticky_when, list):
+        return any(
+            isinstance(item, dict) and _metadata_arg_predicate_matches(item, args)
+            for item in sticky_when
+        )
+    return False
 
 
 @dataclass(frozen=True)
@@ -117,6 +138,9 @@ class SummarizeSettings:
     model: str
     max_tokens: int
     exclude: frozenset[str]
+    hard_cap: int
+    aggregate_cap_chars: int
+    in_loop_pruning_mode: str
 
 
 def _make_dispatch_kwargs(
@@ -154,6 +178,7 @@ def _make_dispatch_kwargs(
         "summarize_model": summarize_settings.model,
         "summarize_max_tokens": summarize_settings.max_tokens,
         "summarize_exclude": set(summarize_settings.exclude),
+        "tool_result_hard_cap": getattr(summarize_settings, "hard_cap", None),
         "compaction": compaction,
         "skip_policy": skip_policy,
         "allowed_tool_names": effective_allowed,
@@ -328,24 +353,15 @@ async def _process_tool_call_result(
     }
     if tc_result.record_id is not None:
         tool_message["_tool_record_id"] = str(tc_result.record_id)
-    if name in STICKY_TOOL_NAMES:
-        tool_message["_no_prune"] = True
-    elif name == "read_conversation_history" and _is_tool_id_refetch(args):
-        # When used to hydrate a prior tool result by ID (section="tool:<uuid>"),
-        # mark the rehydrated result sticky so the next pruning pass doesn't
-        # strip it again. Otherwise models loop: prune → re-fetch → prune.
-        tool_message["_no_prune"] = True
-    elif name == "manage_bot_skill" and _is_skill_get(args):
-        # manage_bot_skill(action="get") returns skill bodies — same reference
-        # material as get_skill(), which is already in STICKY_TOOL_NAMES. Keep
-        # across prune cycles so hygiene / skill-review bots don't refetch.
+    is_sticky = _tool_result_is_sticky(name, args)
+    if is_sticky:
         tool_message["_no_prune"] = True
     state.messages.append(tool_message)
     yield _event_with_compaction_tag(tc_result.tool_event, ctx.compaction)
 
     if (
         bot.id
-        and name not in STICKY_TOOL_NAMES
+        and not is_sticky
         and not tc_result.needs_approval
         and not tc_result.tool_event.get("error")
     ):
@@ -455,7 +471,7 @@ async def dispatch_iteration_tool_calls(
             *[_dispatch_one(tc) for tc in accumulated_tool_calls],
         )
 
-        aggregate_cap = getattr(settings_obj, "TOOL_TURN_AGGREGATE_CAP_CHARS", 0)
+        aggregate_cap = getattr(summarize_settings, "aggregate_cap_chars", 0)
         if isinstance(aggregate_cap, (int, float)) and aggregate_cap > 0:
             trim_targets = [
                 result for _tc, result, was_cancelled in parallel_results if not was_cancelled
@@ -499,6 +515,7 @@ async def dispatch_iteration_tool_calls(
             return
 
     else:
+        iteration_tool_message_start = len(state.messages)
         for index, tc in enumerate(accumulated_tool_calls):
             if ctx.session_id and session_lock_manager.is_cancel_requested(ctx.session_id):
                 logger.info(
@@ -617,6 +634,21 @@ async def dispatch_iteration_tool_calls(
                 effective_allowed=effective_allowed,
                 dispatch_tool_call_fn=dispatch_tool_call_fn,
             )
+            aggregate_cap = getattr(summarize_settings, "aggregate_cap_chars", 0)
+            if isinstance(aggregate_cap, (int, float)) and aggregate_cap > 0:
+                emitted_chars = 0
+                for prior_msg in state.messages[iteration_tool_message_start:]:
+                    if prior_msg.get("role") != "tool":
+                        continue
+                    content = prior_msg.get("content") or ""
+                    emitted_chars += len(content if isinstance(content, str) else str(content))
+                remaining_cap = max(1, int(aggregate_cap) - emitted_chars)
+                trimmed_chars = enforce_turn_aggregate_cap([tc_result], remaining_cap)
+                if trimmed_chars:
+                    logger.warning(
+                        "turn_aggregate_cap_hit bot=%s session=%s trimmed_chars=%d cap=%d remaining_cap=%d tools=%s",
+                        bot.id, ctx.session_id, trimmed_chars, aggregate_cap, remaining_cap, [name],
+                    )
 
             async for event in _process_tool_call_result(
                 tc=tc,

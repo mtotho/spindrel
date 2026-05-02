@@ -76,6 +76,7 @@ async def _collect(**overrides):
             settings_obj=overrides.pop("settings_obj", _settings()),
             session_lock_manager=overrides.pop("session_lock_manager", object()),
             in_loop_keep_iterations=overrides.pop("in_loop_keep_iterations", 2),
+            in_loop_pruning_mode=overrides.pop("in_loop_pruning_mode", "pressure"),
             has_manage_bot_skill=overrides.pop("has_manage_bot_skill", False),
             dispatch_iteration_tool_calls_fn=overrides.pop("dispatch_iteration_tool_calls_fn", _noop_dispatch),
             dispatch_tool_call_fn=overrides.pop("dispatch_tool_call_fn", object()),

@@ -47,7 +47,9 @@ def _parse_since_seconds(since: str) -> int:
             "Use this for debugging or inspecting raw stderr/stdout that does not "
             "appear in trace_events. The 'agent-server' source reads from the "
             "durable JSONL log file rather than `docker logs`. Pass `container=\"\"` "
-            "with no other args to discover allowed names."
+            "with no other args to discover allowed names. "
+            "Admin-grant only — raw log bodies are returned, so policy treats this "
+            "as control-plane access."
         ),
         "parameters": {
             "type": "object",
@@ -75,7 +77,7 @@ def _parse_since_seconds(since: str) -> int:
             "required": ["container"],
         },
     },
-}, returns={
+}, safety_tier="control_plane", returns={
     "type": "object",
     "properties": {
         "container": {"type": "string"},

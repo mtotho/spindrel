@@ -727,6 +727,9 @@ async def _read_multi_channel_history(section: str, channel_ids: list[str]) -> s
     "domains": ["context_navigation"],
     "exposure": "ambient",
     "auto_inject": ["chat_baseline"],
+    "context_policy": {
+        "sticky_when": {"arg": "section", "prefix": "tool:"}
+    },
 })
 async def read_conversation_history(
     section: str,

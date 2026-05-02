@@ -67,6 +67,7 @@ async def _collect(**overrides):
             soft_current_prompt_tokens=overrides.pop("soft_current_prompt_tokens", 0),
             target_seconds=overrides.pop("target_seconds", 0),
             in_loop_keep_iterations=overrides.pop("in_loop_keep_iterations", 2),
+            in_loop_pruning_mode=overrides.pop("in_loop_pruning_mode", "pressure"),
             settings_obj=overrides.pop("settings_obj", _settings()),
             session_lock_manager=overrides.pop("session_lock_manager", _SessionLocks()),
             merge_activated_tools_fn=overrides.pop("merge_activated_tools_fn", lambda active, tools, choice, allowed, **kw: (tools, choice)),

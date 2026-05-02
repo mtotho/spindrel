@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
     "intent_tags": ["load skill", "skill body", "procedural knowledge"],
     "exposure": "ambient",
     "auto_inject": ["chat_baseline"],
+    "context_policy": {"retention": "sticky_reference"},
 }, returns={
     "type": "object",
     "properties": {
@@ -366,6 +367,7 @@ async def prune_enrolled_skills(skill_ids: list[str], overrides: dict[str, str] 
     "intent_tags": ["list skills", "skill discovery"],
     "exposure": "ambient",
     "auto_inject": ["chat_baseline"],
+    "context_policy": {"retention": "sticky_reference"},
 }, returns={
     "type": "object",
     "properties": {

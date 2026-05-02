@@ -40,6 +40,7 @@ async def stream_loop_tool_iteration(
     settings_obj: Any,
     session_lock_manager: Any,
     in_loop_keep_iterations: int,
+    in_loop_pruning_mode: str,
     has_manage_bot_skill: bool,
     dispatch_iteration_tool_calls_fn: Any,
     dispatch_tool_call_fn: Any,
@@ -131,6 +132,7 @@ async def stream_loop_tool_iteration(
         provider_id=provider_id,
         settings_obj=settings_obj,
         in_loop_keep_iterations=in_loop_keep_iterations,
+        in_loop_pruning_mode=in_loop_pruning_mode,
         compaction=ctx.compaction,
         prune_in_loop_tool_results_fn=prune_in_loop_tool_results_fn,
         should_prune_in_loop_fn=should_prune_in_loop_fn,
@@ -295,6 +297,7 @@ async def _prune_after_tool_iteration(
     provider_id: str | None,
     settings_obj: Any,
     in_loop_keep_iterations: int,
+    in_loop_pruning_mode: str,
     compaction: bool,
     prune_in_loop_tool_results_fn: Any,
     should_prune_in_loop_fn: Any,
@@ -316,12 +319,15 @@ async def _prune_after_tool_iteration(
     except Exception:
         available_budget_tokens = 0
 
-    should_prune, utilization = should_prune_in_loop_fn(
-        messages,
-        available_budget_tokens=available_budget_tokens,
-        pressure_threshold=settings_obj.IN_LOOP_PRUNING_PRESSURE_THRESHOLD,
-        tool_schema_tokens=0,
-    )
+    if in_loop_pruning_mode == "always":
+        should_prune, utilization = True, None
+    else:
+        should_prune, utilization = should_prune_in_loop_fn(
+            messages,
+            available_budget_tokens=available_budget_tokens,
+            pressure_threshold=settings_obj.IN_LOOP_PRUNING_PRESSURE_THRESHOLD,
+            tool_schema_tokens=0,
+        )
     if not should_prune:
         return
 
@@ -344,5 +350,5 @@ async def _prune_after_tool_iteration(
         "scope": "in_loop",
         "keep_iterations": in_loop_keep_iterations,
         "live_history_utilization": utilization,
-        "triggered_by": "pressure",
+        "triggered_by": "profile" if in_loop_pruning_mode == "always" else "pressure",
     }, compaction)

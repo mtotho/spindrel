@@ -87,7 +87,9 @@ def _finding_to_dict(f: LogFinding) -> dict:
             "Return deduplicated error findings across all Spindrel-server log "
             "sources (FastAPI app durable log + sibling containers). Use this "
             "for a fast operational summary without paging raw lines. The "
-            "default 24h window matches the daily health summary."
+            "default 24h window matches the daily health summary. "
+            "Admin-grant only — finding samples carry raw log fragments, so "
+            "policy treats this as control-plane access."
         ),
         "parameters": {
             "type": "object",
@@ -109,7 +111,7 @@ def _finding_to_dict(f: LogFinding) -> dict:
             "required": [],
         },
     },
-}, returns={
+}, safety_tier="control_plane", returns={
     "type": "object",
     "properties": {
         "since": {"type": "string"},

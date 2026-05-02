@@ -122,6 +122,8 @@ class TestActivatedToolMerging:
              patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
              patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False), \
              patch("app.agent.tool_dispatch.call_local_tool", side_effect=_activating_call), \
+             patch("app.agent.tool_dispatch._start_tool_call", new_callable=AsyncMock), \
+             patch("app.agent.tool_dispatch._complete_tool_call", new_callable=AsyncMock), \
              patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock), \
              patch("app.agent.loop._record_trace_event", new_callable=AsyncMock), \
              patch("app.agent.loop.settings") as ms:
@@ -179,6 +181,8 @@ class TestActivatedToolMerging:
              patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
              patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False), \
              patch("app.agent.tool_dispatch.call_local_tool", side_effect=_always_activate), \
+             patch("app.agent.tool_dispatch._start_tool_call", new_callable=AsyncMock), \
+             patch("app.agent.tool_dispatch._complete_tool_call", new_callable=AsyncMock), \
              patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock), \
              patch("app.agent.loop._record_trace_event", new_callable=AsyncMock), \
              patch("app.agent.loop.settings") as ms:
@@ -236,6 +240,8 @@ class TestActivatedToolMerging:
              patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
              patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False), \
              patch("app.agent.tool_dispatch.call_local_tool", side_effect=_tool_call), \
+             patch("app.agent.tool_dispatch._start_tool_call", new_callable=AsyncMock), \
+             patch("app.agent.tool_dispatch._complete_tool_call", new_callable=AsyncMock), \
              patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock), \
              patch("app.agent.loop._record_trace_event", new_callable=AsyncMock), \
              patch("app.agent.loop.settings") as ms:
@@ -409,7 +415,7 @@ class TestInLoopPruning:
         pruning = [e for e in events if e.get("type") == "context_pruning"]
         assert pressure
         assert pruning
-        assert pruning[0]["triggered_by"] == "heartbeat_soft_budget"
+        assert any(e["triggered_by"] == "heartbeat_soft_budget" for e in pruning)
 
     @pytest.mark.asyncio
     async def test_heartbeat_target_seconds_forces_soft_budget_pressure(self):

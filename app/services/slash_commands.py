@@ -1549,13 +1549,14 @@ Use the workspace/project_init skill.
 
 Do this end to end:
 1. Inspect the Project root as a normal checkout. Read repo instructions, setup docs, env examples, compose files, test scripts, and child git remotes.
-2. Check Project readiness with the Project APIs/tools: setup, runtime env, dependency stack, attached channels, and enrolled skills.
-3. If there is no applied Blueprint, create one from the current Project and apply it.
-4. Sanitize Blueprint repo declarations: no tokens in remote URLs, correct repo paths, intended base branches.
-5. Enroll the Project workflow skills needed by the attached channels: workspace/issue_intake, workspace/project_coding_runs, workspace/docker_stacks, and agent_readiness/operator when relevant.
-6. If the repo needs Docker-backed services, configure a Project Dependency Stack from a Project-local compose file for backing services only. Do not put the app server in the stack; agents should start app/dev servers from source on assigned or unused ports.
-7. Declare runtime env keys, required secret slots, setup commands, and dev targets only when the repo evidence supports them.
-8. Re-check readiness and report exactly what changed, what is ready, and what still needs a user decision.
+2. Create or update `.spindrel/project-runbook.md` as the repo-owned Project Runbook: branch policy, test commands, dependency stack usage, dev targets, screenshot/e2e expectations, receipt evidence, and GitHub/Linear handoff rules.
+3. Check Project readiness with the Project APIs/tools: setup, runtime env, dependency stack, attached channels, and enrolled skills.
+4. If there is no applied Blueprint, create one from the current Project and apply it.
+5. Sanitize Blueprint repo declarations: no tokens in remote URLs, correct repo paths, intended base branches.
+6. Enroll the Project workflow skills needed by the attached channels: workspace/issue_intake, workspace/project_coding_runs, workspace/docker_stacks, and agent_readiness/operator when relevant.
+7. If the repo needs Docker-backed services, configure a Project Dependency Stack from a Project-local compose file for backing services only. Do not put the app server in the stack; agents should start app/dev servers from source on assigned or unused ports.
+8. Declare runtime env keys, required secret slots, setup commands, and dev targets only when the repo evidence supports them.
+9. Re-check readiness and report exactly what changed, what is ready, and what still needs a user decision.
 """
 
     payload = {

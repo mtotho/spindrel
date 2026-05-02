@@ -325,21 +325,21 @@ export default function ProjectBlueprintDetail() {
 
           <Section
             title="Instructions"
-            description="Prompt content applied to Projects created from this Blueprint."
+            description="Runbook policy applied to Projects created from this Blueprint."
           >
             <div className="flex flex-col gap-3">
               <PromptEditor
                 value={prompt}
                 onChange={setPrompt}
-                label="Blueprint prompt"
-                placeholder="Optional Project prompt copied into new Projects..."
+                label="Blueprint instructions"
+                placeholder="Optional Project instructions copied into new Projects..."
                 helpText="Copied into the Project at creation time; existing Projects keep their snapshot."
                 rows={6}
                 fieldType="project_prompt"
                 generateContext={`Project Blueprint: ${blueprint.name}`}
               />
-              <FormRow label="Prompt file">
-                <TextInput value={promptFilePath} onChangeText={setPromptFilePath} placeholder=".spindrel/project-prompt.md" />
+              <FormRow label="Project Runbook" description="Project-root relative policy file created or maintained by repo agents.">
+                <TextInput value={promptFilePath} onChangeText={setPromptFilePath} placeholder=".spindrel/project-runbook.md" />
               </FormRow>
             </div>
           </Section>

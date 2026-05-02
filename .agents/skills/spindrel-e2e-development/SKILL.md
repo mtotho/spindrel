@@ -175,11 +175,19 @@ pre-deploy scrutiny. Logs are written under
 Prepare screenshots:
 
 ```bash
-python scripts/agent_e2e_dev.py write-screenshot-env --setup-user
+python scripts/agent_e2e_dev.py write-screenshot-env \
+  --api-url "$SPINDREL_E2E_URL" \
+  --ui-url "$SPINDREL_E2E_URL" \
+  --setup-user
 python -m scripts.screenshots stage --only project-workspace
 python -m scripts.screenshots capture --only project-workspace
 python -m scripts.screenshots check
 ```
+
+The screenshot pipeline reads `SPINDREL_URL` / `SPINDREL_UI_URL` through
+`scripts/screenshots/.env`. Always run `write-screenshot-env` with the current
+agent-owned `SPINDREL_E2E_URL` after starting or restarting your native API/UI;
+otherwise screenshots may silently target an older local server.
 
 ## Screenshot Evidence Contract
 
@@ -196,6 +204,14 @@ as both:
   `docs/images/` and must be referenced from the relevant guide or track doc.
   Temporary scratch images are fine during iteration, but they are not enough
   for final proof.
+
+Do not defer screenshots because patched code is not deployed to a shared live
+server. In local dev mode, start the patched Spindrel API/UI from this checkout
+on the agent-owned port from `.env.agent-e2e`, capture screenshots against that
+server, inspect them, and then stage durable proof images when the workflow
+requires user-visible evidence. A shared deployed server is optional for
+post-deploy verification; it is not a prerequisite for visual feedback on local
+source changes.
 
 Required closeout flow for UI/e2e evidence:
 
