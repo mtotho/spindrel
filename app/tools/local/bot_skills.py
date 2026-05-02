@@ -100,13 +100,14 @@ def _normalize_script_name(name: str) -> str:
     return _slugify(name)
 
 
-def _summarize_scripts(scripts: list[dict] | None) -> list[dict[str, str | int | None]]:
-    summary: list[dict[str, str | int | None]] = []
+def _summarize_scripts(scripts: list[dict] | None) -> list[dict[str, Any]]:
+    summary: list[dict[str, Any]] = []
     for script in scripts or []:
         summary.append({
             "name": script.get("name", ""),
             "description": script.get("description", ""),
             "timeout_s": script.get("timeout_s"),
+            "allowed_tools": script.get("allowed_tools"),
         })
     return summary
 
@@ -433,6 +434,7 @@ async def _handle_get_script(ctx: _SkillActionContext, *, name: str, script_name
         "script_description": script_row.get("description", ""),
         "script_body": script_row.get("script", ""),
         "script_timeout_s": script_row.get("timeout_s"),
+        "script_allowed_tools": script_row.get("allowed_tools"),
     })
 
 
@@ -768,6 +770,7 @@ async def _handle_add_script(
     script_description: str,
     script_body: str,
     script_timeout_s: int | None,
+    script_allowed_tools: list[str] | None,
 ) -> str:
     if not name or not script_name or not script_body or not script_description:
         return _error("name, script_name, script_description, and script_body are required for add_script action.")
@@ -779,6 +782,7 @@ async def _handle_add_script(
         "description": script_description,
         "script": script_body,
         "timeout_s": script_timeout_s,
+        "allowed_tools": script_allowed_tools,
     }], require_description=True)
     if scripts_err:
         return _error(scripts_err)
@@ -813,6 +817,7 @@ async def _handle_update_script(
     script_description: str,
     script_body: str,
     script_timeout_s: int | None,
+    script_allowed_tools: list[str] | None,
 ) -> str:
     if not name or not script_name:
         return _error("name and script_name are required for update_script action.")
@@ -834,11 +839,17 @@ async def _handle_update_script(
         next_description = script_description or current.get("description", "")
         next_body = script_body or current.get("script", "")
         next_timeout = script_timeout_s if script_timeout_s is not None else current.get("timeout_s")
+        next_allowed_tools = (
+            script_allowed_tools
+            if script_allowed_tools is not None
+            else current.get("allowed_tools")
+        )
         new_scripts, scripts_err = _validate_scripts_payload([{
             "name": next_name,
             "description": next_description,
             "script": next_body,
             "timeout_s": next_timeout,
+            "allowed_tools": next_allowed_tools,
         }], require_description=True)
         if scripts_err:
             return _error(scripts_err)
@@ -939,6 +950,11 @@ async def _handle_delete_script(ctx: _SkillActionContext, *, name: str, script_n
                             "description": {"type": "string"},
                             "script": {"type": "string"},
                             "timeout_s": {"type": "integer"},
+                            "allowed_tools": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Optional allowlist of tool names this stored script may call.",
+                            },
                         },
                         "required": ["name", "description", "script"],
                     },
@@ -958,6 +974,14 @@ async def _handle_delete_script(ctx: _SkillActionContext, *, name: str, script_n
                 "script_timeout_s": {
                     "type": "integer",
                     "description": "Optional default timeout for the named script.",
+                },
+                "script_allowed_tools": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional allowlist of tool names this named script may call through "
+                        "run_script. Use with add_script/update_script for deterministic workflows."
+                    ),
                 },
                 "old_text": {
                     "type": "string",
@@ -1023,6 +1047,10 @@ async def _handle_delete_script(ctx: _SkillActionContext, *, name: str, script_n
                                         "name": {"type": "string"},
                                         "description": {"type": "string"},
                                         "timeout_s": {"type": ["integer", "null"]},
+                                        "allowed_tools": {
+                                            "type": ["array", "null"],
+                                            "items": {"type": "string"},
+                                        },
                                     },
                                     "required": ["name", "description"],
                                 },
@@ -1055,6 +1083,10 @@ async def _handle_delete_script(ctx: _SkillActionContext, *, name: str, script_n
                             "name": {"type": "string"},
                             "description": {"type": "string"},
                             "timeout_s": {"type": ["integer", "null"]},
+                            "allowed_tools": {
+                                "type": ["array", "null"],
+                                "items": {"type": "string"},
+                            },
                         },
                         "required": ["name", "description"],
                     },
@@ -1094,6 +1126,10 @@ async def _handle_delete_script(ctx: _SkillActionContext, *, name: str, script_n
                 "script_description": {"type": "string"},
                 "script_body": {"type": "string"},
                 "script_timeout_s": {"type": ["integer", "null"]},
+                "script_allowed_tools": {
+                    "type": ["array", "null"],
+                    "items": {"type": "string"},
+                },
             },
             "required": ["ok", "id", "script_name", "script_body"],
         },
@@ -1147,6 +1183,7 @@ async def manage_bot_skill(
     script_description: str = "",
     script_body: str = "",
     script_timeout_s: int | None = None,
+    script_allowed_tools: list[str] | None = None,
     old_text: str = "",
     new_text: str = "",
     force: bool = False,
@@ -1226,6 +1263,7 @@ async def manage_bot_skill(
             script_description=script_description,
             script_body=script_body,
             script_timeout_s=script_timeout_s,
+            script_allowed_tools=script_allowed_tools,
         )
     if action == "update_script":
         return await _handle_update_script(
@@ -1235,6 +1273,7 @@ async def manage_bot_skill(
             script_description=script_description,
             script_body=script_body,
             script_timeout_s=script_timeout_s,
+            script_allowed_tools=script_allowed_tools,
         )
     if action == "delete_script":
         return await _handle_delete_script(ctx, name=name, script_name=script_name)

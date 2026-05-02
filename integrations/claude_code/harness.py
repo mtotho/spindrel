@@ -527,6 +527,7 @@ class ClaudeCodeRuntime:
         _set_claude_plugin_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
         _set_claude_agent_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
         _set_claude_mcp_server_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
+        _set_claude_option_passthrough_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
         native_slash_passthrough = _is_native_slash_passthrough_prompt(prompt)
         instruction_hints_in_system = False
         if not native_slash_passthrough:
@@ -656,6 +657,7 @@ class ClaudeCodeRuntime:
         _set_claude_plugin_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
         _set_claude_agent_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
         _set_claude_mcp_server_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
+        _set_claude_option_passthrough_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
         opts = ClaudeAgentOptions(**options_kwargs)
 
         result_meta: dict[str, Any] = {}
@@ -741,6 +743,7 @@ class ClaudeCodeRuntime:
         _set_claude_plugin_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
         _set_claude_agent_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
         _set_claude_mcp_server_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
+        _set_claude_option_passthrough_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
 
         text_parts: list[str] = []
         usage: Any = None
@@ -1552,6 +1555,122 @@ def _allow_configured_claude_mcp_servers(
         if spec not in allowed:
             allowed.append(spec)
     options_kwargs["allowed_tools"] = allowed
+
+
+_CLAUDE_OPTION_PASSTHROUGH_KEYS = frozenset({
+    "skills",
+    "add_dirs",
+    "fallback_model",
+    "max_budget_usd",
+    "max_turns",
+    "betas",
+    "settings",
+    "extra_args",
+    "max_buffer_size",
+    "max_thinking_tokens",
+    "thinking",
+    "output_format",
+    "enable_file_checkpointing",
+    "load_timeout_ms",
+    "task_budget",
+    "sandbox",
+    "fork_session",
+})
+
+
+def _set_claude_option_passthrough_kwargs(
+    options_cls: Any,
+    options_kwargs: dict[str, Any],
+    ctx: TurnContext,
+) -> None:
+    """Thread explicit allowlisted Claude SDK options from runtime settings."""
+    raw_options = _runtime_setting_first(
+        ctx.runtime_settings,
+        "claude_options",
+        "claude_sdk_options",
+    )
+    normalized = _normalize_claude_option_passthrough(
+        raw_options,
+        cwd=ctx.workdir,
+    )
+    if not normalized:
+        return
+    try:
+        sig = inspect.signature(options_cls)
+        supported = set(sig.parameters)
+    except Exception:
+        supported = set(getattr(options_cls, "__annotations__", {}) or {})
+    for key, value in normalized.items():
+        if key in options_kwargs or key not in supported:
+            continue
+        options_kwargs[key] = value
+
+
+def _normalize_claude_option_passthrough(raw: Any, *, cwd: str) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, Mapping):
+        logger.warning(
+            "claude-code: ignoring runtime_settings.claude_options with invalid type %s",
+            type(raw).__name__,
+        )
+        return {}
+    normalized: dict[str, Any] = {}
+    for key, value in raw.items():
+        name = str(key or "").strip()
+        if name not in _CLAUDE_OPTION_PASSTHROUGH_KEYS:
+            logger.warning("claude-code: ignoring unsupported Claude SDK option %r", name)
+            continue
+        parsed = _normalize_claude_option_value(name, value, cwd=cwd)
+        if parsed is not None:
+            normalized[name] = parsed
+    return normalized
+
+
+def _normalize_claude_option_value(name: str, value: Any, *, cwd: str) -> Any:
+    if name in {"fallback_model", "settings"}:
+        return value.strip() if isinstance(value, str) and value.strip() else None
+    if name in {"max_turns", "max_buffer_size", "max_thinking_tokens", "load_timeout_ms"}:
+        return value if isinstance(value, int) and value > 0 else None
+    if name == "max_budget_usd":
+        return value if isinstance(value, (int, float)) and value > 0 else None
+    if name in {"enable_file_checkpointing", "fork_session"}:
+        return value if isinstance(value, bool) else None
+    if name == "skills":
+        if value == "all":
+            return value
+        return _string_list(value)
+    if name == "add_dirs":
+        dirs = _string_list(value)
+        if not dirs:
+            return None
+        return [
+            path if os.path.isabs(path) else os.path.realpath(os.path.join(cwd, path))
+            for path in dirs
+        ]
+    if name == "betas":
+        return _string_list(value)
+    if name == "extra_args":
+        if not isinstance(value, Mapping):
+            return None
+        args: dict[str, str | None] = {}
+        for raw_key, raw_value in value.items():
+            arg = str(raw_key or "").strip()
+            if not arg:
+                continue
+            if raw_value is None or isinstance(raw_value, str):
+                args[arg] = raw_value
+        return args or None
+    if name in {"thinking", "output_format", "task_budget", "sandbox"}:
+        return dict(value) if isinstance(value, Mapping) else None
+    return None
+
+
+def _string_list(value: Any) -> list[str] | None:
+    if not isinstance(value, list):
+        return None
+    strings = [item.strip() for item in value if isinstance(item, str) and item.strip()]
+    return strings or None
 
 
 def _runtime_setting_first(settings: Mapping[str, Any], *keys: str) -> Any:

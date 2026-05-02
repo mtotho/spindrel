@@ -307,16 +307,16 @@ launch review action, so later review sessions can group the overnight runs
 back to the human-approved launch set.
 
 Project Runs exposes that launch batch on each coding run and shows grouped
-batch actions when two or more runs share the same id. Review batch starts the
-normal `project_coding_run_review` task with every run from the launch batch
-selected; it is not a separate review system. When the review agent accepts a
-run, finalization marks the run reviewed and appends a `reviewed` action back
-to the source Work Pack metadata with the review task/session ids, outcome,
-summary, merge method, and `launch_batch_id`.
+batch context when two or more runs share the same id. Launching a batch review
+agent starts the normal `project_coding_run_review` task with every run from the
+launch batch selected; it is not a separate review system. When the review
+agent accepts a run, finalization marks the run reviewed and appends a
+`reviewed` action back to the source Work Pack metadata with the review
+task/session ids, outcome, summary, merge method, and `launch_batch_id`.
 
-Project Runs also exposes a Review Inbox above the individual run list. The
-inbox is a derived read model, not a new state machine: each coding run is
-classified into the operator queue states `ready_for_review`,
+Project Runs also exposes a Needs Human Review queue above the individual run
+list. The queue is a derived read model, not a new state machine: each coding
+run is classified into the operator queue states `ready_for_review`,
 `changes_requested`, `missing_evidence`, `follow_up_running`,
 `follow_up_created`, `reviewing`, `blocked`, or `reviewed`. Launch-batch
 provenance stays visible below the queue so morning review can still select a
@@ -380,13 +380,13 @@ artifacts, not ad hoc local captures:
 | [Project work hub](../images/project-workspace-detail.png) | Project detail opens as an agent-work home with Factory Status, Project Runbook, runs, readiness, channels, work-surface entry points, and both coding-run review plus raw Issue Intake/work-pack review links. |
 | [Home Action Inbox](../images/home.png) | Home separates actionable replies, Project reviews, issue intake, Mission Control findings, and health from raw Attention noise. |
 | [Rail Inbox](../images/home-inbox.png) | The left rail Inbox groups review-ready work and unread replies without making raw Attention counts look urgent. |
-| [Project Review Inbox](../images/project-workspace-review-inbox.png) | Operator queue with ready, changes-requested, follow-up, missing-evidence, and blocked states plus source Work Pack launch-batch provenance. |
+| [Project Human Review Queue](../images/project-workspace-review-inbox.png) | Operator queue with ready, changes-requested, follow-up, missing-evidence, and blocked states plus source Work Pack launch-batch provenance. |
 | [Project Run detail](../images/project-workspace-run-detail.png) | Canonical review page for one coding run, including summary, receipt, review decision, changed files, tests, screenshots, dev targets, dependency stack, activity, and raw metadata. |
 | [Project Run follow-up](../images/project-workspace-run-follow-up.png) | Recovery flow for a changes-requested run: suggested feedback, Start follow-up, and the created follow-up task link. |
 | [Project Review Ledger](../images/project-workspace-review-ledger.png) | Review-session audit rows with selected runs, source Work Packs, outcome counts, merge settings, summaries, evidence, and active/finalized review links. |
-| [Project Runs cockpit](../images/project-workspace-runs.png) | Coding-run launch, Review Inbox launch-batch readiness, launch-batch grouping/review controls, selected-run review prompt, batch mark-reviewed/review-session controls, branch/PR progress, continuation action, handoff links, and receipt evidence. |
+| [Project Runs cockpit](../images/project-workspace-runs.png) | Coding-run launch, Needs Human Review queue, launch-batch context, explicit agent-review launch/open actions, branch/PR progress, continuation action, PR links, and receipt evidence. |
 | [Coding-run execution access](../images/project-workspace-execution-access.png) | Launching a coding run can grant one existing e2e/machine target with explicit inspect/exec and agent-tool controls. |
-| [Review session launched](../images/project-workspace-review-launched.png) | Clicking Start review on a selected run returns a review task and surfaces the task link in the cockpit. |
+| [Review session launched](../images/project-workspace-review-launched.png) | Launching an agent review on a selected run returns a review task and surfaces the task link in the cockpit. |
 | [Review execution access](../images/project-workspace-review-execution-access.png) | Launching a review session can carry the same task-scoped e2e/machine grant for tests, screenshots, and merge verification. |
 | [Review finalized and merged](../images/project-workspace-review-finalized.png) | Accepted review provenance after merge: reviewed status, merged PR, check status, merge method, merge commit, review task, and handoff. |
 | [Project memory-tool transcript](../images/project-workspace-memory-tool.png) | Project-bound channels still render the memory tool result envelope with the expected `path` and completion message. |

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -100,6 +101,53 @@ def _extract_skill_metadata(raw: str, skill_id: str) -> dict[str, Any]:
         "category": meta.get("category"),
         "triggers": triggers,
     }
+
+
+def _collect_skill_scripts_for_path(path: Path) -> list[dict]:
+    """Collect named scripts from `<skill>.scripts/*.py` sidecars.
+
+    Sidecar scripts are file-managed with the same mutability rules as the
+    owning skill. Optional `<name>.yaml` metadata may declare description,
+    timeout_s, and allowed_tools.
+    """
+    sidecar_dir = path.with_suffix(".scripts")
+    if not sidecar_dir.is_dir():
+        return []
+
+    raw_scripts: list[dict] = []
+    for script_path in sorted(sidecar_dir.glob("*.py")):
+        meta_path = script_path.with_suffix(".yaml")
+        meta: dict[str, Any] = {}
+        if meta_path.exists():
+            try:
+                import yaml
+                parsed = yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {}
+                if isinstance(parsed, dict):
+                    meta = parsed
+            except Exception:
+                logger.warning("file_sync: cannot parse script metadata %s", meta_path, exc_info=True)
+        raw_scripts.append({
+            "name": script_path.stem,
+            "description": str(meta.get("description") or f"Run {script_path.stem}").strip(),
+            "script": script_path.read_text(encoding="utf-8"),
+            "timeout_s": meta.get("timeout_s"),
+            "allowed_tools": meta.get("allowed_tools"),
+        })
+
+    if not raw_scripts:
+        return []
+    from app.tools.local.bot_skills import _validate_scripts_payload
+    normalized, err = _validate_scripts_payload(raw_scripts, require_description=True)
+    if err:
+        raise ValueError(f"Invalid script sidecar for {path}: {err}")
+    return normalized
+
+
+def _skill_content_hash(raw: str, scripts: list[dict] | None) -> str:
+    if not scripts:
+        return _sha256(raw)
+    scripts_json = json.dumps(scripts, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return _sha256(f"{raw}\n\0scripts\0{scripts_json}")
 
 
 def _chunk_markdown(body: str, skill_name: str, max_chunk: int = 1500) -> list[str]:
@@ -273,9 +321,11 @@ async def _upsert_skill_row(
     source_path: str,
     source_type: str,
     log_path: Path | None,
+    scripts: list[dict] | None = None,
 ) -> str:
     """Upsert a Skill row from raw markdown. Returns 'added', 'updated', or 'unchanged'."""
-    content_hash = _sha256(raw)
+    normalized_scripts = scripts or []
+    content_hash = _skill_content_hash(raw, normalized_scripts)
     skill_meta = _extract_skill_metadata(raw, skill_id)
     is_watch = log_path is None
 
@@ -288,6 +338,7 @@ async def _upsert_skill_row(
                 description=skill_meta["description"],
                 category=skill_meta["category"],
                 triggers=skill_meta["triggers"],
+                scripts=normalized_scripts,
                 content=raw,
                 content_hash=content_hash,
                 source_path=source_path,
@@ -304,6 +355,7 @@ async def _upsert_skill_row(
             existing.description = skill_meta["description"]
             existing.category = skill_meta["category"]
             existing.triggers = skill_meta["triggers"]
+            existing.scripts = normalized_scripts
             existing.content = raw
             existing.content_hash = content_hash
             existing.source_path = source_path
@@ -315,10 +367,13 @@ async def _upsert_skill_row(
             return "updated"
         # Unchanged — sync_all also patches drifted source metadata silently.
         if not is_watch and (
-            existing.source_type != source_type or existing.source_path != source_path
+            existing.source_type != source_type
+            or existing.source_path != source_path
+            or (existing.scripts or []) != normalized_scripts
         ):
             existing.source_type = source_type
             existing.source_path = source_path
+            existing.scripts = normalized_scripts
             await session.commit()
         return "unchanged"
 
@@ -649,12 +704,14 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
         seen_skill_ids.add(skill_id)
 
         try:
+            scripts = _collect_skill_scripts_for_path(path)
             status = await _upsert_skill_row(
                 skill_id=skill_id,
                 raw=raw,
                 source_path=str(path.resolve()),
                 source_type=source_type,
                 log_path=path,
+                scripts=scripts,
             )
         except Exception:
             logger.exception("file_sync: DB error syncing skill '%s'", skill_id)
@@ -762,8 +819,12 @@ async def sync_changed_file(path: Path) -> None:
     """Handle a single file change event from the watcher."""
     path = path.resolve()
     path_str = str(path)
+    parent_skill_path = _sidecar_parent_skill_path(path)
 
     if not path.exists():
+        if parent_skill_path and parent_skill_path.exists():
+            await sync_changed_file(parent_skill_path)
+            return
         any_deleted, workflow_deleted = await _delete_rows_by_source_path(path_str=path_str)
         if any_deleted:
             logger.info("file_sync: removed DB rows for deleted file %s", path)
@@ -773,6 +834,10 @@ async def sync_changed_file(path: Path) -> None:
                 await reload_workflows()
             except Exception:
                 pass
+        return
+
+    if parent_skill_path and path != parent_skill_path:
+        await sync_changed_file(parent_skill_path)
         return
 
     if path.suffix not in (".md", ".yaml"):
@@ -788,12 +853,14 @@ async def sync_changed_file(path: Path) -> None:
     kind, skill_id_or_name, _bot_id, source_type = rel_parts
 
     if kind == "skill":
+        scripts = _collect_skill_scripts_for_path(path)
         await _upsert_skill_row(
             skill_id=skill_id_or_name,
             raw=raw,
             source_path=path_str,
             source_type=source_type,
             log_path=None,
+            scripts=scripts,
         )
     elif kind == "prompt_template":
         await _upsert_prompt_template_row(
@@ -875,6 +942,17 @@ def _classify_path(path: Path) -> tuple[str, str, str | None, str] | None:
     return None
 
 
+def _sidecar_parent_skill_path(path: Path) -> Path | None:
+    """Return the owning markdown skill for a `<skill>.scripts/*` path."""
+    parent = path.parent
+    if not parent.name.endswith(".scripts"):
+        return None
+    skill_stem = parent.name[: -len(".scripts")]
+    if not skill_stem:
+        return None
+    return parent.parent / f"{skill_stem}.md"
+
+
 async def watch_files() -> None:
     """Background watcher — monitors all file-drop directories for .md changes.
 
@@ -905,7 +983,7 @@ async def watch_files() -> None:
                 backoff = 1.0  # reset backoff on successful event
                 for change_type, changed_path in changes:
                     p = Path(changed_path)
-                    if p.suffix not in (".md", ".yaml"):
+                    if p.suffix not in (".md", ".yaml", ".py"):
                         continue
                     try:
                         await sync_changed_file(p)

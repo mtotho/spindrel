@@ -357,6 +357,7 @@ export function ProjectRunsSection({
   const [selectedRepoPath, setSelectedRepoPath] = useState("");
   const [request, setRequest] = useState("");
   const [createdRunId, setCreatedRunId] = useState<string | null>(null);
+  const [showRunLauncher, setShowRunLauncher] = useState(false);
   const [runMachineTargetGrant, setRunMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
   const [loopEnabled, setLoopEnabled] = useState(false);
   const [loopMaxIterations, setLoopMaxIterations] = useState(3);
@@ -587,16 +588,24 @@ export function ProjectRunsSection({
 
       <Section
         title="Agent Coding Run"
-        description="Start a Project-scoped implementation task with a fresh instance, guided branch handoff, runtime env, and review receipt."
+        description="Launch a new implementation agent only when you are ready to start more work."
         action={
           <ActionButton
-            label={createRun.isPending ? "Starting" : "Start Run"}
+            label={!showRunLauncher ? "New run" : createRun.isPending ? "Starting" : "Start Run"}
             icon={<Play size={14} />}
-            disabled={!selectedChannel || !hasBlueprintSnapshot || createRun.isPending}
-            onPress={startRun}
+            disabled={showRunLauncher && (!selectedChannel || !hasBlueprintSnapshot || createRun.isPending)}
+            onPress={() => {
+              if (!showRunLauncher) {
+                setShowRunLauncher(true);
+                return;
+              }
+              startRun();
+            }}
           />
         }
       >
+        {showRunLauncher ? (
+          <>
         <div className="grid gap-3 md:grid-cols-[minmax(240px,0.85fr)_minmax(0,1.15fr)]">
           <FormRow label="Channel">
             <SelectInput
@@ -717,6 +726,24 @@ export function ProjectRunsSection({
               meta={<StatusBadge label="failed" variant="danger" />}
             />
           </div>
+        )}
+          </>
+        ) : (
+          <SettingsControlRow
+            leading={<Play size={14} />}
+            title="Start a new agent coding run"
+            description="Use this for fresh work. Existing active runs, human review, and agent review sessions stay visible on the page."
+            meta={hasBlueprintSnapshot ? <StatusBadge label="ready" variant="success" /> : <StatusBadge label="setup needed" variant="warning" />}
+            action={
+              <ActionButton
+                label="New run"
+                icon={<Play size={13} />}
+                size="small"
+                variant="secondary"
+                onPress={() => setShowRunLauncher(true)}
+              />
+            }
+          />
         )}
       </Section>
 

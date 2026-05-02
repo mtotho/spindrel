@@ -10,7 +10,12 @@ import os
 from unittest.mock import patch
 
 from app.agent.skills import list_available_skills
-from app.services.file_sync import SOURCE_FILE, _collect_skill_files, _resolve_skill_id
+from app.services.file_sync import (
+    SOURCE_FILE,
+    _collect_skill_files,
+    _collect_skill_scripts_for_path,
+    _resolve_skill_id,
+)
 
 
 def _chdir_collect(tmp_path):
@@ -142,3 +147,29 @@ class TestSkillIdOverride:
         assert _resolve_skill_id("default", {"id": ["a", "b"]}) == "default"
         assert _resolve_skill_id("default", {"id": ""}) == "default"
         assert _resolve_skill_id("default", {"id": "   "}) == "default"
+
+
+class TestSkillScriptSidecars:
+    def test_collects_python_sidecars_with_metadata(self, tmp_path):
+        skill = tmp_path / "media_management.md"
+        skill.write_text("# Media Management")
+        sidecars = tmp_path / "media_management.scripts"
+        sidecars.mkdir()
+        (sidecars / "expected-download-audit.py").write_text("print('ok')\n")
+        (sidecars / "expected-download-audit.yaml").write_text(
+            "description: Audit expected downloads\n"
+            "timeout_s: 90\n"
+            "allowed_tools:\n"
+            "  - file\n"
+            "  - arr_heartbeat_snapshot\n"
+        )
+
+        scripts = _collect_skill_scripts_for_path(skill)
+
+        assert scripts == [{
+            "name": "expected-download-audit",
+            "description": "Audit expected downloads",
+            "script": "print('ok')\n",
+            "timeout_s": 90,
+            "allowed_tools": ["file", "arr_heartbeat_snapshot"],
+        }]

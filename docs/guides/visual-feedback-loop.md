@@ -177,7 +177,7 @@ bundle intentionally checks Project admin surfaces, Blueprint management,
 Project setup commands and run history, Project Basics readiness,
 Project runtime-env readiness, fresh
 Project instances, Project coding-run cockpit/receipts/review launcher,
-launch-batch Review Inbox, review-session ledger, scheduled Project reviews,
+Needs Human Review queue, review-session ledger, scheduled Project reviews,
 task-scoped execution access for coding and review launches, launched
 review-session confirmation, finalized review/merge provenance, Project
 settings, and the channel transcript.

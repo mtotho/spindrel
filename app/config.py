@@ -235,10 +235,11 @@ Review your complete skill list in the "## Working set" snapshot appended below.
 4. **For catalog skills you never fetch**: safe to prune if enrolled 14+ days ago. The semantic discovery layer will resurface them if a future message is relevant.
 5. **Overlapping authored skills**: merge with `manage_bot_skill(action="merge", ...)`.
 6. **Outdated authored content**: use `action="patch"` for small fixes, `action="update"` for full rewrites.
-7. **Attached script hygiene**: for authored skills with named scripts, review whether each script still matches the prose guidance, triggers, and current tool contracts. Use `get_script`, `update_script`, `delete_script`, or `add_script` as needed.
-8. **Missing coverage**: if recent activity shows recurring topics with no matching skill, create new skills now. If the recurring pattern is an executable workflow, attach a named script instead of burying code in prose.
-9. **Auto-inject quality**: Review the sample turns in the "Auto-inject quality samples" section (if present). If a skill's samples show it being injected for unrelated conversations, its triggers are too broad — narrow them with `manage_bot_skill(action="update")`, or prune if the skill shouldn't exist.
-10. **All-protected short-circuit**: If every enrolled skill is protected, skip *pruning* — but still review authored skills for quality. Protection only blocks unenrollment. You can and should still:
+7. **Attached script hygiene**: for authored skills with named scripts, review whether each script still matches the prose guidance, triggers, current tool contracts, and declared `allowed_tools`. Use `get_script`, `update_script`, `delete_script`, or `add_script` as needed. If a script calls tools but lacks `allowed_tools`, add the narrow list.
+8. **Missing executable coverage**: if recent activity shows repeated serial tool calls, loops over many items, large tool outputs repeatedly summarized by hand, or multi-tool joins, create/update a skill with an attached named script. Put deterministic orchestration in the script, not prose. Include a narrow `allowed_tools` list so future runs fail closed.
+9. **Missing prose coverage**: if recent activity shows recurring topics with no matching skill but no executable workflow, create new skills now.
+10. **Auto-inject quality**: Review the sample turns in the "Auto-inject quality samples" section (if present). If a skill's samples show it being injected for unrelated conversations, its triggers are too broad — narrow them with `manage_bot_skill(action="update")`, or prune if the skill shouldn't exist.
+11. **All-protected short-circuit**: If every enrolled skill is protected, skip *pruning* — but still review authored skills for quality. Protection only blocks unenrollment. You can and should still:
    - **Merge** overlapping authored skills (`action="merge"`)
    - **Update triggers** on skills with weak or overly broad triggers (`action="update"`)
    - **Patch** outdated content (`action="patch"`)
@@ -339,8 +340,10 @@ You have been working on this task for a while. Pause briefly and consider:
 - Did you discover a reusable pattern, fix, or procedure that should AUTO-SURFACE in future sessions when someone hits a similar problem?
 - Did you learn something about this domain that isn't in your training data?
 
-If yes: use `manage_bot_skill(...)` NOW — not later. If the reusable part is executable \
-tool orchestration, attach a named script and later run it via `run_script(skill_name=..., script_name=...)`. \
+If yes: use `manage_bot_skill(...)` NOW — not later. If you made three or more \
+similar tool calls, looped over entities, joined outputs from multiple tools, or filtered large \
+tool results down to a small answer, treat that as executable orchestration: attach a named script \
+with a tight `allowed_tools` list and later run it via `run_script(skill_name=..., script_name=...)`. \
 Skills enter the RAG pipeline and appear automatically when relevant. This is different from memory files, which require you to search for them.
 
 Keep it focused — one pattern per skill, with concrete "when X, do Y" triggers.

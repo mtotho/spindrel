@@ -1,0 +1,5 @@
+description: Read tracked ARR expectations and report expected vs downloaded status.
+timeout_s: 90
+allowed_tools:
+  - file
+  - arr_heartbeat_snapshot

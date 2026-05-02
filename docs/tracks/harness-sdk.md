@@ -598,6 +598,17 @@ Approval mapping intent (final values from schema):
   shape. Unit coverage guards hook registration and sanitization, and a local
   live Claude slice proves native `Read` emits persisted Pre/Post tool hook
   metadata.
+- 2026-05-02 Claude advanced SDK option passthrough: remaining option-level
+  Claude SDK knobs are now available through explicit per-session
+  `runtime_settings.claude_options` / `claude_sdk_options` when the installed
+  SDK supports the named option. The allowlist covers `skills`, `add_dirs`,
+  `fallback_model`, `max_budget_usd`, `max_turns`, `betas`, `settings`,
+  `extra_args`, `max_buffer_size`, `max_thinking_tokens`, `thinking`,
+  `output_format`, `enable_file_checkpointing`, `load_timeout_ms`,
+  `task_budget`, `sandbox`, and `fork_session`. Adapter-owned values such as
+  cwd/resume/model/effort/hooks/plugins/agents/MCP still win over passthrough
+  settings. Relative `add_dirs` resolve against the harness cwd, and invalid
+  shapes are ignored instead of being sent to the SDK.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

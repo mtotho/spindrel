@@ -1124,6 +1124,95 @@ class TestCacheInvalidation:
         _bot_skill_cache.pop("expbot", None)
 
 
+class TestManageBotSkillScriptAllowedTools:
+    @pytest.mark.asyncio
+    async def test_add_script_accepts_and_reports_allowed_tools(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        db_session.add(build_bot_skill(bot_id="testbot", name="ops-guide"))
+        await db_session.commit()
+        agent_context(bot_id="testbot")
+
+        added = json.loads(await manage_bot_skill(
+            action="add_script",
+            name="ops-guide",
+            script_name="tail-logs",
+            script_description="Tail recent logs.",
+            script_body="print('ok')\n",
+            script_allowed_tools=["file", "read_container_logs"],
+        ))
+        fetched = json.loads(await manage_bot_skill(
+            action="get_script",
+            name="ops-guide",
+            script_name="tail-logs",
+        ))
+
+        assert added["ok"] is True
+        assert fetched["script_allowed_tools"] == ["file", "read_container_logs"]
+
+    @pytest.mark.asyncio
+    async def test_update_script_preserves_allowed_tools_when_omitted(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        skill = build_bot_skill(bot_id="testbot", name="ops-guide")
+        skill.scripts = [{
+            "name": "tail-logs",
+            "description": "Tail recent logs.",
+            "script": "print('old')\n",
+            "timeout_s": 30,
+            "allowed_tools": ["file"],
+        }]
+        db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
+
+        updated = json.loads(await manage_bot_skill(
+            action="update_script",
+            name="ops-guide",
+            script_name="tail-logs",
+            script_body="print('new')\n",
+        ))
+        fetched = json.loads(await manage_bot_skill(
+            action="get_script",
+            name="ops-guide",
+            script_name="tail-logs",
+        ))
+
+        assert updated["ok"] is True
+        assert fetched["script_body"] == "print('new')\n"
+        assert fetched["script_allowed_tools"] == ["file"]
+
+    @pytest.mark.asyncio
+    async def test_update_script_can_replace_allowed_tools(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        skill = build_bot_skill(bot_id="testbot", name="ops-guide")
+        skill.scripts = [{
+            "name": "tail-logs",
+            "description": "Tail recent logs.",
+            "script": "print('old')\n",
+            "timeout_s": 30,
+            "allowed_tools": ["file"],
+        }]
+        db_session.add(skill)
+        await db_session.commit()
+        agent_context(bot_id="testbot")
+
+        await manage_bot_skill(
+            action="update_script",
+            name="ops-guide",
+            script_name="tail-logs",
+            script_allowed_tools=["read_container_logs"],
+        )
+        fetched = json.loads(await manage_bot_skill(
+            action="get_script",
+            name="ops-guide",
+            script_name="tail-logs",
+        ))
+
+        assert fetched["script_allowed_tools"] == ["read_container_logs"]
+
+
 # ---------------------------------------------------------------------------
 # Frontmatter sanitization
 # ---------------------------------------------------------------------------

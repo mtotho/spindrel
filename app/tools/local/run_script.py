@@ -70,8 +70,9 @@ logger = logging.getLogger(__name__)
                 "skill_name": {
                     "type": "string",
                     "description": (
-                        "Bot-authored skill slug (or full bots/{bot_id}/... ID) whose attached "
-                        "named script should be executed."
+                        "Skill whose attached named script should be executed. Use a bot-authored "
+                        "slug, full bots/{bot_id}/... ID, or trusted catalog/integration skill ID "
+                        "when running file-managed scripts."
                     ),
                 },
                 "script_name": {
@@ -333,7 +334,12 @@ async def _resolve_stored_script(bot_id: str, skill_name: str, script_name: str)
     from app.tools.local.bot_skills import _bot_skill_id, _get_script_by_name
 
     try:
-        skill_id = skill_name if skill_name.startswith(f"bots/{bot_id}/") else _bot_skill_id(bot_id, skill_name)
+        if skill_name.startswith("bots/") and not skill_name.startswith(f"bots/{bot_id}/"):
+            return None, f"stored_skill_not_allowed:{skill_name}"
+        if "/" in skill_name:
+            skill_id = skill_name
+        else:
+            skill_id = _bot_skill_id(bot_id, skill_name)
     except ValueError:
         return None, f"invalid_skill_name:{skill_name}"
 
@@ -341,6 +347,13 @@ async def _resolve_stored_script(bot_id: str, skill_name: str, script_name: str)
         row = await db.get(SkillRow, skill_id)
     if not row:
         return None, f"stored_skill_not_found:{skill_id}"
+    if row.archived_at is not None:
+        return None, f"stored_skill_archived:{skill_id}"
+    if not (
+        skill_id.startswith(f"bots/{bot_id}/")
+        or row.source_type in {"file", "integration"}
+    ):
+        return None, f"stored_skill_not_allowed:{skill_id}"
     stored = _get_script_by_name(row.scripts, script_name)
     if not stored:
         return None, f"stored_script_not_found:{skill_id}:{script_name}"

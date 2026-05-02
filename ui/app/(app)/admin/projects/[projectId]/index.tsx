@@ -425,8 +425,8 @@ function ProjectOverviewSection({
               <SettingsControlRow
                 compact
                 leading={<GitPullRequest size={14} />}
-                title="Review batches"
-                description={`${readyBatches.length} batch${readyBatches.length === 1 ? "" : "es"} waiting for review action`}
+                title="Needs human review"
+                description={`${readyBatches.length} batch${readyBatches.length === 1 ? "" : "es"} waiting for a human or agent-review decision`}
                 meta={<StatusBadge label={readyBatches.length > 0 ? "Ready" : "Clear"} variant={readyBatches.length > 0 ? "info" : "success"} />}
                 onClick={() => setTab("runs")}
               />

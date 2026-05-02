@@ -49,11 +49,13 @@ from integrations.claude_code.harness import _extract_claude_system_slash_comman
 from integrations.claude_code.harness import _is_native_slash_passthrough_prompt  # noqa: E402
 from integrations.claude_code.harness import _normalize_claude_agent_definitions  # noqa: E402
 from integrations.claude_code.harness import _normalize_claude_mcp_servers  # noqa: E402
+from integrations.claude_code.harness import _normalize_claude_option_passthrough  # noqa: E402
 from integrations.claude_code.harness import _normalize_claude_plugin_configs  # noqa: E402
 from integrations.claude_code.harness import _record_claude_hook_event  # noqa: E402
 from integrations.claude_code.harness import _set_claude_agent_kwargs  # noqa: E402
 from integrations.claude_code.harness import _set_claude_mcp_server_kwargs  # noqa: E402
 from integrations.claude_code.harness import _set_claude_observability_hooks  # noqa: E402
+from integrations.claude_code.harness import _set_claude_option_passthrough_kwargs  # noqa: E402
 from integrations.claude_code.harness import _set_claude_plugin_kwargs  # noqa: E402
 from integrations.claude_code.harness import _set_native_filesystem_feature_kwargs  # noqa: E402
 from integrations.claude_code.harness import _set_partial_message_streaming_kwarg  # noqa: E402
@@ -576,6 +578,135 @@ def test_normalize_claude_mcp_servers_ignores_invalid_entries():
         },
         cwd="/workspace/project",
     ) == {"valid": {"command": "node", "args": ["server.js"]}}
+
+
+def test_claude_option_passthrough_maps_supported_sdk_options():
+    class Options:
+        def __init__(
+            self,
+            skills=None,
+            add_dirs=None,
+            fallback_model=None,
+            max_budget_usd=None,
+            max_turns=None,
+            betas=None,
+            settings=None,
+            extra_args=None,
+            max_buffer_size=None,
+            max_thinking_tokens=None,
+            thinking=None,
+            output_format=None,
+            enable_file_checkpointing=False,
+            load_timeout_ms=60000,
+            task_budget=None,
+            sandbox=None,
+            fork_session=False,
+        ) -> None:
+            self.skills = skills
+            self.add_dirs = add_dirs
+            self.fallback_model = fallback_model
+            self.max_budget_usd = max_budget_usd
+            self.max_turns = max_turns
+            self.betas = betas
+            self.settings = settings
+            self.extra_args = extra_args
+            self.max_buffer_size = max_buffer_size
+            self.max_thinking_tokens = max_thinking_tokens
+            self.thinking = thinking
+            self.output_format = output_format
+            self.enable_file_checkpointing = enable_file_checkpointing
+            self.load_timeout_ms = load_timeout_ms
+            self.task_budget = task_budget
+            self.sandbox = sandbox
+            self.fork_session = fork_session
+
+    ctx = _ctx(
+        workdir="/workspace/project",
+        runtime_settings={
+            "claude_options": {
+                "skills": ["reviewer"],
+                "add_dirs": ["../shared", "/opt/repo"],
+                "fallback_model": "claude-haiku-4-5",
+                "max_budget_usd": 0.5,
+                "max_turns": 3,
+                "betas": ["context-1m-2025-08-07"],
+                "settings": "project",
+                "extra_args": {"--debug": None, "--profile": "parity", "": "ignored"},
+                "max_buffer_size": 1024,
+                "max_thinking_tokens": 2048,
+                "thinking": {"type": "enabled", "budget_tokens": 2048},
+                "output_format": {"type": "json_schema", "schema": {"type": "object"}},
+                "enable_file_checkpointing": True,
+                "load_timeout_ms": 120000,
+                "task_budget": {"type": "shared", "total_tokens": 4000},
+                "sandbox": {"type": "none"},
+                "fork_session": True,
+                "unsupported": "ignored",
+            }
+        },
+    )
+    options_kwargs: dict = {}
+
+    _set_claude_option_passthrough_kwargs(Options, options_kwargs, ctx)
+
+    assert options_kwargs == {
+        "skills": ["reviewer"],
+        "add_dirs": ["/workspace/shared", "/opt/repo"],
+        "fallback_model": "claude-haiku-4-5",
+        "max_budget_usd": 0.5,
+        "max_turns": 3,
+        "betas": ["context-1m-2025-08-07"],
+        "settings": "project",
+        "extra_args": {"--debug": None, "--profile": "parity"},
+        "max_buffer_size": 1024,
+        "max_thinking_tokens": 2048,
+        "thinking": {"type": "enabled", "budget_tokens": 2048},
+        "output_format": {"type": "json_schema", "schema": {"type": "object"}},
+        "enable_file_checkpointing": True,
+        "load_timeout_ms": 120000,
+        "task_budget": {"type": "shared", "total_tokens": 4000},
+        "sandbox": {"type": "none"},
+        "fork_session": True,
+    }
+
+
+def test_claude_option_passthrough_accepts_legacy_key_and_preserves_explicit_values():
+    class Options:
+        def __init__(self, fallback_model=None, max_turns=None) -> None:
+            self.fallback_model = fallback_model
+            self.max_turns = max_turns
+
+    ctx = _ctx(
+        runtime_settings={
+            "claude_sdk_options": {
+                "fallback_model": "claude-haiku-4-5",
+                "max_turns": 5,
+            }
+        },
+    )
+    options_kwargs: dict = {"max_turns": 2}
+
+    _set_claude_option_passthrough_kwargs(Options, options_kwargs, ctx)
+
+    assert options_kwargs == {
+        "fallback_model": "claude-haiku-4-5",
+        "max_turns": 2,
+    }
+
+
+def test_normalize_claude_option_passthrough_skips_invalid_values():
+    assert _normalize_claude_option_passthrough(
+        {
+            "skills": "not-list",
+            "add_dirs": [""],
+            "max_turns": 0,
+            "max_budget_usd": -1,
+            "enable_file_checkpointing": "yes",
+            "extra_args": {"--ok": "yes", "--drop": 3},
+            "output_format": [],
+        },
+        cwd="/workspace/project",
+    ) == {"extra_args": {"--ok": "yes"}}
 
 
 def test_native_slash_passthrough_prompts_skip_spindrel_bridge():

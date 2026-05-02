@@ -211,6 +211,7 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
         "project-workspace-runs.png",
         "project-workspace-review-inbox.png",
         "project-workspace-run-detail.png",
+        "project-workspace-run-follow-up.png",
         "project-workspace-review-ledger.png",
         "project-workspace-scheduled-reviews.png",
         "project-workspace-execution-access.png",
