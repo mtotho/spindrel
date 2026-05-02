@@ -239,18 +239,26 @@ function ProjectOverviewSection({
       <AnchorSection
         icon={<FolderGit2 size={15} />}
         eyebrow="Project factory"
-        title="Factory status"
+        title={runCounts.ready > 0 || readyBatches.length > 0 ? "Review work is waiting" : runCounts.active > 0 ? "Project work is running" : "Factory status"}
         meta={newestActivityLabel(runs)}
         emphasis="primary"
-        action={<ActionButton label="Start run" icon={<Play size={14} />} size="small" onPress={() => setTab("runs")} />}
+        action={<ActionButton label={runCounts.ready > 0 || readyBatches.length > 0 ? "Review runs" : "Open runs"} icon={<ExternalLink size={14} />} size="small" onPress={() => setTab("runs")} />}
       >
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
           <SettingsControlRow
             compact
             leading={<GitPullRequest size={14} />}
-            title="Review queue"
-            description={`${runCounts.ready} ready, ${runCounts.active} active, ${runCounts.blocked} blocked`}
+            title="Needs human review"
+            description={`${runCounts.ready} run${runCounts.ready === 1 ? "" : "s"} ready, ${readyBatches.length} batch${readyBatches.length === 1 ? "" : "es"}`}
             meta={<StatusBadge label={runCounts.ready > 0 ? "Review" : runCounts.active > 0 ? "Active" : "Clear"} variant={runCounts.blocked > 0 ? "warning" : runCounts.ready > 0 ? "info" : "success"} />}
+            onClick={() => setTab("runs")}
+          />
+          <SettingsControlRow
+            compact
+            leading={<Play size={14} />}
+            title="Running now"
+            description={`${runCounts.active} active run${runCounts.active === 1 ? "" : "s"}${runCounts.blocked ? `, ${runCounts.blocked} blocked` : ""}`}
+            meta={<StatusBadge label={runCounts.active > 0 ? "Live" : "Idle"} variant={runCounts.active > 0 ? "warning" : "neutral"} />}
             onClick={() => setTab("runs")}
           />
           <SettingsControlRow
@@ -284,14 +292,6 @@ function ProjectOverviewSection({
             description={setupReady ? "Blueprint setup can run for this Project" : setup?.plan?.reasons?.[0] ?? "No setup plan is ready"}
             meta={<StatusBadge label={setupReady ? "Ready" : "Needs setup"} variant={setupReady ? "success" : "warning"} />}
             onClick={() => setTab("setup")}
-          />
-          <SettingsControlRow
-            compact
-            leading={<FileText size={14} />}
-            title="Project Runbook"
-            description={runbookPath}
-            meta={<StatusBadge label={project.prompt_file_path ? "Configured" : "Recommended"} variant={project.prompt_file_path ? "success" : "info"} />}
-            onClick={() => setTab("settings")}
           />
         </div>
       </AnchorSection>
@@ -329,33 +329,33 @@ function ProjectOverviewSection({
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="flex min-w-0 flex-col gap-4">
-          <AnchorSection
-            icon={<GitPullRequest size={15} />}
-            eyebrow="Agent work"
-            title="Recent coding runs"
-            meta={`${runs.length} total`}
-            action={<ActionButton label="Open runs" icon={<ExternalLink size={14} />} size="small" variant="secondary" onPress={() => setTab("runs")} />}
-          >
-            <div className="flex flex-col gap-2">
-              {latestRuns.length === 0 ? (
-                <EmptyState message="No Project coding runs yet." />
-              ) : latestRuns.map((run) => (
-                <SettingsControlRow
-                  key={run.id}
-                  leading={<GitPullRequest size={14} />}
-                  title={run.task.title || run.request || "Project run"}
-                  description={run.review?.blocker || run.review?.review_summary || run.source_work_pack?.summary || run.request || "No run summary yet"}
-                  meta={
-                    <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5">
-                      <StatusBadge label={run.review?.status || run.status} variant={run.review?.blocker || run.status === "failed" ? "danger" : run.review?.actions?.can_mark_reviewed ? "info" : run.status === "running" ? "warning" : "neutral"} />
-                      {run.receipt?.screenshots?.length ? <QuietPill label={`${run.receipt.screenshots.length} screenshots`} /> : null}
-                    </span>
-                  }
-                  onClick={() => setTab("runs")}
-                />
-              ))}
-            </div>
-          </AnchorSection>
+          {latestRuns.length > 0 && (
+            <AnchorSection
+              icon={<GitPullRequest size={15} />}
+              eyebrow="Agent work"
+              title="Recent coding runs"
+              meta={`${runs.length} total`}
+              action={<ActionButton label="Open runs" icon={<ExternalLink size={14} />} size="small" variant="secondary" onPress={() => setTab("runs")} />}
+            >
+              <div className="flex flex-col gap-2">
+                {latestRuns.map((run) => (
+                  <SettingsControlRow
+                    key={run.id}
+                    leading={<GitPullRequest size={14} />}
+                    title={run.task.title || run.request || "Project run"}
+                    description={run.review?.blocker || run.review?.review_summary || run.source_work_pack?.summary || run.request || "No run summary yet"}
+                    meta={
+                      <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5">
+                        <StatusBadge label={run.review?.status || run.status} variant={run.review?.blocker || run.status === "failed" ? "danger" : run.review?.actions?.can_mark_reviewed ? "info" : run.status === "running" ? "warning" : "neutral"} />
+                        {run.receipt?.screenshots?.length ? <QuietPill label={`${run.receipt.screenshots.length} screenshots`} /> : null}
+                      </span>
+                    }
+                    onClick={() => setTab("runs")}
+                  />
+                ))}
+              </div>
+            </AnchorSection>
+          )}
 
           <AnchorSection
             icon={<Users size={15} />}

@@ -92,3 +92,11 @@ def test_task_run_host_owns_general_task_orchestration():
     ):
         assert needle in source
 
+
+def test_harness_task_reuses_pre_persisted_user_message_id():
+    source = ast.get_source_segment(TASK_RUN_HOST.read_text(), _function_node(TASK_RUN_HOST, "_run_harness_task_if_needed"))
+    assert source is not None
+
+    assert 'prepared.ecfg.get("pre_user_msg_id")' in source
+    assert "uuid.UUID(str(pre_user_msg_id_str))" in source
+    assert "pre_user_msg_id=pre_user_msg_id" in source

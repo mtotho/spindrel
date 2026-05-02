@@ -4085,15 +4085,16 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         wait_arg=(
             "!!document.querySelector('[data-testid=\"project-overview-home\"]') "
             "&& document.body.innerText.toLowerCase().includes('project factory') "
-            "&& document.body.innerText.toLowerCase().includes('factory status') "
+            "&& document.body.innerText.toLowerCase().includes('review work is waiting') "
             "&& document.body.innerText.toLowerCase().includes('recent coding runs') "
-            "&& document.body.innerText.toLowerCase().includes('project runbook')"
+            "&& document.body.innerText.toLowerCase().includes('needs human review')"
         ),
         output="project-workspace-detail.png",
         color_scheme="dark",
         assert_js=(
             "const text = document.body.innerText;"
-            "return { ok: text.includes('Review queue') "
+            "return { ok: text.includes('Needs human review') "
+            "&& text.includes('Running now') "
             "&& text.includes('Issue intake') "
             "&& text.includes('Attached channels') "
             "&& text.includes('Runtime env') "
@@ -4565,7 +4566,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "const start = [...root.querySelectorAll('button')].find((button) => /Launch agent review/.test(button.textContent || ''));"
             "if (start) start.click();"
             "await new Promise((resolve) => setTimeout(resolve, 350));"
-            "const launched = [...root.querySelectorAll('*')].find((el) => /Review session started/.test(el.textContent || ''));"
+            "const launched = [...root.querySelectorAll('*')].find((el) => /Review Agent Launched/.test(el.textContent || ''));"
             "if (launched) launched.scrollIntoView({ block: 'center' });"
             "await new Promise((resolve) => setTimeout(resolve, 120));"
         ),
@@ -4573,7 +4574,8 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "const text = document.body.innerText;"
             "return { ok: /\\d+ selected/.test(text) "
             "&& text.includes('Review session prompt') "
-            "&& text.includes('Review session started') "
+            "&& text.includes('Review Agent Launched') "
+            "&& text.includes('Agent review task created') "
             "&& text.includes('screenshot') "
             "&& text.includes('Launch agent review') "
             "&& text.includes('Mark reviewed'), "

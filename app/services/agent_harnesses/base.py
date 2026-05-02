@@ -155,6 +155,7 @@ class ChannelEventEmitter:
         self._turn_body_items: list[dict[str, Any]] = []
         self._thinking_parts: list[str] = []
         self._runtime_redact_text = redact_text
+        self._harness_session_id: str | None = None
 
     def _redact_text(self, text: str) -> str:
         text = _redact_text(text)
@@ -214,6 +215,19 @@ class ChannelEventEmitter:
     def thinking_text(self) -> str:
         """Return redacted thinking text accumulated during this harness turn."""
         return "".join(self._thinking_parts)
+
+    def set_harness_session_id(self, session_id: str | None) -> None:
+        """Remember the runtime-native session id as soon as a driver sees it.
+
+        Some SDKs emit the native id before their final result message. Keeping
+        it on the emitter lets the host persist a usable resume id when a turn
+        is cancelled or errors after the runtime has accepted the prompt.
+        """
+        if isinstance(session_id, str) and session_id.strip():
+            self._harness_session_id = session_id.strip()
+
+    def harness_session_id(self) -> str | None:
+        return self._harness_session_id
 
     def tool_start(
         self,

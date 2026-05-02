@@ -119,6 +119,14 @@ class _RuntimeNeverCompletes:
             raise
 
 
+class _RuntimeNeverCompletesAfterNativeSession:
+    name = "claude-code"
+
+    async def start_turn(self, *, ctx, prompt, emit):
+        emit.set_harness_session_id("native-started-before-cancel")
+        await _sleep_forever()
+
+
 async def test_codex_plan_metadata_detection_and_evidence():
     metadata = {
         "codex_native_plan": [
@@ -762,6 +770,89 @@ async def test_harness_turn_cancel_persists_interrupted_tool_transcript(monkeypa
     assert assistant["_turn_cancelled"] is True
     assert assistant["_harness"]["interrupted"] is True
     assert assistant["tool_calls"][0]["function"]["name"] == "Bash"
+
+
+async def test_cancelled_harness_turn_persists_runtime_session_id_seen_before_result(monkeypatch):
+    persisted: list[tuple[dict, dict]] = []
+    runtime = _RuntimeNeverCompletesAfterNativeSession()
+
+    async def fake_persist_turn(db, session_id, bot, messages, **kwargs):
+        persisted.append((messages[0], messages[1]))
+
+    monkeypatch.setattr(
+        "app.services.turn_worker.async_session",
+        _FakeSessionFactory(),
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker.get_runtime",
+        lambda name: runtime,
+    )
+    monkeypatch.setattr("app.services.turn_worker.persist_turn", fake_persist_turn)
+    monkeypatch.setattr(
+        "app.services.turn_worker.session_locks.is_cancel_requested",
+        lambda session_id: True,
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker._load_prior_harness_session_id",
+        lambda session_id: _async_value(None),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.approvals.load_session_mode",
+        lambda db, session_id: _async_value("default"),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.approvals.revoke_turn_bypass",
+        lambda turn_id: None,
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.settings.load_session_settings",
+        lambda db, session_id: _async_value(
+            SimpleNamespace(model=None, effort=None, runtime_settings={})
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.session_state.load_context_hints",
+        lambda db, session_id: _async_value(()),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.session_state.load_latest_harness_metadata",
+        lambda db, session_id: _async_value(({}, None)),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.project.resolve_harness_paths",
+        lambda db, channel_id, bot: _async_value(
+            SimpleNamespace(
+                workdir="/tmp",
+                source="bot",
+                bot_workspace_dir="/tmp/bot",
+                project_dir=None,
+            )
+        ),
+    )
+
+    text, error = await _run_harness_turn(
+        HarnessTurnRequest(
+            channel_id=uuid.uuid4(),
+            bus_key=uuid.uuid4(),
+            session_id=uuid.uuid4(),
+            turn_id=uuid.uuid4(),
+            bot=SimpleNamespace(
+                id="claude-bot",
+                harness_runtime="claude-code",
+                harness_workdir="/tmp",
+                memory_scheme=None,
+            ),
+            user_message="start then cancel",
+            correlation_id=uuid.uuid4(),
+            msg_metadata=None,
+            pre_user_msg_id=None,
+            suppress_outbox=True,
+        )
+    )
+
+    assert text == ""
+    assert error == "cancelled"
+    assert persisted[0][1]["_harness"]["session_id"] == "native-started-before-cancel"
 
 
 async def _async_value(value):

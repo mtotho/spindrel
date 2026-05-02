@@ -140,6 +140,7 @@ Open verification:
 - Decide whether scheduled harness turns should target only the primary session forever or fan out to recently active scratch/split sessions when a channel has no obvious primary human context.
 - Keep improving native context telemetry. Claude Code now has a best-effort context-window estimate and native compact event visibility, but runtime-provided pressure data would be better than deriving remaining percent from the latest usage payload.
 - Smoke test Claude `AskUserQuestion` with the installed SDK and confirm `PermissionResultAllow(updated_input=...)` is accepted by the runtime version in the harness image.
+- SDK parity debugging rule: inspect the installed runtime SDK objects/options from the repo venv or live app container before changing adapter behavior. For Claude Code, `agent-server/.venv/bin/python` exposes the actual `claude_agent_sdk` dataclasses/options; do not infer message fields only from memory or stale docs.
 
 Native compaction cleanup handoff (2026-04-28):
 
@@ -609,6 +610,12 @@ Approval mapping intent (final values from schema):
   cwd/resume/model/effort/hooks/plugins/agents/MCP still win over passthrough
   settings. Relative `add_dirs` resolve against the harness cwd, and invalid
   shapes are ignored instead of being sent to the SDK.
+- 2026-05-02 Harness queued follow-up parity: Spindrel owns the busy-session
+  queue, but queued messages must resume as ordinary runtime turns after the
+  active Claude/Codex turn releases the session lock. Queued chat tasks now
+  persist the visible user message immediately, carry `pre_user_msg_id` in
+  `Task.execution_config`, and pass that id into harness persistence so the
+  dequeued runtime turn does not duplicate or detach the user row.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

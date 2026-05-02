@@ -67,6 +67,13 @@ class _RecordingEmitter:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
+        self.native_session_id: str | None = None
+
+    def set_harness_session_id(self, session_id: str | None) -> None:
+        self.native_session_id = session_id
+
+    def harness_session_id(self) -> str | None:
+        return self.native_session_id
 
     def token(self, delta: str) -> None:
         self.calls.append(("token", {"delta": delta}))
@@ -1338,6 +1345,50 @@ def test_result_message_populates_meta():
     assert result_meta["usage"] == {"input_tokens": 100, "output_tokens": 50}
     assert result_meta["is_error"] is False
     assert result_meta["result"] == "all done"
+
+
+def test_stream_event_records_native_session_id_before_result_message():
+    emitter = _RecordingEmitter()
+    result_meta: dict = {}
+    msg = StreamEvent(
+        uuid="event-1",
+        session_id="sess_stream",
+        event={"type": "content_block_delta", "delta": {"type": "text_delta", "text": "hi"}},
+    )
+
+    _bridge_message(
+        msg,
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id={},
+        final_text_parts=[],
+        result_meta=result_meta,
+    )
+
+    assert result_meta["session_id"] == "sess_stream"
+    assert emitter.harness_session_id() == "sess_stream"
+
+
+def test_assistant_message_records_native_session_id_before_result_message():
+    emitter = _RecordingEmitter()
+    result_meta: dict = {}
+    msg = AssistantMessage(
+        content=[TextBlock(text="working")],
+        model="claude-sonnet-4-6",
+        session_id="sess_assistant",
+    )
+
+    _bridge_message(
+        msg,
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id={},
+        final_text_parts=[],
+        result_meta=result_meta,
+    )
+
+    assert result_meta["session_id"] == "sess_assistant"
+    assert emitter.harness_session_id() == "sess_assistant"
 
 
 def test_system_message_is_silently_ignored():

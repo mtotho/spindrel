@@ -591,13 +591,14 @@ async def run_harness_turn(
         tool_envelopes = emitter.tool_envelopes()
         assistant_turn_body = emitter.assistant_turn_body(text="")
         thinking_text = emitter.thinking_text()
+        cancelled_session_id = emitter.harness_session_id() or prior_session_id
         cancelled_assistant_msg: dict = {
             "role": "assistant",
             "content": "",
             "_turn_cancelled": True,
             "_harness": {
                 "runtime": bot.harness_runtime,
-                "session_id": prior_session_id,
+                "session_id": cancelled_session_id,
                 "interrupted": True,
                 "effective_cwd": workdir,
                 "effective_cwd_source": harness_paths.source,
@@ -649,6 +650,7 @@ async def run_harness_turn(
         tool_envelopes = emitter.tool_envelopes()
         assistant_turn_body = emitter.assistant_turn_body(text="")
         thinking_text = emitter.thinking_text()
+        error_session_id = emitter.harness_session_id() or prior_session_id
         error_assistant_msg: dict = {
             "role": "assistant",
             "content": build_turn_failure_message(error_text, ""),
@@ -656,7 +658,7 @@ async def run_harness_turn(
             "_turn_error_message": error_text,
             "_harness": {
                 "runtime": bot.harness_runtime,
-                "session_id": prior_session_id,
+                "session_id": error_session_id,
                 "error": error_text,
                 "effective_cwd": workdir,
                 "effective_cwd_source": harness_paths.source,

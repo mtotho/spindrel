@@ -1984,7 +1984,17 @@ def _bridge_message(
         UserMessage,
     )
 
+    def _remember_session_id(value: Any) -> None:
+        if not isinstance(value, str) or not value.strip():
+            return
+        session_id = value.strip()
+        result_meta.setdefault("session_id", session_id)
+        setter = getattr(emit, "set_harness_session_id", None)
+        if callable(setter):
+            setter(session_id)
+
     if isinstance(msg, StreamEvent):
+        _remember_session_id(getattr(msg, "session_id", None))
         event = msg.event or {}
         if event.get("type") == "content_block_delta":
             delta = event.get("delta") or {}
@@ -2003,6 +2013,7 @@ def _bridge_message(
         return
 
     if isinstance(msg, AssistantMessage):
+        _remember_session_id(getattr(msg, "session_id", None))
         for block in msg.content:
             if isinstance(block, TextBlock):
                 if not result_meta.get("claude_streamed_text_delta_seen"):
@@ -2128,7 +2139,7 @@ def _bridge_message(
         return
 
     if isinstance(msg, ResultMessage):
-        result_meta["session_id"] = msg.session_id
+        _remember_session_id(msg.session_id)
         result_meta["total_cost_usd"] = msg.total_cost_usd
         result_meta["usage"] = msg.usage
         result_meta["is_error"] = msg.is_error

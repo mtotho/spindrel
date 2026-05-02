@@ -363,6 +363,17 @@ async def _run_harness_task_if_needed(
     from app.services.turn_worker import _run_harness_turn
 
     task = prepared.task
+    pre_user_msg_id = None
+    pre_user_msg_id_str = prepared.ecfg.get("pre_user_msg_id")
+    if pre_user_msg_id_str:
+        try:
+            pre_user_msg_id = uuid.UUID(str(pre_user_msg_id_str))
+        except (TypeError, ValueError):
+            logger.warning(
+                "task %s: invalid pre_user_msg_id %r in execution_config",
+                task.id,
+                pre_user_msg_id_str,
+            )
     base_request = HarnessTurnRequest(
         channel_id=task.channel_id,
         bus_key=task.channel_id or prepared.session_id,
@@ -378,7 +389,7 @@ async def _run_harness_task_if_needed(
             "is_heartbeat": task.task_type == "heartbeat",
             **({"trigger": "heartbeat", "dispatched": _heartbeat_should_post(task, deps)} if task.task_type == "heartbeat" else {}),
         },
-        pre_user_msg_id=None,
+        pre_user_msg_id=pre_user_msg_id,
         suppress_outbox=(
             bool(prepared.ecfg.get("session_scoped"))
             or task.channel_id is None

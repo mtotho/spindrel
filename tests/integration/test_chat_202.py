@@ -88,10 +88,11 @@ class TestChat202:
         assert resp.json().get("passive") is True
         self._mock.assert_not_awaited()
 
-    async def test_busy_session_returns_queued_202(self, client):
+    async def test_busy_session_returns_queued_202(self, client, db_session):
         """If start_turn raises SessionBusyError, the request returns a
         queued task id rather than failing."""
         from app.services.turns import SessionBusyError
+        from app.db.models import Message, Task
         self._mock.side_effect = SessionBusyError("busy")
 
         resp = await client.post(
@@ -103,6 +104,14 @@ class TestChat202:
         body = resp.json()
         assert body.get("queued") is True
         assert "task_id" in body
+
+        task = await db_session.get(Task, uuid.UUID(body["task_id"]))
+        assert task is not None
+        pre_user_msg_id = uuid.UUID(task.execution_config["pre_user_msg_id"])
+        user_msg = await db_session.get(Message, pre_user_msg_id)
+        assert user_msg is not None
+        assert user_msg.session_id == task.session_id
+        assert user_msg.content == "queue me"
 
     async def test_secondary_channel_session_requires_web_only_delivery(self, client, db_session):
         from app.db.models import Channel, Session
@@ -354,3 +363,36 @@ class TestChatSubSessionFollowUp:
         # Regular channel path doesn't pass session_scoped (kwarg absent) —
         # that's the tell that the sub-session branch did NOT engage.
         assert not kwargs.get("session_scoped", False)
+
+    async def test_busy_sub_session_queued_task_reuses_pre_persisted_user_message(
+        self, client, db_session,
+    ):
+        from app.db.models import Message, Task
+        from app.services.turns import SessionBusyError
+
+        _, _, sub, _ = await _seed_sub_session_chain(
+            db_session, task_status="complete", bot_id="test-bot",
+        )
+        self._mock.side_effect = SessionBusyError("busy")
+
+        resp = await client.post(
+            "/chat",
+            json={
+                "message": "queued follow-up",
+                "session_id": str(sub.id),
+                "bot_id": "test-bot",
+            },
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 202, resp.text
+        body = resp.json()
+        assert body.get("queued") is True
+        task = await db_session.get(Task, uuid.UUID(body["task_id"]))
+        assert task is not None
+        assert task.execution_config["session_scoped"] is True
+        pre_user_msg_id = uuid.UUID(task.execution_config["pre_user_msg_id"])
+        user_msg = await db_session.get(Message, pre_user_msg_id)
+        assert user_msg is not None
+        assert user_msg.session_id == sub.id
+        assert user_msg.content == "queued follow-up"

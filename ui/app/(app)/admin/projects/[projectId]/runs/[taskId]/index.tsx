@@ -171,6 +171,10 @@ function loopLine(run: ProjectCodingRun) {
   ].filter(Boolean).join(" · ");
 }
 
+function reviewAgentTaskId(run: ProjectCodingRun) {
+  return run.review?.review_task_id || null;
+}
+
 export default function ProjectRunDetail() {
   const { projectId, taskId } = useParams<{ projectId: string; taskId: string }>();
   const navigate = useNavigate();
@@ -276,8 +280,9 @@ export default function ProjectRunDetail() {
         right={
           <div className="flex flex-wrap items-center justify-end gap-1.5">
             <RowLink to={`/admin/projects/${project.id}#runs`}>Runs</RowLink>
-            {handoffUrl && <RowLink href={handoffUrl}>Handoff</RowLink>}
-            <RowLink to={`/admin/tasks/${run.task.id}`}>Task</RowLink>
+            {handoffUrl && <RowLink href={handoffUrl}>Open PR</RowLink>}
+            {reviewAgentTaskId(run) && <RowLink to={`/admin/tasks/${reviewAgentTaskId(run)}`}>Review agent</RowLink>}
+            <RowLink to={`/admin/tasks/${run.task.id}`}>Agent log</RowLink>
           </div>
         }
       />
@@ -335,6 +340,35 @@ export default function ProjectRunDetail() {
                   />
                 </div>
               </div>
+            </div>
+          </Section>
+
+          <Section title="Agent Visibility" description="The concrete task records where implementation and review agents run.">
+            <div className="grid gap-2 md:grid-cols-2">
+              <SettingsControlRow
+                leading={<TerminalSquare size={14} />}
+                title="Implementation agent"
+                description={[run.task.status, run.task.bot_id, run.task.session_id ? `session ${String(run.task.session_id).slice(0, 8)}` : null].filter(Boolean).join(" · ")}
+                meta={<StatusBadge label={run.task.status || run.status} variant={statusTone(run.task.status || run.status)} />}
+                action={<RowLink to={`/admin/tasks/${run.task.id}`}>Open agent log</RowLink>}
+              />
+              {reviewAgentTaskId(run) ? (
+                <SettingsControlRow
+                  leading={<GitMerge size={14} />}
+                  title="Review agent"
+                  description={[run.review?.review_session_id ? `session ${String(run.review.review_session_id).slice(0, 8)}` : null, run.review?.review_summary || run.review_next_action].filter(Boolean).join(" · ") || "Review task linked to this run"}
+                  meta={<StatusBadge label={run.review_queue_state || "review task"} variant={statusTone(run.review_queue_state || "reviewing")} />}
+                  action={<RowLink to={`/admin/tasks/${reviewAgentTaskId(run)}`}>Open review agent</RowLink>}
+                />
+              ) : (
+                <SettingsControlRow
+                  leading={<GitMerge size={14} />}
+                  title="No review agent linked"
+                  description="Launch an agent review from the Project Runs page when you want another agent to inspect or merge this work."
+                  meta={<StatusBadge label="none" variant="neutral" />}
+                  action={<RowLink to={`/admin/projects/${project.id}#runs`}>Open runs</RowLink>}
+                />
+              )}
             </div>
           </Section>
 

@@ -130,7 +130,7 @@ function RecentScheduleRuns({ schedule }: { schedule: ProjectCodingRunSchedule }
           <span className="min-w-0 truncate">
             {run.status || "unknown"} · {run.branch || run.task_id || run.id} · {formatRunTime(run.created_at)}
           </span>
-          {run.task_id && <RowLink to={`/admin/tasks/${run.task_id}`}>Task</RowLink>}
+          {run.task_id && <RowLink to={`/admin/tasks/${run.task_id}`}>Agent log</RowLink>}
         </div>
       ))}
     </div>

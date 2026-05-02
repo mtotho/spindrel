@@ -338,7 +338,15 @@ async def _queue_channel_task(
     req: ChatRequest,
     run: _NormalChatRun,
     message: str,
+    pre_user_msg_id: uuid.UUID | None = None,
 ) -> TaskModel:
+    execution_config = (
+        {"session_scoped": True, "external_delivery": req.external_delivery}
+        if run.session_scoped_delivery
+        else {}
+    )
+    if pre_user_msg_id is not None:
+        execution_config["pre_user_msg_id"] = str(pre_user_msg_id)
     queued_task = TaskModel(
         bot_id=req.bot_id,
         client_id=req.client_id,
@@ -347,8 +355,7 @@ async def _queue_channel_task(
         prompt=message,
         status="pending",
         created_at=datetime.now(timezone.utc),
-        execution_config={"session_scoped": True, "external_delivery": req.external_delivery}
-        if run.session_scoped_delivery else None,
+        execution_config=execution_config or None,
     )
     db.add(queued_task)
     return queued_task
@@ -474,17 +481,26 @@ async def _start_or_queue_normal_turn(
             session_scoped=run.session_scoped_delivery,
         )
     except SessionBusyError:
-        queued_task = await _queue_channel_task(db=db, req=req, run=run, message=prepared.message)
+        queued_user_msg_id = pre_user_msg_id
         if not pre_user_msg_id:
+            queued_user_msg_id = uuid.uuid4()
             queued_meta = dict(req.msg_metadata or {})
             queued_meta.pop("_pre_user_msg_id", None)
             db.add(MessageModel(
+                id=queued_user_msg_id,
                 session_id=run.session_id,
                 role="user",
                 content=prepared.message,
                 metadata_=queued_meta,
                 created_at=datetime.now(timezone.utc),
             ))
+        queued_task = await _queue_channel_task(
+            db=db,
+            req=req,
+            run=run,
+            message=prepared.message,
+            pre_user_msg_id=queued_user_msg_id,
+        )
         await db.commit()
         await db.refresh(queued_task)
         logger.info(
@@ -702,6 +718,7 @@ async def _enqueue_sub_session_turn(
         # flight (we gate entry on terminal pipeline status, so the
         # pipeline's own lock already released). A concurrent follow-up
         # lands as 202 queued — same semantics as the channel path.
+        queued_user_msg_id = uuid.uuid4()
         queued_task = TaskModel(
             bot_id=req.bot_id,
             client_id=req.client_id,
@@ -710,11 +727,12 @@ async def _enqueue_sub_session_turn(
             prompt=message,
             status="pending",
             created_at=datetime.now(timezone.utc),
+            execution_config={"session_scoped": True, "pre_user_msg_id": str(queued_user_msg_id)},
         )
         db.add(queued_task)
         _queued_meta = dict(req.msg_metadata or {})
         db.add(MessageModel(
-            id=uuid.uuid4(),
+            id=queued_user_msg_id,
             session_id=session_id,
             role="user",
             content=message,
