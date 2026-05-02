@@ -1,9 +1,8 @@
 """Heartbeat tool-surface determinism tests.
 
-Heartbeat surfaces are deterministic: pinned ∪ tagged ∪ injected always
-survive; enrolled tools are added in priority order while under both
-count + token caps; retrieval narrows only the over-cap remainder; and
-the discovery hatches (`get_tool_info`, `search_tools`,
+Heartbeat surfaces are deterministic: pinned ∪ tagged ∪ required tools always
+survive; general bot enrolled tools are ignored; and the discovery hatches
+(`get_tool_info`, `search_tools`,
 `list_tool_signatures`) never appear on heartbeat surfaces. The
 `discovery_summary` trace event reports each step so operators can see
 which tools the heartbeat saw and why.
@@ -105,7 +104,13 @@ async def _drain(gen) -> list[dict]:
     return events
 
 
-async def _run(bot: BotConfig, *, schemas: dict, **patch_kwargs) -> AssemblyResult:
+async def _run(
+    bot: BotConfig,
+    *,
+    schemas: dict,
+    required_tool_names: list[str] | None = None,
+    **patch_kwargs,
+) -> AssemblyResult:
     result = AssemblyResult()
     budget = ContextBudget(total_tokens=128_000, reserve_tokens=19_200)
     patches = _patches(**patch_kwargs) + [
@@ -139,6 +144,7 @@ async def _run(bot: BotConfig, *, schemas: dict, **patch_kwargs) -> AssemblyResu
                 budget=budget,
                 context_profile_name="heartbeat",
                 tool_surface_policy="focused_escape",
+                required_tool_names=required_tool_names,
             )
         )
     finally:
@@ -180,51 +186,40 @@ class TestHeartbeatPinnedTools:
         assert "arr_heartbeat_snapshot" in hb["pin_set"]
 
 
-class TestHeartbeatEnrolledBudget:
-    """Enrolled tools are added in priority order while under cap.
-    Caps overflow → retrieval narrows the remainder, never the pin set."""
+class TestHeartbeatEnrolledTools:
+    """General enrolled tools are learned from chat/task use and are not a
+    heartbeat tool source."""
 
     @pytest.mark.asyncio
-    async def test_enrolled_under_cap_all_included(self):
+    async def test_enrolled_tools_are_ignored_even_under_cap(self):
         bot = _bot(local_tools=["a", "b", "c"])
         enrolled = ["a", "b", "c"]
         schemas = {n: _schema(n) for n in enrolled + ["get_tool_info", "run_script"]}
         result = await _run(bot, schemas=schemas, enrolled=enrolled)
         exposed = {t["function"]["name"] for t in result.pre_selected_tools or []}
-        assert {"a", "b", "c"} <= exposed
+        assert exposed == set()
         hb = result.tool_discovery_info["heartbeat_surface"]
-        assert set(hb["enrolled_included"]) == {"a", "b", "c"}
+        assert hb["enrolled_included"] == []
+        assert set(hb["enrolled_ignored"]) == {"a", "b", "c"}
         assert hb["enrolled_dropped_for_budget"] == []
-        assert "warning" not in hb or hb.get("warning") is None
+        assert hb.get("warning") == "heartbeat_no_required_or_curated_tools"
 
     @pytest.mark.asyncio
-    async def test_enrolled_over_count_cap_retrieval_narrows_remainder(self):
-        # 30 enrolled, default cap is 25 → 5 spill into retrieval narrowing.
+    async def test_enrolled_over_count_cap_does_not_trigger_retrieval(self):
         enrolled = [f"tool_{i:02d}" for i in range(30)]
         bot = _bot(local_tools=enrolled)
         schemas = {n: _schema(n) for n in enrolled + ["get_tool_info", "run_script"]}
-        # Retrieval picks 2 of the 5 dropped tools.
         retrieved = [_schema("tool_27"), _schema("tool_28")]
         result = await _run(bot, schemas=schemas, enrolled=enrolled, retrieved=retrieved)
         hb = result.tool_discovery_info["heartbeat_surface"]
-        assert len(hb["enrolled_included"]) == 25
-        assert set(hb["enrolled_dropped_for_budget"]) == {
-            "tool_25",
-            "tool_26",
-            "tool_27",
-            "tool_28",
-            "tool_29",
-        }
-        assert set(hb["enrolled_recovered_via_retrieval"]) == {"tool_27", "tool_28"}
-        assert set(hb["enrolled_dropped_after_retrieval"]) == {
-            "tool_25",
-            "tool_26",
-            "tool_29",
-        }
+        assert hb["enrolled_included"] == []
+        assert set(hb["enrolled_ignored"]) == set(enrolled)
+        assert hb["enrolled_dropped_for_budget"] == []
+        assert hb["enrolled_recovered_via_retrieval"] == []
+        assert hb["retrieval_ran"] is False
 
     @pytest.mark.asyncio
-    async def test_pinned_never_compete_in_retrieval(self):
-        """Pinned tools survive even when the enrolled set overflows."""
+    async def test_pinned_survives_when_enrolled_set_is_ignored(self):
         enrolled = [f"e_{i:02d}" for i in range(40)]
         pinned = ["arr_heartbeat_snapshot"]
         bot = _bot(local_tools=enrolled + pinned, pinned_tools=pinned)
@@ -241,13 +236,13 @@ class TestHeartbeatEnrolledBudget:
         assert "arr_heartbeat_snapshot" not in hb["enrolled_dropped_for_budget"]
 
     @pytest.mark.asyncio
-    async def test_warning_when_no_curated_pins_and_overflow(self):
+    async def test_warning_when_no_required_or_curated_tools(self):
         enrolled = [f"e_{i:02d}" for i in range(40)]
         bot = _bot(local_tools=enrolled)  # NO pinned_tools
         schemas = {n: _schema(n) for n in enrolled + ["get_tool_info", "run_script"]}
         result = await _run(bot, schemas=schemas, enrolled=enrolled)
         hb = result.tool_discovery_info["heartbeat_surface"]
-        assert hb.get("warning") == "heartbeat_no_curated_pins"
+        assert hb.get("warning") == "heartbeat_no_required_or_curated_tools"
 
 
 class TestHeartbeatDiscoveryHatchesSuppressed:
@@ -272,8 +267,18 @@ class TestHeartbeatDiscoveryHatchesSuppressed:
         assert "get_tool_info" not in exposed
         assert "search_tools" not in exposed
         assert "list_tool_signatures" not in exposed
-        # run_script is composition, not discovery — keep it.
-        assert "run_script" in exposed
+        assert "run_script" not in exposed
+
+    @pytest.mark.asyncio
+    async def test_run_script_only_when_explicitly_required(self):
+        bot = _bot(local_tools=[])
+        schemas = {"run_script": _schema("run_script")}
+        result = await _run(bot, schemas=schemas, required_tool_names=["run_script"])
+        exposed = {t["function"]["name"] for t in result.pre_selected_tools or []}
+        assert exposed == {"run_script"}
+        hb = result.tool_discovery_info["heartbeat_surface"]
+        assert hb["pin_set"] == ["run_script"]
+        assert hb["required_tools"] == ["run_script"]
 
     @pytest.mark.asyncio
     async def test_auto_injected_baseline_pins_filtered_from_heartbeat(self):
@@ -313,7 +318,7 @@ class TestHeartbeatDiscoveryHatchesSuppressed:
         assert "arr_heartbeat_snapshot" in exposed
         assert exposed.isdisjoint(set(baseline))
         hb = result.tool_discovery_info["heartbeat_surface"]
-        assert hb["pin_set"] == ["arr_heartbeat_snapshot", "run_script"]
+        assert hb["pin_set"] == ["arr_heartbeat_snapshot"]
         assert set(hb["baseline_pins_filtered"]) == set(baseline)
 
     @pytest.mark.asyncio
@@ -334,6 +339,7 @@ class TestHeartbeatDiscoveryHatchesSuppressed:
         assert "get_tool_info" not in exposed
         assert "search_tools" not in exposed
         assert "list_tool_signatures" not in exposed
+        assert exposed == set()
 
 
 class TestHeartbeatRetrievalSkip:
@@ -414,7 +420,7 @@ class TestHeartbeatTraceDeterminism:
         for key in (
             "pin_set",
             "enrolled_included",
-            "enrolled_dropped_for_budget",
+            "enrolled_ignored",
         ):
             assert hb1[key] == hb2[key], f"non-deterministic field {key!r}"
 

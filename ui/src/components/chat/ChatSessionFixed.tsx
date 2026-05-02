@@ -116,6 +116,7 @@ export function FixedSessionChatSession({
   const [slashSyntheticMessages, setSlashSyntheticMessages] = useState<Message[]>([]);
   const [nativeCliOpen, setNativeCliOpen] = useState(false);
   const [nativeCliStarted, setNativeCliStarted] = useState(false);
+  const [nativeCliRevision, setNativeCliRevision] = useState(0);
   const isHarnessSession = !!sessionBot?.harness_runtime;
 
   const [dockExpanded, setDockExpanded] = useState(
@@ -157,6 +158,11 @@ export function FixedSessionChatSession({
       return;
     }
     setSendError(null);
+    if (isHarnessSession && nativeCliStarted) {
+      setNativeCliOpen(false);
+      setNativeCliStarted(false);
+      setNativeCliRevision((value) => value + 1);
+    }
     const clientLocalId = makeClientLocalId();
     useChatStore.getState().addMessage(sessionId, {
       id: `msg-${clientLocalId}`,
@@ -200,7 +206,7 @@ export function FixedSessionChatSession({
       useChatStore.getState().clearProcessing(sessionId);
       setSendError(err instanceof Error ? err.message : "Failed to send message");
     }
-  }, [botId, modelOverride, modelProviderId, parentChannelId, qc, sessionId, source.externalDelivery, submitChat]);
+  }, [botId, isHarnessSession, modelOverride, modelProviderId, nativeCliStarted, parentChannelId, qc, sessionId, source.externalDelivery, submitChat]);
 
   const handleCancel = useCallback(() => {
     cancelChat.mutate({
@@ -357,16 +363,25 @@ export function FixedSessionChatSession({
               setNativeCliStarted(true);
               setNativeCliOpen(true);
             }}
+            disabled={isSending}
             className={`absolute right-3 top-3 z-[8] inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium backdrop-blur ${
-              nativeCliStarted
-                ? "bg-accent/15 text-accent hover:bg-accent/20"
-                : "bg-surface-overlay/80 text-text-dim hover:bg-surface-overlay hover:text-text"
+              isSending
+                ? "cursor-not-allowed bg-surface-overlay/50 text-text-dim/60"
+                : nativeCliStarted
+                  ? "bg-accent/15 text-accent hover:bg-accent/20"
+                  : "bg-surface-overlay/80 text-text-dim hover:bg-surface-overlay hover:text-text"
             }`}
-            title={nativeCliStarted ? "Return to the running native CLI for this session" : "Open the runtime's native CLI for this session"}
+            title={
+              isSending
+                ? "Native CLI resumes after the active Spindrel turn finishes"
+                : nativeCliStarted
+                  ? "Return to the running native CLI for this session"
+                  : "Open the runtime's native CLI for this session"
+            }
             aria-pressed={nativeCliStarted}
           >
             <TerminalIcon size={13} />
-            {nativeCliStarted ? "Native CLI running" : "Native CLI"}
+            {isSending ? "Native CLI syncing" : nativeCliStarted ? "Native CLI running" : "Native CLI"}
           </button>
         )}
         <div
@@ -406,7 +421,11 @@ export function FixedSessionChatSession({
           >
             <button
               type="button"
-              onClick={() => setNativeCliOpen(false)}
+              onClick={() => {
+                setNativeCliOpen(false);
+                qc.invalidateQueries({ queryKey: ["session-harness-settings", sessionId] });
+                qc.invalidateQueries({ queryKey: ["session-harness-status", sessionId] });
+              }}
               className="absolute right-3 top-3 z-10 inline-flex h-7 items-center gap-1.5 rounded-md bg-surface-overlay/80 px-2 text-[11px] font-medium text-accent backdrop-blur hover:bg-surface-overlay hover:text-accent"
               title="Return to Spindrel chat"
               aria-pressed={nativeCliOpen}
@@ -416,11 +435,14 @@ export function FixedSessionChatSession({
             </button>
             <Suspense fallback={<div className="flex h-full items-center justify-center bg-[#0a0d12] text-[12px] text-zinc-500">Starting native CLI...</div>}>
               <TerminalPanel
+                key={nativeCliRevision}
                 chrome="bare"
                 sessionCreatePath={`/api/v1/admin/sessions/${sessionId}/harness/native-terminal`}
                 className="h-full"
                 onExit={() => {
                   qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
+                  qc.invalidateQueries({ queryKey: ["session-harness-settings", sessionId] });
+                  qc.invalidateQueries({ queryKey: ["session-harness-status", sessionId] });
                 }}
               />
             </Suspense>

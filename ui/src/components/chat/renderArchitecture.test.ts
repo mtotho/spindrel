@@ -441,6 +441,12 @@ test("MessageInput delegates draft files and submit decision policy", () => {
   assert.match(modelControl, /LlmModelDropdownContent/);
   assert.match(modelControl, /function HarnessModelPickerContent/);
   assert.match(modelControl, /spindrel:open-model-picker/);
+  assert.match(modelControl, /harnessDefaultModel/);
+  assert.match(modelControl, /harnessDefaultEffort/);
+  assert.match(modelControl, /displayHarnessModel = harnessCurrentModel \?\? harnessDefaultModel/);
+  assert.match(modelControl, /displayHarnessEffort = harnessCurrentEffort \?\? harnessDefaultEffort/);
+  assert.match(modelControl, /runtime default/);
+  assert.doesNotMatch(modelControl, /effort \{harnessCurrentEffort \?\? "default"\}/);
   assert.match(planControl, /getComposerPlanControlState/);
   assert.match(planControl, /data-testid="composer-plan-mode-control"/);
   assert.match(planControl, /createPortal/);
@@ -671,11 +677,17 @@ test("channel route renders desktop session tabs through dedicated components an
   assert.match(sessionSurfaces, /export function snapshotChannelSessionTabLayout/);
 });
 
-test("fixed harness sessions keep native CLI mounted when returning to chat", () => {
+test("fixed harness sessions remount native CLI after Spindrel chat sends", () => {
   const fixedSession = readChatFile("ChatSessionFixed.tsx");
 
   assert.match(fixedSession, /nativeCliStarted/);
+  assert.match(fixedSession, /nativeCliRevision/);
   assert.match(fixedSession, /setNativeCliStarted\(true\)/);
+  assert.match(fixedSession, /setNativeCliStarted\(false\)/);
+  assert.match(fixedSession, /setNativeCliRevision\(\(value\) => value \+ 1\)/);
+  assert.match(fixedSession, /disabled=\{isSending\}/);
+  assert.match(fixedSession, /Native CLI syncing/);
+  assert.match(fixedSession, /key=\{nativeCliRevision\}/);
   assert.match(fixedSession, /isHarnessSession && nativeCliStarted/);
   assert.match(fixedSession, /pointer-events-auto z-\[20\] opacity-100/);
   assert.match(fixedSession, /pointer-events-none z-0 opacity-0/);

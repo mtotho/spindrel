@@ -37,20 +37,31 @@ export function useHarnessComposerProps(
         harnessEffortValues: [] as string[],
         harnessCurrentModel: null as string | null,
         harnessCurrentEffort: null as string | null,
+        harnessDefaultModel: null as string | null,
+        harnessDefaultEffort: null as string | null,
         onHarnessModelChange: undefined as ((model: string | null) => void) | undefined,
         onHarnessEffortChange: undefined as ((effort: string | null) => void) | undefined,
         harnessModelMutating: false,
       };
     }
+    const defaultModel = caps?.model_options?.[0]?.id ?? caps?.available_models?.[0] ?? null;
+    const selectedModel = settings?.model ?? defaultModel;
+    const defaultEffort =
+      caps?.model_options?.find((m) => m.id === selectedModel)?.default_effort
+      ?? caps?.model_options?.find((m) => m.id === defaultModel)?.default_effort
+      ?? caps?.effort_values?.[0]
+      ?? null;
     return {
       harnessRuntime: runtime,
       harnessAvailableModels: caps?.available_models ?? [],
       harnessEffortValues:
-        caps?.model_options?.find((m) => m.id === settings?.model)?.effort_values
+        caps?.model_options?.find((m) => m.id === selectedModel)?.effort_values
         ?? caps?.effort_values
         ?? [],
       harnessCurrentModel: settings?.model ?? null,
       harnessCurrentEffort: settings?.effort ?? null,
+      harnessDefaultModel: defaultModel,
+      harnessDefaultEffort: defaultEffort,
       onHarnessModelChange: (model: string | null) => {
         if (!sessionId) return;
         setHarnessSettings.mutate({ sessionId, patch: { model } });

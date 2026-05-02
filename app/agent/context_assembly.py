@@ -1466,16 +1466,17 @@ async def _compose_heartbeat_tool_surface(
       1. Always-included: operator-curated bot.pinned_tools ∪ tagged_tool_names
          ∪ plan-mode pins.
          These never compete in retrieval and never get dropped.
-      2. Budget-gated: enrolled_tool_names added in priority order while under
-         both count and token caps.
-      3. Retrieval narrowing: if step 2 dropped tools, run retrieve_tools()
-         and post-filter to only the dropped subset.
+      2. Required tools from the heartbeat execution config are included even
+         when they overlap the chat baseline.
+
+    General bot tool enrollments are intentionally ignored for heartbeats.
+    Those are learned from chat/task usage and are too broad for deterministic
+    autonomous runs.
 
     Discovery hatches (`get_tool_info`, `search_tools`,
     `list_tool_signatures`) are intentionally NOT added here regardless of
     headroom — heartbeat surfaces are configured, not discovered.
-    `run_script` IS added (it's composition, not discovery) when the bot
-    has tool_discovery enabled.
+    `run_script` is exposed only when explicitly pinned/tagged/required.
     """
     from app.agent.channel_overrides import DISCOVERY_HATCH_TOOL_NAMES
 
@@ -1505,8 +1506,6 @@ async def _compose_heartbeat_tool_surface(
         _add(str(n), allow_baseline=True)
     for n in tagged_tool_names:
         _add(n, allow_baseline=True)
-    if bot.tool_discovery:
-        _add("run_script", allow_baseline=True)  # composition tool, not a discovery hatch
     if tagged_skill_names:
         _add("get_skill", allow_baseline=True)
         _add("get_skill_list", allow_baseline=True)
@@ -1516,56 +1515,18 @@ async def _compose_heartbeat_tool_surface(
 
     pin_token_total = sum(_estimate_schema_tokens(by_name[n]) for n in pin_set)
 
-    # --- Step 2: enrolled tools, budget-gated, deterministic order ---
     enrolled_included: list[str] = []
-    enrolled_dropped_for_budget: list[str] = []
     enrolled_token_total = 0
-    for name in enrolled_tool_names:
-        if name in seen or name not in by_name:
-            continue
-        if len(enrolled_included) >= count_cap:
-            enrolled_dropped_for_budget.append(name)
-            continue
-        cost = _estimate_schema_tokens(by_name[name])
-        if enrolled_token_total + cost > token_cap:
-            enrolled_dropped_for_budget.append(name)
-            continue
-        enrolled_included.append(name)
-        enrolled_token_total += cost
-        seen.add(name)
+    enrolled_dropped_for_budget: list[str] = []
+    enrolled_ignored = [
+        name for name in enrolled_tool_names
+        if name not in seen and name in by_name
+    ]
 
-    # --- Step 3: retrieval narrowing over the dropped subset only ---
     retrieved: list[dict[str, Any]] = []
     tool_sim: float = 0.0
     tool_candidates: list = []
     enrolled_recovered: list[str] = []
-    if enrolled_dropped_for_budget:
-        retrieved, tool_sim, tool_candidates = await retrieve_tools(
-            user_message,
-            bot.local_tools,
-            bot.mcp_servers,
-            threshold=threshold,
-            discover_all=False,  # narrow only — no full-pool exploration
-        )
-        # Post-filter: keep only the over-cap dropped names. Pinned/tagged
-        # never compete; retrieval is purely a narrowing tool here.
-        dropped_set = set(enrolled_dropped_for_budget)
-        retrieved = [
-            r for r in retrieved
-            if (r.get("function") or {}).get("name") in dropped_set
-        ]
-        # Apply channel deny-list and policy gate the same way the chat
-        # path does, but scoped to retrieved-only.
-        ch_disabled = set(getattr(ch_row, "local_tools_disabled", None) or []) if ch_row else set()
-        if ch_disabled:
-            retrieved = [
-                r for r in retrieved
-                if (r.get("function") or {}).get("name") not in ch_disabled
-            ]
-        enrolled_recovered = [
-            (r.get("function") or {}).get("name") for r in retrieved
-        ]
-        enrolled_recovered = [n for n in enrolled_recovered if n]
 
     # --- Build the final exposed list and authorized set ---
     pinned_schemas = [by_name[n] for n in pin_set + enrolled_included]
@@ -1585,8 +1546,8 @@ async def _compose_heartbeat_tool_surface(
     operator_pinned = _operator_pinned_tool_names(bot)
     has_curated_pins = bool(operator_pinned) or bool(tagged_tool_names)
     warning = (
-        "heartbeat_no_curated_pins"
-        if (enrolled_dropped_for_budget and not has_curated_pins)
+        "heartbeat_no_required_or_curated_tools"
+        if (not pin_set and not has_curated_pins)
         else None
     )
 
@@ -1602,6 +1563,7 @@ async def _compose_heartbeat_tool_surface(
             if n in AUTO_INJECTED_PIN_NAMES and n in by_name
         ],
         "enrolled_included": list(enrolled_included),
+        "enrolled_ignored": list(enrolled_ignored),
         "enrolled_dropped_for_budget": list(enrolled_dropped_for_budget),
         "enrolled_recovered_via_retrieval": list(enrolled_recovered),
         "enrolled_dropped_after_retrieval": list(enrolled_dropped_after_retrieval),
@@ -1652,8 +1614,10 @@ async def _run_tool_retrieval(
         bot, enrolled_tool_names=_enrolled_tool_names,
     ) if (
         bot.local_tools or bot.mcp_servers or bot.client_tools
-        or bot.pinned_tools or _enrolled_tool_names
+        or bot.pinned_tools or _enrolled_tool_names or required_tool_names
     ) else {}
+    if required_tool_names:
+        _add_local_tool_schemas(by_name, tuple(str(n) for n in required_tool_names if n))
     if "get_tool_info" not in by_name:
         for _gti in get_local_tool_schemas(["get_tool_info"]):
             by_name[_gti["function"]["name"]] = _gti

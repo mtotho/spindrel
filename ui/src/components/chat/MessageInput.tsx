@@ -91,6 +91,8 @@ interface Props {
   /** Current per-session harness model (or null = runtime default). */
   harnessCurrentModel?: string | null;
   harnessCurrentEffort?: string | null;
+  harnessDefaultModel?: string | null;
+  harnessDefaultEffort?: string | null;
   /** Current per-session harness approval mode. Rendered in the composer
    *  footer so it stays visually tied to the harness state/action surface. */
   harnessApprovalMode?: HarnessApprovalMode | string | null;
@@ -109,7 +111,7 @@ function tapHaptic(pattern: number | number[] = 8) {
   try { (navigator as Navigator & { vibrate?: (p: number | number[]) => boolean }).vibrate?.(pattern); } catch { /* ignore */ }
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason = null, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, currentSessionId, toolContextChannelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, planModeControl = "auto", onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessEffortValues = [], harnessCurrentModel = null, harnessCurrentEffort = null, harnessApprovalMode = null, onHarnessModelChange, onHarnessEffortChange, onHarnessApprovalModeCycle, harnessModelMutating = false, harnessApprovalModeMutating = false }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason = null, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, currentSessionId, toolContextChannelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, planModeControl = "auto", onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessEffortValues = [], harnessCurrentModel = null, harnessCurrentEffort = null, harnessDefaultModel = null, harnessDefaultEffort = null, harnessApprovalMode = null, onHarnessModelChange, onHarnessEffortChange, onHarnessApprovalModeCycle, harnessModelMutating = false, harnessApprovalModeMutating = false }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -879,6 +881,8 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                   harnessEffortValues={harnessEffortValues}
                   harnessCurrentModel={harnessCurrentModel}
                   harnessCurrentEffort={harnessCurrentEffort}
+                  harnessDefaultModel={harnessDefaultModel}
+                  harnessDefaultEffort={harnessDefaultEffort}
                   harnessModelMutating={harnessModelMutating}
                   onHarnessModelChange={onHarnessModelChange}
                   onHarnessEffortChange={onHarnessEffortChange}
@@ -968,6 +972,8 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                 harnessEffortValues={harnessEffortValues}
                 harnessCurrentModel={harnessCurrentModel}
                 harnessCurrentEffort={harnessCurrentEffort}
+                harnessDefaultModel={harnessDefaultModel}
+                harnessDefaultEffort={harnessDefaultEffort}
                 harnessModelMutating={harnessModelMutating}
                 onHarnessModelChange={onHarnessModelChange}
                 onHarnessEffortChange={onHarnessEffortChange}

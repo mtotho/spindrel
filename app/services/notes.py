@@ -251,24 +251,84 @@ def write_note(surface: NotesSurface, slug: str, content: str, base_hash: str | 
     return {**serialize_note(surface, abs_path), "content": next_content, "content_hash": content_hash(next_content)}
 
 
-def build_assist_proposal(content: str, *, selection: dict[str, Any] | None, instruction: str | None, mode: str) -> dict[str, Any]:
-    """Return a conservative proposal scaffold; note chat handles open-ended AI work."""
+def build_assist_proposal(
+    content: str,
+    *,
+    selection: dict[str, Any] | None,
+    instruction: str | None,
+    mode: str,
+    fallback_reason: str | None = None,
+) -> dict[str, Any]:
+    """Return a deterministic Markdown proposal when model assistance is unavailable."""
     target = "selection" if selection and selection.get("text") else "document"
     source = str(selection.get("text")) if target == "selection" else content
-    replacement = source.strip()
+    replacement = _strip_note_frontmatter(source).strip()
     if mode == "clarify_structure":
-        if not re.search(r"^#{1,3}\s+", replacement, flags=re.MULTILINE):
-            replacement = "## Notes\n\n" + replacement
-        replacement = re.sub(r"\n{3,}", "\n\n", replacement).strip() + "\n"
+        replacement = _deterministic_clarify_markdown(replacement)
     elif instruction:
-        replacement = replacement.strip() + f"\n\n<!-- Requested change: {instruction.strip()} -->\n"
+        replacement = _deterministic_instruction_markdown(replacement, instruction)
+    else:
+        replacement = replacement.strip() + "\n"
     diff = "\n".join(difflib.unified_diff(source.splitlines(), replacement.splitlines(), fromfile="current.md", tofile="proposal.md", lineterm=""))
     return {
         "target": target,
         "replacement_markdown": replacement,
-        "rationale": "Prepared a Markdown-safe proposal. Use note chat for deeper AI rewriting before accepting.",
+        "rationale": fallback_reason or "Prepared a structured Markdown proposal.",
         "diff": diff,
     }
+
+
+def _strip_note_frontmatter(markdown: str) -> str:
+    _meta, body = parse_frontmatter(markdown)
+    return body
+
+
+def _deterministic_clarify_markdown(markdown: str) -> str:
+    text = markdown.strip()
+    if not text:
+        return "## Notes\n\n- \n"
+
+    lines = [line.rstrip() for line in text.splitlines()]
+    title = ""
+    body_lines = lines
+    first_nonblank = next((line for line in lines if line.strip()), "")
+    if first_nonblank.startswith("# "):
+        title = first_nonblank
+        first_index = lines.index(first_nonblank)
+        body_lines = lines[:first_index] + lines[first_index + 1:]
+
+    body = "\n".join(body_lines).strip()
+    if not body:
+        body = first_nonblank.lstrip("# ").strip()
+
+    if re.search(r"^##\s+", body, flags=re.MULTILINE):
+        replacement = f"{title}\n\n{body}".strip() if title else body
+        return re.sub(r"\n{3,}", "\n\n", replacement).strip() + "\n"
+
+    sentences = [part.strip(" -\t") for part in re.split(r"(?<=[.!?])\s+|\n+", body) if part.strip(" -\t")]
+    if not sentences:
+        sentences = [body]
+
+    bullets = "\n".join(f"- {sentence}" for sentence in sentences)
+    sections = []
+    if title and title.strip().lower() not in {"# untitled", "# untitled note"}:
+        sections.append(title)
+    sections.append("## Notes")
+    sections.append(bullets)
+    sections.append("## Open Questions")
+    sections.append("- What details should be added next?")
+    return "\n\n".join(sections).strip() + "\n"
+
+
+def _deterministic_instruction_markdown(markdown: str, instruction: str) -> str:
+    text = markdown.strip()
+    if not text:
+        text = "## Notes\n\n- "
+    return (
+        f"{text}\n\n"
+        "## Requested Update\n\n"
+        f"- {instruction.strip()}\n"
+    )
 
 
 async def build_ai_assist_proposal(
@@ -323,7 +383,13 @@ async def build_ai_assist_proposal(
         parsed = _parse_json_object(raw)
         replacement = str(parsed.get("replacement_markdown") or "").strip()
         if not replacement:
-            return default
+            return build_assist_proposal(
+                content,
+                selection=selection,
+                instruction=instruction,
+                mode=mode,
+                fallback_reason="The assistant returned an empty proposal, so I prepared a deterministic Markdown structure instead.",
+            )
         rationale = str(parsed.get("rationale") or "Generated a Markdown-safe proposal.")
         diff = "\n".join(difflib.unified_diff(source.splitlines(), replacement.splitlines(), fromfile="current.md", tofile="proposal.md", lineterm=""))
         return {
@@ -334,7 +400,13 @@ async def build_ai_assist_proposal(
         }
     except Exception:
         logger.warning("Note assist LLM proposal failed; falling back to local proposal", exc_info=True)
-        return default
+        return build_assist_proposal(
+            content,
+            selection=selection,
+            instruction=instruction,
+            mode=mode,
+            fallback_reason="The model-backed assistant path failed, so I prepared a deterministic Markdown structure instead.",
+        )
 
 
 def _parse_json_object(raw: str) -> dict[str, Any]:

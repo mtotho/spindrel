@@ -38,6 +38,9 @@ _NATIVE_CLI_SYNTHETIC_TEXT = {
     "Continue from where you left off.",
     "No response requested.",
 }
+_NATIVE_CLI_MODEL_RE = re.compile(r"^/model(?:\s+(?P<model>\S.*?))?\s*$", re.IGNORECASE)
+_NATIVE_CLI_EFFORT_RE = re.compile(r"^/effort(?:\s+(?P<effort>\S+))?\s*$", re.IGNORECASE)
+_NATIVE_CLI_CLEAR_VALUES = {"default", "runtime-default", "runtime_default", "clear", "none", "null", "off"}
 
 
 @dataclass(frozen=True)
@@ -372,6 +375,12 @@ async def _persist_mirrored_record(
         session = await db.get(Session, spindrel_session_id)
         if session is None:
             return
+        await _sync_native_cli_settings(
+            db,
+            spindrel_session_id=spindrel_session_id,
+            runtime_name=runtime_name,
+            record=record,
+        )
         await store_passive_message(
             db,
             spindrel_session_id,
@@ -379,4 +388,50 @@ async def _persist_mirrored_record(
             metadata,
             channel_id=channel_id or session.channel_id,
             role=record.role,
+        )
+
+
+async def _sync_native_cli_settings(
+    db,
+    *,
+    spindrel_session_id: uuid.UUID,
+    runtime_name: str,
+    record: NativeCliMirrorRecord,
+) -> None:
+    """Reflect simple native CLI model/effort commands into Spindrel settings.
+
+    The terminal view is allowed to be a real runtime CLI. If the user changes
+    runtime knobs there, the Spindrel composer and the next chat-mode turn need
+    to inherit the same setting instead of drifting back to "default".
+    """
+
+    if record.role != "user":
+        return
+    patch: dict[str, str | None] = {}
+    text = (record.content or "").strip()
+    model_match = _NATIVE_CLI_MODEL_RE.match(text)
+    if model_match:
+        raw_model = (model_match.group("model") or "").strip()
+        model = raw_model.strip("\"'")
+        if model:
+            patch["model"] = None if model.lower() in _NATIVE_CLI_CLEAR_VALUES else model
+    effort_match = _NATIVE_CLI_EFFORT_RE.match(text)
+    if effort_match:
+        raw_effort = (effort_match.group("effort") or "").strip()
+        effort = raw_effort.strip("\"'")
+        if effort:
+            patch["effort"] = None if effort.lower() in _NATIVE_CLI_CLEAR_VALUES else effort
+    if not patch:
+        return
+
+    try:
+        from app.services.agent_harnesses.settings import patch_session_settings
+
+        await patch_session_settings(db, spindrel_session_id, patch=patch)
+    except Exception:
+        logger.warning(
+            "native cli mirror failed to sync %s settings from record %s",
+            runtime_name,
+            record.key,
+            exc_info=True,
         )

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from app.services.agent_harnesses.native_cli_mirror import (
     _claude_project_dir_name,
     _find_claude_transcript,
@@ -10,7 +12,12 @@ from app.services.agent_harnesses.native_cli_mirror import (
     _parse_claude_jsonl_record,
     _parse_codex_jsonl_record,
     _read_new_records,
+    _sync_native_cli_settings,
+    NativeCliMirrorRecord,
 )
+from app.services.agent_harnesses.settings import load_session_settings
+from app.db.models import Session
+from tests.factories import build_bot, build_channel
 
 
 def test_codex_native_cli_parser_keeps_user_request_and_strips_spindrel_wrappers():
@@ -176,3 +183,72 @@ def test_native_transcript_lookup_without_session_id_requires_recent_matching_cw
 
     assert _find_codex_transcript(None, cwd="/work/repo", started_after=0) == fresh
     assert _find_codex_transcript(None, cwd="/missing", started_after=0) is None
+
+
+@pytest.mark.asyncio
+async def test_native_cli_model_and_effort_commands_sync_session_settings(db_session):
+    bot = build_bot(id="native-cli-settings-bot", name="Harness", model="unused")
+    bot.harness_runtime = "codex"
+    channel = build_channel(bot_id=bot.id)
+    session = Session(
+        client_id="native-cli-settings-session",
+        bot_id=bot.id,
+        channel_id=channel.id,
+    )
+    db_session.add_all([bot, channel, session])
+    await db_session.commit()
+
+    await _sync_native_cli_settings(
+        db_session,
+        spindrel_session_id=session.id,
+        runtime_name="codex",
+        record=NativeCliMirrorRecord(
+            key="codex:model",
+            role="user",
+            content="/model gpt-5.4-mini",
+        ),
+    )
+    await _sync_native_cli_settings(
+        db_session,
+        spindrel_session_id=session.id,
+        runtime_name="codex",
+        record=NativeCliMirrorRecord(
+            key="codex:effort",
+            role="user",
+            content="/effort medium",
+        ),
+    )
+
+    settings = await load_session_settings(db_session, session.id)
+    assert settings.model == "gpt-5.4-mini"
+    assert settings.effort == "medium"
+
+
+@pytest.mark.asyncio
+async def test_native_cli_model_default_command_clears_session_model(db_session):
+    bot = build_bot(id="native-cli-default-bot", name="Harness", model="unused")
+    bot.harness_runtime = "codex"
+    channel = build_channel(bot_id=bot.id)
+    session = Session(
+        client_id="native-cli-default-session",
+        bot_id=bot.id,
+        channel_id=channel.id,
+        metadata_={"harness_settings": {"model": "gpt-5.4-mini", "effort": "medium"}},
+    )
+    db_session.add_all([bot, channel, session])
+    await db_session.commit()
+
+    await _sync_native_cli_settings(
+        db_session,
+        spindrel_session_id=session.id,
+        runtime_name="codex",
+        record=NativeCliMirrorRecord(
+            key="codex:model-default",
+            role="user",
+            content="/model default",
+        ),
+    )
+
+    settings = await load_session_settings(db_session, session.id)
+    assert settings.model is None
+    assert settings.effort == "medium"

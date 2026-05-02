@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -295,6 +295,8 @@ function MarkdownNoteEditor({
   onChange: (value: string) => void;
   onSelectionChange: (selection: SelectionState) => void;
 }) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
   const emitSelection = useCallback((target: HTMLTextAreaElement) => {
     onSelectionChange({
       start: target.selectionStart,
@@ -303,16 +305,148 @@ function MarkdownNoteEditor({
     });
   }, [onSelectionChange]);
 
+  const commit = useCallback((next: string, start: number, end = start) => {
+    onChange(next);
+    window.requestAnimationFrame(() => {
+      const target = textareaRef.current;
+      if (!target) return;
+      target.focus();
+      target.selectionStart = start;
+      target.selectionEnd = end;
+      emitSelection(target);
+    });
+  }, [emitSelection, onChange]);
+
+  const replaceSelection = useCallback((replacement: string, selectOffset = replacement.length) => {
+    const target = textareaRef.current;
+    if (!target) return;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    const next = value.slice(0, start) + replacement + value.slice(end);
+    commit(next, start + selectOffset);
+  }, [commit, value]);
+
+  const transformSelectedLines = useCallback((transform: (line: string, index: number) => string) => {
+    const target = textareaRef.current;
+    if (!target) return;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    const lineStart = value.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+    const trailingNewlineSelected = end > start && value[end - 1] === "\n";
+    const effectiveEnd = trailingNewlineSelected ? end - 1 : end;
+    const nextBreak = value.indexOf("\n", effectiveEnd);
+    const lineEnd = nextBreak === -1 ? value.length : nextBreak;
+    const block = value.slice(lineStart, lineEnd);
+    const lines = block.split("\n");
+    const transformed = lines.map(transform).join("\n");
+    const next = value.slice(0, lineStart) + transformed + value.slice(lineEnd);
+    const mapOffset = (offset: number) => {
+      const prefix = block.slice(0, Math.max(0, Math.min(offset, block.length)));
+      return prefix.split("\n").map(transform).join("\n").length;
+    };
+    const nextStart = lineStart + mapOffset(start - lineStart);
+    const nextEnd = lineStart + mapOffset(Math.min(end, lineEnd) - lineStart) + Math.max(0, end - lineEnd);
+    commit(next, nextStart, nextEnd);
+  }, [commit, value]);
+
+  const indentLines = useCallback((outdent: boolean) => {
+    transformSelectedLines((line) => {
+      if (!outdent) return `  ${line}`;
+      if (line.startsWith("  ")) return line.slice(2);
+      if (line.startsWith("\t")) return line.slice(1);
+      if (line.startsWith(" ")) return line.slice(1);
+      return line;
+    });
+  }, [transformSelectedLines]);
+
+  const continueMarkdownLine = useCallback(() => {
+    const target = textareaRef.current;
+    if (!target) return false;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    if (start !== end) return false;
+    const lineStart = value.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+    const line = value.slice(lineStart, start);
+    const list = line.match(/^(\s*)([-*+])\s+(.*)$/);
+    if (list) {
+      if (!list[3].trim()) {
+        const next = value.slice(0, lineStart) + value.slice(start);
+        commit(next, lineStart);
+        return true;
+      }
+      replaceSelection(`\n${list[1]}${list[2]} `);
+      return true;
+    }
+    const ordered = line.match(/^(\s*)(\d+)\.\s+(.*)$/);
+    if (ordered) {
+      if (!ordered[3].trim()) {
+        const next = value.slice(0, lineStart) + value.slice(start);
+        commit(next, lineStart);
+        return true;
+      }
+      replaceSelection(`\n${ordered[1]}${Number(ordered[2]) + 1}. `);
+      return true;
+    }
+    const quote = line.match(/^(\s*>\s?)(.*)$/);
+    if (quote) {
+      if (!quote[2].trim()) {
+        const next = value.slice(0, lineStart) + value.slice(start);
+        commit(next, lineStart);
+        return true;
+      }
+      replaceSelection(`\n${quote[1]}`);
+      return true;
+    }
+    return false;
+  }, [commit, replaceSelection, value]);
+
+  const wrapSelection = useCallback((left: string, right = left) => {
+    const target = textareaRef.current;
+    if (!target) return;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    const selected = value.slice(start, end);
+    const next = value.slice(0, start) + left + selected + right + value.slice(end);
+    if (selected) {
+      commit(next, start + left.length, end + left.length);
+    } else {
+      commit(next, start + left.length);
+    }
+  }, [commit, value]);
+
+  const handleKeyDown = useCallback((event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Tab") {
+      event.preventDefault();
+      indentLines(event.shiftKey);
+      return;
+    }
+    if (event.key === "Enter" && continueMarkdownLine()) {
+      event.preventDefault();
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
+      event.preventDefault();
+      wrapSelection("**");
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "i") {
+      event.preventDefault();
+      wrapSelection("*");
+    }
+  }, [continueMarkdownLine, indentLines, wrapSelection]);
+
   return (
     <textarea
+      ref={textareaRef}
       value={value}
       onChange={(event) => onChange(event.target.value)}
       onSelect={(event) => emitSelection(event.currentTarget)}
       onKeyUp={(event) => emitSelection(event.currentTarget)}
+      onKeyDown={handleKeyDown}
       onMouseUp={(event) => emitSelection(event.currentTarget)}
       spellCheck
       placeholder="Start writing..."
-      className="h-full min-h-[calc(100vh-168px)] w-full resize-none border-0 bg-transparent px-8 py-7 font-sans text-[18px] leading-8 text-text outline-none placeholder:text-text-dim/70"
+      className="h-full min-h-[calc(100vh-168px)] w-full resize-none border-0 bg-transparent px-8 py-7 font-sans text-[18px] leading-8 text-text outline-none selection:bg-accent/25 placeholder:text-text-dim/70"
     />
   );
 }

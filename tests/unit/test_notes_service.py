@@ -5,6 +5,7 @@ from fastapi import HTTPException
 
 from app.services.notes import (
     NotesSurface,
+    build_assist_proposal,
     content_hash,
     create_note,
     list_notes,
@@ -61,3 +62,19 @@ def test_write_note_requires_current_hash_and_creates_backup(tmp_path: Path):
     backups = list((note_path.parent / ".versions").glob("safe-note.md.*.bak"))
     assert len(backups) == 1
     assert "Original" in backups[0].read_text()
+
+
+def test_assist_fallback_produces_structured_markdown_for_minimal_selection():
+    proposal = build_assist_proposal(
+        "# Untitled\n\nwhats up\n",
+        selection={"start": 0, "end": 19, "text": "# Untitled\n\nwhats up\n"},
+        instruction=None,
+        mode="clarify_structure",
+        fallback_reason="fallback",
+    )
+
+    assert proposal["target"] == "selection"
+    assert proposal["replacement_markdown"] != "# Untitled\n\nwhats up\n"
+    assert "## Notes" in proposal["replacement_markdown"]
+    assert "- whats up" in proposal["replacement_markdown"]
+    assert proposal["diff"]

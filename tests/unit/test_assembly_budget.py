@@ -516,8 +516,8 @@ class TestAssemblyBudgetTight:
         # they arrived in pinned_tools; non-baseline operator pins survive.
         assert "file" not in exposed
         assert "exec_command" in exposed
-        # `run_script` is composition, kept on heartbeat.
-        assert "run_script" in exposed
+        # `run_script` is not implicit on heartbeat; it must be required or pinned.
+        assert "run_script" not in exposed
         # Discovery hatches suppressed.
         assert "get_tool_info" not in exposed
         assert "search_tools" not in exposed

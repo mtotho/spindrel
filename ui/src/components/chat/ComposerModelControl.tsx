@@ -22,6 +22,8 @@ interface ComposerModelControlProps {
   harnessEffortValues?: string[];
   harnessCurrentModel?: string | null;
   harnessCurrentEffort?: string | null;
+  harnessDefaultModel?: string | null;
+  harnessDefaultEffort?: string | null;
   harnessModelMutating?: boolean;
   onHarnessModelChange?: (model: string | null) => void;
   onHarnessEffortChange?: (effort: string | null) => void;
@@ -44,6 +46,8 @@ export function ComposerModelControl({
   harnessEffortValues = [],
   harnessCurrentModel = null,
   harnessCurrentEffort = null,
+  harnessDefaultModel = null,
+  harnessDefaultEffort = null,
   harnessModelMutating = false,
   onHarnessModelChange,
   onHarnessEffortChange,
@@ -54,11 +58,20 @@ export function ComposerModelControl({
   const isTerminalMode = presentation === "terminal";
   const isHarness = !!harnessRuntime;
   const hasOverride = isHarness ? !!harnessCurrentModel : !!modelOverride;
+  const hasEffortOverride = !!harnessCurrentEffort;
+  const displayHarnessModel = harnessCurrentModel ?? harnessDefaultModel;
+  const displayHarnessEffort = harnessCurrentEffort ?? harnessDefaultEffort;
   const effectiveName = isHarness
-    ? harnessCurrentModel
+    ? displayHarnessModel
     : (modelOverride
         ? modelOverride.split("/").pop()
         : defaultModel?.split("/").pop());
+  const harnessDefaultModelTitle = displayHarnessModel
+    ? `Harness model: runtime default (${displayHarnessModel})`
+    : "Harness model: runtime default";
+  const harnessDefaultEffortTitle = displayHarnessEffort
+    ? `Harness effort: runtime default (${displayHarnessEffort}). Click to set.`
+    : "Harness effort: runtime default. Click to set.";
   const defaultVisible = isHarness ? true : !!(onModelOverrideChange && !hideModelOverride);
   const terminalVisible = isHarness || !!onModelOverrideChange;
   const visible = isTerminalMode ? terminalVisible : defaultVisible;
@@ -95,7 +108,7 @@ export function ComposerModelControl({
           type="button"
           onClick={() => onOpenChange(true)}
           title={isHarness
-            ? (hasOverride ? `Harness model: ${harnessCurrentModel}` : "Harness model: runtime default")
+            ? (hasOverride ? `Harness model: ${harnessCurrentModel}` : harnessDefaultModelTitle)
             : (hasOverride ? `Channel model override: ${modelOverride}` : `Model: ${defaultModel ?? effectiveName ?? "default"}`)}
           style={{
             background: "transparent",
@@ -113,20 +126,20 @@ export function ComposerModelControl({
             textOverflow: "ellipsis",
           }}
         >
-          {effectiveName ?? (isHarness ? "default" : "select model")}
+          {effectiveName ?? (isHarness ? "runtime default" : "select model")}
         </button>
         {isHarness && harnessEffortValues.length > 0 && (
           <button
             type="button"
             onClick={cycleHarnessEffort}
             disabled={harnessModelMutating}
-            title={harnessCurrentEffort ? `Harness effort: ${harnessCurrentEffort}. Click to cycle.` : "Harness effort: default. Click to set."}
+            title={hasEffortOverride ? `Harness effort: ${harnessCurrentEffort}. Click to cycle.` : harnessDefaultEffortTitle}
             style={{
               background: "transparent",
               border: "none",
               padding: 0,
               margin: 0,
-              color: harnessCurrentEffort ? t.warningMuted : t.textDim,
+              color: hasEffortOverride ? t.warningMuted : t.textDim,
               fontFamily: terminalFontStack,
               fontSize: 11.5,
               lineHeight: 1.2,
@@ -134,7 +147,7 @@ export function ComposerModelControl({
               whiteSpace: "nowrap",
             }}
           >
-            effort {harnessCurrentEffort ?? "default"}
+            effort {displayHarnessEffort ?? "runtime default"}
           </button>
         )}
         {open && renderModelPickerPortal({
@@ -157,12 +170,12 @@ export function ComposerModelControl({
     );
   }
 
-  const pillLabel = effectiveName ?? (isHarness ? "default" : null);
+  const pillLabel = effectiveName ?? (isHarness ? "runtime default" : null);
   const canRenderPill = !!pillLabel;
   const pillTitle = isHarness
     ? (hasOverride
         ? `Harness model: ${harnessCurrentModel}`
-        : "Harness model: runtime default")
+        : harnessDefaultModelTitle)
     : (hasOverride
         ? `Channel model override: ${modelOverride}`
         : `Model: ${defaultModel ?? effectiveName}`);
@@ -240,23 +253,23 @@ export function ComposerModelControl({
           type="button"
           onClick={cycleHarnessEffort}
           disabled={harnessModelMutating}
-          title={harnessCurrentEffort ? `Harness effort: ${harnessCurrentEffort}. Click to cycle.` : "Harness effort: default. Click to set."}
+          title={hasEffortOverride ? `Harness effort: ${harnessCurrentEffort}. Click to cycle.` : harnessDefaultEffortTitle}
           style={{
             display: "flex",
             alignItems: "center",
             gap: 4,
-            background: harnessCurrentEffort ? t.warningSubtle : "transparent",
-            border: `1px solid ${harnessCurrentEffort ? t.warningBorder : "transparent"}`,
+            background: hasEffortOverride ? t.warningSubtle : "transparent",
+            border: `1px solid ${hasEffortOverride ? t.warningBorder : "transparent"}`,
             borderRadius: 8,
             padding: "4px 8px",
             fontSize: 11,
-            color: harnessCurrentEffort ? t.warningMuted : t.textMuted,
+            color: hasEffortOverride ? t.warningMuted : t.textMuted,
             cursor: harnessModelMutating ? "default" : "pointer",
             opacity: harnessModelMutating ? 0.6 : 1,
             whiteSpace: "nowrap",
           }}
         >
-          effort {harnessCurrentEffort ?? "default"}
+          effort {displayHarnessEffort ?? "runtime default"}
         </button>
       )}
     </div>
