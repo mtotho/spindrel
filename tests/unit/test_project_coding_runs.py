@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from app.db.models import Channel, ExecutionReceipt, IssueWorkPack, Project, ProjectDependencyStackInstance, ProjectRunReceipt, Task, TaskMachineGrant
+from app.db.models import Channel, ExecutionReceipt, Project, ProjectDependencyStackInstance, ProjectRunReceipt, Task, TaskMachineGrant
 from app.services.project_coding_runs import (
     ProjectCodingRunCreate,
     ProjectCodingRunReviewFinalize,
@@ -364,7 +364,7 @@ async def test_create_project_coding_run_attaches_task_scoped_machine_grant(db_s
                 allow_agent_tools=True,
             ),
             granted_by_user_id=user_id,
-            source_work_pack_id=uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            source_artifact={"path": "docs/tracks/foo.md", "section": "Proposed Run Packs"},
         ),
     )
 
@@ -383,7 +383,11 @@ async def test_create_project_coding_run_attaches_task_scoped_machine_grant(db_s
         "allow_agent_tools": True,
         "expires_at": None,
     }
-    assert run_cfg["source_work_pack_id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert run_cfg["source_artifact"] == {
+        "path": "docs/tracks/foo.md",
+        "section": "Proposed Run Packs",
+        "commit_sha": None,
+    }
     assert "Task-scoped grant: ssh/e2e-8000" in task.prompt
     assert "machine_status, machine_inspect_command, and machine_exec_command" in task.prompt
 
@@ -739,7 +743,11 @@ async def test_project_review_batches_group_launch_batch_runs_with_source_packs_
     first_config = dict(first.execution_config)
     first_run_config = dict(first_config["project_coding_run"])
     first_run_config["launch_batch_id"] = launch_batch_id
-    first_run_config["source_work_pack_id"] = str(uuid.uuid4())
+    first_run_config["source_artifact"] = {
+        "path": "docs/tracks/morning.md",
+        "section": "Proposed Run Packs",
+        "commit_sha": None,
+    }
     first_config["project_coding_run"] = first_run_config
     first.execution_config = first_config
     second_config = dict(second.execution_config)
@@ -747,18 +755,6 @@ async def test_project_review_batches_group_launch_batch_runs_with_source_packs_
     second_run_config["launch_batch_id"] = launch_batch_id
     second_config["project_coding_run"] = second_run_config
     second.execution_config = second_config
-    pack = IssueWorkPack(
-        id=uuid.uuid4(),
-        title="Morning review inbox",
-        summary="Group launched packs for review.",
-        category="code_bug",
-        confidence="high",
-        status="launched",
-        project_id=project_id,
-        channel_id=channel_id,
-        launched_task_id=first.id,
-        metadata_={"launch_batch_id": launch_batch_id, "latest_review_action": {"action": "launched"}},
-    )
     receipt = ProjectRunReceipt(
         project_id=project_id,
         task_id=first.id,
@@ -785,7 +781,7 @@ async def test_project_review_batches_group_launch_batch_runs_with_source_packs_
             },
         },
     )
-    db_session.add_all([pack, receipt, review_task])
+    db_session.add_all([receipt, review_task])
     await db_session.commit()
 
     batches = await list_project_coding_run_review_batches(db_session, project)
@@ -799,7 +795,7 @@ async def test_project_review_batches_group_launch_batch_runs_with_source_packs_
     assert batch["status_counts"]["ready_for_review"] == 1
     assert batch["evidence"]["tests_count"] == 1
     assert batch["evidence"]["screenshots_count"] == 1
-    assert batch["source_work_packs"][0]["title"] == "Morning review inbox"
+    assert batch["source_artifacts"][0]["path"] == "docs/tracks/morning.md"
     assert batch["active_review_task"]["task_id"] == str(review_task.id)
     assert batch["actions"]["can_resume_review"] is True
 
@@ -836,24 +832,15 @@ async def test_project_review_session_ledger_derives_outcomes_sources_and_eviden
     )
     run_config = dict(run_task.execution_config)
     project_run_config = dict(run_config["project_coding_run"])
-    work_pack_id = uuid.uuid4()
     project_run_config["launch_batch_id"] = launch_batch_id
-    project_run_config["source_work_pack_id"] = str(work_pack_id)
+    project_run_config["source_artifact"] = {
+        "path": "docs/tracks/ledger.md",
+        "section": "Proposed Run Packs",
+        "commit_sha": None,
+    }
     run_config["project_coding_run"] = project_run_config
     run_task.execution_config = run_config
 
-    pack = IssueWorkPack(
-        id=work_pack_id,
-        title="Ledger source pack",
-        summary="Track review sessions.",
-        category="code_bug",
-        confidence="high",
-        status="launched",
-        project_id=project_id,
-        channel_id=channel_id,
-        launched_task_id=run_task.id,
-        metadata_={"launch_batch_id": launch_batch_id},
-    )
     run_receipt = ProjectRunReceipt(
         project_id=project_id,
         task_id=run_task.id,
@@ -897,7 +884,7 @@ async def test_project_review_session_ledger_derives_outcomes_sources_and_eviden
             "merge_method": "squash",
         },
     )
-    db_session.add_all([pack, run_receipt, review_task, review_receipt])
+    db_session.add_all([run_receipt, review_task, review_receipt])
     await db_session.commit()
 
     sessions = await list_project_coding_run_review_sessions(db_session, project)
@@ -909,7 +896,7 @@ async def test_project_review_session_ledger_derives_outcomes_sources_and_eviden
     assert session["selected_task_ids"] == [str(run_task.id)]
     assert session["selected_run_ids"] == [str(run_task.id)]
     assert session["launch_batch_ids"] == [launch_batch_id]
-    assert session["source_work_packs"][0]["title"] == "Ledger source pack"
+    assert session["source_artifacts"][0]["path"] == "docs/tracks/ledger.md"
     assert session["outcome_counts"] == {"accepted": 1}
     assert session["evidence"]["tests_count"] == 1
     assert session["evidence"]["screenshots_count"] == 1
@@ -1112,109 +1099,6 @@ async def test_finalize_project_coding_run_review_marks_only_accepted_selected_r
         (rejected_task_id, "review.result", "needs_review"),
     ]
     assert receipts[0].result["review_task_id"] == str(review_task_id)
-
-
-@pytest.mark.asyncio
-async def test_finalize_project_coding_run_review_records_source_work_pack_review_provenance(db_session):
-    workspace_id = uuid.uuid4()
-    project_id = uuid.uuid4()
-    channel_id = uuid.uuid4()
-    pack_id = uuid.uuid4()
-    run_task_id = uuid.uuid4()
-    review_task_id = uuid.uuid4()
-    launch_batch_id = f"issue-work-pack-batch:{uuid.uuid4()}"
-    project = Project(
-        id=project_id,
-        workspace_id=workspace_id,
-        name="Spindrel",
-        slug="spindrel-work-pack-review",
-        root_path="common/projects/spindrel",
-        metadata_={},
-    )
-    channel = Channel(
-        id=channel_id,
-        name="Project Agent",
-        bot_id="agent",
-        client_id=f"client-{uuid.uuid4().hex[:8]}",
-        project_id=project_id,
-        workspace_id=workspace_id,
-    )
-    pack = IssueWorkPack(
-        id=pack_id,
-        title="Fix overnight bug",
-        summary="A launched work pack.",
-        category="code_bug",
-        confidence="high",
-        status="launched",
-        project_id=project_id,
-        channel_id=channel_id,
-        launched_task_id=run_task_id,
-        metadata_={"launch_batch_id": launch_batch_id, "review_actions": []},
-    )
-    now = datetime.now(timezone.utc)
-    run_task = Task(
-        id=run_task_id,
-        bot_id="agent",
-        client_id=channel.client_id,
-        channel_id=channel_id,
-        title="Project Coding Run",
-        prompt="Do the work",
-        status="complete",
-        task_type="agent",
-        created_at=now,
-        execution_config={
-            "run_preset_id": "project_coding_run",
-            "project_coding_run": {
-                "project_id": str(project_id),
-                "branch": "spindrel/work-pack",
-                "repo": {},
-                "source_work_pack_id": str(pack_id),
-                "launch_batch_id": launch_batch_id,
-            },
-        },
-    )
-    review_task = Task(
-        id=review_task_id,
-        bot_id="agent",
-        client_id=channel.client_id,
-        channel_id=channel_id,
-        title="Review Runs",
-        prompt="Review",
-        status="running",
-        task_type="agent",
-        created_at=now,
-        execution_config={
-            "run_preset_id": "project_coding_run_review",
-            "project_coding_run_review": {
-                "project_id": str(project_id),
-                "selected_task_ids": [str(run_task_id)],
-                "merge_method": "squash",
-            },
-        },
-    )
-    db_session.add_all([project, channel, pack, run_task, review_task])
-    await db_session.commit()
-
-    result = await finalize_project_coding_run_review(
-        db_session,
-        project,
-        ProjectCodingRunReviewFinalize(
-            review_task_id=review_task_id,
-            run_task_id=run_task_id,
-            outcome="accepted",
-            summary="Accepted from batch review.",
-            details={"checks": "passed"},
-        ),
-    )
-
-    assert result["status"] == "reviewed"
-    refreshed = await db_session.get(IssueWorkPack, pack_id)
-    assert refreshed is not None
-    latest = refreshed.metadata_["latest_review_action"]
-    assert latest["action"] == "reviewed"
-    assert latest["review_task_id"] == str(review_task_id)
-    assert latest["launch_batch_id"] == launch_batch_id
-    assert refreshed.metadata_["review_summary"] == "Accepted from batch review."
 
 
 @pytest.mark.asyncio

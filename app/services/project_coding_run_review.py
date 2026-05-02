@@ -16,9 +16,7 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm.attributes import flag_modified
-
-from app.db.models import Channel, IssueWorkPack, Project, ProjectInstance, Task
+from app.db.models import Channel, Project, ProjectInstance, Task
 from app.services.execution_receipts import create_execution_receipt
 from app.services.project_instances import cleanup_project_instance
 from app.services.project_run_handoff import (
@@ -205,7 +203,7 @@ def _review_context_row(row: dict[str, Any]) -> dict[str, Any]:
         "base_branch": row.get("base_branch"),
         "repo": row.get("repo") or {},
         "dev_targets": row.get("dev_targets") or [],
-        "source_work_pack_id": row.get("source_work_pack_id"),
+        "source_artifact": row.get("source_artifact"),
         "launch_batch_id": row.get("launch_batch_id"),
         "handoff_url": review.get("handoff_url") or receipt.get("handoff_url"),
         "review": {
@@ -494,62 +492,9 @@ async def _record_review_marked(
         correlation_id=run_task.correlation_id,
         idempotency_key=f"{run_task.id}:review.marked",
     )
-    await _record_source_work_pack_reviewed(
-        db,
-        run_task=run_task,
-        actor=actor,
-        summary=summary,
-        result=result,
-    )
-
-
-async def _record_source_work_pack_reviewed(
-    db: AsyncSession,
-    *,
-    run_task: Task,
-    actor: dict[str, Any],
-    summary: str,
-    result: dict[str, Any],
-) -> None:
-    run_cfg = _task_run_config(run_task)
-    raw_pack_id = run_cfg.get("source_work_pack_id")
-    if not raw_pack_id:
-        return
-    try:
-        pack_id = uuid.UUID(str(raw_pack_id))
-    except (TypeError, ValueError):
-        return
-    pack = await db.get(IssueWorkPack, pack_id)
-    if pack is None:
-        return
-    now = _utcnow()
-    metadata = dict(pack.metadata_ or {})
-    review_actions = list(metadata.get("review_actions") or [])
-    action = {
-        "action": "reviewed",
-        "actor": actor,
-        "at": now.isoformat(),
-        "note": summary,
-        "prior_status": pack.status,
-        "task_id": str(run_task.id),
-        "review_task_id": result.get("review_task_id"),
-        "review_session_id": result.get("review_session_id"),
-        "launch_batch_id": run_cfg.get("launch_batch_id") or metadata.get("launch_batch_id"),
-        "outcome": result.get("outcome"),
-        "merge": result.get("merge"),
-        "merge_method": result.get("merge_method"),
-    }
-    review_actions.append(action)
-    metadata["review_actions"] = review_actions
-    metadata["latest_review_action"] = action
-    metadata["reviewed_at"] = now.isoformat()
-    metadata["review_task_id"] = result.get("review_task_id")
-    metadata["review_session_id"] = result.get("review_session_id")
-    metadata["review_summary"] = summary
-    pack.metadata_ = metadata
-    pack.updated_at = now
-    flag_modified(pack, "metadata_")
-    await db.commit()
+    # Phase 4BD.6: source artifacts are file-resident; review provenance now
+    # rides on ExecutionReceipt rows alone. No DB-side mutation of an
+    # IssueWorkPack row is required (the table no longer exists).
 
 
 async def finalize_project_coding_run_review(

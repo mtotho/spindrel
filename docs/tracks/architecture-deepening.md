@@ -31,8 +31,13 @@ Spindrel's agent surfaces (loop, context assembly, tool dispatch) are the #1 bug
 | 5 | Pruning policy vs. mechanics | app/agent | medium-low | not started | 2026-05-02 |
 | 6 | LoopHarness facade | app/agent | low | needs grilling | 2026-05-02 |
 | 7 | Tool Schema Resolver | app/agent + app/tools | low-medium | not started | 2026-05-02 |
+| 8 | Widget envelope + response projection | api + services | high | not started | 2026-05-02 |
+| 9 | Chat handler preflight + audio routing | api | high | not started | 2026-05-02 |
+| 10 | Integration renderer drift / sdk lift | integrations | medium-high | not started | 2026-05-02 |
+| 11 | Read Model Builder (channel/session/pin) | services | high | not started | 2026-05-02 |
+| 12 | Large-screen UI state machines | ui | medium | not started | 2026-05-02 |
 
-**Coverage gap noted on 2026-05-02 sweep:** all 7 candidates landed inside `app/agent/`. The first explore pass under-swept `ui/`, `app/services/`, `app/db/`, and `integrations/sdk.py`. The skill body has been amended to require a broader sweep on subsequent runs — next pass should produce candidates from those areas if friction exists. Don't take the all-agent inventory as evidence those areas are clean.
+**Coverage gap closed on 2026-05-02 follow-up sweep.** Initial pass produced 7 candidates all inside `app/agent/`; follow-up swept `ui/`, `app/services/`, `app/db/`, `app/api/`, `integrations/`, and `app/tools/local/` outside the existing inventory. Five additional candidates surfaced (#8–#12). Areas confirmed clean enough to deprioritize next sweep: `ui/src/hooks/` (focused single-concern hooks), `app/db/` (no ORM leakage), `integrations/sdk.py` proper (clean import boundary), the bulk of `app/services/` and `app/tools/local/`. The next sweep should bias toward `app/agent/` drift detection on landed deepenings rather than fresh discovery.
 
 ## Candidate Inventory
 
@@ -91,6 +96,48 @@ Spindrel's agent surfaces (loop, context assembly, tool dispatch) are the #1 bug
 - **Solution sketch**: One Tool Schema Resolver — composite that checks pinned → enrolled → retrieval (if policy allows) → fallback. Single call from `context_assembly`.
 - **Benefits**: New discovery modes (MCP tool retrieval, plan-mode-restricted surfaces) add a resolver implementation, not branches in three modules.
 - **Caveat**: The taxonomy (Local/MCP/Client/Workspace) is settled in `architecture.md`. This is hygiene more than a load-bearing seam unless new discovery modes are coming.
+
+### 8. Widget envelope + response projection — confidence: **high**
+
+- **Files**: `app/services/widget_templates.py` (1297 lines, 26 functions), inline `model_validate()` chains in `app/routers/api_v1_channels.py` (~900+), `api_v1_sessions.py:491–912`, `api_v1_projects.py` (~900+).
+- **Problem**: Widget contract serialization (envelope transform, rendering-support matrix, rich-result adapter) lives in one dense service module. Channel/session/widget detail routes inline-construct `ChannelOut`, `SessionOut`, `WidgetEnvelopeOut` rather than going through a shared seam. `test_widget_catalog_api.py` (645 lines) mocks 12 collaborators because there's no isolated serializer to test.
+- **Solution sketch**: A Widget Envelope Serializer module that owns `serialize_widget_envelope(widget, binding_context, policy)` — every route that emits widget payloads calls it. A separate Response Projector module centralizes `build_<shape>_out(row, db)` for the shapes currently scattered across `channel_read_models.py`, `channel_sessions.py`, and three route helpers.
+- **Benefits**: V1 widget shape changes touch one file, not 15. Session detail evolves through one builder, not four. Tests become micro-units instead of integration mocks.
+- **Domain language**: Widget Envelope, Widget Binding Context (existing), Response Projector.
+
+### 9. Chat handler preflight + audio routing — confidence: **high**
+
+- **Files**: `app/routers/chat/_routes.py` (876 lines, 9 `@router.post` handlers), `app/routers/chat/_helpers.py` (323 lines), overlap with `app/services/audio_input.py`.
+- **Problem**: Validation, auth pre-checks, audio transcription (`_transcribe_audio_data`), attachment marshalling, session resolution, turn enqueueing all live inline in handlers. Handlers operate on `Any` for channel/session/bot — no typed pre-flight contract. Audio transcription mode-negotiation (`_resolve_audio_native` vs. `_transcribe_audio_data`) is split between route handler and service layer; same logic in two places.
+- **Solution sketch**: A Chat Preflight Validator service — `validate_chat_request(body, auth) → PreparedChatInput` returns a typed, validated request with channel/session/bot resolved + attachments parsed. An Audio Transcription Router owns the single decision point of `native | transcribe | fail`. Handlers shrink to ~15 lines: parse → validate → enqueue → 202.
+- **Benefits**: Audio mode-negotiation bugs fix in one place. New chat-request fields (RAG hints, embedding overrides) plug into the validator instead of being threaded through handler bodies. Worker tests mock `PreparedChatInput`, not the full handler stack.
+- **Domain language**: Chat Preflight Validator, Prepared Chat Input, Audio Transcription Router.
+
+### 10. Integration renderer drift / `sdk.py` lift — confidence: **medium-high**
+
+- **Files**: `integrations/discord/renderer.py` (727 lines, 18 handlers), `integrations/slack/renderer.py` (207 lines), `integrations/arr/tools/_helpers.py` (64 lines), similar patterns in `bluebubbles/`, `github/`. `integrations/sdk.py` (586 lines).
+- **Problem**: Discord is 3.5× Slack despite overlapping delivery concerns — both reimplement streaming-message coalesce, rate-limiting windows, message-ID tracking. ARR + GitHub duplicate entity parsing / state extraction helpers. AGENTS.md and `integrations.md` § Anti-patterns #7 already say "same private helper in 2+ integrations is a smell, lift to `sdk.py`" — that contract has drifted.
+- **Solution sketch**: A Streaming Delivery Helper in `sdk.py` owns chunk coalescing, rate-limit windows, message-ID tracking. Renderers retain only platform-API adapter logic. ARR + GitHub parsing helpers lift as `parse_*` composables in `sdk.py`. New integrations (Telegram, Matrix, etc.) reuse rather than rebuild.
+- **Benefits**: Discord renderer shrinks ~400 lines. New integration onboarding cost drops. Test doubles for streaming delivery exist once.
+- **Domain language**: Streaming Delivery Helper, Platform API Adapter.
+- **Cross-ref**: `tests/unit/test_integration_no_duplicate_helpers.py` already gates this contract — drift suggests the gate is missing some helpers.
+
+### 11. Read Model Builder (channel / session / pin) — confidence: **high**
+
+- **Files**: `app/services/channel_read_models.py` (312 lines), `app/services/channel_sessions.py` (450+ lines), `app/services/dashboard_pins.py` (1334 lines).
+- **Problem**: Three modules own overlapping projections from DB rows to response shapes. `dashboard_pins.py` bundles three concepts: pin rendering, widget contract projection, theme resolution. Routes (`api_v1_channels.py`, `api_v1_sessions.py`, `api_v1_projects.py`) import 2–3 of these and combine inline — new fields leak into both query and three builders.
+- **Solution sketch**: A Read Model Builder facade — `builder.channel(row, db)`, `builder.session_detail(row, db)`, `builder.pin_with_widget_envelope(pin, db)`. Dashboard-pin widget logic becomes a sub-concern of the builder rather than its own 1334-line module. All routes call the builder; no inline `model_validate` chains.
+- **Benefits**: New `Channel` / `Session` / `Pin` field = one builder, one query, one test. Heartbeat projection (currently inline) plugs in for free. Cross-overlap with #8 — the builder and the envelope serializer want to share a base; landing #8 first would inform the builder shape.
+- **Domain language**: Read Model Builder, Projection Seam.
+
+### 12. Large-screen UI state machines — confidence: **medium**
+
+- **Files**: `ui/src/components/spatial-canvas/SpatialCanvas.tsx` (1008 lines, 20 hooks), `ui/src/components/attention/AttentionCommandDeck.tsx` (1957 lines, 16 hooks), `ui/app/(app)/channels/[channelId]/index.tsx` (2017 lines, 22 hooks), `ui/src/components/spatial-canvas/useSpatialNavigation.tsx` (753 lines, 15+ props).
+- **Problem**: Modal state, tab selection, sidebar visibility, detail-panel expansion, selection mode all live in scattered `useState` calls with transitions inlined into `useCallback` branches. Expanding the spatial canvas map calls 4 separate setState functions. State invariants (e.g., "detail closed when selection empty") aren't enforced anywhere. Zero unit tests on the canvas state logic. `useSpatialNavigation` takes 15+ props because there's no context seam.
+- **Solution sketch**: A `useSpatialCanvasState()` reducer hook returning `{ state, dispatch }`. Same for the attention deck and channel-screen tab/detail logic. Add a shallow `<SpatialCanvasStateContext>` to break the prop-drilling chain. Not a rewrite — funnel scattered `useState` calls into a reducer so transitions become unit-testable.
+- **Benefits**: Tab/sidebar/detail transitions become one dispatch instead of four setState calls. State invariants enforced in the reducer. Tests assert on reducer transitions without rendering. Prop drilling drops ~60% on the spatial-navigation tree.
+- **Domain language**: Canvas State Machine, Spatial Navigation Context.
+- **Cross-cutting risk**: This brushes against `spindrel-ui` skill territory (UI archetypes, component catalog). Any deepening here must respect the command/app-shell/control archetype split and use canonical components from `docs/guides/ui-components.md` rather than introducing parallel patterns.
 
 ## Key Invariants
 

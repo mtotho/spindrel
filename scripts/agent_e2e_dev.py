@@ -1007,6 +1007,38 @@ def _wait_for_harness_runtime(api_url: str, api_key: str, runtime: str, *, timeo
     raise SystemExit(f"harness runtime {runtime!r} is registered but not ready: {latest.get('detail')}")
 
 
+def _ensure_browser_automation_stack(api_url: str, api_key: str) -> None:
+    """Start the shared browser automation stack when integration sync registered it."""
+    stacks = _request_json(
+        "GET",
+        f"{api_url}/api/v1/admin/docker-stacks",
+        api_key=api_key,
+        timeout=60,
+    )
+    if not isinstance(stacks, list):
+        return
+    browser_stacks = [
+        stack for stack in stacks
+        if isinstance(stack, dict) and stack.get("integration_id") == "browser_automation"
+    ]
+    if not browser_stacks:
+        return
+    stack = browser_stacks[0]
+    stack_id = str(stack.get("id") or "")
+    if not stack_id:
+        return
+    if stack.get("status") == "running":
+        print("browser_automation stack: running")
+        return
+    started = _request_json(
+        "POST",
+        f"{api_url}/api/v1/admin/docker-stacks/{stack_id}/start",
+        api_key=api_key,
+        timeout=180,
+    )
+    print(f"browser_automation stack: {started.get('status') or 'started'}")
+
+
 def _validate_claude_live_auth(container_name: str) -> None:
     """Run a tiny noninteractive Claude turn so stale OAuth fails early."""
     if not shutil.which("docker"):
@@ -1020,6 +1052,10 @@ def _validate_claude_live_auth(container_name: str) -> None:
             container_name,
             "claude",
             "--print",
+            "--tools",
+            "",
+            "--system-prompt",
+            "You are an authentication smoke test. Do not use tools. Reply only with the requested marker.",
             "Reply with exactly: auth-ok",
             "--max-turns",
             "1",
@@ -1051,6 +1087,10 @@ def _validate_claude_live_auth_native() -> None:
         [
             claude,
             "--print",
+            "--tools",
+            "",
+            "--system-prompt",
+            "You are an authentication smoke test. Do not use tools. Reply only with the requested marker.",
             "Reply with exactly: auth-ok",
             "--max-turns",
             "1",

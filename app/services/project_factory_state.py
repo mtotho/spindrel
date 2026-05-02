@@ -11,10 +11,9 @@ Stage precedence (highest first wins; first match wins):
   2. needs_review     - one or more runs ready_for_review AND no active review task
   3. runs_in_flight   - runs in changes_requested/follow_up_running/reviewing/blocked/missing_evidence,
                         OR active review task, OR pending/running implementation task
-  4. shaping_packs    - one or more Run Packs in proposed/needs_info
-  5. planning         - PRD/brief artifact reference exists OR recent planning signal
-  6. ready_no_work    - configured, zero intake, zero packs, zero runs
-  7. reviewed_idle    - all runs reviewed, no pending packs, no pending intake
+  4. planning         - PRD/brief artifact reference exists OR recent planning signal
+  5. ready_no_work    - configured, zero intake, zero runs
+  6. reviewed_idle    - all runs reviewed, no pending intake
 """
 from __future__ import annotations
 
@@ -26,7 +25,6 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
-    IssueWorkPack,
     Project,
     ProjectRunReceipt,
     Task,
@@ -133,14 +131,14 @@ async def _intake_counts_for_project(db: AsyncSession, project: Project) -> dict
     return {"pending": len(pending_ids)}
 
 
-async def _run_pack_counts_for_project(db: AsyncSession, project: Project) -> dict[str, int]:
-    stmt = select(IssueWorkPack.status).where(IssueWorkPack.project_id == project.id)
-    rows = [str(r[0]) for r in (await db.execute(stmt)).all()]
-    counts = {"proposed": 0, "needs_info": 0, "launched": 0, "dismissed": 0}
-    for status in rows:
-        if status in counts:
-            counts[status] += 1
-    return counts
+def _run_pack_counts_for_project() -> dict[str, int]:
+    """Phase 4BD.6: Run Packs are file-resident artifacts now (markdown sections
+    in repo-resident files). The factory-state aggregate keeps zeroed counts
+    so consumers see a stable schema; the live count would require parsing
+    every Track/audit/PRD file under the canonical repo on each call, which is
+    not worth the IO. Stage classification no longer emits ``shaping_packs``.
+    """
+    return {"proposed": 0, "needs_info": 0, "launched": 0, "dismissed": 0}
 
 
 def _planning_artifact_signals(project: Project) -> dict[str, Any]:
@@ -233,8 +231,6 @@ def _classify_stage(
     if not blueprint_applied or not runtime_ready:
         return "unconfigured"
 
-    proposed_or_needs_info = pack_counts.get("proposed", 0) + pack_counts.get("needs_info", 0)
-
     # needs_review wins over runs_in_flight when there is a ready run and no active reviewer.
     if runs["ready_for_review"] > 0 and not runs["has_active_review_task"]:
         return "needs_review"
@@ -246,18 +242,15 @@ def _classify_stage(
     ):
         return "runs_in_flight"
 
-    if proposed_or_needs_info > 0:
-        return "shaping_packs"
-
     if planning["present"]:
         return "planning"
 
     has_any_intake = intake_counts.get("pending", 0) > 0
     has_any_runs = runs["total"] > 0
-    if not has_any_intake and not has_any_runs and proposed_or_needs_info == 0:
+    if not has_any_intake and not has_any_runs:
         return "ready_no_work"
 
-    if runs["total"] > 0 and runs["reviewed"] == runs["total"] and not has_any_intake and proposed_or_needs_info == 0:
+    if runs["total"] > 0 and runs["reviewed"] == runs["total"] and not has_any_intake:
         return "reviewed_idle"
 
     # Fallback: if runs exist but none active/ready, treat as reviewed_idle.
@@ -293,13 +286,6 @@ def _suggested_next_action(stage: str, *, blueprint_applied: bool, runtime_ready
             "headline": "Runs are in progress or need follow-up. Inspect the Runs cockpit.",
             "skill_id_to_load": "project/runs/implement",
             "why": "implementation/review/follow-up runs active",
-        }
-    if stage == "shaping_packs":
-        return {
-            "stage": stage,
-            "headline": "Run Packs are proposed but not launched. Review and launch or revise.",
-            "skill_id_to_load": "project/plan/run_packs",
-            "why": "proposed/needs_info packs exist with no in-flight runs",
         }
     if stage == "planning":
         return {
@@ -364,7 +350,7 @@ async def get_project_factory_state(
     }
 
     intake_counts = await _intake_counts_for_project(db, project)
-    pack_counts = await _run_pack_counts_for_project(db, project)
+    pack_counts = _run_pack_counts_for_project()
 
     raw_runs = await list_project_coding_runs(db, project, limit=max(1, min(coding_runs_limit, 200)))
     runs_classification = _classify_runs(raw_runs)

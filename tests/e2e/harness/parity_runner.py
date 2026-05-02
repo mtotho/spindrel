@@ -444,6 +444,7 @@ def cmd_prepare(args) -> int:
             env,
             timeout=args.startup_timeout,
         )
+    dev._ensure_browser_automation_stack(api_url, api_key)
 
     project = dev._ensure_project(
         api_url,

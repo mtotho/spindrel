@@ -3,7 +3,8 @@ import { useChatStore } from "@/src/stores/chat";
 import { ChatMessageArea, type ChatMessageAreaProps } from "@/src/components/chat/ChatMessageArea";
 import { ChatComposerShell } from "@/src/components/chat/ChatComposerShell";
 import { MessageInput } from "@/src/components/chat/MessageInput";
-import { ErrorBanner, SecretWarningBanner } from "./ChatBanners";
+import { ErrorBanner, ProjectChannelEmptyHint, SecretWarningBanner } from "./ChatBanners";
+import { useChannel } from "@/src/api/hooks/useChannels";
 
 type MessageInputComponentProps = ComponentProps<typeof MessageInput>;
 type MessageAreaBaseProps = Omit<
@@ -43,6 +44,12 @@ export function ChatStreamingArea({
   onRetry,
 }: ChatStreamingAreaProps) {
   const chatState = useChatStore((s) => s.getChannel(channelId));
+  const { data: channelData } = useChannel(channelId);
+  const projectSummary = channelData?.project ?? null;
+  // Show the discoverability hint only when the channel has no user messages
+  // yet AND is attached to a Project. Auto-hides as soon as the user types.
+  const hasAnyUserMessage = chatState.messages?.some((m) => m.role === "user") ?? false;
+  const showProjectEmptyHint = !!projectSummary && !hasAnyUserMessage;
 
   const inputOverlayRef = useRef<HTMLDivElement>(null);
   const [inputOverlayHeight, setInputOverlayHeight] = useState(96);
@@ -81,6 +88,12 @@ export function ChatStreamingArea({
         <SecretWarningBanner
           patterns={chatState.secretWarning.patterns}
           onDismiss={handleDismissSecretWarning}
+        />
+      )}
+      {projectSummary && (
+        <ProjectChannelEmptyHint
+          projectName={projectSummary.name || "This Project"}
+          visible={showProjectEmptyHint}
         />
       )}
     </>

@@ -87,6 +87,43 @@ export function useProjectDependencyStack(projectId: string | undefined) {
   });
 }
 
+// Generated types from openapi.json. The FastAPI models declare nested
+// dict fields as `dict[str, Any]`, so the generated shapes carry
+// `Record<string, unknown>` for `concurrency`, `intake`, `runs`, etc.
+// Consumers narrow at point of use; do NOT redeclare the shape here.
+import type { components as ApiSchemas } from "../../types/api.generated";
+
+export type ProjectFactoryStateView = ApiSchemas["schemas"]["ProjectFactoryStateOut"];
+export type ProjectOrchestrationPolicyView = ApiSchemas["schemas"]["ProjectOrchestrationPolicyOut"];
+
+export function useProjectFactoryState(
+  projectId: string | undefined,
+  opts: { refetchIntervalMs?: number } = {},
+) {
+  return useQuery({
+    queryKey: ["projects", projectId, "factory-state"],
+    queryFn: () =>
+      apiFetch<ProjectFactoryStateView>(`/api/v1/projects/${projectId}/factory-state`),
+    enabled: !!projectId,
+    refetchInterval: opts.refetchIntervalMs ?? 30_000,
+  });
+}
+
+export function useProjectOrchestrationPolicy(
+  projectId: string | undefined,
+  opts: { refetchIntervalMs?: number } = {},
+) {
+  return useQuery({
+    queryKey: ["projects", projectId, "orchestration-policy"],
+    queryFn: () =>
+      apiFetch<ProjectOrchestrationPolicyView>(
+        `/api/v1/projects/${projectId}/orchestration-policy`,
+      ),
+    enabled: !!projectId,
+    refetchInterval: opts.refetchIntervalMs ?? 30_000,
+  });
+}
+
 export function useManageProjectDependencyStack(projectId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({

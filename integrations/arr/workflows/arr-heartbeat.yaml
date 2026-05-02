@@ -25,12 +25,14 @@ steps:
 
       `run_script(skill_name="integrations/arr/media_management", script_name="expected-download-audit")`
 
-      Parse the compact JSON printed by the script.
+      Parse the compact JSON printed by the script. Treat `recommended_response`,
+      `counts`, and the categorized item lists as the complete audit result.
 
       If the script reports `status: ok`, return a short "all expected downloads healthy" summary.
-      Do not call raw ARR tools or read the tracked JSON files again.
+      Do not call raw ARR tools, read status.md, or read the tracked JSON files again.
 
-      If the script reports `status: needs_attention`, summarize only the named items in `items`.
+      If the script reports `status: needs_attention`, summarize only the named items in
+      `actionable_items`, with queued/upcoming items only as context when useful.
       Make additional focused read-only calls only if an item needs diagnosis that the script output
       does not contain. Do not mutate monitoring settings or trigger broad searches from this workflow.
     on_failure: continue

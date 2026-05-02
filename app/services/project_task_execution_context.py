@@ -28,6 +28,26 @@ from enum import Enum
 from typing import Any, Mapping, Protocol
 
 from sqlalchemy import select
+
+
+def _normalize_source_artifact(value: Any) -> dict | None:
+    """Coerce a free-form mapping into the canonical ``source_artifact`` shape.
+
+    Returns ``None`` when the value is missing or has no usable ``path``.
+    Keeps only the documented keys (``path``, ``section``, ``commit_sha``)
+    so the persisted dict stays byte-stable across round-trips.
+    """
+    if not isinstance(value, dict):
+        return None
+    raw_path = value.get("path")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None
+    out: dict = {"path": raw_path.strip()}
+    section = value.get("section")
+    out["section"] = section.strip() if isinstance(section, str) and section.strip() else None
+    commit_sha = value.get("commit_sha")
+    out["commit_sha"] = commit_sha.strip() if isinstance(commit_sha, str) and commit_sha.strip() else None
+    return out
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Channel, Project, Task
@@ -498,7 +518,7 @@ class ProjectTaskExecutionContext:
     runtime_target: RuntimeTargetView
     lineage: RunLineage
     machine_grant: MachineGrantSummary | None
-    source_work_pack_id: str | None
+    source_artifact: dict | None
     schedule_task_id: str | None
     schedule_run_number: int | None
     selected_task_ids: tuple[str, ...] = ()  # populated for review only
@@ -529,7 +549,7 @@ class ProjectTaskExecutionContext:
         request: str = "",
         repo_path: str | None = None,
         machine_grant: "MachineGrantInput | None" = None,
-        source_work_pack_id: uuid.UUID | None = None,
+        source_artifact: dict | None = None,
         schedule_task_id: uuid.UUID | None = None,
         schedule_run_number: int | None = None,
         allocator: DevTargetAllocator | None = None,
@@ -572,7 +592,7 @@ class ProjectTaskExecutionContext:
                 continuation_feedback=None,
             ),
             machine_grant=machine_summary,
-            source_work_pack_id=str(source_work_pack_id) if source_work_pack_id else None,
+            source_artifact=_normalize_source_artifact(source_artifact),
             schedule_task_id=str(schedule_task_id) if schedule_task_id else None,
             schedule_run_number=int(schedule_run_number) if schedule_run_number is not None else None,
             selected_task_ids=(),
@@ -654,7 +674,7 @@ class ProjectTaskExecutionContext:
                 continuation_feedback=feedback_text,
             ),
             machine_grant=parent_ctx.machine_grant,
-            source_work_pack_id=parent_ctx.source_work_pack_id,
+            source_artifact=parent_ctx.source_artifact,
             schedule_task_id=parent_ctx.schedule_task_id,
             schedule_run_number=parent_ctx.schedule_run_number,
             selected_task_ids=(),
@@ -711,7 +731,7 @@ class ProjectTaskExecutionContext:
                 continuation_feedback=None,
             ),
             machine_grant=machine_summary,
-            source_work_pack_id=None,
+            source_artifact=None,
             schedule_task_id=None,
             schedule_run_number=None,
             selected_task_ids=tuple(str(rid) for rid in selected_task_ids),
@@ -772,7 +792,7 @@ class ProjectTaskExecutionContext:
                     continuation_index=0,
                 ),
                 machine_grant=machine_summary,
-                source_work_pack_id=None,
+                source_artifact=None,
                 schedule_task_id=None,
                 schedule_run_number=None,
                 selected_task_ids=tuple(
@@ -866,9 +886,7 @@ class ProjectTaskExecutionContext:
             runtime_target=RuntimeTargetView.from_persisted(runtime_target_raw),
             lineage=lineage,
             machine_grant=machine_summary,
-            source_work_pack_id=(
-                str(run["source_work_pack_id"]) if run.get("source_work_pack_id") else None
-            ),
+            source_artifact=_normalize_source_artifact(run.get("source_artifact")),
             schedule_task_id=(
                 str(run["schedule_task_id"]) if run.get("schedule_task_id") else None
             ),
@@ -922,7 +940,7 @@ class ProjectTaskExecutionContext:
             "machine_target_grant": (
                 self.machine_grant.to_persisted() if self.machine_grant else None
             ),
-            "source_work_pack_id": self.source_work_pack_id,
+            "source_artifact": dict(self.source_artifact) if isinstance(self.source_artifact, dict) else None,
             "schedule_task_id": self.schedule_task_id,
             "schedule_run_number": self.schedule_run_number,
             "continuation_index": self.lineage.continuation_index,
@@ -1114,7 +1132,7 @@ class ContextAssembler:
         task_id: uuid.UUID,
         request: str = "",
         machine_grant: "MachineGrantInput | None" = None,
-        source_work_pack_id: uuid.UUID | None = None,
+        source_artifact: dict | None = None,
         schedule_task_id: uuid.UUID | None = None,
         schedule_run_number: int | None = None,
         selected_task_ids: list[uuid.UUID] | tuple[uuid.UUID, ...] = (),
@@ -1151,7 +1169,7 @@ class ContextAssembler:
                 continuation_feedback=None,
             ),
             machine_grant=_machine_grant_summary_from_input(machine_grant),
-            source_work_pack_id=str(source_work_pack_id) if source_work_pack_id else None,
+            source_artifact=_normalize_source_artifact(source_artifact),
             schedule_task_id=str(schedule_task_id) if schedule_task_id else None,
             schedule_run_number=int(schedule_run_number) if schedule_run_number is not None else None,
             selected_task_ids=tuple(str(rid) for rid in selected_task_ids),

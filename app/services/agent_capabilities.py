@@ -194,7 +194,7 @@ RUNTIME_SKILL_COVERAGE_AUDIT: dict[str, dict[str, Any]] = {
             "planning/native_session",
             "project/runs/implement",
         ],
-        "why_skill_shaped": "Project planning is an LLM-led lifecycle workflow over existing conversations, PRDs, stories, issue intake, and the create_issue_work_packs tool.",
+        "why_skill_shaped": "Project planning is an LLM-led lifecycle workflow over existing conversations, PRDs, stories, repo-resident intake notes, and the propose_run_packs tool.",
         "small_model_reason": "Smaller models need the lifecycle map before grouping discrete work, marking vague ideas as needs-info or non-code, and avoiding premature coding-run launches.",
         "suggested_owner": "existing_runtime_skill",
     },

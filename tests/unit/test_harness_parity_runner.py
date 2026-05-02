@@ -310,6 +310,9 @@ def test_prepare_harness_parity_skip_setup_starts_native_api_before_admin_calls(
     monkeypatch.setattr(
         agent_e2e_dev, "_wait_for_harness_runtime", lambda *a, **k: {"ok": True}
     )
+    monkeypatch.setattr(
+        agent_e2e_dev, "_ensure_browser_automation_stack", lambda *a, **k: None
+    )
     monkeypatch.setattr(agent_e2e_dev, "_validate_claude_live_auth_native", lambda: None)
     monkeypatch.setattr(agent_e2e_dev, "_ensure_harness_parity_bot", lambda *a, **k: None)
     monkeypatch.setattr(
@@ -389,6 +392,9 @@ def test_prepare_harness_parity_sets_up_local_runtimes_channels_and_env(
         lambda api_url, api_key, env, timeout: calls.append(("RESTART", api_url, None)),
     )
     monkeypatch.setattr(agent_e2e_dev, "_request_json", fake_request)
+    monkeypatch.setattr(
+        agent_e2e_dev, "_ensure_browser_automation_stack", lambda *a, **k: None
+    )
 
     assert parity_runner.cmd_prepare(
         argparse.Namespace(

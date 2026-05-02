@@ -248,7 +248,7 @@ async def test_claude_observability_hooks_record_sdk_lifecycle_events():
         None,
     )
 
-    assert decision == {"decision": "continue"}
+    assert decision == {"continue": True}
     assert result_meta["claude_hook_events"] == [
         {
             "event": "PostToolUse",

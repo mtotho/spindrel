@@ -7,7 +7,6 @@ import pytest
 
 from app.db.models import (
     Channel,
-    IssueWorkPack,
     Project,
     SharedWorkspace,
     WorkspaceAttentionItem,
@@ -103,18 +102,6 @@ def test_classify_runs_in_flight_when_active_implementation():
         planning=_planning(),
     )
     assert stage == "runs_in_flight"
-
-
-def test_classify_shaping_packs_when_proposed_packs_and_no_runs():
-    stage = _classify_stage(
-        blueprint_applied=True,
-        runtime_ready=True,
-        runs=_runs(),
-        pack_counts={"proposed": 2, "needs_info": 1, "launched": 0, "dismissed": 0},
-        intake_counts={"pending": 0},
-        planning=_planning(),
-    )
-    assert stage == "shaping_packs"
 
 
 def test_classify_planning_when_prd_signal_present_and_no_packs():
@@ -260,42 +247,14 @@ async def test_get_project_factory_state_counts_pending_intake_and_packs(db_sess
         )
         for i in range(3)
     ])
-    db_session.add_all([
-        IssueWorkPack(
-            id=uuid.uuid4(),
-            title=f"pack {i}",
-            summary="",
-            category="code_bug",
-            confidence="medium",
-            status="proposed",
-            project_id=project.id,
-            channel_id=channel.id,
-            launch_prompt="do the thing",
-        )
-        for i in range(2)
-    ])
-    db_session.add(
-        IssueWorkPack(
-            id=uuid.uuid4(),
-            title="needs more info",
-            summary="",
-            category="needs_info",
-            confidence="low",
-            status="needs_info",
-            project_id=project.id,
-            channel_id=channel.id,
-            launch_prompt="",
-        )
-    )
     await db_session.commit()
 
     state = await get_project_factory_state(db_session, project)
     assert state["intake"]["pending"] == 3
-    assert state["run_packs"]["proposed"] == 2
-    assert state["run_packs"]["needs_info"] == 1
-    # configured + proposed packs => shaping_packs
-    assert state["current_stage"] == "shaping_packs"
-    assert state["suggested_next_action"]["skill_id_to_load"] == "project/plan/run_packs"
+    # Phase 4BD.6: run_packs is a stable zeroed schema; the substrate is
+    # file-resident now. The factory state never re-derives shaping_packs.
+    assert state["run_packs"] == {"proposed": 0, "needs_info": 0, "launched": 0, "dismissed": 0}
+    assert state["current_stage"] != "shaping_packs"
     # Phase 4BD.0 - canonical_repo resolves to first repo when no flag is set.
     assert state["canonical_repo"]["relative_path"] == "p"
     # Phase 4BD.1 - intake_config rides along even when project still uses defaults.

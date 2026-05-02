@@ -244,7 +244,7 @@ async def test_fresh_persists_schedule_provenance_when_supplied(db_session):
     db_session.add(project)
     await db_session.commit()
     schedule_task_id = uuid.uuid4()
-    source_pack_id = uuid.uuid4()
+    source_artifact = {"path": "docs/tracks/x.md", "section": "Proposed Run Packs"}
 
     ctx = await ProjectTaskExecutionContext.fresh(
         db_session,
@@ -252,13 +252,17 @@ async def test_fresh_persists_schedule_provenance_when_supplied(db_session):
         task_id=uuid.uuid4(),
         schedule_task_id=schedule_task_id,
         schedule_run_number=3,
-        source_work_pack_id=source_pack_id,
+        source_artifact=source_artifact,
     )
 
     persisted = ctx.to_persisted()
     assert persisted["schedule_task_id"] == str(schedule_task_id)
     assert persisted["schedule_run_number"] == 3
-    assert persisted["source_work_pack_id"] == str(source_pack_id)
+    assert persisted["source_artifact"] == {
+        "path": "docs/tracks/x.md",
+        "section": "Proposed Run Packs",
+        "commit_sha": None,
+    }
 
 
 @pytest.mark.asyncio
@@ -386,7 +390,7 @@ async def test_from_parent_increments_continuation_index_from_parent_value(db_se
         "dev_target_env": {},
         "dependency_stack": {"configured": False, "source_path": None, "env_keys": [], "commands": []},
         "machine_target_grant": None,
-        "source_work_pack_id": None,
+        "source_artifact": None,
         "schedule_task_id": None,
         "schedule_run_number": None,
         "continuation_index": 5,
@@ -461,7 +465,7 @@ async def test_from_parent_with_refresh_runtime_env_replaces_runtime_target_only
         "dev_target_env": {"P": "31100", "U": "http://127.0.0.1:31100"},
         "dependency_stack": {"configured": False, "source_path": None, "env_keys": [], "commands": []},
         "machine_target_grant": None,
-        "source_work_pack_id": None,
+        "source_artifact": None,
         "schedule_task_id": None,
         "schedule_run_number": None,
         "continuation_index": 0,
@@ -686,7 +690,7 @@ def test_from_task_does_not_hit_db_pure_read():
         "dev_target_env": {"P": "31100"},
         "dependency_stack": {"configured": False, "source_path": None, "env_keys": [], "commands": []},
         "machine_target_grant": None,
-        "source_work_pack_id": None,
+        "source_artifact": None,
         "schedule_task_id": None,
         "schedule_run_number": None,
         "continuation_index": 0,
@@ -723,7 +727,7 @@ def test_from_task_handles_review_kind():
         "dev_target_env": {},
         "dependency_stack": {"configured": False, "source_path": None, "env_keys": [], "commands": []},
         "machine_target_grant": None,
-        "source_work_pack_id": None,
+        "source_artifact": None,
         "schedule_task_id": None,
         "schedule_run_number": None,
         "continuation_index": 0,
@@ -858,7 +862,7 @@ def test_readiness_summary_is_secret_safe_and_collects_run_contract():
             allow_agent_tools=True,
             expires_at=None,
         ),
-        source_work_pack_id=None,
+        source_artifact=None,
         schedule_task_id=None,
         schedule_run_number=None,
         selected_task_ids=(),
@@ -907,7 +911,7 @@ def test_runtime_env_redact_text_redacts_known_values():
             continuation_index=0,
         ),
         machine_grant=None,
-        source_work_pack_id=None,
+        source_artifact=None,
         schedule_task_id=None,
         schedule_run_number=None,
         selected_task_ids=(),
@@ -964,7 +968,7 @@ def test_apply_to_task_raises_when_called_on_from_task_only_context():
         "dev_target_env": {},
         "dependency_stack": {"configured": False, "source_path": None, "env_keys": [], "commands": []},
         "machine_target_grant": None,
-        "source_work_pack_id": None,
+        "source_artifact": None,
         "schedule_task_id": None,
         "schedule_run_number": None,
         "continuation_index": 0,

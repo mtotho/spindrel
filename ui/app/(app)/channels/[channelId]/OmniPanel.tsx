@@ -278,40 +278,42 @@ export function OmniPanel({
       className="flex flex-col h-full overflow-hidden"
       style={fullWidth ? { flex: 1 } : { width, flexShrink: 0 }}
     >
-      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden px-2 py-2">
-        <WorkbenchNavButton
-          label="Sessions"
-          icon={<MessageCircle size={13} />}
-          active={activeTab === "sessions"}
-          onClick={() => setTab("sessions")}
-          priority="primary"
-        />
-        {hasWorkspace && !mobileTabs && (
+      <div className="flex min-w-0 items-center gap-1.5 px-2 py-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden scroll-subtle">
           <WorkbenchNavButton
-            label="Notes"
-            icon={<NotebookText size={13} />}
-            active={activeTab === "notes"}
-            onClick={() => setTab("notes")}
+            label="Sessions"
+            icon={<MessageCircle size={13} />}
+            active={activeTab === "sessions"}
+            onClick={() => setTab("sessions")}
             priority="primary"
           />
-        )}
-        <WorkbenchNavButton
-          label="Widgets"
-          icon={<Layers size={13} />}
-          active={activeTab === "widgets"}
-          onClick={() => setTab("widgets")}
-          count={railPins.length}
-          priority="secondary"
-        />
-        {hasWorkspace && (
+          {hasWorkspace && !mobileTabs && (
+            <WorkbenchNavButton
+              label="Notes"
+              icon={<NotebookText size={13} />}
+              active={activeTab === "notes"}
+              onClick={() => setTab("notes")}
+              priority="primary"
+            />
+          )}
           <WorkbenchNavButton
-            label="Files"
-            icon={<FolderOpen size={13} />}
-            active={activeTab === "files"}
-            onClick={() => setTab("files")}
+            label="Widgets"
+            icon={<Layers size={13} />}
+            active={activeTab === "widgets"}
+            onClick={() => setTab("widgets")}
+            count={railPins.length}
             priority="secondary"
           />
-        )}
+          {hasWorkspace && (
+            <WorkbenchNavButton
+              label="Files"
+              icon={<FolderOpen size={13} />}
+              active={activeTab === "files"}
+              onClick={() => setTab("files")}
+              priority="secondary"
+            />
+          )}
+        </div>
         {/* Collapse chevron — tucks the panel away; a peek-tab at the
             viewport's left edge brings it back. The dashboard link that
             used to live here is redundant now that the channel header has a
@@ -324,7 +326,7 @@ export function OmniPanel({
           }}
           aria-label="Collapse workbench panel"
           title="Collapse panel"
-          className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors"
           style={{ color: t.textDim, opacity: 0.55 }}
           onMouseEnter={(e) => {
             e.currentTarget.style.opacity = "1";

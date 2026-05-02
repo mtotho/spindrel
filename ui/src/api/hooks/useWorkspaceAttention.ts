@@ -203,8 +203,6 @@ export interface AttentionTriageRunResponse {
     unreported: number;
   };
   items?: WorkspaceAttentionItem[];
-  work_pack_count?: number;
-  work_packs?: IssueWorkPack[];
   model_override?: string | null;
   model_provider_id_override?: string | null;
   effective_model?: string | null;
@@ -224,71 +222,6 @@ export interface AttentionTriageRunInput {
   model_provider_id_override?: string | null;
 }
 
-export interface IssueWorkPack {
-  id: string;
-  title: string;
-  summary: string;
-  category: string;
-  confidence: "low" | "medium" | "high" | string;
-  status: "proposed" | "launched" | "dismissed" | "needs_info" | string;
-  source_item_ids: string[];
-  launch_prompt: string;
-  triage_task_id?: string | null;
-  project_id?: string | null;
-  project_name?: string | null;
-  channel_id?: string | null;
-  channel_name?: string | null;
-  launched_task_id?: string | null;
-  launched_task_status?: string | null;
-  source_items?: Array<{
-    id: string;
-    title: string;
-    message: string;
-    severity: string;
-    status: string;
-    channel_id?: string | null;
-    channel_name?: string | null;
-    evidence?: Record<string, unknown>;
-  }>;
-  triage_receipt_id?: string | null;
-  triage_receipt?: {
-    id?: string;
-    source?: string;
-    summary?: string | null;
-    grouping_rationale?: string | null;
-    launch_readiness?: string | null;
-    follow_up_questions?: string[];
-    excluded_items?: string[];
-    created_at?: string | null;
-    bot_id?: string | null;
-    session_id?: string | null;
-    task_id?: string | null;
-  } | null;
-  latest_review_action?: Record<string, unknown> | null;
-  metadata?: Record<string, unknown>;
-  created_at?: string | null;
-  updated_at?: string | null;
-}
-
-export interface IssueWorkPackUpdateInput {
-  work_pack_id: string;
-  title?: string;
-  summary?: string;
-  category?: string;
-  confidence?: string;
-  source_item_ids?: string[];
-  launch_prompt?: string;
-  project_id?: string | null;
-  channel_id?: string | null;
-}
-
-export interface IssueWorkPackBatchLaunchInput {
-  work_pack_ids: string[];
-  project_id: string;
-  channel_id: string;
-  note?: string | null;
-}
-
 export interface AttentionTriageFeedbackInput {
   itemId: string;
   verdict: "confirmed" | "wrong" | "rerouted";
@@ -305,8 +238,6 @@ interface BulkAcknowledgeAttentionResponse {
 export const WORKSPACE_ATTENTION_KEY = ["workspace-attention"] as const;
 export const WORKSPACE_ATTENTION_BRIEF_KEY = ["workspace-attention-brief"] as const;
 export const ATTENTION_TRIAGE_RUNS_KEY = ["workspace-attention-triage-runs"] as const;
-export const ISSUE_TRIAGE_RUNS_KEY = ["workspace-issue-triage-runs"] as const;
-export const ISSUE_WORK_PACKS_KEY = ["workspace-issue-work-packs"] as const;
 
 export function isActiveAttentionItem(item: WorkspaceAttentionItem): boolean {
   return item.status !== "resolved" && item.status !== "acknowledged";
@@ -570,100 +501,6 @@ export function useStartAttentionTriageRun() {
   });
 }
 
-export function useStartIssueTriageRun() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (body: AttentionTriageRunInput = {}) =>
-      apiFetch<AttentionTriageRunResponse>("/api/v1/workspace/attention/issue-triage-runs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope: "all_active", ...body }),
-      }),
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
-      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
-      qc.invalidateQueries({ queryKey: ATTENTION_TRIAGE_RUNS_KEY });
-      qc.invalidateQueries({ queryKey: ISSUE_TRIAGE_RUNS_KEY });
-      qc.invalidateQueries({ queryKey: ISSUE_WORK_PACKS_KEY });
-    },
-  });
-}
-
-export function useIssueWorkPacks() {
-  return useQuery({
-    queryKey: ISSUE_WORK_PACKS_KEY,
-    queryFn: async () => {
-      const res = await apiFetch<{ work_packs: IssueWorkPack[] }>("/api/v1/workspace/attention/issue-work-packs");
-      return res.work_packs;
-    },
-    refetchInterval: 15_000,
-  });
-}
-
-function invalidateIssueWorkPackQueries(qc: ReturnType<typeof useQueryClient>) {
-  qc.invalidateQueries({ queryKey: ISSUE_WORK_PACKS_KEY });
-  qc.invalidateQueries({ queryKey: ISSUE_TRIAGE_RUNS_KEY });
-  qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
-  qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
-}
-
-export function useUpdateIssueWorkPack() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ work_pack_id, ...body }: IssueWorkPackUpdateInput) =>
-      apiFetch<{ work_pack: IssueWorkPack }>(`/api/v1/workspace/attention/issue-work-packs/${work_pack_id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-    onSettled: () => invalidateIssueWorkPackQueries(qc),
-  });
-}
-
-export function useIssueWorkPackAction(action: "dismiss" | "needs-info" | "reopen") {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (body: { work_pack_id: string; note?: string | null }) =>
-      apiFetch<{ work_pack: IssueWorkPack }>(`/api/v1/workspace/attention/issue-work-packs/${body.work_pack_id}/${action}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note: body.note ?? null }),
-      }),
-    onSettled: () => invalidateIssueWorkPackQueries(qc),
-  });
-}
-
-export function useLaunchIssueWorkPackProjectRun() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (body: { work_pack_id: string; project_id: string; channel_id: string }) =>
-      apiFetch<{ work_pack: IssueWorkPack; run: unknown }>(`/api/v1/workspace/attention/issue-work-packs/${body.work_pack_id}/launch-project-run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_id: body.project_id, channel_id: body.channel_id }),
-      }),
-    onSettled: () => {
-      invalidateIssueWorkPackQueries(qc);
-      qc.invalidateQueries({ queryKey: ["projects"] });
-    },
-  });
-}
-
-export function useBatchLaunchIssueWorkPacksProjectRuns() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (body: IssueWorkPackBatchLaunchInput) =>
-      apiFetch<{ launch_batch_id: string; count: number; work_packs: IssueWorkPack[]; runs: unknown[] }>("/api/v1/workspace/attention/issue-work-packs/batch-launch-project-runs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-    onSettled: () => {
-      invalidateIssueWorkPackQueries(qc);
-      qc.invalidateQueries({ queryKey: ["projects"] });
-    },
-  });
-}
 
 export function useAttentionTriageRuns(options: { enabled?: boolean; limit?: number; refetchInterval?: number | false } = {}) {
   const enabled = options.enabled ?? true;
@@ -683,23 +520,6 @@ export function useAttentionTriageRuns(options: { enabled?: boolean; limit?: num
   });
 }
 
-export function useIssueTriageRuns(options: { enabled?: boolean; limit?: number; refetchInterval?: number | false } = {}) {
-  const enabled = options.enabled ?? true;
-  const limit = options.limit ?? 20;
-  return useQuery({
-    queryKey: [...ISSUE_TRIAGE_RUNS_KEY, { limit }],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      params.set("limit", String(limit));
-      const res = await apiFetch<{ runs: AttentionTriageRunResponse[] }>(`/api/v1/workspace/attention/issue-triage-runs?${params.toString()}`);
-      return res.runs;
-    },
-    enabled,
-    refetchInterval: enabled ? options.refetchInterval ?? 10_000 : false,
-    staleTime: 5_000,
-    refetchOnWindowFocus: false,
-  });
-}
 
 export function useSubmitAttentionTriageFeedback() {
   const qc = useQueryClient();

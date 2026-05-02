@@ -2,7 +2,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, FolderGit2, FolderOpen, GitPullRequest, Hash, KeyRound, Layers, MessageSquareWarning, Play, Plus, RotateCw, Save, ServerCog, Terminal, Trash2, Unlink, Users } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
-import { useCleanupProjectInstance, useCreateProjectBlueprintFromCurrent, useCreateProjectInstance, useManageProjectDependencyStack, useProject, useProjectChannels, useProjectCodingRunReviewBatches, useProjectCodingRuns, useProjectInstances, useProjectRunReceipts, useProjectRuntimeEnv, useProjectDependencyStack, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
+import { useCleanupProjectInstance, useCreateProjectBlueprintFromCurrent, useCreateProjectInstance, useManageProjectDependencyStack, useProject, useProjectChannels, useProjectCodingRunReviewBatches, useProjectCodingRuns, useProjectFactoryState, useProjectInstances, useProjectOrchestrationPolicy, useProjectRunReceipts, useProjectRuntimeEnv, useProjectDependencyStack, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
 import { useCreateChannel, useChannels, usePatchChannelSettings } from "@/src/api/hooks/useChannels";
 import { isActiveAttentionItem, useIssueWorkPacks, useWorkspaceAttention, type WorkspaceAttentionItem } from "@/src/api/hooks/useWorkspaceAttention";
 import { useAdminBots } from "@/src/api/hooks/useBots";
@@ -204,6 +204,8 @@ function ProjectOverviewSection({
   const navigate = useNavigate();
   const { data: runs = [] } = useProjectCodingRuns(project.id);
   const { data: reviewBatches = [] } = useProjectCodingRunReviewBatches(project.id);
+  const { data: factoryState } = useProjectFactoryState(project.id);
+  const { data: orchestrationPolicy } = useProjectOrchestrationPolicy(project.id);
   const { data: attention = [] } = useWorkspaceAttention();
   const { data: workPacks = [] } = useIssueWorkPacks();
   const runCounts = countRunsByStatus(runs);
@@ -234,8 +236,31 @@ function ProjectOverviewSection({
     return Boolean(pack.channel_id && projectChannelIds.has(pack.channel_id));
   });
 
+  const saturated = orchestrationPolicy?.concurrency.saturated ?? false;
+  const cap = orchestrationPolicy?.concurrency.max_concurrent_runs ?? null;
+  const inFlight = orchestrationPolicy?.concurrency.in_flight ?? 0;
+  const stageHeadline = factoryState?.suggested_next_action?.headline;
+  const skillToLoad = factoryState?.suggested_next_action?.skill_id_to_load;
+
   return (
     <div data-testid="project-overview-home" className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
+      {saturated && cap != null && (
+        <div className="flex items-center gap-2 rounded border border-warning/30 bg-warning/10 px-3 py-1.5 text-[12px] text-warning">
+          <AlertTriangle size={14} className="shrink-0" />
+          <span className="truncate">
+            Concurrency cap saturated ({inFlight}/{cap}). New launches are blocked until a run finishes or the Blueprint cap is raised.
+          </span>
+        </div>
+      )}
+      {factoryState && stageHeadline && (
+        <div className="flex items-center gap-2 rounded border border-border-subtle bg-surface-overlay/30 px-3 py-1.5 text-[12px] text-text-muted">
+          <FolderGit2 size={14} className="shrink-0 text-accent" />
+          <span className="truncate">
+            <span className="text-text">Stage:</span> {factoryState.current_stage} — {stageHeadline}
+            {skillToLoad ? <span className="text-text-dim"> · {skillToLoad}</span> : null}
+          </span>
+        </div>
+      )}
       <AnchorSection
         icon={<FolderGit2 size={15} />}
         eyebrow="Project factory"

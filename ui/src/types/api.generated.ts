@@ -11413,7 +11413,7 @@ export interface components {
              * @default false
              */
             private: boolean;
-            project?: components["schemas"]["ProjectSummaryOut"] | null;
+            project?: components["schemas"]["app__schemas__channels__ProjectSummaryOut"] | null;
             /** Project Id */
             project_id?: string | null;
             /**
@@ -13808,7 +13808,7 @@ export interface components {
              * @default false
              */
             private: boolean;
-            project?: components["schemas"]["ProjectSummaryOut"] | null;
+            project?: components["schemas"]["app__schemas__channels__ProjectSummaryOut"] | null;
             /** Project Id */
             project_id?: string | null;
             /**
@@ -13898,7 +13898,7 @@ export interface components {
              * @default false
              */
             private: boolean;
-            project?: components["schemas"]["ProjectSummaryOut"] | null;
+            project?: components["schemas"]["app__schemas__channels__ProjectSummaryOut"] | null;
             /** Project Id */
             project_id?: string | null;
             /**
@@ -14152,7 +14152,7 @@ export interface components {
              * @default false
              */
             private: boolean;
-            project?: components["schemas"]["ProjectSummaryOut"] | null;
+            project?: components["schemas"]["app__schemas__channels__ProjectSummaryOut"] | null;
             /** Project Id */
             project_id?: string | null;
             /** Project Path */
@@ -18666,6 +18666,11 @@ export interface components {
             /** Tail */
             tail?: number | null;
         };
+        /** ProjectFactoryIntakeOut */
+        ProjectFactoryIntakeOut: {
+            /** Pending */
+            pending: number;
+        };
         /** ProjectFactoryReviewInboxOut */
         ProjectFactoryReviewInboxOut: {
             /** Generated At */
@@ -18683,6 +18688,50 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** ProjectFactoryRunPacksOut */
+        ProjectFactoryRunPacksOut: {
+            /** Dismissed */
+            dismissed: number;
+            /** Launched */
+            launched: number;
+            /** Needs Info */
+            needs_info: number;
+            /** Proposed */
+            proposed: number;
+        };
+        /** ProjectFactoryRunsConcurrencyOut */
+        ProjectFactoryRunsConcurrencyOut: {
+            /** Cap */
+            cap?: number | null;
+            /** Headroom */
+            headroom?: number | null;
+            /** In Flight */
+            in_flight: number;
+        };
+        /** ProjectFactoryRunsOut */
+        ProjectFactoryRunsOut: {
+            /** Active Implementation */
+            active_implementation: number;
+            /** Active Review Task */
+            active_review_task: boolean;
+            /** By Phase */
+            by_phase?: {
+                [key: string]: number;
+            };
+            /** By Queue State */
+            by_queue_state?: {
+                [key: string]: number;
+            };
+            concurrency: components["schemas"]["ProjectFactoryRunsConcurrencyOut"];
+            /** In Flight */
+            in_flight: number;
+            /** Ready For Review */
+            ready_for_review: number;
+            /** Reviewed */
+            reviewed: number;
+            /** Total */
+            total: number;
+        };
         /** ProjectFactoryStateOut */
         ProjectFactoryStateOut: {
             /** Blueprint */
@@ -18699,10 +18748,7 @@ export interface components {
             dependency_stack: {
                 [key: string]: unknown;
             };
-            /** Intake */
-            intake: {
-                [key: string]: unknown;
-            };
+            intake: components["schemas"]["ProjectFactoryIntakeOut"];
             /** Intake Config */
             intake_config?: {
                 [key: string]: unknown;
@@ -18711,10 +18757,7 @@ export interface components {
             planning: {
                 [key: string]: unknown;
             };
-            /** Project */
-            project: {
-                [key: string]: unknown;
-            };
+            project: components["schemas"]["app__routers__api_v1_projects__ProjectSummaryOut"];
             /** Recent Receipts */
             recent_receipts?: {
                 [key: string]: unknown;
@@ -18723,22 +18766,24 @@ export interface components {
             repo_workflow?: {
                 [key: string]: unknown;
             };
-            /** Run Packs */
-            run_packs: {
-                [key: string]: unknown;
-            };
-            /** Runs */
-            runs: {
-                [key: string]: unknown;
-            };
+            run_packs: components["schemas"]["ProjectFactoryRunPacksOut"];
+            runs: components["schemas"]["ProjectFactoryRunsOut"];
             /** Runtime Env */
             runtime_env: {
                 [key: string]: unknown;
             };
-            /** Suggested Next Action */
-            suggested_next_action: {
-                [key: string]: unknown;
-            };
+            suggested_next_action: components["schemas"]["ProjectFactorySuggestedNextActionOut"];
+        };
+        /** ProjectFactorySuggestedNextActionOut */
+        ProjectFactorySuggestedNextActionOut: {
+            /** Headline */
+            headline: string;
+            /** Skill Id To Load */
+            skill_id_to_load: string;
+            /** Stage */
+            stage: string;
+            /** Why */
+            why?: string | null;
         };
         /** ProjectFromBlueprintWrite */
         ProjectFromBlueprintWrite: {
@@ -18854,6 +18899,19 @@ export interface components {
             /** Target Id */
             target_id: string;
         };
+        /** ProjectOrchestrationConcurrencyOut */
+        ProjectOrchestrationConcurrencyOut: {
+            /** Headroom */
+            headroom?: number | null;
+            /** In Flight */
+            in_flight: number;
+            /** Max Concurrent Runs */
+            max_concurrent_runs?: number | null;
+            /** Saturated */
+            saturated: boolean;
+            /** Source */
+            source: string;
+        };
         /** ProjectOrchestrationPolicyOut */
         ProjectOrchestrationPolicyOut: {
             /** Blueprint Applied */
@@ -18862,26 +18920,34 @@ export interface components {
             canonical_repo: {
                 [key: string]: unknown;
             };
-            /** Concurrency */
-            concurrency: {
-                [key: string]: unknown;
-            };
+            concurrency: components["schemas"]["ProjectOrchestrationConcurrencyOut"];
             /** Intake */
             intake: {
                 [key: string]: unknown;
             };
-            /** Project */
-            project: {
-                [key: string]: unknown;
-            };
+            project: components["schemas"]["app__routers__api_v1_projects__ProjectSummaryOut"];
             /** Repo Workflow */
             repo_workflow: {
                 [key: string]: unknown;
             };
-            /** Timeouts */
-            timeouts: {
-                [key: string]: unknown;
-            };
+            timeouts: components["schemas"]["ProjectOrchestrationTimeoutsOut"];
+        };
+        /** ProjectOrchestrationTimeoutsOut */
+        ProjectOrchestrationTimeoutsOut: {
+            /** Stall Default */
+            stall_default: number;
+            /** Stall Min */
+            stall_min: number;
+            /** Stall Source */
+            stall_source: string;
+            /** Stall Timeout Seconds */
+            stall_timeout_seconds: number;
+            /** Turn Enforced */
+            turn_enforced: boolean;
+            /** Turn Source */
+            turn_source: string;
+            /** Turn Timeout Seconds */
+            turn_timeout_seconds?: number | null;
         };
         /** ProjectOut */
         ProjectOut: {
@@ -19161,25 +19227,6 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
-        };
-        /** ProjectSummaryOut */
-        ProjectSummaryOut: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Name */
-            name: string;
-            /** Root Path */
-            root_path: string;
-            /** Slug */
-            slug: string;
-            /**
-             * Workspace Id
-             * Format: uuid
-             */
-            workspace_id: string;
         };
         /** ProjectWrite */
         ProjectWrite: {
@@ -24125,6 +24172,15 @@ export interface components {
             /** Source */
             source?: string | null;
         };
+        /** ProjectSummaryOut */
+        app__routers__api_v1_projects__ProjectSummaryOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+        };
         /** HeartbeatOut */
         app__routers__api_v1_push__HeartbeatOut: {
             /**
@@ -24237,6 +24293,25 @@ export interface components {
             dst: string;
             /** Src */
             src: string;
+        };
+        /** ProjectSummaryOut */
+        app__schemas__channels__ProjectSummaryOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Root Path */
+            root_path: string;
+            /** Slug */
+            slug: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
         };
         /** MessageOut */
         app__schemas__messages__MessageOut: {

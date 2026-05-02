@@ -24,6 +24,7 @@ import {
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
 import { useChannel } from "@/src/api/hooks/useChannels";
+import { ProjectStatusPill } from "@/src/components/shared/ProjectStatusPill";
 import { useAdminUsers } from "@/src/api/hooks/useAdminUsers";
 import {
   useDeleteSession,
@@ -841,21 +842,24 @@ function ChannelHeaderImpl({
             </span>
           )}
           {projectSummary && !isSystemChannel && (
-            <button
-              type="button"
-              className="inline-flex min-w-0 shrink items-center gap-1 rounded bg-surface-overlay px-1.5 py-0.5 text-[10px] font-medium text-text-muted transition-colors hover:bg-surface-overlay/70 hover:text-text"
-              title={`Open Project: ${projectSummary.name}\n/${projectSummary.root_path}`}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                navigate(`/admin/projects/${projectSummary.id}`);
-              }}
-            >
-              <FolderKanban size={10} className="shrink-0" />
-              <span className="max-w-[11rem] truncate">
-                {projectSummary.name || "Project"}
-              </span>
-            </button>
+            <>
+              <button
+                type="button"
+                className="inline-flex min-w-0 shrink items-center gap-1 rounded bg-surface-overlay px-1.5 py-0.5 text-[10px] font-medium text-text-muted transition-colors hover:bg-surface-overlay/70 hover:text-text"
+                title={`Open Project: ${projectSummary.name}\n/${projectSummary.root_path}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  navigate(`/admin/projects/${projectSummary.id}`);
+                }}
+              >
+                <FolderKanban size={10} className="shrink-0" />
+                <span className="max-w-[11rem] truncate">
+                  {projectSummary.name || "Project"}
+                </span>
+              </button>
+              <ProjectStatusPill projectId={projectSummary.id} />
+            </>
           )}
           {attentionCount > 0 && (
             <button

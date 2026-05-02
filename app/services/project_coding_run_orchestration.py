@@ -182,7 +182,7 @@ async def create_project_coding_run(
         request=body.request,
         repo_path=body.repo_path,
         machine_grant=body.machine_target_grant,
-        source_work_pack_id=body.source_work_pack_id,
+        source_artifact=body.source_artifact,
         schedule_task_id=body.schedule_task_id,
         schedule_run_number=body.schedule_run_number,
     )

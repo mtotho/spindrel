@@ -20,7 +20,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, ExecutionReceipt, IssueWorkPack, Project, ProjectInstance, ProjectRunReceipt, Task
+from app.db.models import Channel, ExecutionReceipt, Project, ProjectInstance, ProjectRunReceipt, Task
 from app.services.agent_activity import list_agent_activity
 from app.services.project_dependency_stacks import project_dependency_stack_spec
 from app.services.project_run_handoff import prepare_project_run_handoff
@@ -221,7 +221,7 @@ class ProjectCodingRunCreate:
     repo_path: str | None = None
     machine_target_grant: ProjectMachineTargetGrant | None = None
     granted_by_user_id: uuid.UUID | None = None
-    source_work_pack_id: uuid.UUID | None = None
+    source_artifact: dict | None = None
     schedule_task_id: uuid.UUID | None = None
     schedule_run_number: int | None = None
     loop_policy: dict[str, Any] | None = None
@@ -536,7 +536,7 @@ def _execution_config_from_preset(
     dev_targets: list[dict[str, Any]],
     request: str,
     machine_target_grant: ProjectMachineTargetGrant | None = None,
-    source_work_pack_id: uuid.UUID | None = None,
+    source_artifact: dict | None = None,
 ) -> dict[str, Any]:
     return {
         "run_preset_id": PROJECT_CODING_RUN_PRESET_ID,
@@ -561,7 +561,7 @@ def _execution_config_from_preset(
             "dev_target_env": _dev_target_env(dev_targets),
             "dependency_stack": _safe_dependency_stack_target(project),
             "machine_target_grant": _machine_target_grant_summary(machine_target_grant),
-            "source_work_pack_id": str(source_work_pack_id) if source_work_pack_id else None,
+            "source_artifact": dict(source_artifact) if isinstance(source_artifact, dict) else None,
             "schedule_task_id": None,
             "schedule_run_number": None,
             "continuation_index": 0,
@@ -979,22 +979,7 @@ async def _coding_run_row(
     ctx = ProjectTaskExecutionContext.from_task(task)
     cfg = _task_run_config(task)
     work_surface = _work_surface_summary(project=project, task=task, instance=instance)
-    source_work_pack = None
-    if ctx.source_work_pack_id:
-        pack = await db.get(IssueWorkPack, ctx.source_work_pack_id)
-        if pack is not None:
-            source_work_pack = {
-                "id": str(pack.id),
-                "title": pack.title,
-                "summary": pack.summary,
-                "category": pack.category,
-                "confidence": pack.confidence,
-                "status": pack.status,
-                "source_item_ids": pack.source_item_ids or [],
-                "launch_prompt": pack.launch_prompt,
-                "created_at": pack.created_at.isoformat() if pack.created_at else None,
-                "updated_at": pack.updated_at.isoformat() if pack.updated_at else None,
-            }
+    source_artifact = dict(ctx.source_artifact) if isinstance(ctx.source_artifact, dict) else None
     updated_at = (
         receipt.created_at.isoformat()
         if receipt is not None and receipt.created_at is not None
@@ -1017,8 +1002,7 @@ async def _coding_run_row(
         "dependency_stack_preflight": cfg.get("dependency_stack_preflight") or {},
         "readiness": ctx.readiness_summary(dependency_stack_status=dependency_stack),
         "work_surface": work_surface,
-        "source_work_pack_id": ctx.source_work_pack_id,
-        "source_work_pack": source_work_pack,
+        "source_artifact": source_artifact,
         "launch_batch_id": cfg.get("launch_batch_id"),
         "parent_task_id": ctx.lineage.parent_task_id,
         "root_task_id": ctx.lineage.root_task_id,
@@ -1557,21 +1541,6 @@ def _review_session_row(task: Task) -> dict[str, Any]:
     }
 
 
-def _work_pack_row(pack: IssueWorkPack) -> dict[str, Any]:
-    metadata = dict(pack.metadata_ or {}) if isinstance(pack.metadata_, dict) else {}
-    latest = metadata.get("latest_review_action")
-    return {
-        "id": str(pack.id),
-        "title": pack.title,
-        "summary": pack.summary,
-        "status": pack.status,
-        "category": pack.category,
-        "confidence": pack.confidence,
-        "launched_task_id": str(pack.launched_task_id) if pack.launched_task_id else None,
-        "latest_review_action": dict(latest) if isinstance(latest, dict) else None,
-    }
-
-
 def _review_receipt_row(receipt: ExecutionReceipt) -> dict[str, Any]:
     result = dict(receipt.result or {}) if isinstance(receipt.result, dict) else {}
     outcome = str(result.get("outcome") or "").strip() or (
@@ -1625,7 +1594,7 @@ def _compact_review_run_row(run: dict[str, Any]) -> dict[str, Any]:
         "review_status": review.get("status"),
         "branch": run.get("branch"),
         "launch_batch_id": run.get("launch_batch_id"),
-        "source_work_pack_id": run.get("source_work_pack_id"),
+        "source_artifact": run.get("source_artifact"),
         "handoff_url": review.get("handoff_url") or (receipt or {}).get("handoff_url") or pr.get("url"),
         "receipt_summary": (receipt or {}).get("summary"),
         "evidence": {
@@ -1713,19 +1682,6 @@ async def list_project_coding_run_review_sessions(
             if review_task_id in review_task_ids:
                 review_receipts_by_review.setdefault(review_task_id, []).append(receipt)
 
-    pack_ids: set[uuid.UUID] = set()
-    for run in run_rows_by_task.values():
-        source_id = _uuid_from_config(run.get("source_work_pack_id"))
-        if source_id is not None:
-            pack_ids.add(source_id)
-    packs_by_id: dict[uuid.UUID, IssueWorkPack] = {}
-    if pack_ids:
-        packs_by_id = {
-            pack.id: pack for pack in list((await db.execute(
-                select(IssueWorkPack).where(IssueWorkPack.id.in_(pack_ids), IssueWorkPack.project_id == project.id)
-            )).scalars().all())
-        }
-
     rows: list[dict[str, Any]] = []
     for task in review_tasks:
         cfg = _review_task_config(task)
@@ -1738,14 +1694,14 @@ async def list_project_coding_run_review_sessions(
         compact_runs = [_compact_review_run_row(run) for run in selected_runs]
         evidence = {"tests_count": 0, "screenshots_count": 0, "changed_files_count": 0, "dev_targets_count": 0}
         launch_batch_ids: set[str] = set()
-        source_pack_ids: set[uuid.UUID] = set()
+        source_artifacts_by_path: dict[str, dict[str, Any]] = {}
         updated_values: list[str] = []
         for run in compact_runs:
             if run.get("launch_batch_id"):
                 launch_batch_ids.add(str(run["launch_batch_id"]))
-            source_id = _uuid_from_config(run.get("source_work_pack_id"))
-            if source_id is not None:
-                source_pack_ids.add(source_id)
+            artifact = run.get("source_artifact")
+            if isinstance(artifact, dict) and artifact.get("path"):
+                source_artifacts_by_path.setdefault(str(artifact["path"]), dict(artifact))
             run_evidence = run.get("evidence") if isinstance(run.get("evidence"), dict) else {}
             for key in evidence:
                 try:
@@ -1761,10 +1717,7 @@ async def list_project_coding_run_review_sessions(
             outcome = str(receipt.get("outcome") or "unknown")
             outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
         status = _review_session_ledger_status(task, run_count=len(compact_runs), outcome_counts=outcome_counts)
-        source_packs = sorted(
-            [_work_pack_row(packs_by_id[pack_id]) for pack_id in source_pack_ids if pack_id in packs_by_id],
-            key=lambda item: item["title"].lower(),
-        )
+        source_artifacts = sorted(source_artifacts_by_path.values(), key=lambda item: item.get("path") or "")
         latest_summary = receipt_rows[0]["summary"] if receipt_rows else task.result
         latest_activity = max(
             [value for value in [
@@ -1800,7 +1753,7 @@ async def list_project_coding_run_review_sessions(
             "launch_batch_ids": sorted(launch_batch_ids),
             "outcome_counts": outcome_counts,
             "evidence": evidence,
-            "source_work_packs": source_packs,
+            "source_artifacts": source_artifacts,
             "selected_runs": compact_runs,
             "summaries": receipt_rows[:10],
             "latest_summary": latest_summary,
@@ -1840,20 +1793,6 @@ async def list_project_coding_run_review_batches(
         grouped.setdefault(str(batch_id), []).append(run)
     if not grouped:
         return []
-
-    batch_ids = set(grouped)
-    packs = list((await db.execute(
-        select(IssueWorkPack)
-        .where(IssueWorkPack.project_id == project.id)
-        .order_by(IssueWorkPack.updated_at.desc(), IssueWorkPack.created_at.desc())
-        .limit(250)
-    )).scalars().all())
-    packs_by_batch: dict[str, list[IssueWorkPack]] = {batch_id: [] for batch_id in batch_ids}
-    for pack in packs:
-        metadata = pack.metadata_ if isinstance(pack.metadata_, dict) else {}
-        batch_id = metadata.get("launch_batch_id")
-        if batch_id in packs_by_batch:
-            packs_by_batch[str(batch_id)].append(pack)
 
     channel_ids = list((await db.execute(
         select(Channel.id).where(Channel.project_id == project.id)
@@ -1915,10 +1854,12 @@ async def list_project_coding_run_review_batches(
             key=lambda item: str(item.get("created_at") or ""),
             reverse=True,
         )
-        source_packs = sorted(
-            [_work_pack_row(pack) for pack in packs_by_batch.get(batch_id, [])],
-            key=lambda item: item["title"].lower(),
-        )
+        source_artifacts_by_path: dict[str, dict[str, Any]] = {}
+        for run in batch_runs:
+            artifact = run.get("source_artifact")
+            if isinstance(artifact, dict) and artifact.get("path"):
+                source_artifacts_by_path.setdefault(str(artifact["path"]), dict(artifact))
+        source_artifacts = sorted(source_artifacts_by_path.values(), key=lambda item: item.get("path") or "")
         status = _review_batch_status(status_counts, review_sessions)
         active_review = next((session for session in review_sessions if session.get("active")), None)
         latest_review = review_sessions[0] if review_sessions else None
@@ -1934,14 +1875,14 @@ async def list_project_coding_run_review_batches(
             "task_ids": [str(run["task"]["id"]) for run in batch_runs],
             "ready_run_ids": ready_run_ids,
             "unreviewed_run_ids": unreviewed_run_ids,
-            "source_work_packs": source_packs,
+            "source_artifacts": source_artifacts,
             "review_sessions": review_sessions,
             "active_review_task": active_review,
             "latest_review_task": latest_review,
             "latest_activity_at": max(updated_values) if updated_values else latest_run.get("updated_at") or latest_run.get("created_at"),
             "summary": {
-                "title": source_packs[0]["title"] if source_packs else f"Launch batch {batch_id}",
-                "source_work_pack_count": len(source_packs),
+                "title": source_artifacts[0]["path"] if source_artifacts else f"Launch batch {batch_id}",
+                "source_artifact_count": len(source_artifacts),
                 "ready_count": len(ready_run_ids),
                 "unreviewed_count": len(unreviewed_run_ids),
             },

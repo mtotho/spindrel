@@ -640,13 +640,18 @@ def test_harness_parity_env_preserves_runtime_ids_when_preparing_subset(monkeypa
 
 def test_claude_live_auth_validation_reports_exact_login_command(monkeypatch):
     monkeypatch.setattr(agent_e2e_dev.shutil, "which", lambda name: "/usr/bin/docker" if name == "docker" else None)
+    calls = []
 
     class Result:
         returncode = 1
         stdout = ""
         stderr = "Invalid authentication credentials"
 
-    monkeypatch.setattr(agent_e2e_dev.subprocess, "run", lambda *args, **kwargs: Result())
+    def _run(*args, **kwargs):
+        calls.append((args, kwargs))
+        return Result()
+
+    monkeypatch.setattr(agent_e2e_dev.subprocess, "run", _run)
 
     with pytest.raises(SystemExit) as exc:
         agent_e2e_dev._validate_claude_live_auth("spindrel-local-e2e-spindrel-1")
@@ -654,6 +659,81 @@ def test_claude_live_auth_validation_reports_exact_login_command(monkeypatch):
     message = str(exc.value)
     assert "docker exec -it -u spindrel spindrel-local-e2e-spindrel-1 claude auth login" in message
     assert "Invalid authentication credentials" in message
+    command = calls[0][0][0]
+    assert "--tools" in command
+    assert command[command.index("--tools") + 1] == ""
+    assert "--system-prompt" in command
+
+
+def test_claude_native_live_auth_validation_disables_tools(monkeypatch):
+    monkeypatch.setattr(agent_e2e_dev.shutil, "which", lambda name: "/usr/bin/claude" if name == "claude" else None)
+    calls = []
+
+    class Result:
+        returncode = 0
+        stdout = '{"result":"auth-ok"}'
+        stderr = ""
+
+    def _run(*args, **kwargs):
+        calls.append((args, kwargs))
+        return Result()
+
+    monkeypatch.setattr(agent_e2e_dev.subprocess, "run", _run)
+
+    agent_e2e_dev._validate_claude_live_auth_native()
+
+    command = calls[0][0][0]
+    assert command[:2] == ["/usr/bin/claude", "--print"]
+    assert "--tools" in command
+    assert command[command.index("--tools") + 1] == ""
+    assert "--system-prompt" in command
+
+
+def test_prepare_helper_starts_registered_browser_automation_stack(monkeypatch, capsys):
+    calls = []
+
+    def _request(method, url, *, api_key="", body=None, timeout=20):
+        calls.append((method, url, timeout))
+        if method == "GET":
+            return [
+                {
+                    "id": "stack-1",
+                    "integration_id": "browser_automation",
+                    "status": "stopped",
+                }
+            ]
+        return {"id": "stack-1", "status": "running"}
+
+    monkeypatch.setattr(agent_e2e_dev, "_request_json", _request)
+
+    agent_e2e_dev._ensure_browser_automation_stack("http://localhost:18100", "test-key")
+
+    assert calls == [
+        ("GET", "http://localhost:18100/api/v1/admin/docker-stacks", 60),
+        ("POST", "http://localhost:18100/api/v1/admin/docker-stacks/stack-1/start", 180),
+    ]
+    assert "browser_automation stack: running" in capsys.readouterr().out
+
+
+def test_prepare_helper_leaves_running_browser_automation_stack(monkeypatch, capsys):
+    calls = []
+
+    def _request(method, url, *, api_key="", body=None, timeout=20):
+        calls.append((method, url, timeout))
+        return [
+            {
+                "id": "stack-1",
+                "integration_id": "browser_automation",
+                "status": "running",
+            }
+        ]
+
+    monkeypatch.setattr(agent_e2e_dev, "_request_json", _request)
+
+    agent_e2e_dev._ensure_browser_automation_stack("http://localhost:18100", "test-key")
+
+    assert calls == [("GET", "http://localhost:18100/api/v1/admin/docker-stacks", 60)]
+    assert "browser_automation stack: running" in capsys.readouterr().out
 
 
 def test_doctor_reports_connected_subscription(monkeypatch, tmp_path, capsys):

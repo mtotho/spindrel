@@ -1135,13 +1135,13 @@ def _permission_allow_with_updated_input(
         return allowed
 
 
-async def _pre_tool_use_continue_hook(*_args: Any, **_kwargs: Any) -> dict[str, str]:
+async def _pre_tool_use_continue_hook(*_args: Any, **_kwargs: Any) -> dict[str, bool]:
     """Keep Claude Python streaming permission callbacks open.
 
     Current Claude Agent SDK docs require a PreToolUse hook that continues
     when using ``can_use_tool`` with streaming responses.
     """
-    return {"decision": "continue"}
+    return {"continue": True}
 
 
 def _set_streaming_permission_hooks(
@@ -1217,9 +1217,9 @@ def _set_claude_observability_hooks(
 
     hooks = dict(options_kwargs.get("hooks") or {})
 
-    async def _observe(input_data: Any, *_args: Any, **_kwargs: Any) -> dict[str, str]:
+    async def _observe(input_data: Any, *_args: Any, **_kwargs: Any) -> dict[str, bool]:
         _record_claude_hook_event(result_meta, input_data)
-        return {"decision": "continue"}
+        return {"continue": True}
 
     marker = "__spindrel_observability_hook__"
     setattr(_observe, marker, True)

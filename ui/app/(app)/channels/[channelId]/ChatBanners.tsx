@@ -1,7 +1,39 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Shield } from "lucide-react";
+import { Shield, Sparkles } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
+
+/**
+ * One-line empty-state nudge for fresh Project-bound channels.
+ *
+ * Renders only when (a) the channel is attached to a Project and (b) the
+ * conversation has zero user messages - i.e. the user is staring at an empty
+ * channel with no idea what to ask for. Single line, low chrome, no CTA
+ * button (the slash commands are the affordance). Dismisses automatically
+ * once the user types anything.
+ */
+export function ProjectChannelEmptyHint({
+  projectName,
+  visible,
+}: {
+  projectName: string;
+  visible: boolean;
+}) {
+  if (!visible) return null;
+  return (
+    <div className="mx-auto mt-2 mb-1 max-w-3xl px-3">
+      <div className="flex items-center gap-2 rounded border border-border-subtle bg-surface-overlay/40 px-3 py-1.5 text-[12px] text-text-muted">
+        <Sparkles size={12} className="shrink-0 text-accent" />
+        <span className="truncate">
+          <span className="text-text">{projectName}</span> is attached. Try:
+          describe what to build · capture a bug · ask for status with{" "}
+          <code className="rounded bg-surface-overlay px-1 py-0.5 text-[11px] text-text">/project-status</code>{" "}
+          · reference a skill by name.
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export function ErrorBanner({ error, onDismiss, onRetry }: { error: string; onDismiss: () => void; onRetry?: () => void }) {
   const t = useThemeTokens();

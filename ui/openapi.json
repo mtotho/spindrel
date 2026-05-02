@@ -402,7 +402,7 @@
           "project": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ProjectSummaryOut"
+                "$ref": "#/components/schemas/app__schemas__channels__ProjectSummaryOut"
               },
               {
                 "type": "null"
@@ -7687,7 +7687,7 @@
           "project": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ProjectSummaryOut"
+                "$ref": "#/components/schemas/app__schemas__channels__ProjectSummaryOut"
               },
               {
                 "type": "null"
@@ -7931,7 +7931,7 @@
           "project": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ProjectSummaryOut"
+                "$ref": "#/components/schemas/app__schemas__channels__ProjectSummaryOut"
               },
               {
                 "type": "null"
@@ -8660,7 +8660,7 @@
           "project": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ProjectSummaryOut"
+                "$ref": "#/components/schemas/app__schemas__channels__ProjectSummaryOut"
               },
               {
                 "type": "null"
@@ -21443,6 +21443,19 @@
         "title": "ProjectDependencyStackActionWrite",
         "type": "object"
       },
+      "ProjectFactoryIntakeOut": {
+        "properties": {
+          "pending": {
+            "title": "Pending",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pending"
+        ],
+        "title": "ProjectFactoryIntakeOut",
+        "type": "object"
+      },
       "ProjectFactoryReviewInboxOut": {
         "properties": {
           "generated_at": {
@@ -21481,6 +21494,125 @@
         "title": "ProjectFactoryReviewInboxOut",
         "type": "object"
       },
+      "ProjectFactoryRunPacksOut": {
+        "properties": {
+          "dismissed": {
+            "title": "Dismissed",
+            "type": "integer"
+          },
+          "launched": {
+            "title": "Launched",
+            "type": "integer"
+          },
+          "needs_info": {
+            "title": "Needs Info",
+            "type": "integer"
+          },
+          "proposed": {
+            "title": "Proposed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "proposed",
+          "needs_info",
+          "launched",
+          "dismissed"
+        ],
+        "title": "ProjectFactoryRunPacksOut",
+        "type": "object"
+      },
+      "ProjectFactoryRunsConcurrencyOut": {
+        "properties": {
+          "cap": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cap"
+          },
+          "headroom": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headroom"
+          },
+          "in_flight": {
+            "title": "In Flight",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "in_flight"
+        ],
+        "title": "ProjectFactoryRunsConcurrencyOut",
+        "type": "object"
+      },
+      "ProjectFactoryRunsOut": {
+        "properties": {
+          "active_implementation": {
+            "title": "Active Implementation",
+            "type": "integer"
+          },
+          "active_review_task": {
+            "title": "Active Review Task",
+            "type": "boolean"
+          },
+          "by_phase": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "By Phase",
+            "type": "object"
+          },
+          "by_queue_state": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "By Queue State",
+            "type": "object"
+          },
+          "concurrency": {
+            "$ref": "#/components/schemas/ProjectFactoryRunsConcurrencyOut"
+          },
+          "in_flight": {
+            "title": "In Flight",
+            "type": "integer"
+          },
+          "ready_for_review": {
+            "title": "Ready For Review",
+            "type": "integer"
+          },
+          "reviewed": {
+            "title": "Reviewed",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "ready_for_review",
+          "in_flight",
+          "active_implementation",
+          "reviewed",
+          "active_review_task",
+          "concurrency"
+        ],
+        "title": "ProjectFactoryRunsOut",
+        "type": "object"
+      },
       "ProjectFactoryStateOut": {
         "properties": {
           "blueprint": {
@@ -21503,9 +21635,7 @@
             "type": "object"
           },
           "intake": {
-            "additionalProperties": true,
-            "title": "Intake",
-            "type": "object"
+            "$ref": "#/components/schemas/ProjectFactoryIntakeOut"
           },
           "intake_config": {
             "additionalProperties": true,
@@ -21518,9 +21648,7 @@
             "type": "object"
           },
           "project": {
-            "additionalProperties": true,
-            "title": "Project",
-            "type": "object"
+            "$ref": "#/components/schemas/app__routers__api_v1_projects__ProjectSummaryOut"
           },
           "recent_receipts": {
             "items": {
@@ -21536,14 +21664,10 @@
             "type": "object"
           },
           "run_packs": {
-            "additionalProperties": true,
-            "title": "Run Packs",
-            "type": "object"
+            "$ref": "#/components/schemas/ProjectFactoryRunPacksOut"
           },
           "runs": {
-            "additionalProperties": true,
-            "title": "Runs",
-            "type": "object"
+            "$ref": "#/components/schemas/ProjectFactoryRunsOut"
           },
           "runtime_env": {
             "additionalProperties": true,
@@ -21551,9 +21675,7 @@
             "type": "object"
           },
           "suggested_next_action": {
-            "additionalProperties": true,
-            "title": "Suggested Next Action",
-            "type": "object"
+            "$ref": "#/components/schemas/ProjectFactorySuggestedNextActionOut"
           }
         },
         "required": [
@@ -21569,6 +21691,40 @@
           "suggested_next_action"
         ],
         "title": "ProjectFactoryStateOut",
+        "type": "object"
+      },
+      "ProjectFactorySuggestedNextActionOut": {
+        "properties": {
+          "headline": {
+            "title": "Headline",
+            "type": "string"
+          },
+          "skill_id_to_load": {
+            "title": "Skill Id To Load",
+            "type": "string"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "why": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Why"
+          }
+        },
+        "required": [
+          "stage",
+          "headline",
+          "skill_id_to_load"
+        ],
+        "title": "ProjectFactorySuggestedNextActionOut",
         "type": "object"
       },
       "ProjectFromBlueprintWrite": {
@@ -21864,6 +22020,51 @@
         "title": "ProjectMachineTargetGrantIn",
         "type": "object"
       },
+      "ProjectOrchestrationConcurrencyOut": {
+        "properties": {
+          "headroom": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headroom"
+          },
+          "in_flight": {
+            "title": "In Flight",
+            "type": "integer"
+          },
+          "max_concurrent_runs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Concurrent Runs"
+          },
+          "saturated": {
+            "title": "Saturated",
+            "type": "boolean"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "in_flight",
+          "saturated"
+        ],
+        "title": "ProjectOrchestrationConcurrencyOut",
+        "type": "object"
+      },
       "ProjectOrchestrationPolicyOut": {
         "properties": {
           "blueprint_applied": {
@@ -21876,9 +22077,7 @@
             "type": "object"
           },
           "concurrency": {
-            "additionalProperties": true,
-            "title": "Concurrency",
-            "type": "object"
+            "$ref": "#/components/schemas/ProjectOrchestrationConcurrencyOut"
           },
           "intake": {
             "additionalProperties": true,
@@ -21886,9 +22085,7 @@
             "type": "object"
           },
           "project": {
-            "additionalProperties": true,
-            "title": "Project",
-            "type": "object"
+            "$ref": "#/components/schemas/app__routers__api_v1_projects__ProjectSummaryOut"
           },
           "repo_workflow": {
             "additionalProperties": true,
@@ -21896,9 +22093,7 @@
             "type": "object"
           },
           "timeouts": {
-            "additionalProperties": true,
-            "title": "Timeouts",
-            "type": "object"
+            "$ref": "#/components/schemas/ProjectOrchestrationTimeoutsOut"
           }
         },
         "required": [
@@ -21911,6 +22106,55 @@
           "repo_workflow"
         ],
         "title": "ProjectOrchestrationPolicyOut",
+        "type": "object"
+      },
+      "ProjectOrchestrationTimeoutsOut": {
+        "properties": {
+          "stall_default": {
+            "title": "Stall Default",
+            "type": "integer"
+          },
+          "stall_min": {
+            "title": "Stall Min",
+            "type": "integer"
+          },
+          "stall_source": {
+            "title": "Stall Source",
+            "type": "string"
+          },
+          "stall_timeout_seconds": {
+            "title": "Stall Timeout Seconds",
+            "type": "integer"
+          },
+          "turn_enforced": {
+            "title": "Turn Enforced",
+            "type": "boolean"
+          },
+          "turn_source": {
+            "title": "Turn Source",
+            "type": "string"
+          },
+          "turn_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Timeout Seconds"
+          }
+        },
+        "required": [
+          "stall_timeout_seconds",
+          "stall_source",
+          "stall_default",
+          "stall_min",
+          "turn_source",
+          "turn_enforced"
+        ],
+        "title": "ProjectOrchestrationTimeoutsOut",
         "type": "object"
       },
       "ProjectOut": {
@@ -22645,41 +22889,6 @@
           "updated_at"
         ],
         "title": "ProjectSetupRunOut",
-        "type": "object"
-      },
-      "ProjectSummaryOut": {
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "root_path": {
-            "title": "Root Path",
-            "type": "string"
-          },
-          "slug": {
-            "title": "Slug",
-            "type": "string"
-          },
-          "workspace_id": {
-            "format": "uuid",
-            "title": "Workspace Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "workspace_id",
-          "name",
-          "root_path",
-          "slug"
-        ],
-        "title": "ProjectSummaryOut",
         "type": "object"
       },
       "ProjectWrite": {
@@ -36844,6 +37053,29 @@
         "title": "MessageInject",
         "type": "object"
       },
+      "app__routers__api_v1_projects__ProjectSummaryOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug"
+        ],
+        "title": "ProjectSummaryOut",
+        "type": "object"
+      },
       "app__routers__api_v1_push__HeartbeatOut": {
         "properties": {
           "ok": {
@@ -37113,6 +37345,41 @@
           "dst"
         ],
         "title": "FileMoveBody",
+        "type": "object"
+      },
+      "app__schemas__channels__ProjectSummaryOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "root_path": {
+            "title": "Root Path",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "name",
+          "root_path",
+          "slug"
+        ],
+        "title": "ProjectSummaryOut",
         "type": "object"
       },
       "app__schemas__messages__MessageOut": {

@@ -131,6 +131,28 @@ function reviewQueueLabel(state?: string | null) {
   return String(state || "needs_review").replaceAll("_", " ");
 }
 
+/**
+ * Symphony run_phase chip — fine-grained "what is this run doing right now".
+ * Reads `lifecycle.run_phase` (4BG.3 / 4BB.5 surface). Renders nothing in the
+ * steady-state "reviewed" case; otherwise a compact monochrome chip plus a
+ * separate warning badge when the run is stalled.
+ */
+function RunPhaseChip({ run }: { run: ProjectCodingRun }) {
+  // `lifecycle` is `Record[str, Any]` server-side, not formally modeled in the
+  // OpenAPI schema. Read `run_phase` (4BG.3) via a narrow accessor.
+  const phase = (run.lifecycle as Record<string, unknown> | undefined)?.run_phase as string | undefined;
+  if (!phase || phase === "reviewed") return null;
+  const stalled = phase === "stalled";
+  const className = stalled
+    ? "inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning"
+    : "inline-flex items-center gap-1 rounded bg-surface-overlay px-1.5 py-0.5 text-[10px] font-medium text-text-muted";
+  return (
+    <span className={className} title={stalled ? "Run has not produced progress recently — load project/runs/recovery." : `Run phase: ${phase}`}>
+      {String(phase).replaceAll("_", " ")}
+    </span>
+  );
+}
+
 function isHumanReviewQueueRun(run: ProjectCodingRun) {
   const state = String(reviewQueueState(run) || "").toLowerCase();
   if (state === "reviewed") return false;

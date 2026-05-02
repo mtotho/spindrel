@@ -15,6 +15,7 @@ This file is the index, the rule book, and the retrieval contract. Drill into `d
 - `docs/inbox.md` — open bugs / ideas / tech debt / questions. Light schema (`## <date> <time> <slug>` + `**kind:** · **area:** · **status:**` tag line). Replaces the prior `loose-ends.md`.
 - `docs/guides/index.md` — canonical guides; open the matching guide for the area you're touching.
 - The relevant `docs/tracks/<slug>.md` for multi-phase work.
+- `.agents/skills/spindrel-e2e-development/SKILL.md` — required before any task involving local e2e, screenshots, provider/auth setup, Codex/Claude harness auth, harness parity, or Project coding-run evidence. Read it before concluding that e2e cannot be run locally.
 
 **Tier 2 — drill in via this file's "Where to look" table on demand:**
 - `docs/architecture-decisions.md`, `docs/architecture.md`, `docs/fix-log.md`, `docs/how-discovery-works.md`, `docs/integration-depth-playbook.md`, `docs/audits/`, etc.

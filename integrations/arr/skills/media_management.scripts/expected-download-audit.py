@@ -135,6 +135,9 @@ snapshot = load_jsonish(tools.arr_heartbeat_snapshot(
 
 now = datetime.now(timezone.utc).date()
 items = []
+actionable_items = []
+queued_items = []
+upcoming_items = []
 counts = {
     "tracked_shows": len(tracked_shows),
     "tracked_movies": len(tracked_movies),
@@ -170,7 +173,7 @@ for episode in list_from(snapshot, "sonarr", "calendar", "episodes"):
     else:
         state = "missing_upcoming"
         counts["missing_upcoming"] += 1
-    items.append(compact_item({
+    item = compact_item({
         "kind": "episode",
         "state": state,
         "tracked": show["title"],
@@ -178,7 +181,12 @@ for episode in list_from(snapshot, "sonarr", "calendar", "episodes"):
         "season": episode.get("season") or episode.get("seasonNumber"),
         "episode": episode.get("episode") or episode.get("episodeNumber"),
         "air_date": str(air_date) if air_date else air_raw,
-    }))
+    })
+    items.append(item)
+    if state == "missing_now":
+        actionable_items.append(item)
+    elif state == "missing_upcoming":
+        upcoming_items.append(item)
 
 for episode in list_from(snapshot, "sonarr", "wanted", "episodes") + list_from(snapshot, "sonarr", "wanted", "items"):
     show = matches_tracked(
@@ -187,14 +195,16 @@ for episode in list_from(snapshot, "sonarr", "wanted", "episodes") + list_from(s
     )
     if show:
         counts["missing_now"] += 1
-        items.append(compact_item({
+        item = compact_item({
             "kind": "episode",
             "state": "wanted_missing",
             "tracked": show["title"],
             "title": episode.get("title"),
             "season": episode.get("season") or episode.get("seasonNumber"),
             "episode": episode.get("episode") or episode.get("episodeNumber"),
-        }))
+        })
+        items.append(item)
+        actionable_items.append(item)
     else:
         counts["untracked_wanted"] += 1
 
@@ -202,13 +212,15 @@ for movie in list_from(snapshot, "radarr", "wanted", "movies") + list_from(snaps
     tracked = matches_tracked(movie.get("title") or movie.get("movieTitle"), tracked_movies)
     if tracked:
         counts["missing_now"] += 1
-        items.append(compact_item({
+        item = compact_item({
             "kind": "movie",
             "state": "wanted_missing",
             "tracked": tracked["title"],
             "title": movie.get("title") or movie.get("movieTitle"),
             "year": movie.get("year"),
-        }))
+        })
+        items.append(item)
+        actionable_items.append(item)
     else:
         counts["untracked_wanted"] += 1
 
@@ -219,7 +231,7 @@ for service in ("sonarr", "radarr"):
         if not tracked:
             continue
         counts["queued"] += 1
-        items.append(compact_item({
+        item = compact_item({
             "kind": "queue",
             "state": "queued",
             "service": service,
@@ -227,7 +239,9 @@ for service in ("sonarr", "radarr"):
             "title": title,
             "status": queued.get("status"),
             "tracked_status": queued.get("tracked_status") or queued.get("trackedDownloadStatus"),
-        }))
+        })
+        items.append(item)
+        queued_items.append(item)
 
 problem_count = counts["missing_now"] + counts["registry_empty"]
 status = "needs_attention" if problem_count else "ok"
@@ -244,17 +258,44 @@ else:
         f"{counts['untracked_wanted']} untracked Sonarr/Radarr wanted items ignored."
     )
 
+if status == "ok":
+    recommended_response = f"ARR heartbeat OK. {summary}"
+elif tracked_registry_empty:
+    recommended_response = f"ARR heartbeat needs attention. {summary}"
+else:
+    names = []
+    for item in actionable_items[:6]:
+        label = item.get("tracked") or item.get("title")
+        if label and label not in names:
+            names.append(str(label))
+    suffix = f" Affected tracked items: {', '.join(names)}." if names else ""
+    recommended_response = f"ARR heartbeat needs attention. {summary}{suffix}"
+
 output = {
     "status": status,
     "summary": summary,
+    "recommended_response": recommended_response,
     "counts": counts,
+    "actionable_items": actionable_items[:20],
+    "queued_items": queued_items[:20],
+    "upcoming_items": upcoming_items[:20],
+    "truncated": {
+        "actionable_items": max(0, len(actionable_items) - 20),
+        "queued_items": max(0, len(queued_items) - 20),
+        "upcoming_items": max(0, len(upcoming_items) - 20),
+        "all_items": max(0, len(items) - 40),
+    },
     "items": items[:40],
-    "truncated_items": max(0, len(items) - 40),
     "read_errors": {
         TRACKED_SHOWS: shows_data.get("_read_error") if isinstance(shows_data, dict) else None,
         TRACKED_MOVIES: movies_data.get("_read_error") if isinstance(movies_data, dict) else None,
     },
     "services": snapshot.get("services", {}) if isinstance(snapshot, dict) else {},
+    "agent_guidance": (
+        "Use recommended_response and the categorized item lists for the heartbeat reply. "
+        "Do not read status.md or re-read tracked registry files unless this output reports a read_error "
+        "or a specific actionable item needs focused diagnosis."
+    ),
 }
 
-print(json.dumps(output, ensure_ascii=False, sort_keys=True))
+print(json.dumps(output, ensure_ascii=False))

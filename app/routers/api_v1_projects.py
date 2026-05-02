@@ -326,12 +326,25 @@ class ProjectRunLoopPolicyIn(BaseModel):
     continuation_prompt: str = ""
 
 
+class SourceArtifactIn(BaseModel):
+    """Repo-resident artifact a Project coding run was derived from.
+
+    Phase 4BD.5 of the Project Factory issue substrate. Replaces the bespoke
+    ``source_work_pack_id`` UUID with a file pointer so launches reference
+    durable Tracks/PRDs/audits in the canonical repo instead of a row in a
+    deleted DB table.
+    """
+    path: str
+    section: str | None = None
+    commit_sha: str | None = None
+
+
 class ProjectCodingRunWrite(BaseModel):
     channel_id: uuid.UUID
     request: str = ""
     repo_path: str | None = None
     machine_target_grant: ProjectMachineTargetGrantIn | None = None
-    source_work_pack_id: uuid.UUID | None = None
+    source_artifact: SourceArtifactIn | None = None
     loop_policy: ProjectRunLoopPolicyIn | None = None
 
 
@@ -434,8 +447,7 @@ class ProjectCodingRunOut(BaseModel):
     dependency_stack_preflight: dict = Field(default_factory=dict)
     readiness: dict = Field(default_factory=dict)
     work_surface: dict = Field(default_factory=dict)
-    source_work_pack_id: uuid.UUID | None = None
-    source_work_pack: dict | None = None
+    source_artifact: dict | None = None
     launch_batch_id: str | None = None
     parent_task_id: uuid.UUID | None = None
     root_task_id: uuid.UUID | None = None
@@ -468,7 +480,7 @@ class ProjectCodingRunReviewBatchOut(BaseModel):
     task_ids: list[uuid.UUID] = Field(default_factory=list)
     ready_run_ids: list[uuid.UUID] = Field(default_factory=list)
     unreviewed_run_ids: list[uuid.UUID] = Field(default_factory=list)
-    source_work_packs: list[dict] = Field(default_factory=list)
+    source_artifacts: list[dict] = Field(default_factory=list)
     review_sessions: list[dict] = Field(default_factory=list)
     active_review_task: dict | None = None
     latest_review_task: dict | None = None
@@ -484,18 +496,78 @@ class ProjectFactoryReviewInboxOut(BaseModel):
     projects: list[dict] = Field(default_factory=list)
 
 
+class ProjectSummaryOut(BaseModel):
+    id: str
+    name: str
+    slug: str
+
+
+class ProjectOrchestrationConcurrencyOut(BaseModel):
+    max_concurrent_runs: int | None = None
+    source: str
+    in_flight: int
+    headroom: int | None = None
+    saturated: bool
+
+
+class ProjectOrchestrationTimeoutsOut(BaseModel):
+    stall_timeout_seconds: int
+    stall_source: str
+    stall_default: int
+    stall_min: int
+    turn_timeout_seconds: int | None = None
+    turn_source: str
+    turn_enforced: bool
+
+
 class ProjectOrchestrationPolicyOut(BaseModel):
-    project: dict
+    project: ProjectSummaryOut
     blueprint_applied: bool
-    concurrency: dict
-    timeouts: dict
+    concurrency: ProjectOrchestrationConcurrencyOut
+    timeouts: ProjectOrchestrationTimeoutsOut
     intake: dict
     canonical_repo: dict
     repo_workflow: dict
 
 
+class ProjectFactoryRunsConcurrencyOut(BaseModel):
+    cap: int | None = None
+    in_flight: int
+    headroom: int | None = None
+
+
+class ProjectFactoryRunsOut(BaseModel):
+    by_queue_state: dict[str, int] = Field(default_factory=dict)
+    by_phase: dict[str, int] = Field(default_factory=dict)
+    total: int
+    ready_for_review: int
+    in_flight: int
+    active_implementation: int
+    reviewed: int
+    active_review_task: bool
+    concurrency: ProjectFactoryRunsConcurrencyOut
+
+
+class ProjectFactoryRunPacksOut(BaseModel):
+    proposed: int
+    needs_info: int
+    launched: int
+    dismissed: int
+
+
+class ProjectFactoryIntakeOut(BaseModel):
+    pending: int
+
+
+class ProjectFactorySuggestedNextActionOut(BaseModel):
+    stage: str
+    headline: str
+    skill_id_to_load: str
+    why: str | None = None
+
+
 class ProjectFactoryStateOut(BaseModel):
-    project: dict
+    project: ProjectSummaryOut
     current_stage: str
     blueprint: dict
     canonical_repo: dict = Field(default_factory=dict)
@@ -503,12 +575,12 @@ class ProjectFactoryStateOut(BaseModel):
     repo_workflow: dict = Field(default_factory=dict)
     runtime_env: dict
     dependency_stack: dict
-    intake: dict
-    run_packs: dict
-    runs: dict
+    intake: ProjectFactoryIntakeOut
+    run_packs: ProjectFactoryRunPacksOut
+    runs: ProjectFactoryRunsOut
     planning: dict
     recent_receipts: list[dict] = Field(default_factory=list)
-    suggested_next_action: dict
+    suggested_next_action: ProjectFactorySuggestedNextActionOut
 
 
 class ProjectCodingRunReviewSessionLedgerOut(BaseModel):
@@ -529,7 +601,7 @@ class ProjectCodingRunReviewSessionLedgerOut(BaseModel):
     launch_batch_ids: list[str] = Field(default_factory=list)
     outcome_counts: dict = Field(default_factory=dict)
     evidence: dict = Field(default_factory=dict)
-    source_work_packs: list[dict] = Field(default_factory=list)
+    source_artifacts: list[dict] = Field(default_factory=list)
     selected_runs: list[dict] = Field(default_factory=list)
     summaries: list[dict] = Field(default_factory=list)
     latest_summary: str | None = None
@@ -1554,7 +1626,7 @@ async def create_project_coding_run_endpoint(
                 repo_path=body.repo_path,
                 machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
                 granted_by_user_id=_auth_user_id(_auth),
-                source_work_pack_id=body.source_work_pack_id,
+                source_artifact=body.source_artifact.model_dump() if body.source_artifact else None,
                 loop_policy=body.loop_policy.model_dump() if body.loop_policy else None,
             ),
         )
