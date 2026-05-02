@@ -12,6 +12,7 @@ from app.agent.bots import get_bot
 from app.db.models import Channel
 from app.dependencies import get_db, require_scopes
 from app.services.notes import (
+    append_note_assist_exchange,
     build_ai_assist_proposal,
     create_note,
     get_or_create_note_session,
@@ -142,14 +143,36 @@ async def assist_channel_note(
     note = read_note(surface, slug)
     if body.base_hash and body.base_hash != note["content_hash"]:
         raise HTTPException(status_code=409, detail={"message": "Note changed on disk", "content_hash": note["content_hash"], "content": note["content"]})
+    content = body.content if body.content is not None else note["content"]
+    selection = body.selection.model_dump() if body.selection else None
+    session = await get_or_create_note_session(
+        db,
+        channel=channel,
+        bot=bot,
+        surface=surface,
+        note_path=note["path"],
+        title=note["title"],
+        content=content,
+    )
     proposal = await build_ai_assist_proposal(
         bot=bot,
         channel=channel,
-        content=body.content if body.content is not None else note["content"],
-        selection=body.selection.model_dump() if body.selection else None,
+        content=content,
+        selection=selection,
         instruction=body.instruction,
         mode=body.mode,
         model_override=body.model_override,
         model_provider_id_override=body.model_provider_id_override,
     )
-    return proposal
+    await append_note_assist_exchange(
+        db,
+        session=session,
+        bot=bot,
+        note_path=note["path"],
+        mode=body.mode,
+        selection=selection,
+        instruction=body.instruction,
+        proposal=proposal,
+    )
+    await db.commit()
+    return {**proposal, "session_id": str(session.id)}

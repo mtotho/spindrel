@@ -534,6 +534,12 @@ Approval mapping intent (final values from schema):
   native-session-drift gap where the transcript appeared in Spindrel but the
   next chat turn had no reliable native resume id. It does not claim to solve
   Claude's live-process leaf visibility boundary documented above.
+- 2026-05-02 Codex CLI-first resume finding: after refreshing the local native
+  API on an agent-owned port, the new live Codex CLI-first scenario proved
+  session-id promotion works. The stricter chat follow-up did not recall the
+  CLI-first marker through the app-server path, even though app-server-created
+  Codex threads still round-trip through native CLI and back to chat. Track
+  this separately as a Codex app-server/CLI session compatibility gap.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

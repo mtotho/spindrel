@@ -70,7 +70,7 @@ PRESETS: dict[str, tuple[Slice, ...]] = {
     ),
     "cli": (
         Slice("terminal", "codex_native_cli_terminal_mirrors_to_spindrel"),
-        Slice("terminal", "codex_native_cli_first_turn_promotes_thread_id_and_resumes_chat"),
+        Slice("terminal", "codex_native_cli_first_turn_promotes_thread_id"),
         Slice("terminal", "codex_native_cli_model_effort_syncs_to_spindrel_composer"),
         Slice("terminal", "claude_native_cli_terminal_mirrors_to_spindrel"),
     ),

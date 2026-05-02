@@ -190,6 +190,7 @@ def serialize_note(surface: NotesSurface, abs_path: str) -> dict[str, Any]:
     return {
         "slug": Path(abs_path).stem,
         "path": rel,
+        "workspace_path": f"{surface.kb_rel}/{rel}",
         "title": title,
         "summary": meta.get("summary") or "",
         "excerpt": _excerpt(body),
@@ -456,6 +457,91 @@ async def build_ai_assist_proposal(
             mode=mode,
             fallback_reason="Prepared a structured Markdown draft you can review before applying.",
         )
+
+
+async def append_note_assist_exchange(
+    db: AsyncSession,
+    *,
+    session: Session,
+    bot: Any,
+    note_path: str,
+    mode: str,
+    selection: dict[str, Any] | None,
+    instruction: str | None,
+    proposal: dict[str, Any],
+) -> None:
+    """Persist a compact visible transcript for one in-editor magic edit."""
+    target = "selection" if selection and selection.get("text") else "whole note"
+    selected = str(selection.get("text") or "") if selection else ""
+    user_lines = [
+        "Magic edit from the note editor.",
+        f"Mode: {mode}",
+        f"Target: {target}",
+    ]
+    if instruction:
+        user_lines.append(f"Instruction: {instruction.strip()}")
+    if selected:
+        user_lines.extend([
+            "",
+            "Selected Markdown:",
+            "```markdown",
+            _clip_for_transcript(selected, 3000),
+            "```",
+        ])
+
+    replacement = str(proposal.get("replacement_markdown") or "")
+    rationale = str(proposal.get("rationale") or "Updated the note draft.")
+    assistant_lines = [
+        rationale,
+        "",
+        "Applied Markdown draft:",
+        "```markdown",
+        _clip_for_transcript(replacement, 6000),
+        "```",
+    ]
+    correlation_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+    db.add(Message(
+        id=uuid.uuid4(),
+        session_id=session.id,
+        role="user",
+        content="\n".join(user_lines).strip(),
+        correlation_id=correlation_id,
+        metadata_={
+            "kind": "note_magic_edit",
+            "note_path": note_path,
+            "mode": mode,
+            "target": target,
+            "sender_type": "system",
+            "sender_display_name": "Magic edit",
+        },
+        created_at=now,
+    ))
+    db.add(Message(
+        id=uuid.uuid4(),
+        session_id=session.id,
+        role="assistant",
+        content="\n".join(assistant_lines).strip(),
+        correlation_id=correlation_id,
+        metadata_={
+            "kind": "note_magic_edit_result",
+            "note_path": note_path,
+            "mode": mode,
+            "target": target,
+            "bot_id": str(getattr(bot, "id", "")),
+            "sender_id": str(getattr(bot, "id", "")),
+            "sender_type": "bot",
+            "sender_display_name": getattr(bot, "display_name", None) or getattr(bot, "name", None) or "Assistant",
+        },
+        created_at=now,
+    ))
+
+
+def _clip_for_transcript(text: str, limit: int) -> str:
+    clean = text.strip()
+    if len(clean) <= limit:
+        return clean
+    return clean[:limit].rstrip() + "\n\n[truncated]"
 
 
 def _parse_json_object(raw: str) -> dict[str, Any]:

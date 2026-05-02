@@ -23,6 +23,7 @@ import { MarkdownViewer } from "@/src/components/workspace/MarkdownViewer";
 import { ChatSession } from "@/src/components/chat/ChatSession";
 import { useModelGroups } from "@/src/api/hooks/useModels";
 import { DocsMarkdownModal } from "@/src/components/shared/DocsMarkdownModal";
+import { useBot } from "@/src/api/hooks/useBots";
 
 type SelectionState = { start: number; end: number; text: string };
 type AutoSaveState = "idle" | "pending" | "saving" | "saved" | "error";
@@ -37,8 +38,9 @@ export default function NoteWorkspacePage() {
   const writeNote = useWriteChannelNote(channelId ?? "");
   const assistNote = useAssistChannelNote(channelId ?? "");
   const note = noteQuery.data ?? null;
-  const versionsQuery = useChannelWorkspaceFileVersions(channelId, note?.path ?? null, !!note);
+  const versionsQuery = useChannelWorkspaceFileVersions(channelId, note?.workspace_path ?? note?.path ?? null, !!note);
   const modelGroupsQuery = useModelGroups();
+  const botQuery = useBot(channelQuery.data?.bot_id);
 
   const [bodyDraft, setBodyDraft] = useState("");
   const [frontmatter, setFrontmatter] = useState("");
@@ -208,6 +210,7 @@ export default function NoteWorkspacePage() {
 
   const channelName = channelQuery.data?.display_name || channelQuery.data?.name || "Channel";
   const botId = channelQuery.data?.bot_id;
+  const effectiveDefaultModel = channelQuery.data?.model_override || botQuery.data?.model || "default";
   const targetLabel = selectedText ? `${selectedText.length} selected chars` : "Whole note";
 
   return (
@@ -265,7 +268,7 @@ export default function NoteWorkspacePage() {
           className="max-w-[190px] rounded-md bg-transparent px-2 py-1.5 text-[11px] text-text-dim outline-none hover:bg-surface-overlay"
           title="Magic edit model"
         >
-          <option value="">model default</option>
+          <option value="">model default ({effectiveDefaultModel})</option>
           {modelOptions.map((option) => (
             <option key={`${option.providerId ?? ""}::${option.modelId}`} value={`${option.providerId ?? ""}::${option.modelId}`}>
               {option.modelId}

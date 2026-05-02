@@ -513,6 +513,7 @@ export function useRestoreChannelWorkspaceFile(channelId: string) {
 export interface ChannelNoteSummary {
   slug: string;
   path: string;
+  workspace_path?: string;
   title: string;
   summary: string;
   excerpt: string;
@@ -544,6 +545,7 @@ export interface ChannelNoteAssistProposal {
   replacement_markdown: string;
   rationale: string;
   diff: string;
+  session_id?: string;
 }
 
 export function useChannelNotes(channelId: string | undefined) {
@@ -588,13 +590,14 @@ export function useWriteChannelNote(channelId: string) {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["channel-notes", channelId] });
       queryClient.invalidateQueries({ queryKey: ["channel-note", channelId, data.slug] });
-      queryClient.invalidateQueries({ queryKey: ["channel-workspace-file-versions", channelId, data.path] });
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-file-versions", channelId, data.workspace_path ?? data.path] });
       queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
     },
   });
 }
 
 export function useAssistChannelNote(channelId: string) {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
       slug,
@@ -619,6 +622,11 @@ export function useAssistChannelNote(channelId: string) {
         method: "POST",
         body: JSON.stringify({ mode, instruction, selection, base_hash, content, model_override, model_provider_id_override }),
       }),
+    onSuccess: (data) => {
+      if (data.session_id) {
+        queryClient.invalidateQueries({ queryKey: ["session-messages", data.session_id] });
+      }
+    },
   });
 }
 
