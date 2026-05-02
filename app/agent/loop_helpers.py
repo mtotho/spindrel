@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from app.agent.loop_dispatch import SummarizeSettings
 
 logger = logging.getLogger(__name__)
+_LEGACY_FULL_TOOL_DUMP_MAX_TOOLS = 12
 
 
 def _resolve_effective_provider(
@@ -448,6 +449,8 @@ async def _resolve_loop_tools(
     *,
     pre_selected_tools: list[dict[str, Any]] | None,
     authorized_tool_names: set[str] | None,
+    tool_surface_policy: str | None = None,
+    required_tool_names: list[str] | tuple[str, ...] | None = None,
     compaction: bool,
     get_local_tool_schemas_fn: Any,
     fetch_mcp_tools_fn: Any,
@@ -487,6 +490,27 @@ async def _resolve_loop_tools(
             for t in injected:
                 if t["function"]["name"] not in existing:
                     all_tools.append(t)
+
+        if (
+            not getattr(bot, "tool_retrieval", False)
+            and tool_surface_policy != "full"
+            and len(all_tools) > _LEGACY_FULL_TOOL_DUMP_MAX_TOOLS
+        ):
+            from app.agent.channel_overrides import AUTO_INJECTED_PIN_NAMES
+
+            allowed_names = {str(n) for n in (required_tool_names or []) if n}
+            allowed_names.update(
+                str(n)
+                for n in (getattr(bot, "pinned_tools", None) or [])
+                if n and str(n) not in AUTO_INJECTED_PIN_NAMES
+            )
+            allowed_names.update(("get_skill", "get_skill_list"))
+            if injected:
+                allowed_names.update(t["function"]["name"] for t in injected)
+            all_tools = [
+                t for t in all_tools
+                if (t.get("function") or {}).get("name") in allowed_names
+            ]
 
     tools_param = all_tools if all_tools else None
     tool_choice = "auto" if tools_param else None

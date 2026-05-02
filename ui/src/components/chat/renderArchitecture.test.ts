@@ -492,7 +492,9 @@ test("native CLI session view uses bare terminal chrome inside the chat surface"
   assert.match(terminalPanel, /const showTitle = chrome === "framed" && !!title;/);
   assert.match(terminalPanel, /const terminalInsetClass = chrome === "bare" \? "p-0" : "p-2";/);
   assert.match(fixedSession, /\{isHarnessSession && !nativeCliOpen && \(/);
+  assert.match(fixedSession, /absolute right-3 top-3 z-\[8\]/);
   assert.match(fixedSession, /chrome="bare"/);
+  assert.doesNotMatch(fixedSession, /flex h-9 shrink-0 items-center justify-end/);
   assert.doesNotMatch(fixedSession, /title=\{`\$\{sessionBot\?\.harness_runtime \?\? "harness"\} native CLI`\}/);
 });
 
@@ -675,6 +677,7 @@ test("fixed harness sessions keep native CLI mounted when returning to chat", ()
   assert.match(fixedSession, /nativeCliStarted/);
   assert.match(fixedSession, /setNativeCliStarted\(true\)/);
   assert.match(fixedSession, /isHarnessSession && nativeCliStarted/);
+  assert.match(fixedSession, /pointer-events-auto z-\[20\] opacity-100/);
   assert.match(fixedSession, /pointer-events-none z-0 opacity-0/);
   assert.doesNotMatch(fixedSession, /nativeCliOpen \? \([\s\S]*<TerminalPanel[\s\S]*\) : \(/);
 });

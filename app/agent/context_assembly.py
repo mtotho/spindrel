@@ -13,7 +13,12 @@ from typing import Any
 from dataclasses import replace as _dc_replace
 
 from app.agent.bots import BotConfig
-from app.agent.channel_overrides import EffectiveTools, apply_auto_injections, resolve_effective_tools
+from app.agent.channel_overrides import (
+    AUTO_INJECTED_PIN_NAMES,
+    EffectiveTools,
+    apply_auto_injections,
+    resolve_effective_tools,
+)
 from app.agent.context import (
     current_run_origin,
     current_skills_in_context,
@@ -76,6 +81,28 @@ def _plan_mode_active_from_messages(messages: list[dict[str, Any]]) -> bool:
         message.get("role") == "system"
         and "Plan mode is active" in str(message.get("content") or "")
         for message in messages
+    )
+
+
+def _dedupe_tool_names(*groups: Any) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        if not group:
+            continue
+        for raw in group:
+            name = str(raw).strip() if raw is not None else ""
+            if name and name not in seen:
+                names.append(name)
+                seen.add(name)
+    return names
+
+
+def _operator_pinned_tool_names(bot: BotConfig) -> list[str]:
+    """Manual pins only; auto-injected chat baseline tools are availability,
+    not schema pins for focused/global tool surfaces."""
+    return _dedupe_tool_names(
+        n for n in (bot.pinned_tools or []) if n not in AUTO_INJECTED_PIN_NAMES
     )
 
 
@@ -1450,10 +1477,7 @@ async def _compose_heartbeat_tool_surface(
     `run_script` IS added (it's composition, not discovery) when the bot
     has tool_discovery enabled.
     """
-    from app.agent.channel_overrides import (
-        AUTO_INJECTED_PIN_NAMES,
-        DISCOVERY_HATCH_TOOL_NAMES,
-    )
+    from app.agent.channel_overrides import DISCOVERY_HATCH_TOOL_NAMES
 
     count_cap = max(1, int(settings.HEARTBEAT_ENROLLED_TOOL_COUNT_CAP or 25))
     token_cap = max(500, int(settings.HEARTBEAT_ENROLLED_TOOL_TOKEN_CAP or 6000))
@@ -1558,9 +1582,7 @@ async def _compose_heartbeat_tool_surface(
     # (skill/channel/self-inspect tools that apply_auto_injections adds to
     # every bot). Without curation, the warning surfaces in the trace so
     # the operator knows budget is being burned on system defaults.
-    operator_pinned = [
-        n for n in (bot.pinned_tools or []) if n not in AUTO_INJECTED_PIN_NAMES
-    ]
+    operator_pinned = _operator_pinned_tool_names(bot)
     has_curated_pins = bool(operator_pinned) or bool(tagged_tool_names)
     warning = (
         "heartbeat_no_curated_pins"
@@ -1780,29 +1802,45 @@ async def _run_tool_retrieval(
     pre_selected_tools: list[dict[str, Any]] | None = None
     if by_name:
         _plan_mode_pins = list(_PLAN_MODE_CONTROL_TOOLS) if _plan_mode_active else []
-        _broad_pinned = list(bot.pinned_tools or [])
+        _operator_pinned = _operator_pinned_tool_names(bot)
         if _surface_policy == "full":
-            _effective_pinned = list(required_tool_names or []) + _broad_pinned + tagged_tool_names + ["get_tool_info"]
+            _effective_pinned = _dedupe_tool_names(
+                required_tool_names,
+                _operator_pinned,
+                tagged_tool_names,
+                ["get_tool_info"],
+            )
             if bot.tool_discovery:
-                _effective_pinned.append("search_tools")
-                _effective_pinned.append("list_tool_signatures")
-                _effective_pinned.append("run_script")
+                _effective_pinned = _dedupe_tool_names(
+                    _effective_pinned,
+                    ["search_tools", "list_tool_signatures", "run_script"],
+                )
             if _enrolled_tool_names:
-                _effective_pinned += _enrolled_tool_names
+                _effective_pinned = _dedupe_tool_names(_effective_pinned, _enrolled_tool_names)
             if bot.skills and (context_profile.allow_skill_index or tagged_skill_names):
-                _effective_pinned += ["get_skill", "get_skill_list"]
+                _effective_pinned = _dedupe_tool_names(_effective_pinned, ["get_skill", "get_skill_list"])
         elif _surface_policy == "focused_escape":
-            _effective_pinned = list(required_tool_names or []) + tagged_tool_names + ["get_tool_info"]
+            _effective_pinned = _dedupe_tool_names(
+                required_tool_names,
+                _operator_pinned,
+                tagged_tool_names,
+                ["get_tool_info"],
+            )
             if bot.tool_discovery:
-                _effective_pinned.append("search_tools")
-                _effective_pinned.append("list_tool_signatures")
-                _effective_pinned.append("run_script")
+                _effective_pinned = _dedupe_tool_names(
+                    _effective_pinned,
+                    ["search_tools", "list_tool_signatures", "run_script"],
+                )
             if tagged_skill_names:
-                _effective_pinned += ["get_skill", "get_skill_list"]
+                _effective_pinned = _dedupe_tool_names(_effective_pinned, ["get_skill", "get_skill_list"])
         else:
-            _effective_pinned = list(required_tool_names or []) + list(tagged_tool_names)
+            _effective_pinned = _dedupe_tool_names(
+                required_tool_names,
+                _operator_pinned,
+                tagged_tool_names,
+            )
             if tagged_skill_names:
-                _effective_pinned += ["get_skill", "get_skill_list"]
+                _effective_pinned = _dedupe_tool_names(_effective_pinned, ["get_skill", "get_skill_list"])
         if _plan_mode_pins:
             _effective_pinned = list(dict.fromkeys([*_effective_pinned, *_plan_mode_pins]))
         pinned_list = [by_name[n] for n in _effective_pinned if n in by_name]
@@ -1879,9 +1917,14 @@ async def _run_tool_retrieval(
             "retrieved_count": len(retrieved),
             "tool_surface": _surface_policy,
             "excluded_broad_pin_count": len({
-                n for n in _broad_pinned
+                n for n in (bot.pinned_tools or [])
                 if n in by_name and n not in _retrieved_names
             }) if _surface_policy != "full" else 0,
+            "baseline_pins_filtered": [
+                n for n in (bot.pinned_tools or [])
+                if n in AUTO_INJECTED_PIN_NAMES and n in by_name
+            ],
+            "operator_pins": list(_operator_pinned),
             "top_candidates": tool_candidates[:5] if tool_candidates else [],
             "best_similarity": _safe_sim(tool_sim),
             "unretrieved_count": len(_unretrieved) if _unretrieved else 0,
@@ -2369,6 +2412,12 @@ async def _emit_finalization_traces(
     history_fetched_skills = state.history_fetched_skills
     history_skill_records = state.history_skill_records
     tool_discovery_info = state.tool_discovery_info
+    if budget is not None and result.pre_selected_tools and not budget.breakdown.get("tool_schemas"):
+        from app.agent.context_budget import estimate_tokens as _estimate_tokens
+
+        tool_schema_chars = sum(len(json.dumps(tool)) for tool in result.pre_selected_tools)
+        budget.consume("tool_schemas", _estimate_tokens("x" * tool_schema_chars))
+
     # --- store budget utilization for downstream (compaction trigger) ---
     if budget is not None:
         result.budget_utilization = budget.utilization
@@ -3066,7 +3115,7 @@ async def assemble_for_preview(
         pass
 
     # Mirror the post-assembly tool-schema accounting that loop.py performs.
-    if result.pre_selected_tools:
+    if result.pre_selected_tools and not budget.breakdown.get("tool_schemas"):
         tool_schema_chars = sum(len(json.dumps(t)) for t in result.pre_selected_tools)
         from app.agent.context_budget import estimate_tokens as _est
         budget.consume("tool_schemas", _est("x" * tool_schema_chars))

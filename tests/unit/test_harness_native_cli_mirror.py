@@ -90,6 +90,29 @@ def test_claude_native_cli_parser_keeps_only_text_content():
     assert record.content == "Done."
 
 
+def test_claude_native_cli_parser_drops_synthetic_resume_noise():
+    assert _parse_claude_jsonl_record(
+        {
+            "uuid": "row-continue",
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "Continue from where you left off."}],
+            },
+        }
+    ) is None
+    assert _parse_claude_jsonl_record(
+        {
+            "uuid": "row-no-response",
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "No response requested."}],
+            },
+        }
+    ) is None
+
+
 def test_read_new_records_advances_offset_without_replaying(tmp_path: Path):
     transcript = tmp_path / "session.jsonl"
     transcript.write_text(

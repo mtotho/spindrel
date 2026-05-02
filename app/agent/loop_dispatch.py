@@ -74,7 +74,7 @@ def _tool_call_is_cacheable(name: str, args: Any = None) -> bool:
         parsed = _parse_tool_args(args)
         action = parsed.get("action") if isinstance(parsed, dict) else None
         return action in {None, "get", "list", "search", "read"}
-    return name in _READ_ONLY_CACHEABLE_TOOLS or get_tool_safety_tier(name) == "read_only"
+    return name in _READ_ONLY_CACHEABLE_TOOLS or get_tool_safety_tier(name) == "readonly"
 
 
 def _tool_batch_has_cache_pressure(tool_calls: list[dict[str, Any]], state: LoopRunState) -> bool:
@@ -584,6 +584,11 @@ async def dispatch_iteration_tool_calls(
                         "tool_call_id": tc["id"],
                         "content": error,
                     })
+                    yield _event_with_compaction_tag({
+                        "type": "tool_duplicate_blocked",
+                        "tool": name,
+                        "error": "Duplicate mutating/control-plane tool call blocked",
+                    }, ctx.compaction)
                     yield _event_with_compaction_tag({
                         "type": "tool_result",
                         "tool": name,

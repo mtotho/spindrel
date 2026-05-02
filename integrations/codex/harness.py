@@ -72,7 +72,7 @@ _CODEX_GENERIC_SLASH_ALLOWED: frozenset[str] = frozenset(
     {
         "help", "rename", "stop", "style", "theme", "clear",
         "sessions", "scratch", "split", "focus", "model", "effort",
-        "compact", "context", "plan", "runtime", "new",
+        "compact", "context", "project-init", "plan", "runtime", "new",
     }
 )
 

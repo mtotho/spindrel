@@ -4,7 +4,7 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, Message, Session
+from app.db.models import Channel, Message, Project, Session, SharedWorkspace
 from tests.integration.conftest import AUTH_HEADERS
 
 
@@ -203,6 +203,8 @@ class TestSlashCommandCatalog:
         assert by_id["theme"]["args"][0]["required"] is False
 
         assert by_id["style"]["args"][0]["enum"] == ["default", "terminal"]
+        assert by_id["project-init"]["surfaces"] == ["channel", "session"]
+        assert by_id["project-init"]["local_only"] is False
 
     async def test_client_only_commands_rejected_over_backend(self, client, db_session):
         channel_id, _session_id = await _create_channel_with_session(db_session)
@@ -256,6 +258,39 @@ class TestSlashCommandHelp:
         assert "/scratch" not in labels
         # But /context, /help, /rename should be there
         assert {"/context", "/help", "/rename"} <= labels
+
+
+class TestSlashCommandProjectInit:
+    async def test_project_init_returns_copyable_project_prompt(self, client, db_session):
+        workspace = SharedWorkspace(name=f"slash-project-init-{uuid.uuid4().hex[:8]}")
+        db_session.add(workspace)
+        await db_session.flush()
+        project = Project(
+            workspace_id=workspace.id,
+            name="Project Init Demo",
+            slug="project-init-demo",
+            root_path="common/projects/project-init-demo",
+        )
+        db_session.add(project)
+        channel_id, _session_id = await _create_channel_with_session(db_session)
+        channel = await db_session.get(Channel, uuid.UUID(channel_id))
+        channel.workspace_id = workspace.id
+        channel.project_id = project.id
+        await db_session.commit()
+
+        resp = await client.post(
+            "/api/v1/slash-commands/execute",
+            json={"command_id": "project-init", "channel_id": channel_id},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["command_id"] == "project-init"
+        assert body["result_type"] == "project_init_prompt"
+        assert body["payload"]["project"]["id"] == str(project.id)
+        assert body["payload"]["skill_id"] == "workspace/project_init"
+        assert "Use the workspace/project_init skill" in body["fallback_text"]
+        assert "Project Dependency Stack" in body["fallback_text"]
 
 
 class TestSlashCommandFind:

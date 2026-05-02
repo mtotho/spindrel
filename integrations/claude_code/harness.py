@@ -125,7 +125,7 @@ def _effective_permission_mode(ctx: TurnContext) -> str:
 _CLAUDE_GENERIC_SLASH_ALLOWED: frozenset[str] = frozenset({
     "help", "rename", "stop", "style", "theme", "clear",
     "sessions", "scratch", "split", "focus", "model", "effort",
-    "compact", "context", "plan", "runtime", "new",
+    "compact", "context", "project-init", "plan", "runtime", "new",
 })
 
 
@@ -240,18 +240,21 @@ def build_native_cli_command(
     model: str | None = None,
     effort: str | None = None,
     title: str | None = None,
+    permission_mode: str | None = None,
 ) -> str:
     """Return the Claude Code CLI command that opens the native session surface."""
 
     parts = ["claude"]
     if native_session_id:
         parts.extend(["-r", native_session_id])
-    if title:
-        parts.extend(["-n", title[:80]])
     if model:
         parts.extend(["--model", model])
     if effort:
         parts.extend(["--effort", effort])
+    if permission_mode:
+        parts.extend(["--permission-mode", permission_mode])
+        if permission_mode == "bypassPermissions":
+            parts.append("--dangerously-skip-permissions")
     return " ".join(shlex.quote(part) for part in parts)
 
 

@@ -30,6 +30,13 @@ instructions and Blueprint metadata, and **Channels** for membership.
 The Settings tab includes a compact Basics block for the root URI, attached
 channel count, setup readiness, and runtime environment readiness.
 
+From any Project-bound channel, run `/project-init` to get a copyable prompt
+for the current agent. That prompt points the agent at the generic
+`workspace/project_init` skill and asks it to inspect the repository, create or
+repair the applied Blueprint, sanitize repo declarations, enroll the needed
+Project workflow skills, configure a Dependency Stack from a Project-local
+compose file when the repo needs backing services, and report readiness.
+
 ## Blueprints
 
 ![Project Blueprint library](../images/project-workspace-blueprints.png)

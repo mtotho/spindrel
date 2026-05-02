@@ -8,6 +8,7 @@ import pytest
 from app.db.models import DockerStack, Project, ProjectInstance, Task
 from app.services.docker_stacks import StackValidationError
 from app.services.project_dependency_stacks import (
+    _dependency_stack_scratch_dir,
     ensure_project_dependency_stack_instance,
     preflight_task_dependency_stack,
     prepare_project_dependency_stack,
@@ -45,6 +46,27 @@ def test_project_dependency_stack_spec_reads_frozen_snapshot():
     assert spec.source_path == "docker-compose.project.yml"
     assert spec.env == {"DATABASE_URL": "postgresql://agent:agent@${postgres.host}:${postgres.5432}/agentdb"}
     assert spec.commands == {"unit": "pytest -q"}
+
+
+def test_dependency_stack_scratch_dir_falls_back_when_home_is_read_only(tmp_path, monkeypatch):
+    read_only_home = tmp_path / "home"
+    workspace = tmp_path / "workspace"
+    read_only_home.mkdir()
+
+    original_mkdir = Path.mkdir
+
+    def fake_mkdir(self, *args, **kwargs):
+        if str(self).startswith(str(read_only_home)):
+            raise OSError(30, "Read-only file system", str(self))
+        return original_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr("app.services.project_dependency_stacks.settings.HOME_LOCAL_DIR", str(read_only_home))
+    monkeypatch.setattr("app.services.project_dependency_stacks.settings.WORKSPACE_LOCAL_DIR", str(workspace))
+    monkeypatch.setattr(Path, "mkdir", fake_mkdir)
+
+    scratch = Path(_dependency_stack_scratch_dir(uuid.uuid4()))
+
+    assert workspace in scratch.parents
 
 
 @pytest.mark.asyncio

@@ -34,6 +34,10 @@ _SPINDREL_BLOCK_RE = re.compile(
     re.DOTALL,
 )
 _ENV_CONTEXT_RE = re.compile(r"<environment_context>.*?</environment_context>", re.DOTALL)
+_NATIVE_CLI_SYNTHETIC_TEXT = {
+    "Continue from where you left off.",
+    "No response requested.",
+}
 
 
 @dataclass(frozen=True)
@@ -324,7 +328,10 @@ def _clean_native_text(text: str) -> str:
         return ""
     cleaned = _SPINDREL_BLOCK_RE.sub("", text)
     cleaned = _ENV_CONTEXT_RE.sub("", cleaned)
-    return cleaned.strip()
+    cleaned = cleaned.strip()
+    if cleaned in _NATIVE_CLI_SYNTHETIC_TEXT:
+        return ""
+    return cleaned
 
 
 async def _persist_mirrored_record(

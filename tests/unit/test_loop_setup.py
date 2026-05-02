@@ -139,6 +139,26 @@ async def test_heartbeat_tool_surface_event_and_trace_are_emitted_before_done():
 
 
 @pytest.mark.asyncio
+async def test_setup_passes_required_tools_to_loop_tool_resolver():
+    seen = {}
+
+    async def _tools(*args, **kwargs):
+        seen.update(kwargs)
+        return _tool_state()
+
+    await _collect(
+        run_control_policy={
+            "tool_surface": "focused_escape",
+            "required_tools": ["file"],
+        },
+        resolve_loop_tools_fn=_tools,
+    )
+
+    assert seen["tool_surface_policy"] == "focused_escape"
+    assert seen["required_tool_names"] == ["file"]
+
+
+@pytest.mark.asyncio
 async def test_hard_cap_min_applies_for_non_global_or_non_heartbeat_runs():
     outputs = await _collect(
         context_profile_name="standard",

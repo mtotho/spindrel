@@ -224,11 +224,11 @@ class TestAssemblyBudgetGenerous:
         ]
         assert len(injected) == 1
         prompt = injected[0]
-        assert "list_agent_capabilities" in prompt
-        assert "run_agent_doctor" in prompt
+        assert "self-inspection tools are exposed" in prompt
+        assert "report/propose a narrow config change" in prompt
         assert "skills.recommended_now" in prompt
         assert "first_action" in prompt
-        assert "before broad API, config, integration, widget, Project, harness, or readiness work" in prompt
+        assert "before broad API, config, integration, widget, Project, or readiness work" in prompt
 
     @pytest.mark.asyncio
     async def test_no_budget_leaves_result_none(self):
@@ -296,7 +296,7 @@ class TestAssemblyBudgetTight:
         tool_index_events = [e for e in events if e.get("type") == "tool_index"]
         assert len(tool_index_events) == 0
         assert "tool_index" not in budget.breakdown
-        assert result.inject_decisions["tool_index"] == "skipped_by_budget"
+        assert result.inject_decisions["tool_index"] == "skipped_by_profile"
 
     @pytest.mark.asyncio
     async def test_p3_fs_rag_budget_gate(self):
@@ -380,9 +380,9 @@ class TestAssemblyBudgetTight:
                 p.stop()
 
         tool_index_events = [e for e in events if e.get("type") == "tool_index"]
-        assert len(tool_index_events) == 1
-        assert "tool_index" in budget.breakdown
-        assert result.inject_decisions["tool_index"] == "admitted"
+        assert len(tool_index_events) == 0
+        assert "tool_index" not in budget.breakdown
+        assert result.inject_decisions["tool_index"] == "skipped_by_profile"
 
     @pytest.mark.asyncio
     async def test_tool_index_skipped_by_profile_for_task_none(self):
@@ -694,6 +694,116 @@ class TestAssemblyBudgetTight:
             "record_plan_progress",
             "request_plan_replan",
         } <= (result.authorized_tool_names or set())
+
+    @pytest.mark.asyncio
+    async def test_focused_chat_keeps_operator_pins_but_filters_auto_baseline_pins(self):
+        bot = _minimal_bot(
+            local_tools=["web_search", "file", "exec_command", "get_tool_info"],
+            pinned_tools=["file", "exec_command"],
+            tool_retrieval=True,
+            tool_discovery=False,
+        )
+        messages = [{"role": "system", "content": "System."}]
+        budget = ContextBudget(total_tokens=128_000, reserve_tokens=19_200)
+        result = AssemblyResult()
+
+        def _schema(name: str) -> dict:
+            return {"type": "function", "function": {"name": name, "description": name, "parameters": {}}}
+
+        mock_schemas = {name: _schema(name) for name in ["web_search", "file", "exec_command", "get_tool_info"]}
+        patches = _assembly_patches() + [
+            patch("app.agent.context_assembly._all_tool_schemas_by_name", new_callable=AsyncMock, return_value=mock_schemas),
+            patch("app.agent.context_assembly.retrieve_tools", new_callable=AsyncMock, return_value=(
+                [mock_schemas["web_search"]], 0.8, [("web_search", 0.8)],
+            )),
+            patch("app.agent.context_assembly.get_client_tool_schemas", return_value=[]),
+            patch("app.agent.context_assembly.get_mcp_server_for_tool", return_value=None),
+        ]
+
+        for p in patches:
+            p.start()
+        try:
+            await _drain(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="search for cats",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+                budget=budget,
+                context_profile_name="chat",
+                tool_surface_policy="focused_escape",
+            ))
+        finally:
+            for p in patches:
+                p.stop()
+
+        exposed = {t["function"]["name"] for t in result.pre_selected_tools or []}
+        assert "exec_command" in exposed
+        assert "web_search" in exposed
+        assert "get_tool_info" in exposed
+        assert "file" not in exposed
+        assert result.tool_discovery_info["operator_pins"] == ["exec_command"]
+        assert "file" in result.tool_discovery_info["baseline_pins_filtered"]
+
+    @pytest.mark.asyncio
+    async def test_required_tools_survive_focused_chat_even_when_baseline_named(self):
+        bot = _minimal_bot(
+            local_tools=["file", "get_tool_info"],
+            pinned_tools=[],
+            tool_retrieval=True,
+            tool_discovery=False,
+        )
+        messages = [{"role": "system", "content": "System."}]
+        budget = ContextBudget(total_tokens=128_000, reserve_tokens=19_200)
+        result = AssemblyResult()
+
+        def _schema(name: str) -> dict:
+            return {"type": "function", "function": {"name": name, "description": name, "parameters": {}}}
+
+        mock_schemas = {name: _schema(name) for name in ["file", "get_tool_info"]}
+        patches = _assembly_patches() + [
+            patch("app.agent.context_assembly._all_tool_schemas_by_name", new_callable=AsyncMock, return_value=mock_schemas),
+            patch("app.agent.context_assembly.retrieve_tools", new_callable=AsyncMock, return_value=([], 0.0, [])),
+            patch("app.agent.context_assembly.get_client_tool_schemas", return_value=[]),
+            patch("app.agent.context_assembly.get_mcp_server_for_tool", return_value=None),
+        ]
+
+        for p in patches:
+            p.start()
+        try:
+            await _drain(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="read workspace file",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+                budget=budget,
+                context_profile_name="chat",
+                tool_surface_policy="focused_escape",
+                required_tool_names=["file"],
+            ))
+        finally:
+            for p in patches:
+                p.stop()
+
+        exposed = {t["function"]["name"] for t in result.pre_selected_tools or []}
+        assert "file" in exposed
+        assert result.tool_discovery_info["required_tools"] == ["file"]
+        assert result.tool_discovery_info["required_tools_missing"] == []
 
     @pytest.mark.asyncio
     async def test_multimodal_user_message_uses_detail_aware_token_estimate(self):

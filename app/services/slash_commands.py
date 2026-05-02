@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.agent.context_profiles import get_context_profile, resolve_context_profile
-from app.db.models import Bot as BotRow, Channel, Session, Task
+from app.db.models import Bot as BotRow, Channel, Project, Session, Task
 from app.services import session_locks
 from app.services.context_breakdown import compute_context_breakdown, fetch_latest_context_budget
 from app.services.session_plan_mode import (
@@ -1624,6 +1624,75 @@ async def _help_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     )
 
 
+async def _project_init_handler(ctx: SlashCommandContext) -> SlashCommandResult:
+    channel = ctx.channel
+    if channel is None and ctx.session is not None:
+        parent_channel_id = ctx.session.channel_id or ctx.session.parent_channel_id
+        channel = await ctx.db.get(Channel, parent_channel_id) if parent_channel_id else None
+    project: Project | None = None
+    if channel is not None and channel.project_id is not None:
+        project = await ctx.db.get(Project, channel.project_id)
+
+    if project is None:
+        title = "Project init needs a Project-bound channel"
+        prompt = (
+            "This channel is not attached to a Project yet. Attach the channel "
+            "to a Project from Project settings or create a Project for the repo, "
+            "then run /project-init again."
+        )
+        status = "blocked"
+        project_payload: dict[str, Any] | None = None
+    else:
+        title = f"Initialize Project: {project.name}"
+        status = "ready"
+        project_payload = {
+            "id": str(project.id),
+            "name": project.name,
+            "root_path": project.root_path,
+            "applied_blueprint_id": str(project.applied_blueprint_id) if project.applied_blueprint_id else None,
+        }
+        prompt = f"""Initialize this Project for agent work.
+
+Project:
+- id: {project.id}
+- root: {project.root_path}
+
+Use the workspace/project_init skill.
+
+Do this end to end:
+1. Inspect the Project root as a normal checkout. Read repo instructions, setup docs, env examples, compose files, test scripts, and child git remotes.
+2. Check Project readiness with the Project APIs/tools: setup, runtime env, dependency stack, attached channels, and enrolled skills.
+3. If there is no applied Blueprint, create one from the current Project and apply it.
+4. Sanitize Blueprint repo declarations: no tokens in remote URLs, correct repo paths, intended base branches.
+5. Enroll the Project workflow skills needed by the attached channels: workspace/issue_intake, workspace/project_coding_runs, workspace/docker_stacks, and agent_readiness/operator when relevant.
+6. If the repo needs Docker-backed services, configure a Project Dependency Stack from a Project-local compose file for backing services only. Do not put the app server in the stack; agents should start app/dev servers from source on assigned or unused ports.
+7. Declare runtime env keys, required secret slots, setup commands, and dev targets only when the repo evidence supports them.
+8. Re-check readiness and report exactly what changed, what is ready, and what still needs a user decision.
+"""
+
+    payload = {
+        "status": status,
+        "title": title,
+        "project": project_payload,
+        "prompt": prompt,
+        "skill_id": "workspace/project_init",
+        "api_hints": [
+            "GET /api/v1/projects",
+            "POST /api/v1/projects/{project_id}/blueprint-from-current",
+            "GET /api/v1/projects/{project_id}/setup",
+            "GET /api/v1/projects/{project_id}/runtime-env",
+            "GET /api/v1/projects/{project_id}/dependency-stack",
+            "GET /api/v1/admin/channels/{channel_id}/enrolled-skills",
+        ],
+    }
+    return SlashCommandResult(
+        command_id="project-init",
+        result_type="project_init_prompt",
+        payload=payload,
+        fallback_text=prompt,
+    )
+
+
 async def _find_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     """Keyword search over recent messages in the current channel.
 
@@ -1804,6 +1873,14 @@ _register(SlashCommandSpec(
     description="Show a compact summary of the current context",
     surfaces=("channel", "session"),
     handler=_context_handler,
+))
+
+_register(SlashCommandSpec(
+    id="project-init",
+    label="/project-init",
+    description="Show a Project initialization prompt for Blueprint, skills, dependency stack, and readiness setup",
+    surfaces=("channel", "session"),
+    handler=_project_init_handler,
 ))
 
 _register(SlashCommandSpec(

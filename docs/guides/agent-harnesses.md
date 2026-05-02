@@ -185,6 +185,10 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 
 ![Codex native CLI messages mirrored back into Spindrel chat](../images/native-cli/harness-codex-native-cli-mirror-dark.png)
 
+![Claude Code native CLI embedded in a harness session](../images/native-cli/harness-claude-native-cli-terminal-dark.png)
+
+![Claude Code native CLI messages mirrored back into Spindrel chat](../images/native-cli/harness-claude-native-cli-mirror-dark.png)
+
 Regenerate the non-question fixtures with:
 
 ```bash

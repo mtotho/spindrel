@@ -232,7 +232,7 @@ def stream_budget_events(
 ) -> list[dict[str, Any]]:
     if budget is None:
         return []
-    if assembly_result.pre_selected_tools:
+    if assembly_result.pre_selected_tools and not budget.breakdown.get("tool_schemas"):
         from app.agent.context_budget import estimate_tokens
 
         tool_schema_chars = sum(len(json.dumps(tool)) for tool in assembly_result.pre_selected_tools)

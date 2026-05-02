@@ -103,10 +103,28 @@ def _compose_for_spec(spec: ProjectDependencyStackSpec, project_dir: ProjectDire
 
 
 def _dependency_stack_scratch_dir(instance_id: uuid.UUID) -> str:
-    base = Path(settings.HOME_LOCAL_DIR or settings.HOME_HOST_DIR or "/tmp") / "spindrel-dependency-stacks"
-    path = (base / str(instance_id)).resolve()
-    path.mkdir(parents=True, exist_ok=True)
-    return str(path)
+    candidates = [
+        settings.HOME_LOCAL_DIR,
+        settings.WORKSPACE_LOCAL_DIR,
+        "/tmp",
+    ]
+    last_error: Exception | None = None
+    for raw_base in candidates:
+        if not raw_base:
+            continue
+        path = (Path(raw_base) / "spindrel-dependency-stacks" / str(instance_id)).resolve()
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            probe = path / ".write-test"
+            probe.write_text("", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return str(path)
+        except OSError as exc:
+            last_error = exc
+            continue
+    if last_error is not None:
+        raise last_error
+    raise OSError("No writable Project dependency stack scratch directory is configured")
 
 
 def _render_compose_vars(compose: str, *, project: Project, project_dir: ProjectDirectory, instance_id: uuid.UUID) -> str:

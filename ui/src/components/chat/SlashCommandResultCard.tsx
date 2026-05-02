@@ -267,8 +267,61 @@ export function SlashCommandResultCard({ message, chatMode = "default" }: Props)
     return <HarnessRuntimeCommandCard payload={rawPayload as Record<string, any>} chatMode={chatMode} />;
   }
 
+  if (resultType === "project_init_prompt") {
+    return <ProjectInitPromptCard payload={rawPayload as Record<string, any>} chatMode={chatMode} />;
+  }
+
   // Default: context_summary (used by /context)
   return <ContextSummaryCard message={message} chatMode={chatMode} />;
+}
+
+function ProjectInitPromptCard({
+  payload,
+  chatMode,
+}: {
+  payload: Record<string, any>;
+  chatMode: "default" | "terminal";
+}) {
+  const project = payload.project && typeof payload.project === "object" ? payload.project as Record<string, any> : null;
+  const prompt = String(payload.prompt || "");
+  const apiHints = Array.isArray(payload.api_hints) ? payload.api_hints.map(String) : [];
+  const status = String(payload.status || "ready");
+  return (
+    <SlashResultPanel
+      chatMode={chatMode}
+      commandLabel="/project-init"
+      meta={status}
+    >
+      <div className="grid gap-3 p-3 text-[12px] text-text-muted">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="font-medium text-text">{String(payload.title || "Project initialization")}</div>
+            {project && (
+              <div className="mt-1 font-mono text-[11px] text-text-dim">
+                {String(project.root_path || "")}
+              </div>
+            )}
+          </div>
+          {payload.skill_id && (
+            <div className="shrink-0 rounded bg-surface-overlay px-2 py-1 font-mono text-[11px] text-text-dim">
+              {String(payload.skill_id)}
+            </div>
+          )}
+        </div>
+        <div className="rounded bg-surface-overlay/50 p-2 font-mono text-[11px] leading-5 text-text whitespace-pre-wrap">
+          {prompt}
+        </div>
+        {apiHints.length > 0 && (
+          <details className="rounded bg-surface-overlay/40 px-2 py-1">
+            <summary className="cursor-pointer text-[11px] text-text-dim">API surfaces</summary>
+            <div className="mt-2 grid gap-1 font-mono text-[11px] text-text-muted">
+              {apiHints.map((hint) => <div key={hint}>{hint}</div>)}
+            </div>
+          </details>
+        )}
+      </div>
+    </SlashResultPanel>
+  );
 }
 
 function HarnessRuntimeCommandCard({

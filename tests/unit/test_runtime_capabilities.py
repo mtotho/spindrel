@@ -69,7 +69,7 @@ def test_claude_capabilities_shape():
     for cmd in (
         "help", "rename", "stop", "clear", "sessions", "scratch",
         "split", "focus", "model", "effort", "compact", "context",
-        "plan", "runtime",
+        "project-init", "plan", "runtime",
     ):
         assert cmd in allowed, f"{cmd} should be in Claude allowlist"
     assert {cmd.id for cmd in caps.native_commands} >= {"auth", "version"}
@@ -98,6 +98,7 @@ def test_codex_capabilities_shape():
         "bypassPermissions", "acceptEdits", "default", "plan",
     )
     assert "plan" in caps.slash_policy.allowed_command_ids
+    assert "project-init" in caps.slash_policy.allowed_command_ids
     assert "runtime" in caps.slash_policy.allowed_command_ids
     assert {cmd.id for cmd in caps.native_commands} >= {
         "config", "mcp-status", "plugins", "skills", "features", "marketplace",

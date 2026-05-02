@@ -81,6 +81,15 @@ def _heartbeat_should_post(task: Task, deps: TaskRunHostDeps) -> bool:
     return deps.heartbeat_execution_meta(task).get("dispatch_results", True) is not False
 
 
+def _task_run_control_policy(ecfg: dict) -> dict | None:
+    policy = dict(ecfg.get("run_control_policy") or {})
+    configured_tools = [str(name) for name in (ecfg.get("tools") or []) if name]
+    if configured_tools:
+        existing = [str(name) for name in (policy.get("required_tools") or []) if name]
+        policy["required_tools"] = list(dict.fromkeys([*existing, *configured_tools]))
+    return policy or None
+
+
 async def _resolve_task_bot(bot_id: str, deps: TaskRunHostDeps) -> BotConfig:
     """Resolve a bot for a task run, refreshing the runtime registry once.
 
@@ -570,7 +579,7 @@ async def _run_normal_agent_task(
             task_mode=True,
             skip_skill_inject=skip_skill_inject,
             context_profile_name=prepared.context_profile_name,
-            run_control_policy=prepared.ecfg.get("run_control_policy"),
+            run_control_policy=_task_run_control_policy(prepared.ecfg),
         ),
         timeout=prepared.task_timeout,
     )

@@ -349,18 +349,18 @@ export function FixedSessionChatSession({
           </div>
         </div>
       )}
-      {isHarnessSession && !nativeCliOpen && (
-        <div className="flex h-9 shrink-0 items-center justify-end gap-1 bg-surface/70 px-3">
+      <div className="relative min-h-0 flex-1">
+        {isHarnessSession && !nativeCliOpen && (
           <button
             type="button"
             onClick={() => {
               setNativeCliStarted(true);
               setNativeCliOpen(true);
             }}
-            className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium ${
+            className={`absolute right-3 top-3 z-[8] inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium backdrop-blur ${
               nativeCliStarted
-                ? "bg-accent/15 text-accent"
-                : "text-text-dim hover:bg-surface-overlay hover:text-text"
+                ? "bg-accent/15 text-accent hover:bg-accent/20"
+                : "bg-surface-overlay/80 text-text-dim hover:bg-surface-overlay hover:text-text"
             }`}
             title={nativeCliStarted ? "Return to the running native CLI for this session" : "Open the runtime's native CLI for this session"}
             aria-pressed={nativeCliStarted}
@@ -368,9 +368,7 @@ export function FixedSessionChatSession({
             <TerminalIcon size={13} />
             {nativeCliStarted ? "Native CLI running" : "Native CLI"}
           </button>
-        </div>
-      )}
-      <div className="relative min-h-0 flex-1">
+        )}
         <div
           className={`h-full min-h-0 ${nativeCliOpen ? "pointer-events-none opacity-0" : "opacity-100"}`}
           aria-hidden={nativeCliOpen}
@@ -402,7 +400,7 @@ export function FixedSessionChatSession({
         {isHarnessSession && nativeCliStarted && (
           <div
             className={`absolute inset-0 min-h-0 bg-[#0a0d12] transition-opacity ${
-              nativeCliOpen ? "pointer-events-auto z-[6] opacity-100" : "pointer-events-none z-0 opacity-0"
+              nativeCliOpen ? "pointer-events-auto z-[20] opacity-100" : "pointer-events-none z-0 opacity-0"
             }`}
             aria-hidden={!nativeCliOpen}
           >

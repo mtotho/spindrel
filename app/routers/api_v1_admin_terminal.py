@@ -183,6 +183,7 @@ async def create_harness_native_terminal_session(
     from app.agent.bots import get_bot
     from app.db.models import Session
     from app.services.agent_harnesses.project import resolve_harness_paths
+    from app.services.agent_harnesses.approvals import load_session_mode
     from app.services.agent_harnesses.session_state import load_latest_harness_metadata
     from app.services.agent_harnesses.settings import load_session_settings
     from app.services.project_runtime import load_project_runtime_environment_for_id
@@ -212,6 +213,7 @@ async def create_harness_native_terminal_session(
         if isinstance(raw_native_session_id, str) and raw_native_session_id.strip():
             native_session_id = raw_native_session_id.strip()
     settings = await load_session_settings(db, session_id)
+    approval_mode = await load_session_mode(db, session_id)
     title = (session_row.title or bot.name or runtime_name).strip()
     if runtime_name == "codex":
         from integrations.codex.harness import build_native_cli_command
@@ -231,6 +233,7 @@ async def create_harness_native_terminal_session(
             model=settings.model,
             effort=settings.effort,
             title=title,
+            permission_mode=approval_mode,
         )
 
     user_key = _user_key_from_auth(auth)

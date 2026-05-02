@@ -90,6 +90,8 @@ async def stream_loop_setup(
         bot,
         pre_selected_tools=pre_selected_tools,
         authorized_tool_names=authorized_tool_names,
+        tool_surface_policy=(run_control_policy or {}).get("tool_surface"),
+        required_tool_names=(run_control_policy or {}).get("required_tools"),
         compaction=compaction,
         get_local_tool_schemas_fn=get_local_tool_schemas_fn,
         fetch_mcp_tools_fn=fetch_mcp_tools_fn,
