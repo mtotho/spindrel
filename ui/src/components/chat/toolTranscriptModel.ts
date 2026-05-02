@@ -14,6 +14,12 @@ export type SharedToolTranscriptEntry = {
   metaLabel?: string | null;
   previewText?: string | null;
   target?: string | null;
+  /** Resolution scope for ``target`` when it should render as a clickable file
+   *  link. ``"memory"`` means the path is rooted at the emitting bot's memory
+   *  directory and the link must be remapped to ``bots/<bot_id>/memory/...``
+   *  rather than treated as a Project workspace path. Omitted/null is the
+   *  legacy workspace-relative behavior. */
+  pathRoot?: string | null;
   args?: string;
   env?: ToolResultEnvelope;
   summary?: ToolCallSummary | null;
@@ -652,6 +658,7 @@ function buildEntryFromSummary(
   const toolInfoRef = resolveToolInfoRef(toolName, args, result, rawCall);
   const target = summary.target_label || (toolInfoRef ? null : introspectionTarget(toolName, [args], rawCall, result));
   const previewText = resolvePreviewText(summary, result, summaryLabel);
+  const pathRoot = summary.path_root ?? null;
   if (summary.kind === "diff" && summary.subject_type === "file") {
     return {
       id: `${toolName}:${summaryLabel}`,
@@ -660,6 +667,7 @@ function buildEntryFromSummary(
       metaLabel: summarizeDiffMeta(summary),
       previewText: null,
       target: summaryFileTarget(summary) || (summary.target_label ? null : target),
+      pathRoot,
       env: result,
       summary,
       isError: false,
@@ -677,6 +685,7 @@ function buildEntryFromSummary(
       metaLabel: null,
       previewText,
       target: summaryFileTarget(summary) || (summary.target_label ? null : target),
+      pathRoot,
       env: result,
       summary,
       isError: false,
@@ -694,6 +703,7 @@ function buildEntryFromSummary(
       metaLabel: null,
       previewText,
       target: summaryFileTarget(summary),
+      pathRoot,
       env: result,
       summary,
       isError: false,
@@ -710,6 +720,7 @@ function buildEntryFromSummary(
     metaLabel: summarizeDiffMeta(summary) || toolInfoRef,
     previewText,
     target: summary.target_label ? null : target,
+    pathRoot,
     env: result,
     summary,
     isError: summary.kind === "error",

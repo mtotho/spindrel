@@ -1144,6 +1144,11 @@ export interface ToolCallSummary {
   target_id?: string | null;
   target_label?: string | null;
   path?: string | null;
+  /** Resolution scope for `path`. ``"memory"`` means the path is rooted at the
+   *  emitting bot's memory directory (`bots/<bot_id>/memory/...`) rather than
+   *  the channel's Project workspace cwd; the UI must remap the link target
+   *  accordingly. Omitted/null is the legacy workspace-relative behavior. */
+  path_root?: "memory" | string | null;
   preview_text?: string | null;
   diff_stats?: { additions: number; deletions: number } | null;
   error?: string | null;

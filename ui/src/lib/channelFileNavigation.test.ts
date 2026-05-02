@@ -8,6 +8,7 @@ import {
   readChannelFileIntent,
   resolveChannelLinkedFilePath,
   resolveChannelFileViewerScope,
+  resolveMemoryFilePath,
   resolveToolTargetFilePath,
 } from "./channelFileNavigation.js";
 
@@ -137,4 +138,61 @@ test("resolveToolTargetFilePath accepts relative tool file targets only", () => 
   assert.equal(resolveToolTargetFilePath("~/project/AGENTS.md"), null);
   assert.equal(resolveToolTargetFilePath("C:\\Users\\me\\AGENTS.md"), null);
   assert.equal(resolveToolTargetFilePath("pytest -q tests/unit/test_uploads.py"), null);
+});
+
+test("resolveMemoryFilePath remaps bot-rooted memory paths to bots/<botId>/memory/...", () => {
+  // Regression: chat memory updates emit ``memory/MEMORY.md``-style paths;
+  // the channel files viewer resolves workspace-relative paths against the
+  // Project cwd, so memory links used to open the wrong file. The remapped
+  // form is recognized as workspace-scoped and routes to the bot's memory
+  // root instead.
+  assert.equal(
+    resolveMemoryFilePath("memory/MEMORY.md", "bot-1"),
+    "bots/bot-1/memory/MEMORY.md",
+  );
+  assert.equal(
+    resolveMemoryFilePath("memory/logs/2026-04-30.md", "bot-1"),
+    "bots/bot-1/memory/logs/2026-04-30.md",
+  );
+  // Plain rel path (no ``memory/`` prefix) is treated as memory-relative too,
+  // matching how the memory tool sometimes reports paths.
+  assert.equal(
+    resolveMemoryFilePath("MEMORY.md", "bot-1"),
+    "bots/bot-1/memory/MEMORY.md",
+  );
+  // Already workspace-scoped under the same bot — pass through unchanged.
+  assert.equal(
+    resolveMemoryFilePath("bots/bot-1/memory/reference/project.md", "bot-1"),
+    "bots/bot-1/memory/reference/project.md",
+  );
+});
+
+test("resolveMemoryFilePath rejects targets that escape the bot memory root", () => {
+  assert.equal(resolveMemoryFilePath("../secrets.md", "bot-1"), null);
+  assert.equal(resolveMemoryFilePath("memory/../etc/passwd", "bot-1"), null);
+  assert.equal(resolveMemoryFilePath("/etc/passwd", "bot-1"), null);
+  assert.equal(resolveMemoryFilePath("~/notes.md", "bot-1"), null);
+  // Cross-bot memory references should not silently rewrite to the active bot.
+  assert.equal(resolveMemoryFilePath("bots/other-bot/memory/MEMORY.md", "bot-1"), null);
+  // Missing inputs.
+  assert.equal(resolveMemoryFilePath("memory/MEMORY.md", null), null);
+  assert.equal(resolveMemoryFilePath(null, "bot-1"), null);
+  assert.equal(resolveMemoryFilePath("", "bot-1"), null);
+});
+
+test("buildChannelFileHref routes a remapped memory path to the bot memory root", () => {
+  // End-to-end smoke test: a memory tool emits ``memory/MEMORY.md`` and the
+  // channel files viewer needs to load ``bots/<bot_id>/memory/MEMORY.md`` —
+  // not ``<projectPath>/memory/MEMORY.md``. The href below is what the link
+  // builds after ``resolveMemoryFilePath`` does the remap.
+  const filePath = resolveMemoryFilePath("memory/MEMORY.md", "bot-1");
+  assert.equal(filePath, "bots/bot-1/memory/MEMORY.md");
+  assert.equal(
+    buildChannelFileHref({
+      channelId: "channel-1",
+      directoryPath: directoryForWorkspaceFile(filePath!),
+      openFile: filePath!,
+    }),
+    "/channels/channel-1?files_path=bots%2Fbot-1%2Fmemory&open_file=bots%2Fbot-1%2Fmemory%2FMEMORY.md",
+  );
 });

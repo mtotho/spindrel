@@ -142,6 +142,90 @@ test("skill load results preserve useful preview text", () => {
   assert.equal(items[0].entries[0]?.detailKind, "expandable");
 });
 
+test("memory tool transcript rows carry path_root so the link can hit the bot memory root", () => {
+  // The memory tool reports paths like ``memory/MEMORY.md`` for human
+  // readability, but those files live at ``bots/<bot_id>/memory/...`` on
+  // disk. The transcript entry must carry ``path_root="memory"`` so the
+  // ``ChannelFileTargetLink`` knows to remap the link target to the bot's
+  // memory root rather than treat it as a Project workspace path.
+  const items = buildAssistantTurnBodyItems({
+    assistantTurnBody: {
+      version: 1,
+      items: [{ id: "tool-mem", kind: "tool_call", toolCallId: "call-mem" }],
+    },
+    toolCalls: [
+      {
+        id: "call-mem",
+        name: "memory",
+        args: JSON.stringify({ operation: "read", path: "MEMORY.md" }),
+        surface: "transcript",
+        status: "done",
+        summary: {
+          kind: "read",
+          subject_type: "file",
+          label: "Read memory/MEMORY.md",
+          path: "memory/MEMORY.md",
+          path_root: "memory",
+        },
+        envelope: {
+          content_type: "text/markdown",
+          body: "# Memory",
+          plain_body: "Read memory/MEMORY.md",
+          display: "inline",
+          truncated: false,
+          record_id: "result-mem",
+          byte_size: 8,
+        },
+      },
+    ],
+  });
+
+  assert.equal(items[0]?.kind, "transcript");
+  if (items[0]?.kind !== "transcript") throw new Error("expected transcript item");
+  const entry = items[0].entries[0];
+  assert.equal(entry?.target, "memory/MEMORY.md");
+  assert.equal(entry?.pathRoot, "memory");
+});
+
+test("normal Project file rows do not get a memory path_root", () => {
+  const items = buildAssistantTurnBodyItems({
+    assistantTurnBody: {
+      version: 1,
+      items: [{ id: "tool-file", kind: "tool_call", toolCallId: "call-file" }],
+    },
+    toolCalls: [
+      {
+        id: "call-file",
+        name: "file",
+        args: JSON.stringify({ operation: "read", path: "docs/roadmap.md" }),
+        surface: "transcript",
+        status: "done",
+        summary: {
+          kind: "read",
+          subject_type: "file",
+          label: "Read docs/roadmap.md",
+          path: "docs/roadmap.md",
+        },
+        envelope: {
+          content_type: "text/markdown",
+          body: "# Roadmap",
+          plain_body: "Read docs/roadmap.md",
+          display: "inline",
+          truncated: false,
+          record_id: "result-file",
+          byte_size: 9,
+        },
+      },
+    ],
+  });
+
+  assert.equal(items[0]?.kind, "transcript");
+  if (items[0]?.kind !== "transcript") throw new Error("expected transcript item");
+  const entry = items[0].entries[0];
+  assert.equal(entry?.target, "docs/roadmap.md");
+  assert.equal(entry?.pathRoot ?? null, null);
+});
+
 test("file tool paths stay in the shrinkable target field", () => {
   const items = buildAssistantTurnBodyItems({
     assistantTurnBody: {

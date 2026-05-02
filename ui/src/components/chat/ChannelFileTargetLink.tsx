@@ -3,6 +3,7 @@ import {
   buildChannelFileHref,
   CHANNEL_FILE_LINK_OPEN_EVENT,
   directoryForWorkspaceFile,
+  resolveMemoryFilePath,
   resolveToolTargetFilePath,
   type ChannelFileLinkOpenDetail,
 } from "../../lib/channelFileNavigation";
@@ -15,13 +16,23 @@ export function resolveToolTargetHref({
   channelId,
   sessionId,
   target,
+  pathRoot,
+  botId,
 }: {
   channelId?: string | null;
   sessionId?: string | null;
   target?: string | null;
+  pathRoot?: string | null;
+  botId?: string | null;
 }): { filePath: string; href: string } | null {
   if (!channelId) return null;
-  const filePath = resolveToolTargetFilePath(target);
+  // Memory paths are bot-rooted (`memory/MEMORY.md`); the channel files
+  // viewer expects workspace-relative paths, so remap to
+  // `bots/<bot_id>/memory/<rel>` before building the href. Display text is
+  // the caller's responsibility — this only affects the link target.
+  const filePath = pathRoot === "memory"
+    ? resolveMemoryFilePath(target, botId)
+    : resolveToolTargetFilePath(target);
   if (!filePath) return null;
   return {
     filePath,
@@ -38,6 +49,8 @@ export function ChannelFileTargetLink({
   channelId,
   sessionId,
   target,
+  pathRoot,
+  botId,
   children,
   className,
   style,
@@ -46,12 +59,14 @@ export function ChannelFileTargetLink({
   channelId?: string | null;
   sessionId?: string | null;
   target: string;
+  pathRoot?: string | null;
+  botId?: string | null;
   children: ReactNode;
   className?: string;
   style?: CSSProperties;
   testId?: string;
 }) {
-  const link = resolveToolTargetHref({ channelId, sessionId, target });
+  const link = resolveToolTargetHref({ channelId, sessionId, target, pathRoot, botId });
   if (!link) {
     return (
       <span data-testid={testId} className={className} style={style}>

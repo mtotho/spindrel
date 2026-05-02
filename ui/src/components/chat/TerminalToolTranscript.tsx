@@ -219,6 +219,8 @@ export function TerminalToolTranscript({
                     channelId={entry.kind === "file" ? channelId : null}
                     sessionId={entry.kind === "file" ? sessionId : null}
                     target={entry.target ?? target}
+                    pathRoot={entry.pathRoot}
+                    botId={botId}
                     className="min-w-0 break-words underline-offset-2 hover:underline"
                     style={{ color: entry.kind === "file" ? t.linkColor : undefined, maxWidth: "100%", overflowWrap: "anywhere" }}
                     testId="terminal-tool-target"

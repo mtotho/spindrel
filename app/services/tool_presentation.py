@@ -395,6 +395,11 @@ def _derive_memory_presentation(
     diff_text = _extract_diff_body(None, envelope)
     diff_stats = _diff_stats_from_text(diff_text)
 
+    # Memory tool paths live under the bot's own memory root, not the channel's
+    # Project workspace cwd. The UI uses ``path_root`` to route the link target
+    # to the right viewer scope (bots/<bot_id>/memory/...) instead of treating
+    # the path as a Project-relative file. Display text stays as ``memory/...``
+    # so users still see the friendly bot-relative form.
     if operation == "list":
         total = 0
         if isinstance(result_json, dict):
@@ -407,6 +412,7 @@ def _derive_memory_presentation(
             "subject_type": "file",
             "label": plain_body or "Listed memory files",
             "preview_text": f"{total} memory {noun}",
+            "path_root": "memory",
         }
 
     if operation == "read":
@@ -414,6 +420,7 @@ def _derive_memory_presentation(
             "kind": "read",
             "subject_type": "file",
             "label": plain_body or (f"Read {path}" if path else "Read memory file"),
+            "path_root": "memory",
         }
         if path:
             summary["path"] = path
@@ -430,6 +437,7 @@ def _derive_memory_presentation(
             "subject_type": "file",
             "label": plain_body or (f"Archived {path}" if path else "Archived memory files"),
             "preview_text": f"{moved} moved",
+            "path_root": "memory",
         }
         if path:
             summary["path"] = path
@@ -449,7 +457,7 @@ def _derive_memory_presentation(
     if operation in write_ops:
         label = plain_body or (f"{write_ops[operation]} {path}" if path else f"{write_ops[operation]} memory file")
         if content_type == "application/vnd.spindrel.diff+text" or diff_stats is not None:
-            summary = {"kind": "diff", "subject_type": "file", "label": label}
+            summary = {"kind": "diff", "subject_type": "file", "label": label, "path_root": "memory"}
             if path:
                 summary["path"] = path
             if destination:
@@ -457,7 +465,7 @@ def _derive_memory_presentation(
             if diff_stats:
                 summary["diff_stats"] = diff_stats
             return "rich_result", summary
-        summary = {"kind": "write", "subject_type": "file", "label": label}
+        summary = {"kind": "write", "subject_type": "file", "label": label, "path_root": "memory"}
         if path:
             summary["path"] = path
         if destination:
@@ -465,7 +473,7 @@ def _derive_memory_presentation(
         return "transcript", summary
 
     label = plain_body or (f"{operation.replace('_', ' ').title()} {path}" if path else "Memory operation")
-    summary = {"kind": "action", "subject_type": "file", "label": label}
+    summary = {"kind": "action", "subject_type": "file", "label": label, "path_root": "memory"}
     if path:
         summary["path"] = path
     return "transcript", summary
@@ -654,7 +662,12 @@ def derive_tool_presentation(
             result_json.get("path") if isinstance(result_json, dict) else None,
             args.get("name"),
         )
-        summary = {"kind": "read", "subject_type": "file", "label": f"Read {path}" if path else "Read memory file"}
+        summary = {
+            "kind": "read",
+            "subject_type": "file",
+            "label": f"Read {path}" if path else "Read memory file",
+            "path_root": "memory",
+        }
         if path:
             summary["path"] = path
         return "transcript", summary
