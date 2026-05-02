@@ -1455,6 +1455,12 @@ class ProjectBlueprint(Base):
     dependency_stack: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     env: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     required_secrets: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Phase 4BB.3 - Symphony-equivalent orchestration policy. NULL = use the
+    # cohesion-plan defaults (stall=1200s / turn=3600s / unlimited concurrency)
+    # baked into app/services/project_run_stall_sweep.py + run-launch path.
+    stall_timeout_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    turn_timeout_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_concurrent_runs: Mapped[int | None] = mapped_column(Integer, nullable=True)
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )

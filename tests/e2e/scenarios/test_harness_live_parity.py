@@ -3134,10 +3134,11 @@ async def test_live_claude_ask_user_question_card_round_trip(
 
     result = await client.chat_session_stream(
         (
-            "Claude SDK AskUserQuestion parity test. Use the native AskUserQuestion tool exactly once. "
-            f"Ask one required question with id `scope`, question text `Which scope for {marker}?`, "
-            f"and option label `{selected}`. After the user answers, do not call any other tools. "
-            f"Reply exactly: ask user question ok {marker} {selected} {answer_text}"
+            "I need to choose a scope before you continue. Use the native AskUserQuestion tool "
+            "to ask me a required clarification "
+            f"question that includes `Which scope for {marker}?`, offer the choice `{selected}`, "
+            "and wait for my answer through that question card. After I answer, acknowledge the selected scope and include "
+            f"this marker phrase in your response: ask user question ok {marker} {selected} {answer_text}"
         ),
         session_id=session_id,
         channel_id=channel_id,
@@ -3201,10 +3202,11 @@ async def test_live_claude_busy_turn_queues_followup_and_resumes(
     first_turn = asyncio.create_task(
         client.chat_session_stream(
             (
-                "Claude queued follow-up parity test. Use the native AskUserQuestion tool exactly once. "
-                f"Ask one required question with id `scope`, question text `Blocking question for {marker}?`, "
-                f"and option label `{selected}`. After the user answers, do not call any other tools. "
-                f"Reply exactly: {first_expected}"
+                "I need you to pause for a scope decision before continuing. Use the native AskUserQuestion tool "
+                "to ask me a required "
+                f"clarification question that includes `Blocking question for {marker}?`, offer the "
+                f"choice `{selected}`, and wait for my answer through that question card. After I answer, include this marker "
+                f"phrase in your response: {first_expected}"
             ),
             session_id=session_id,
             channel_id=channel_id,
@@ -3222,7 +3224,7 @@ async def test_live_claude_busy_turn_queues_followup_and_resumes(
         queued_payload = {
             "message": (
                 "This message was sent while the Claude harness turn was blocked. "
-                f"Do not call tools. Reply exactly: {queued_expected}"
+                f"Please acknowledge it with this marker phrase: {queued_expected}"
             ),
             "bot_id": bot_id,
             "channel_id": channel_id,

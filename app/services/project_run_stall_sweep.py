@@ -30,10 +30,11 @@ from app.db.engine import async_session
 from app.db.models import Project, Task
 from app.services.agent_activity import list_agent_activity
 from app.services.project_coding_run_lib import PROJECT_CODING_RUN_PRESET_ID
+from app.services.project_run_receipts import create_project_run_receipt
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_STALL_TIMEOUT_SECONDS = 900  # 15 minutes
+DEFAULT_STALL_TIMEOUT_SECONDS = 1200  # 20 minutes (matches cohesion plan default)
 DEFAULT_SWEEP_INTERVAL_SECONDS = 60
 MIN_STALL_TIMEOUT_SECONDS = 60
 MIN_SWEEP_INTERVAL_SECONDS = 10
@@ -112,7 +113,10 @@ async def sweep_stalled_project_runs(db, *, now: datetime | None = None) -> list
 
     Iterates every in-flight Project coding-run task, compares the latest
     agent_activity timestamp against the project's effective stall timeout,
-    and updates ``task.execution_config['stall_state']`` accordingly.
+    and updates ``task.execution_config['stall_state']`` accordingly. Emits
+    one ``ProjectRunReceipt`` audit row per *transition into* stalled
+    (idempotent by ``stall:<task_id>:<stalled_at>``); resume transitions
+    rely on subsequent normal receipts to tell the story.
     """
     moment = _ensure_aware(now) or datetime.now(timezone.utc)
     candidates = list((await db.execute(
@@ -120,6 +124,7 @@ async def sweep_stalled_project_runs(db, *, now: datetime | None = None) -> list
     )).scalars().all())
     project_cache: dict[uuid.UUID, Project | None] = {}
     changed: list[uuid.UUID] = []
+    new_stalls: list[tuple[Task, uuid.UUID, dict[str, Any]]] = []
     for task in candidates:
         if not isinstance(task.execution_config, dict):
             continue
@@ -140,6 +145,9 @@ async def sweep_stalled_project_runs(db, *, now: datetime | None = None) -> list
         if latest is None:
             continue
         idle_seconds = (moment - latest).total_seconds()
+        had_stall_marker = isinstance(task.execution_config.get("stall_state"), dict) and bool(
+            task.execution_config["stall_state"].get("stalled_at")
+        )
         if idle_seconds >= timeout:
             payload = {
                 "stalled_at": moment.isoformat(),
@@ -150,13 +158,46 @@ async def sweep_stalled_project_runs(db, *, now: datetime | None = None) -> list
             }
             if _set_stall_state(task, payload):
                 changed.append(task.id)
+                if not had_stall_marker and project_uuid is not None:
+                    new_stalls.append((task, project_uuid, payload))
         else:
             # Activity has resumed - clear any prior stall marker.
             if _set_stall_state(task, None):
                 changed.append(task.id)
     if changed:
         await db.commit()
+    for task, project_uuid, payload in new_stalls:
+        await _record_stall_audit_receipt(db, task=task, project_id=project_uuid, payload=payload)
     return changed
+
+
+async def _record_stall_audit_receipt(
+    db,
+    *,
+    task: Task,
+    project_id: uuid.UUID,
+    payload: dict[str, Any],
+) -> None:
+    """Write one ProjectRunReceipt per stall transition for audit history.
+
+    Uses ``status='blocked'`` (closest existing receipt status) plus
+    ``metadata.event='stall_detected'`` so consumers can distinguish a sweep-
+    detected stall from an operator-reported block.
+    """
+    try:
+        await create_project_run_receipt(
+            db,
+            project_id=project_id,
+            task_id=task.id,
+            session_id=task.session_id,
+            bot_id=task.bot_id,
+            status="blocked",
+            summary=payload.get("reason") or "Run stalled",
+            metadata={"event": "stall_detected", "stall_state": payload},
+            idempotency_key=f"stall:{task.id}:{payload.get('stalled_at')}",
+        )
+    except Exception:
+        logger.exception("Failed to record stall audit receipt for task %s", task.id)
 
 
 async def project_run_stall_sweep_loop(interval_seconds: int | None = None) -> None:

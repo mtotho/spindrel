@@ -44,6 +44,7 @@ export interface ChatSessionProps {
   shape: "modal" | "dock" | "fullpage";
   open: boolean;
   onClose: () => void;
+  syntheticMessages?: Message[];
   title?: string;
   emptyState?: ReactNode;
   initiallyExpanded?: boolean;
@@ -54,6 +55,7 @@ export interface ChatSessionProps {
   onOpenSessions?: () => void;
   onOpenSessionSplit?: () => void;
   onToggleFocusLayout?: () => void;
+  disableOutsideDismiss?: boolean;
 }
 
 export function getDockStorageKey(source: ChatSource): string {

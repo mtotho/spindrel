@@ -40,14 +40,32 @@ def sanitize_unicode(text: str) -> str:
     return _DANGEROUS_CHARS.sub("", text)
 
 
+_UNTRUSTED_OPEN_PREFIX = '<untrusted-data source="'
+
+
+def is_already_wrapped(text: str) -> bool:
+    """Return True when ``text`` already starts with the canonical wrap.
+
+    Used so history-replay (R1 Phase 2) doesn't double-wrap a message body
+    whose stored form already carries the marker (e.g. chat-route turns from
+    external sources, where the wrap is intentionally baked into storage).
+    """
+    if not isinstance(text, str):
+        return False
+    return text.lstrip().startswith(_UNTRUSTED_OPEN_PREFIX)
+
+
 def wrap_untrusted_content(text: str, source: str, max_chars: int = 8000) -> str:
     """Wrap external content for safe LLM consumption.
 
+    - Idempotent: returns ``text`` unchanged if it already carries the wrap
     - Sanitizes Unicode
     - Truncates to max_chars
     - Escapes closing tags to prevent injection
     - Wraps in <untrusted-data> tags with a DATA-only warning
     """
+    if is_already_wrapped(text):
+        return text
     cleaned = sanitize_unicode(text)
     if len(cleaned) > max_chars:
         cleaned = cleaned[:max_chars] + "\n... [truncated]"

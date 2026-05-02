@@ -88,6 +88,8 @@ export function EphemeralChatSession({
   onOpenSessionSplit,
   onToggleFocusLayout,
   chatMode = "default",
+  syntheticMessages = [],
+  disableOutsideDismiss = false,
 }: EphemeralChatSessionProps) {
   const t = useThemeTokens();
   const composerInTranscriptFlow = isTranscriptFlowComposer(chatMode);
@@ -649,7 +651,7 @@ export function EphemeralChatSession({
             emptyStateComponent={emptyState}
             scrollPaddingBottom={composerInTranscriptFlow ? 20 : inputOverlayHeight + 16}
             chatMode={chatMode}
-            syntheticMessages={slashSyntheticMessages}
+            syntheticMessages={[...syntheticMessages, ...slashSyntheticMessages]}
             showSessionResumeCard
             sessionResumeSeed={{
               surfaceKind: scratchBoundChannelId ? "scratch" : "session",
@@ -855,6 +857,7 @@ export function EphemeralChatSession({
       onCloseCollapsed={dockCollapsedTitle ? onClose : undefined}
       storageKey={getDockStorageKey(source)}
       chatMode={chatMode}
+      disableOutsideDismiss={disableOutsideDismiss}
     >
       {body}
     </ChatSessionDock>

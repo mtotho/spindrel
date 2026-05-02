@@ -620,14 +620,20 @@ Approval mapping intent (final values from schema):
   queue, but queued messages must resume as ordinary runtime turns after the
   active Claude/Codex turn releases the session lock. Queued chat tasks now
   persist the visible user message immediately, carry `pre_user_msg_id` in
-  `Task.execution_config`, and pass that id into harness persistence so the
-  dequeued runtime turn does not duplicate or detach the user row. Local live
-  Claude proof in `test_live_claude_busy_turn_queues_followup_and_resumes`
-  blocks the first turn on native `AskUserQuestion`, posts a second message
-  while the session lock is held, answers the question card, then verifies the
-  queued message drains as the next native assistant turn in persisted order.
-  Screenshot proof:
-  `docs/images/native-cli/harness-claude-queued-followup-dark.png`.
+  `Task.execution_config`, initially defer busy-session task execution, and
+  recover that pre-persisted user id when constructing a `HarnessTurnRequest`
+  from task config so the dequeued runtime turn does not duplicate or detach
+  the user row. Local live Claude proof in
+  `test_live_claude_busy_turn_queues_followup_and_resumes` blocks the first
+  turn on native `AskUserQuestion`, posts a second message while the session
+  lock is held, answers the question card, then verifies the queued message
+  drains as the next native assistant turn in persisted order. Local live Codex
+  proof in `test_live_codex_busy_turn_queues_followup_and_resumes` blocks the
+  first turn on a native shell command, queues a second message during the
+  active turn, then verifies the queued user/assistant pair persists after the
+  first assistant turn with no duplicate user row. Screenshot proof:
+  `docs/images/native-cli/harness-claude-queued-followup-dark.png` and
+  `docs/images/native-cli/harness-codex-queued-followup-dark.png`.
 - 2026-05-02 Claude native CLI naming parity: the embedded Claude CLI command
   now passes the Spindrel session title through Claude Code's native `--name`
   option. The installed CLI documents this value as the prompt-box, `/resume`

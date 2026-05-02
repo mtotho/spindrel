@@ -206,6 +206,9 @@ export default function ProjectBlueprintDetail() {
   const [envRows, setEnvRows] = useState<KeyValueRow[]>([]);
   const [repos, setRepos] = useState<RepoRow[]>([]);
   const [setupCommands, setSetupCommands] = useState<SetupCommandRow[]>([]);
+  const [stallTimeoutText, setStallTimeoutText] = useState("");
+  const [turnTimeoutText, setTurnTimeoutText] = useState("");
+  const [maxConcurrentText, setMaxConcurrentText] = useState("");
 
   useEffect(() => {
     if (!blueprint) return;
@@ -222,7 +225,17 @@ export default function ProjectBlueprintDetail() {
     setEnvRows(recordToRows(blueprint.env));
     setRepos(reposToRows(blueprint.repos));
     setSetupCommands(setupCommandsToRows(blueprint.setup_commands));
+    setStallTimeoutText(blueprint.stall_timeout_seconds != null ? String(blueprint.stall_timeout_seconds) : "");
+    setTurnTimeoutText(blueprint.turn_timeout_seconds != null ? String(blueprint.turn_timeout_seconds) : "");
+    setMaxConcurrentText(blueprint.max_concurrent_runs != null ? String(blueprint.max_concurrent_runs) : "");
   }, [blueprint]);
+
+  const parsePositiveInt = (raw: string): number | null => {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed);
+    return Number.isFinite(n) && Number.isInteger(n) && n > 0 ? n : null;
+  };
 
   const payload = useMemo(() => ({
     name: name.trim(),
@@ -238,7 +251,10 @@ export default function ProjectBlueprintDetail() {
     repos: rowsToRepos(repos),
     setup_commands: rowsToSetupCommands(setupCommands),
     required_secrets: textToList(requiredSecretsText),
-  }), [description, envRows, files, foldersText, knowledgeFiles, name, prompt, promptFilePath, repos, requiredSecretsText, rootPattern, setupCommands, slug]);
+    stall_timeout_seconds: parsePositiveInt(stallTimeoutText),
+    turn_timeout_seconds: parsePositiveInt(turnTimeoutText),
+    max_concurrent_runs: parsePositiveInt(maxConcurrentText),
+  }), [description, envRows, files, foldersText, knowledgeFiles, maxConcurrentText, name, prompt, promptFilePath, repos, requiredSecretsText, rootPattern, setupCommands, slug, stallTimeoutText, turnTimeoutText]);
 
   const savedPayload = useMemo(() => {
     if (!blueprint) return null;
@@ -256,6 +272,9 @@ export default function ProjectBlueprintDetail() {
       repos: blueprint.repos ?? [],
       setup_commands: blueprint.setup_commands ?? [],
       required_secrets: blueprint.required_secrets ?? [],
+      stall_timeout_seconds: blueprint.stall_timeout_seconds ?? null,
+      turn_timeout_seconds: blueprint.turn_timeout_seconds ?? null,
+      max_concurrent_runs: blueprint.max_concurrent_runs ?? null,
     };
   }, [blueprint]);
 
@@ -489,6 +508,38 @@ export default function ProjectBlueprintDetail() {
                   onChangeText={setRequiredSecretsText}
                   placeholder={"GITHUB_TOKEN\nNPM_TOKEN"}
                   rows={9}
+                />
+              </FormRow>
+            </div>
+          </Section>
+
+          <Section
+            title="Orchestration Policy"
+            description="Symphony-equivalent run-level limits. Leave any field blank to use the default (stall 1200s / turn 3600s / unlimited concurrency)."
+          >
+            <div className="grid gap-4 md:grid-cols-3">
+              <FormRow label="Stall timeout (seconds)" description="Background sweep marks a run as stalled after this much agent inactivity.">
+                <TextInput
+                  value={stallTimeoutText}
+                  onChangeText={setStallTimeoutText}
+                  placeholder="1200"
+                  type="number"
+                />
+              </FormRow>
+              <FormRow label="Turn timeout (seconds)" description="Per-turn cap surfaced to the agent loop.">
+                <TextInput
+                  value={turnTimeoutText}
+                  onChangeText={setTurnTimeoutText}
+                  placeholder="3600"
+                  type="number"
+                />
+              </FormRow>
+              <FormRow label="Max concurrent runs" description="Refuse to launch beyond this number of in-flight Project coding runs.">
+                <TextInput
+                  value={maxConcurrentText}
+                  onChangeText={setMaxConcurrentText}
+                  placeholder="unlimited"
+                  type="number"
                 />
               </FormRow>
             </div>

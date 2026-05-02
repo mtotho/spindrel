@@ -21,6 +21,7 @@ interface ChatSessionDockProps {
   /** Stable per-surface storage key for persisted desktop dock size. */
   storageKey?: string;
   chatMode?: "default" | "terminal";
+  disableOutsideDismiss?: boolean;
 }
 
 /** Threshold in px for the mobile swipe-down gesture to dismiss. */
@@ -100,6 +101,7 @@ export function ChatSessionDock({
   onDismiss,
   storageKey,
   chatMode = "default",
+  disableOutsideDismiss = false,
 }: ChatSessionDockProps) {
   const t = useThemeTokens();
   // Entry animation — play once per expansion so the panel slides in from
@@ -126,12 +128,13 @@ export function ChatSessionDock({
 
   useEffect(() => {
     if (!expanded) return;
+    if (disableOutsideDismiss) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") handleDismiss();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [expanded, handleDismiss]);
+  }, [disableOutsideDismiss, expanded, handleDismiss]);
 
   useEffect(() => {
     if (!open && expanded) onExpandedChange(false);
@@ -338,12 +341,14 @@ export function ChatSessionDock({
       {/* Invisible scrim — click outside dismisses. Stop pointerdown so
           the underlying surface (e.g. the SpatialCanvas pan handler) does
           not also start a drag/pan in response to the same gesture. */}
-      <div
-        className="fixed inset-0 z-[9990]"
-        onClick={handleDismiss}
-        onPointerDown={(e) => e.stopPropagation()}
-        aria-hidden="true"
-      />
+      {!disableOutsideDismiss && (
+        <div
+          className="fixed inset-0 z-[9990]"
+          onClick={handleDismiss}
+          onPointerDown={(e) => e.stopPropagation()}
+          aria-hidden="true"
+        />
+      )}
 
       {/* Panel — same stopPropagation reasoning as the scrim. Without it,
           dragging text inside the chat would also pan the canvas, and the

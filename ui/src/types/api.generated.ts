@@ -6912,6 +6912,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/coding-runs/{task_id}/loop-disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable Project Coding Run Loop Endpoint */
+        post: operations["disable_project_coding_run_loop_endpoint_api_v1_projects__project_id__coding_runs__task_id__loop_disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/coding-runs/{task_id}/refresh": {
         parameters: {
             query?: never;
@@ -6958,6 +6975,23 @@ export interface paths {
         put?: never;
         /** Manage Project Dependency Stack Endpoint */
         post: operations["manage_project_dependency_stack_endpoint_api_v1_projects__project_id__dependency_stack_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/factory-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Factory State Endpoint */
+        get: operations["get_project_factory_state_endpoint_api_v1_projects__project_id__factory_state_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -12284,6 +12318,10 @@ export interface components {
         };
         /** AttentionTriageRunRequest */
         AttentionTriageRunRequest: {
+            /** Channel Id */
+            channel_id?: string | null;
+            /** Item Ids */
+            item_ids?: string[];
             /** Model Override */
             model_override?: string | null;
             /** Model Provider Id Override */
@@ -16198,6 +16236,10 @@ export interface components {
              * Format: uuid
              */
             channel_id: string;
+            /** Loop Policy */
+            loop_policy?: {
+                [key: string]: unknown;
+            } | null;
             /** Note */
             note?: string | null;
             /**
@@ -16250,6 +16292,10 @@ export interface components {
              * Format: uuid
              */
             channel_id: string;
+            /** Loop Policy */
+            loop_policy?: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Project Id
              * Format: uuid
@@ -17997,6 +18043,8 @@ export interface components {
             knowledge_files?: {
                 [key: string]: unknown;
             };
+            /** Max Concurrent Runs */
+            max_concurrent_runs?: number | null;
             /** Metadata */
             metadata_?: {
                 [key: string]: unknown;
@@ -18015,6 +18063,10 @@ export interface components {
             setup_commands?: unknown[];
             /** Slug */
             slug: string;
+            /** Stall Timeout Seconds */
+            stall_timeout_seconds?: number | null;
+            /** Turn Timeout Seconds */
+            turn_timeout_seconds?: number | null;
             /**
              * Updated At
              * Format: date-time
@@ -18063,6 +18115,8 @@ export interface components {
             knowledge_files?: {
                 [key: string]: string;
             } | null;
+            /** Max Concurrent Runs */
+            max_concurrent_runs?: number | null;
             /** Metadata */
             metadata_?: {
                 [key: string]: unknown;
@@ -18085,6 +18139,10 @@ export interface components {
             }[] | null;
             /** Slug */
             slug?: string | null;
+            /** Stall Timeout Seconds */
+            stall_timeout_seconds?: number | null;
+            /** Turn Timeout Seconds */
+            turn_timeout_seconds?: number | null;
             /** Workspace Id */
             workspace_id?: string | null;
         };
@@ -18159,6 +18217,14 @@ export interface components {
             } | null;
             /** Launch Batch Id */
             launch_batch_id?: string | null;
+            /** Lifecycle */
+            lifecycle?: {
+                [key: string]: unknown;
+            };
+            /** Loop */
+            loop?: {
+                [key: string]: unknown;
+            };
             /** Parent Task Id */
             parent_task_id?: string | null;
             /**
@@ -18196,6 +18262,10 @@ export interface components {
             runtime_target?: {
                 [key: string]: unknown;
             };
+            /** Source Work Pack */
+            source_work_pack?: {
+                [key: string]: unknown;
+            } | null;
             /** Source Work Pack Id */
             source_work_pack_id?: string | null;
             /** Status */
@@ -18451,6 +18521,7 @@ export interface components {
             channel_id?: string | null;
             /** Enabled */
             enabled?: boolean | null;
+            loop_policy?: components["schemas"]["ProjectRunLoopPolicyIn"] | null;
             machine_target_grant?: components["schemas"]["ProjectMachineTargetGrantIn"] | null;
             /** Recurrence */
             recurrence?: string | null;
@@ -18470,6 +18541,7 @@ export interface components {
              * Format: uuid
              */
             channel_id: string;
+            loop_policy?: components["schemas"]["ProjectRunLoopPolicyIn"] | null;
             machine_target_grant?: components["schemas"]["ProjectMachineTargetGrantIn"] | null;
             /**
              * Recurrence
@@ -18534,6 +18606,7 @@ export interface components {
              * Format: uuid
              */
             channel_id: string;
+            loop_policy?: components["schemas"]["ProjectRunLoopPolicyIn"] | null;
             machine_target_grant?: components["schemas"]["ProjectMachineTargetGrantIn"] | null;
             /** Repo Path */
             repo_path?: string | null;
@@ -18590,6 +18663,51 @@ export interface components {
             }[];
             /** Summary */
             summary?: {
+                [key: string]: unknown;
+            };
+        };
+        /** ProjectFactoryStateOut */
+        ProjectFactoryStateOut: {
+            /** Blueprint */
+            blueprint: {
+                [key: string]: unknown;
+            };
+            /** Current Stage */
+            current_stage: string;
+            /** Dependency Stack */
+            dependency_stack: {
+                [key: string]: unknown;
+            };
+            /** Intake */
+            intake: {
+                [key: string]: unknown;
+            };
+            /** Planning */
+            planning: {
+                [key: string]: unknown;
+            };
+            /** Project */
+            project: {
+                [key: string]: unknown;
+            };
+            /** Recent Receipts */
+            recent_receipts?: {
+                [key: string]: unknown;
+            }[];
+            /** Run Packs */
+            run_packs: {
+                [key: string]: unknown;
+            };
+            /** Runs */
+            runs: {
+                [key: string]: unknown;
+            };
+            /** Runtime Env */
+            runtime_env: {
+                [key: string]: unknown;
+            };
+            /** Suggested Next Action */
+            suggested_next_action: {
                 [key: string]: unknown;
             };
         };
@@ -18762,6 +18880,29 @@ export interface components {
              * Format: uuid
              */
             workspace_id: string;
+        };
+        /** ProjectRunLoopPolicyIn */
+        ProjectRunLoopPolicyIn: {
+            /**
+             * Continuation Prompt
+             * @default
+             */
+            continuation_prompt: string;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Max Iterations
+             * @default 3
+             */
+            max_iterations: number;
+            /**
+             * Stop Condition
+             * @default
+             */
+            stop_condition: string;
         };
         /** ProjectRunReceiptOut */
         ProjectRunReceiptOut: {
@@ -39144,6 +39285,40 @@ export interface operations {
             };
         };
     };
+    disable_project_coding_run_loop_endpoint_api_v1_projects__project_id__coding_runs__task_id__loop_disable_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                project_id: string;
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectCodingRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     refresh_project_coding_run_endpoint_api_v1_projects__project_id__coding_runs__task_id__refresh_post: {
         parameters: {
             query?: never;
@@ -39269,6 +39444,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_factory_state_endpoint_api_v1_projects__project_id__factory_state_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectFactoryStateOut"];
                 };
             };
             /** @description Validation Error */

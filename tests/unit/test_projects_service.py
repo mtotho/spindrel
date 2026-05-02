@@ -77,11 +77,61 @@ def test_materialize_project_blueprint_creates_starter_surface(tmp_path):
     assert (tmp_path / "project" / "docs").is_dir()
     assert (tmp_path / "project" / "README.md").read_text() == "# Starter\n"
     assert (tmp_path / "project" / PROJECT_KB_PATH / "overview.md").read_text() == "Knowledge\n"
-    assert project_blueprint_snapshot(blueprint)["required_secrets"] == ["GITHUB_TOKEN"]
+    snapshot = project_blueprint_snapshot(blueprint)
+    assert snapshot["required_secrets"] == ["GITHUB_TOKEN"]
+    # Phase 4BB.3: orchestration policy fields are absent from the snapshot
+    # when unset, so legacy snapshots stay byte-identical.
+    assert "stall_timeout_seconds" not in snapshot
+    assert "turn_timeout_seconds" not in snapshot
+    assert "max_concurrent_runs" not in snapshot
 
     second = materialize_project_blueprint(project_dir, blueprint)
     assert second.payload()["files_skipped"] == ["README.md"]
     assert second.payload()["knowledge_files_skipped"] == ["overview.md"]
+
+
+def test_project_blueprint_write_rejects_non_positive_orchestration_values():
+    """Validator guards against zero / negative timeouts and concurrency caps."""
+    import pytest as _pytest
+    from pydantic import ValidationError
+
+    from app.routers.api_v1_projects import ProjectBlueprintWrite
+
+    # Null is the "use default" sentinel and must be allowed.
+    ProjectBlueprintWrite(stall_timeout_seconds=None, turn_timeout_seconds=None, max_concurrent_runs=None)
+
+    for field in ("stall_timeout_seconds", "turn_timeout_seconds", "max_concurrent_runs"):
+        with _pytest.raises(ValidationError):
+            ProjectBlueprintWrite(**{field: 0})
+        with _pytest.raises(ValidationError):
+            ProjectBlueprintWrite(**{field: -5})
+
+
+def test_project_blueprint_snapshot_emits_orchestration_policy_when_set():
+    """Phase 4BB.3 - stall/turn/concurrency fields ride along when configured."""
+    blueprint = SimpleNamespace(
+        id=uuid.uuid4(),
+        name="Policy",
+        slug="policy",
+        default_root_path_pattern=None,
+        prompt_file_path=None,
+        folders=[],
+        files={},
+        knowledge_files={},
+        repos=[],
+        setup_commands=[],
+        dependency_stack={},
+        env={},
+        required_secrets=[],
+        metadata_={},
+        stall_timeout_seconds=600,
+        turn_timeout_seconds=2700,
+        max_concurrent_runs=3,
+    )
+    snapshot = project_blueprint_snapshot(blueprint)
+    assert snapshot["stall_timeout_seconds"] == 600
+    assert snapshot["turn_timeout_seconds"] == 2700
+    assert snapshot["max_concurrent_runs"] == 3
 
 
 def test_materialize_project_blueprint_snapshot_reuses_blueprint_policy(tmp_path):

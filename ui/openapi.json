@@ -2959,6 +2959,26 @@
       },
       "AttentionTriageRunRequest": {
         "properties": {
+          "channel_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Id"
+          },
+          "item_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Item Ids",
+            "type": "array"
+          },
           "model_override": {
             "anyOf": [
               {
@@ -14512,6 +14532,18 @@
             "title": "Channel Id",
             "type": "string"
           },
+          "loop_policy": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loop Policy"
+          },
           "note": {
             "anyOf": [
               {
@@ -14621,6 +14653,18 @@
             "format": "uuid",
             "title": "Channel Id",
             "type": "string"
+          },
+          "loop_policy": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loop Policy"
           },
           "project_id": {
             "format": "uuid",
@@ -19674,6 +19718,17 @@
             "title": "Knowledge Files",
             "type": "object"
           },
+          "max_concurrent_runs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Concurrent Runs"
+          },
           "metadata_": {
             "additionalProperties": true,
             "title": "Metadata",
@@ -19725,6 +19780,28 @@
           "slug": {
             "title": "Slug",
             "type": "string"
+          },
+          "stall_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stall Timeout Seconds"
+          },
+          "turn_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Timeout Seconds"
           },
           "updated_at": {
             "format": "date-time",
@@ -19893,6 +19970,17 @@
             ],
             "title": "Knowledge Files"
           },
+          "max_concurrent_runs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Concurrent Runs"
+          },
           "metadata_": {
             "anyOf": [
               {
@@ -19992,6 +20080,28 @@
               }
             ],
             "title": "Slug"
+          },
+          "stall_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stall Timeout Seconds"
+          },
+          "turn_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Timeout Seconds"
           },
           "workspace_id": {
             "anyOf": [
@@ -20162,6 +20272,16 @@
             ],
             "title": "Launch Batch Id"
           },
+          "lifecycle": {
+            "additionalProperties": true,
+            "title": "Lifecycle",
+            "type": "object"
+          },
+          "loop": {
+            "additionalProperties": true,
+            "title": "Loop",
+            "type": "object"
+          },
           "parent_task_id": {
             "anyOf": [
               {
@@ -20258,6 +20378,18 @@
             "additionalProperties": true,
             "title": "Runtime Target",
             "type": "object"
+          },
+          "source_work_pack": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Work Pack"
           },
           "source_work_pack_id": {
             "anyOf": [
@@ -20868,6 +21000,16 @@
             ],
             "title": "Enabled"
           },
+          "loop_policy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRunLoopPolicyIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "machine_target_grant": {
             "anyOf": [
               {
@@ -20944,6 +21086,16 @@
             "format": "uuid",
             "title": "Channel Id",
             "type": "string"
+          },
+          "loop_policy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRunLoopPolicyIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "machine_target_grant": {
             "anyOf": [
@@ -21157,6 +21309,16 @@
             "title": "Channel Id",
             "type": "string"
           },
+          "loop_policy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRunLoopPolicyIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "machine_target_grant": {
             "anyOf": [
               {
@@ -21317,6 +21479,81 @@
           }
         },
         "title": "ProjectFactoryReviewInboxOut",
+        "type": "object"
+      },
+      "ProjectFactoryStateOut": {
+        "properties": {
+          "blueprint": {
+            "additionalProperties": true,
+            "title": "Blueprint",
+            "type": "object"
+          },
+          "current_stage": {
+            "title": "Current Stage",
+            "type": "string"
+          },
+          "dependency_stack": {
+            "additionalProperties": true,
+            "title": "Dependency Stack",
+            "type": "object"
+          },
+          "intake": {
+            "additionalProperties": true,
+            "title": "Intake",
+            "type": "object"
+          },
+          "planning": {
+            "additionalProperties": true,
+            "title": "Planning",
+            "type": "object"
+          },
+          "project": {
+            "additionalProperties": true,
+            "title": "Project",
+            "type": "object"
+          },
+          "recent_receipts": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Recent Receipts",
+            "type": "array"
+          },
+          "run_packs": {
+            "additionalProperties": true,
+            "title": "Run Packs",
+            "type": "object"
+          },
+          "runs": {
+            "additionalProperties": true,
+            "title": "Runs",
+            "type": "object"
+          },
+          "runtime_env": {
+            "additionalProperties": true,
+            "title": "Runtime Env",
+            "type": "object"
+          },
+          "suggested_next_action": {
+            "additionalProperties": true,
+            "title": "Suggested Next Action",
+            "type": "object"
+          }
+        },
+        "required": [
+          "project",
+          "current_stage",
+          "blueprint",
+          "runtime_env",
+          "dependency_stack",
+          "intake",
+          "run_packs",
+          "runs",
+          "planning",
+          "suggested_next_action"
+        ],
+        "title": "ProjectFactoryStateOut",
         "type": "object"
       },
       "ProjectFromBlueprintWrite": {
@@ -21742,6 +21979,32 @@
           "updated_at"
         ],
         "title": "ProjectOut",
+        "type": "object"
+      },
+      "ProjectRunLoopPolicyIn": {
+        "properties": {
+          "continuation_prompt": {
+            "default": "",
+            "title": "Continuation Prompt",
+            "type": "string"
+          },
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "max_iterations": {
+            "default": 3,
+            "title": "Max Iterations",
+            "type": "integer"
+          },
+          "stop_condition": {
+            "default": "",
+            "title": "Stop Condition",
+            "type": "string"
+          }
+        },
+        "title": "ProjectRunLoopPolicyIn",
         "type": "object"
       },
       "ProjectRunReceiptOut": {
@@ -63674,6 +63937,75 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/coding-runs/{task_id}/loop-disable": {
+      "post": {
+        "operationId": "disable_project_coding_run_loop_endpoint_api_v1_projects__project_id__coding_runs__task_id__loop_disable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectCodingRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Disable Project Coding Run Loop Endpoint",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/coding-runs/{task_id}/refresh": {
       "post": {
         "operationId": "refresh_project_coding_run_endpoint_api_v1_projects__project_id__coding_runs__task_id__refresh_post",
@@ -63929,6 +64261,65 @@
           }
         },
         "summary": "Manage Project Dependency Stack Endpoint",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/factory-state": {
+      "get": {
+        "operationId": "get_project_factory_state_endpoint_api_v1_projects__project_id__factory_state_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFactoryStateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Project Factory State Endpoint",
         "tags": [
           "projects"
         ]

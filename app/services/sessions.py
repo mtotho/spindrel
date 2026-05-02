@@ -1339,9 +1339,58 @@ def _filter_old_heartbeats(msgs: list[dict], *, keep_latest: int = 1) -> list[di
 
 
 def _strip_metadata_keys(messages: list[dict]) -> list[dict]:
-    """Remove internal _metadata keys before passing messages to the LLM."""
+    """Remove internal _metadata keys before passing messages to the LLM.
+
+    Also applies the R1 Phase 2 history-replay wrap: a stored user message
+    whose ``_metadata.source`` is in :data:`EXTERNAL_UNTRUSTED_SOURCES` gets
+    its body wrapped in ``<untrusted-data>`` here — the LLM-bound boundary —
+    so an attacker-controlled message that survived as raw history (e.g.
+    ``inject_message``-stored bodies, or any future caller that stores raw)
+    doesn't re-enter context unwrapped on turn N+1. The wrap is idempotent:
+    chat-route turns whose stored form already carries the marker pass through
+    unchanged.
+    """
+    from app.security.prompt_sanitize import (
+        EXTERNAL_UNTRUSTED_SOURCES,
+        wrap_untrusted_content,
+        is_already_wrapped,
+    )
+
     out = []
     for m in messages:
+        meta = m.get("_metadata") or {}
+        source = (meta.get("source") or "").strip().lower()
+        needs_wrap = (
+            m.get("role") == "user"
+            and source
+            and source in EXTERNAL_UNTRUSTED_SOURCES
+        )
+        if needs_wrap:
+            content = m.get("content")
+            if isinstance(content, str) and content and not is_already_wrapped(content):
+                m = {**m, "content": wrap_untrusted_content(content, source=source)}
+            elif isinstance(content, list):
+                # Multimodal: wrap each text part; leave image_url / other parts intact.
+                new_parts = []
+                changed = False
+                for part in content:
+                    if (
+                        isinstance(part, dict)
+                        and part.get("type") == "text"
+                        and isinstance(part.get("text"), str)
+                        and part["text"]
+                        and not is_already_wrapped(part["text"])
+                    ):
+                        new_parts.append({
+                            **part,
+                            "text": wrap_untrusted_content(part["text"], source=source),
+                        })
+                        changed = True
+                    else:
+                        new_parts.append(part)
+                if changed:
+                    m = {**m, "content": new_parts}
+
         if "_metadata" in m:
             m = {k: v for k, v in m.items() if k != "_metadata"}
         out.append(m)

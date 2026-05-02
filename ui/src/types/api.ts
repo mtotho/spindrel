@@ -1441,6 +1441,9 @@ export interface ProjectBlueprint extends ProjectBlueprintSummary {
   dependency_stack?: Record<string, any>;
   env?: Record<string, string>;
   required_secrets?: string[];
+  stall_timeout_seconds?: number | null;
+  turn_timeout_seconds?: number | null;
+  max_concurrent_runs?: number | null;
   metadata_?: Record<string, any>;
   created_at: string;
   updated_at: string;
@@ -2012,6 +2015,9 @@ export interface ProjectBlueprintWrite {
   dependency_stack?: Record<string, any> | null;
   env?: Record<string, string> | null;
   required_secrets?: string[] | null;
+  stall_timeout_seconds?: number | null;
+  turn_timeout_seconds?: number | null;
+  max_concurrent_runs?: number | null;
   metadata_?: Record<string, any> | null;
 }
 

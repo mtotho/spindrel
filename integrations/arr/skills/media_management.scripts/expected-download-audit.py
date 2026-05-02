@@ -1,6 +1,7 @@
 import json
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 
 from spindrel import tools
 
@@ -37,6 +38,13 @@ def load_jsonish(value):
 
 
 def read_json(path):
+    try:
+        bot_root = Path.cwd().parents[1]
+        local_path = bot_root / path
+        if local_path.is_file():
+            return load_jsonish(local_path.read_text(encoding="utf-8"))
+    except Exception:
+        pass
     try:
         return load_jsonish(tools.file(operation="read", path=path, limit=200000))
     except Exception as exc:

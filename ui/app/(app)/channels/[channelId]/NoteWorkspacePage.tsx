@@ -25,6 +25,7 @@ import { ChatSession } from "@/src/components/chat/ChatSession";
 import { useModelGroups } from "@/src/api/hooks/useModels";
 import { DocsMarkdownModal } from "@/src/components/shared/DocsMarkdownModal";
 import { useBot } from "@/src/api/hooks/useBots";
+import type { Message } from "@/src/types/api";
 
 type SelectionState = { start: number; end: number; text: string };
 type AutoSaveState = "idle" | "pending" | "saving" | "saved" | "error";
@@ -91,6 +92,24 @@ export default function NoteWorkspacePage() {
   const dirty = Boolean(note && fullDraft !== savedContentRef.current);
   const selectedText = selection.text.trim();
   const noteVersionPath = note?.workspace_path ?? note?.path ?? null;
+  const noteSelectionSyntheticMessages = useMemo<Message[]>(() => {
+    if (!chatOpen || !note?.session_id || !selectedText) return [];
+    const clipped = selectedText.length > 1400 ? `${selectedText.slice(0, 1400).trimEnd()}\n...` : selectedText;
+    return [{
+      id: `note-selection-${selection.start}-${selection.end}-${note.content_hash}`,
+      session_id: note.session_id,
+      role: "system",
+      content: `Selected note text\n\n\`\`\`markdown\n${clipped}\n\`\`\``,
+      created_at: new Date().toISOString(),
+      metadata: {
+        ui_only: true,
+        kind: "note_selection_context",
+        source: "note_editor_selection",
+        selection_start: selection.start,
+        selection_end: selection.end,
+      },
+    }];
+  }, [chatOpen, note?.content_hash, note?.session_id, selectedText, selection.end, selection.start]);
   const modelOptions = useMemo(() => {
     return (modelGroupsQuery.data ?? []).flatMap((group) =>
       group.models.map((model) => ({
@@ -393,8 +412,9 @@ export default function NoteWorkspacePage() {
                 workspace_note_path: note.workspace_path ?? note.path,
                 internal_note_path: note.path,
                 note_title: note.title,
+                current_selection: selectedText ? { start: selection.start, end: selection.end, text: selectedText } : null,
                 current_markdown: bodyDraft.slice(0, 12000),
-                instruction: `Pinned notes mode. When the user asks you to write notes, edit ${note.tool_path ?? note.workspace_path ?? note.path} with workspace file tools. Do not use bot memory.`,
+                instruction: `Pinned notes mode. When the user asks you to write notes, edit ${note.tool_path ?? note.workspace_path ?? note.path} with workspace file tools. Do not use bot memory. If current_selection is present, treat it as the focused note text for the user's next request.`,
               },
             },
           }}
@@ -405,6 +425,8 @@ export default function NoteWorkspacePage() {
           dockCollapsedTitle="Note assistant"
           dockCollapsedSubtitle={note.title}
           dismissMode="close"
+          syntheticMessages={noteSelectionSyntheticMessages}
+          disableOutsideDismiss
           chatMode="terminal"
           initiallyExpanded
         />

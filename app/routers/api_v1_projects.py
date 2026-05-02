@@ -128,6 +128,9 @@ class ProjectBlueprintOut(ProjectBlueprintSummaryOut):
     dependency_stack: dict = Field(default_factory=dict)
     env: dict = Field(default_factory=dict)
     required_secrets: list[str] = Field(default_factory=list)
+    stall_timeout_seconds: int | None = None
+    turn_timeout_seconds: int | None = None
+    max_concurrent_runs: int | None = None
     metadata_: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
@@ -149,6 +152,9 @@ class ProjectBlueprintWrite(BaseModel):
     dependency_stack: dict | None = None
     env: dict[str, str] | None = None
     required_secrets: list[str] | None = None
+    stall_timeout_seconds: int | None = None
+    turn_timeout_seconds: int | None = None
+    max_concurrent_runs: int | None = None
     metadata_: dict | None = None
 
     @field_validator("folders", "required_secrets")
@@ -157,6 +163,15 @@ class ProjectBlueprintWrite(BaseModel):
         if value is None:
             return None
         return [item.strip() for item in value if item and item.strip()]
+
+    @field_validator("stall_timeout_seconds", "turn_timeout_seconds", "max_concurrent_runs")
+    @classmethod
+    def _positive_or_none(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        if value <= 0:
+            raise ValueError("must be a positive integer or null to use the default")
+        return value
 
 
 class ProjectBlueprintFromCurrentWrite(BaseModel):
@@ -790,6 +805,12 @@ def _apply_blueprint_write(blueprint: ProjectBlueprint, body: ProjectBlueprintWr
         blueprint.env = body.env or {}
     if "required_secrets" in fields:
         blueprint.required_secrets = body.required_secrets or []
+    if "stall_timeout_seconds" in fields:
+        blueprint.stall_timeout_seconds = body.stall_timeout_seconds
+    if "turn_timeout_seconds" in fields:
+        blueprint.turn_timeout_seconds = body.turn_timeout_seconds
+    if "max_concurrent_runs" in fields:
+        blueprint.max_concurrent_runs = body.max_concurrent_runs
     if "metadata_" in fields:
         blueprint.metadata_ = body.metadata_ or {}
 
@@ -829,6 +850,9 @@ async def create_project_blueprint(
         dependency_stack=body.dependency_stack or {},
         env=body.env or {},
         required_secrets=body.required_secrets or [],
+        stall_timeout_seconds=body.stall_timeout_seconds,
+        turn_timeout_seconds=body.turn_timeout_seconds,
+        max_concurrent_runs=body.max_concurrent_runs,
         metadata_=body.metadata_ or {},
     )
     db.add(blueprint)

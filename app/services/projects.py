@@ -169,7 +169,7 @@ def render_project_blueprint_root_path(
 
 
 def project_blueprint_snapshot(blueprint: Any) -> dict[str, Any]:
-    return {
+    snapshot = {
         "id": str(blueprint.id),
         "name": blueprint.name,
         "slug": blueprint.slug,
@@ -185,6 +185,13 @@ def project_blueprint_snapshot(blueprint: Any) -> dict[str, Any]:
         "required_secrets": list(blueprint.required_secrets or []),
         "metadata": dict(getattr(blueprint, "metadata_", None) or {}),
     }
+    # Phase 4BB.3 - orchestration policy fields. Only emit when set so legacy
+    # snapshots stay byte-identical and consumers fall back to defaults.
+    for field in ("stall_timeout_seconds", "turn_timeout_seconds", "max_concurrent_runs"):
+        value = getattr(blueprint, field, None)
+        if value is not None:
+            snapshot[field] = value
+    return snapshot
 
 
 def _blueprint_relative_path(raw: Any, *, field: str) -> str:

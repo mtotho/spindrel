@@ -187,6 +187,8 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 
 ![Claude Code queued follow-up resumes after a native question turn](../images/native-cli/harness-claude-queued-followup-dark.png)
 
+![Codex queued follow-up resumes after a busy native shell turn](../images/native-cli/harness-codex-queued-followup-dark.png)
+
 ![Harness SDK usage rows in the admin usage log](../images/harness-usage-logs-dark.png)
 
 ![Harness SDK usage rows in light mode](../images/harness-usage-logs-light.png)

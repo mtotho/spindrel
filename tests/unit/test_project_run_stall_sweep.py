@@ -107,6 +107,11 @@ def test_queue_state_review_outcome_still_wins_over_stall():
     assert project_coding_run_review_queue_state(row) == "reviewed"
 
 
+def test_default_stall_timeout_matches_cohesion_plan():
+    """Cohesion plan default is 1200s (20 min). Drift is a regression."""
+    assert DEFAULT_STALL_TIMEOUT_SECONDS == 1200
+
+
 def test_project_stall_timeout_reads_blueprint_snapshot_override():
     project = SimpleNamespace(metadata_={"blueprint_snapshot": {"stall_timeout_seconds": 1800}})
     assert _project_stall_timeout_seconds(project) == 1800
@@ -187,6 +192,67 @@ async def test_sweep_marks_inactive_run_as_stalled_and_clears_when_active(db_ses
     assert task.id in changed_third
     await db_session.refresh(task)
     assert task.execution_config.get("stall_state") is None
+
+
+@pytest.mark.asyncio
+async def test_sweep_emits_single_audit_receipt_per_stall_transition(db_session):
+    """One ProjectRunReceipt per stall transition; subsequent passes are idempotent."""
+    from sqlalchemy import select
+
+    from app.db.models import ProjectRunReceipt
+
+    project_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=uuid.uuid4(),
+        name="P-audit",
+        slug="p-audit",
+        root_path="common/projects/p-audit",
+        metadata_={"blueprint_snapshot": {"stall_timeout_seconds": 600}},
+    )
+    db_session.add(project)
+    await db_session.flush()
+
+    now = datetime(2026, 5, 2, 12, 0, 0, tzinfo=timezone.utc)
+    long_ago = now - timedelta(seconds=1800)
+
+    task = Task(
+        id=uuid.uuid4(),
+        bot_id="alpha",
+        channel_id=uuid.uuid4(),
+        kind="agent",
+        status="running",
+        prompt="x",
+        run_at=long_ago,
+        created_at=long_ago,
+        execution_config={
+            "run_preset_id": PROJECT_CODING_RUN_PRESET_ID,
+            "project_id": str(project_id),
+            "project_coding_run": {"project_id": str(project_id)},
+        },
+    )
+    db_session.add(task)
+    await db_session.commit()
+
+    await sweep_stalled_project_runs(db_session, now=now)
+    receipts = (await db_session.execute(
+        select(ProjectRunReceipt)
+        .where(ProjectRunReceipt.project_id == project_id, ProjectRunReceipt.task_id == task.id)
+    )).scalars().all()
+    assert len(receipts) == 1
+    audit = receipts[0]
+    assert audit.status == "blocked"
+    assert (audit.metadata_ or {}).get("event") == "stall_detected"
+    assert "No agent activity" in (audit.summary or "")
+    assert audit.idempotency_key == f"stall:{task.id}:{now.isoformat()}"
+
+    # Second pass at the same `now` must not duplicate the audit row.
+    await sweep_stalled_project_runs(db_session, now=now)
+    receipts_after = (await db_session.execute(
+        select(ProjectRunReceipt)
+        .where(ProjectRunReceipt.project_id == project_id, ProjectRunReceipt.task_id == task.id)
+    )).scalars().all()
+    assert len(receipts_after) == 1
 
 
 @pytest.mark.asyncio
