@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.db.models import Channel, Session
+from app.db.models import Channel, Message, Session
 from app.services.file_versions import save_file_backup
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 NOTES_DIR = "notes"
 NOTE_KIND = "note"
 NOTE_SESSION_KIND = "note_session"
+NOTE_CONTEXT_KIND = "note_context"
 
 _SLUG_RE = re.compile(r"[^a-z0-9._-]+")
 
@@ -433,7 +434,60 @@ async def get_or_create_note_session(
     surface: NotesSurface,
     note_path: str,
     title: str,
+    content: str,
 ) -> Session:
+    async def upsert_note_context(session: Session) -> None:
+        context_text = build_note_session_context(
+            channel=channel,
+            surface=surface,
+            note_path=note_path,
+            title=title,
+            content=content,
+        )
+        system_messages = (await db.execute(
+            select(Message).where(Message.session_id == session.id, Message.role == "system")
+        )).scalars().all()
+        context_msg = next(
+            (
+                message for message in system_messages
+                if (message.metadata_ or {}).get("kind") == NOTE_CONTEXT_KIND
+            ),
+            None,
+        )
+        metadata = {
+            "kind": NOTE_CONTEXT_KIND,
+            "note_session_kind": NOTE_SESSION_KIND,
+            "note_path": note_path,
+            "surface_scope": surface.scope,
+            "notes_directory": f"{surface.kb_rel}/{NOTES_DIR}",
+            "title": title,
+        }
+        if context_msg is None:
+            db.add(Message(
+                id=uuid.uuid4(),
+                session_id=session.id,
+                role="system",
+                content=context_text,
+                metadata_=metadata,
+                created_at=datetime.now(timezone.utc),
+            ))
+        else:
+            context_msg.content = context_text
+            context_msg.metadata_ = metadata
+            flag_modified(context_msg, "metadata_")
+
+        session.metadata_ = {
+            **(session.metadata_ or {}),
+            "kind": NOTE_SESSION_KIND,
+            "note_path": note_path,
+            "surface_scope": surface.scope,
+            "channel_id": str(channel.id),
+            "project_id": surface.project_id,
+            "title": title,
+        }
+        session.title = f"Note: {title}"
+        flag_modified(session, "metadata_")
+
     rows = (await db.execute(
         select(Session).where(
             Session.bot_id == bot.id,
@@ -444,31 +498,57 @@ async def get_or_create_note_session(
     for row in rows:
         meta = row.metadata_ or {}
         if meta.get("kind") == NOTE_SESSION_KIND and meta.get("note_path") == note_path:
+            await upsert_note_context(row)
             return row
 
     from app.services.sub_sessions import spawn_ephemeral_session
 
     context = {
-        "page_name": f"Notes: {title}",
+        "page_name": f"Note: {title}",
         "tags": ["notes", "knowledge-base", "markdown"],
-        "tool_hints": ["workspace/notes", "workspace/knowledge_bases", "grill_me"],
+        "tool_hints": ["workspace/notes", "workspace/knowledge_bases", "workspace/channel_workspaces", "grill_me"],
         "payload": {
             "kind": NOTE_SESSION_KIND,
             "note_path": note_path,
             "surface_scope": surface.scope,
             "notes_directory": f"{surface.kb_rel}/{NOTES_DIR}",
-            "instruction": "Assist with this Markdown note. Preserve user-written content, propose changes before overwriting, and occasionally suggest category, summary, and tag updates.",
+            "instruction": "Pinned notes mode. When the user asks you to write or update notes, work in the active Markdown note file, not bot memory.",
         },
     }
     session = await spawn_ephemeral_session(db, bot_id=bot.id, parent_channel_id=channel.id, context=context)
-    session.metadata_ = {
-        **(session.metadata_ or {}),
-        "kind": NOTE_SESSION_KIND,
-        "note_path": note_path,
-        "surface_scope": surface.scope,
-        "channel_id": str(channel.id),
-        "project_id": surface.project_id,
-        "title": title,
-    }
-    flag_modified(session, "metadata_")
+    await upsert_note_context(session)
     return session
+
+
+def build_note_session_context(
+    *,
+    channel: Channel,
+    surface: NotesSurface,
+    note_path: str,
+    title: str,
+    content: str,
+) -> str:
+    body = content.strip()
+    if len(body) > 12000:
+        body = body[:12000].rstrip() + "\n\n[Current note content truncated for context.]"
+    project_line = f"Project ID: {surface.project_id}" if surface.project_id else "Project ID: none"
+    return (
+        "# Pinned Notes Mode\n\n"
+        "You are assisting inside Spindrel's active Markdown note editor. This session is pinned to one note file.\n\n"
+        f"Active note title: {title}\n"
+        f"Active note path: `{note_path}`\n"
+        f"Knowledge base notes directory: `{surface.kb_rel}/{NOTES_DIR}`\n"
+        f"Scope: {surface.scope}\n"
+        f"Channel ID: {channel.id}\n"
+        f"{project_line}\n\n"
+        "Rules:\n"
+        "- When the user asks you to write notes, update or propose updates for the active note file above.\n"
+        "- Do not write these note requests to bot memory unless the user explicitly asks for memory.\n"
+        "- Preserve user-written Markdown. Prefer additive edits or clearly reviewable replacements.\n"
+        "- Keep the document Markdown-formatted with useful headings and lists.\n"
+        "- Occasionally maintain frontmatter/category/summary/tags when the note content changes enough to justify it.\n\n"
+        "Current note Markdown:\n"
+        "```markdown\n"
+        f"{body}\n"
+        "```\n"
+    )

@@ -84,4 +84,3 @@ workspace:
 memory_scheme: workspace-files
 delegate_bots:
   - "*"
-cross_workspace_access: true

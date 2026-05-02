@@ -19,6 +19,7 @@ import uuid
 from pathlib import Path
 
 from app.agent.context import current_bot_id, current_channel_id, current_session_id
+from app.security.prompt_sanitize import wrap_untrusted_content
 from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,22 @@ def _mimetype_for_path(path: str) -> str:
     if ext in _JSON_EXTS:
         return "application/json"
     return "text/plain"
+
+
+# Read-only ops surface untrusted text (workspace files, directory listings,
+# grep matches) back to the LLM. Wrap the LLM-bound branch in
+# <untrusted-data> tags so prompt-injection attempts in attacker-deposited
+# content (webhook payload dumps, MCP result files, conversation exports)
+# are framed as data, not instructions. Write-op results are bot-authored
+# and skip wrapping.
+_LLM_WRAP_MAX_CHARS = 2_000_000  # effective pass-through; file_ops enforces its own caps
+
+
+def _wrap_for_llm(text: str, source: str) -> str:
+    """Wrap a tool's LLM-bound output unless it's a structured error envelope."""
+    if not text or text.startswith('{"error"'):
+        return text
+    return wrap_untrusted_content(text, source=source, max_chars=_LLM_WRAP_MAX_CHARS)
 
 
 def _markdown_inline_code(value: object) -> str:
@@ -683,6 +700,8 @@ async def file(
                     body_text = Path(resolved).read_text()
                 except (OSError, UnicodeDecodeError):
                     body_text = result
+                # Only the LLM-bound branch gets <untrusted-data> wrapping.
+                # The renderer body stays raw so the UI shows the file as-is.
                 result = json.dumps({
                     "_envelope": {
                         "content_type": _mimetype_for_path(resolved),
@@ -690,7 +709,7 @@ async def file(
                         "plain_body": f"Read {rel}",
                         "display": "inline",
                     },
-                    "llm": result,
+                    "llm": _wrap_for_llm(result, source=f"workspace:{rel}"),
                 }, ensure_ascii=False)
         elif operation == "create":
             result = _op_create(resolved, content)
@@ -707,10 +726,12 @@ async def file(
             result = _op_json_patch(resolved, patch)
         elif operation == "history":
             result = _op_history(resolved, effective_ws_root)
+            result = _wrap_for_llm(result, source=f"workspace:{path}:history")
         elif operation == "restore":
             result = _op_restore(resolved, version)
         elif operation == "list":
             result = _op_list(resolved, effective_ws_root)
+            result = _wrap_for_llm(result, source=f"workspace:{path}:list")
         elif operation == "delete":
             result = _op_delete(resolved)
         elif operation == "mkdir":
@@ -719,8 +740,10 @@ async def file(
             result = await _op_move(resolved, destination, effective_ws_root, effective_bot)
         elif operation == "grep":
             result = _op_grep(resolved, pattern, include, effective_ws_root, limit)
+            result = _wrap_for_llm(result, source=f"workspace:{path}:grep")
         elif operation == "glob":
             result = _op_glob(resolved, pattern, effective_ws_root, limit)
+            result = _wrap_for_llm(result, source=f"workspace:{path}:glob")
         elif operation == "archive_older_than":
             result = await _op_archive_older_than(
                 resolved, destination, older_than_days,

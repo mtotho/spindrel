@@ -15,6 +15,34 @@ export interface ToolPolicyRule {
   updated_at: string;
 }
 
+// Origins recognised by the backend's _AUTONOMOUS_ORIGINS set in
+// app/services/tool_policies.py. A rule that matches any of these is
+// "broadened" to autonomous runs (heartbeat / scheduled task / subagent /
+// hygiene). Without an origin_kind matcher, rules default to interactive
+// only — the toggle in the rule editor wraps this list as a single switch.
+export const AUTONOMOUS_ORIGINS = [
+  "heartbeat",
+  "task",
+  "subagent",
+  "hygiene",
+] as const;
+
+export function ruleAppliesToAutonomous(rule: ToolPolicyRule): boolean {
+  const matcher = rule.conditions?.origin_kind;
+  if (!matcher) return false;
+  // {"in": [...]} — broadened if any autonomous origin is listed.
+  if (typeof matcher === "object" && Array.isArray((matcher as any).in)) {
+    return (matcher as { in: string[] }).in.some((o) =>
+      (AUTONOMOUS_ORIGINS as readonly string[]).includes(o),
+    );
+  }
+  // Bare string — broadened if it's an autonomous origin.
+  if (typeof matcher === "string") {
+    return (AUTONOMOUS_ORIGINS as readonly string[]).includes(matcher);
+  }
+  return false;
+}
+
 export interface ToolPolicyCreatePayload {
   bot_id?: string | null;
   tool_name: string;

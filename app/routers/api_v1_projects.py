@@ -394,6 +394,7 @@ class ProjectCodingRunOut(BaseModel):
     dependency_stack: dict = Field(default_factory=dict)
     dependency_stack_preflight: dict = Field(default_factory=dict)
     readiness: dict = Field(default_factory=dict)
+    work_surface: dict = Field(default_factory=dict)
     source_work_pack_id: uuid.UUID | None = None
     launch_batch_id: str | None = None
     parent_task_id: uuid.UUID | None = None

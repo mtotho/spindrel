@@ -57,28 +57,33 @@ the user explicitly asked to launch a coding run.
    command, test, screenshot, and handoff work.
    Formal Project coding runs already use a fresh Project instance, generated
    branch, run-scoped Dependency Stack, and assigned dev target ports.
-2. Before editing, inspect current state and call
+2. If you need to verify isolation, call `list_agent_capabilities` and read
+   `project.work_surface`. Formal coding and review runs should report
+   `kind="project_instance"` and `isolation="isolated"` after startup. If a
+   formal run reports a missing, blocked, deleted, or shared work surface,
+   stop and report that readiness blocker instead of editing the shared root.
+3. Before editing, inspect current state and call
    `prepare_project_run_handoff(action="prepare_branch")`.
-3. Make focused changes with your native harness file and shell tools inside
+4. Make focused changes with your native harness file and shell tools inside
    the Project work surface. Start app/dev servers yourself on the assigned dev
    target ports when present; otherwise choose an unused port. Do not restart
    another agent's process or the host Spindrel e2e/API server. Treat
    `SPINDREL_DEV_*_PORT` values as Project app leases; they are different from
    the host Spindrel API/UI port used by the product under test.
-4. If the Project declares a Dependency Stack, call `get_project_dependency_stack`
+5. If the Project declares a Dependency Stack, call `get_project_dependency_stack`
    before Docker-backed work. Use `manage_project_dependency_stack` to prepare,
    reload, restart, rebuild, inspect logs, run service commands, and check
    health for Docker-backed databases and dependencies. Do not call raw
    `docker` or `docker compose`; edit the Project compose file and reload
    through the tool when stack shape changes.
-5. Run the smallest useful repo-local tests first with the native Project
+6. Run the smallest useful repo-local tests first with the native Project
    shell/runtime env. Do not wrap unit tests in Docker, Dockerfile.test, or
    docker compose. For UI work, run typecheck, start the Project app/dev server
    on the assigned dev target port when present, and capture screenshots
    against that server.
-6. Near handoff, call `prepare_project_run_handoff(action="open_pr")` when
+7. Near handoff, call `prepare_project_run_handoff(action="open_pr")` when
    GitHub credentials and `gh` are available. If not, record the exact blocker.
-7. Finish with `publish_project_run_receipt` including branch, changed files,
+8. Finish with `publish_project_run_receipt` including branch, changed files,
    tests, screenshots, dev target URLs/status, handoff URL, and any blockers.
    Make the receipt review-ready: use structured records where useful, such
    as `{path,status,summary}` for files, `{command,status,exit_code,summary}`

@@ -9,6 +9,7 @@ import {
   useToolPolicies,
   usePolicySettings,
   useUpdatePolicySettings,
+  ruleAppliesToAutonomous,
   type ToolPolicyRule,
 } from "@/src/api/hooks/useToolPolicies";
 import { PageHeader } from "@/src/components/layout/PageHeader";
@@ -141,6 +142,21 @@ function PolicyCard({
             }}
           >
             global
+          </span>
+        )}
+        {ruleAppliesToAutonomous(rule) && (
+          <span
+            style={{
+              padding: "1px 6px",
+              borderRadius: 3,
+              fontSize: 10,
+              fontWeight: 600,
+              background: t.warningSubtle,
+              color: t.warningMuted,
+            }}
+            title="Applies to heartbeat / scheduled task / subagent / hygiene runs"
+          >
+            autonomous
           </span>
         )}
         {!rule.enabled && (

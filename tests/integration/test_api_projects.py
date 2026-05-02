@@ -274,6 +274,9 @@ class TestProjectsApi:
         assert launched_body["repo"]["path"] == "spindrel"
         assert launched_body["runtime_target"]["configured_keys"] == ["SPINDREL_E2E_URL"]
         assert launched_body["runtime_target"]["missing_secrets"] == ["GITHUB_TOKEN"]
+        assert launched_body["work_surface"]["expected"] == "fresh_project_instance"
+        assert launched_body["work_surface"]["isolation"] == "pending"
+        assert launched_body["work_surface"]["active"] is False
         assert launched_body["review"]["status"] == "pending"
         assert launched_body["review"]["actions"]["can_refresh"] is True
 
@@ -400,6 +403,9 @@ class TestProjectsApi:
             headers=AUTH_HEADERS,
         )
         assert cleaned.status_code == 200
+        assert cleaned.json()["work_surface"]["project_instance_id"] == str(instance.id)
+        assert cleaned.json()["work_surface"]["status"] == "deleted"
+        assert cleaned.json()["work_surface"]["active"] is False
         cleaned_review = cleaned.json()["review"]
         assert cleaned_review["instance"]["status"] == "deleted"
         assert cleaned_review["steps"]["cleanup"]["status"] == "succeeded"

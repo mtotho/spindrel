@@ -9,6 +9,9 @@ Active items only. Resolved bugs → [[fix-log]]. Architectural decisions → [[
 
 ## Bugs — Open
 
+### `_save_backup` retention prunes too few versions (2026-05-01)
+**Surfaced**: `tests/unit/test_file_ops.py::TestBackupsAndHiding::test_backup_prunes_old_versions` and `::TestBackupRetention::test_data_file_retention_applied` fail consistently — pruning leaves 8 backups when test expects `MAX_BACKUP_VERSIONS=5`, and 23 when test expects `MAX_BACKUP_VERSIONS_DATA=20`. Verified pre-existing (reproduces against unmodified `app/tools/local/file_ops.py`) and unrelated to the 2026-05-01 untrusted-data wrapping change. Pruning logic in `_save_backup` looks correct on inspection; suspect a list/sort race on identical-mtime backups (`time.sleep(0.01)` between writes may not produce distinct mtimes on systems with low-resolution timers). Fix path: switch retention to count-based "delete oldest by sorted name" instead of mtime, OR bump the sleep in tests, OR seed monotonic suffixes that already encode the order.
+
 ### `run_script` description claims auto-import but doesn't auto-import (2026-05-01)
 **Surfaced**: Heartbeat trace `e0874e14-…` burning 4 iterations on `provide_either_inline_script_or_stored_script_reference` and `NameError: tools is not defined`.
 - The `script` parameter description (`app/tools/local/run_script.py:51`) says: *"Auto-imports `from spindrel import tools`"*. This is false. `app/services/script_runner.py:write_script_files` writes the helper module next to the script but does not prepend any import. Bots that trust the description and skip the import line hit `NameError` on first dispatch.

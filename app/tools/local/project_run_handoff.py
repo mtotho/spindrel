@@ -82,6 +82,7 @@ _RUN_DETAILS_RETURNS = {
         "project": {"type": "object"},
         "selection": {"type": "object"},
         "run": {"type": "object"},
+        "work_surface": {"type": "object"},
         "receipt": {"type": "object"},
         "review": {"type": "object"},
         "evidence": {"type": "object"},
@@ -300,6 +301,7 @@ def _project_run_detail_payload(project: Any, run: dict[str, Any], *, selection:
             "latest_meaningful": selection == "latest_meaningful",
         },
         "run": run,
+        "work_surface": run.get("work_surface") if isinstance(run.get("work_surface"), dict) else {},
         "receipt": receipt,
         "review": review,
         "evidence": {

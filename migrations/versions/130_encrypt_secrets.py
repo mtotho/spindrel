@@ -107,6 +107,36 @@ def downgrade() -> None:
 
     conn = op.get_bind()
 
+    # Refuse the downgrade if any encrypted value is present, unless the
+    # operator explicitly confirms via ALEMBIC_DOWNGRADE_FORCE=1.
+    # Rolling back silently decrypts every secret, which is destructive in
+    # any environment that has accumulated real writes since the upgrade.
+    encrypted_count = (
+        conn.execute(
+            sa.text(
+                "SELECT "
+                "  (SELECT COUNT(*) FROM provider_configs "
+                "   WHERE api_key LIKE 'enc:%') "
+                "+ (SELECT COUNT(*) FROM provider_configs "
+                "   WHERE config IS NOT NULL AND config::text LIKE '%enc:%') "
+                "+ (SELECT COUNT(*) FROM integration_settings "
+                "   WHERE is_secret = true AND value LIKE 'enc:%') "
+                "AS total"
+            )
+        ).scalar()
+        or 0
+    )
+    if encrypted_count > 0 and os.environ.get("ALEMBIC_DOWNGRADE_FORCE") != "1":
+        raise RuntimeError(
+            f"Refusing to downgrade migration 130: {encrypted_count} encrypted "
+            "row(s) would be decrypted in place. Set ALEMBIC_DOWNGRADE_FORCE=1 "
+            "to confirm and re-run the downgrade."
+        )
+    if encrypted_count > 0:
+        print(
+            f"ALEMBIC_DOWNGRADE_FORCE=1 — decrypting {encrypted_count} row(s)"
+        )
+
     # Decrypt provider_configs.api_key
     rows = conn.execute(
         sa.text("SELECT id, api_key FROM provider_configs WHERE api_key IS NOT NULL AND api_key LIKE 'enc:%'")

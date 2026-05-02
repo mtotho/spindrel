@@ -412,6 +412,10 @@ def _check_bots_with_exec_tools() -> SecurityCheck:
 
 
 def _check_bots_with_cross_workspace_access() -> SecurityCheck:
+    # Migration 287_clear_cross_workspace_access pops the deprecated key
+    # from every bot row at upgrade time, and admin_bots refuses new
+    # writes. This check now serves as a regression guard — if anything
+    # ever resets the flag, the audit will catch it.
     bots = [
         {"bot_id": b.id, "name": getattr(b, "name", b.id)}
         for b in list_bots()
@@ -1395,6 +1399,52 @@ async def _check_machine_control_lease_state(db: AsyncSession) -> SecurityCheck:
     )
 
 
+async def _check_widget_token_revocations(db: AsyncSession) -> SecurityCheck:
+    """Surface revocation-list state. Operators see how many active
+    revocations exist plus the oldest one — a proxy for whether the
+    purge sweep is running."""
+    from sqlalchemy import func
+
+    from app.db.models import WidgetTokenRevocation
+
+    now = datetime.now(timezone.utc)
+    total = (
+        await db.execute(select(func.count(WidgetTokenRevocation.jti)))
+    ).scalar() or 0
+    active = (
+        await db.execute(
+            select(func.count(WidgetTokenRevocation.jti)).where(
+                WidgetTokenRevocation.expires_at >= now
+            )
+        )
+    ).scalar() or 0
+    oldest_active = (
+        await db.execute(
+            select(func.min(WidgetTokenRevocation.revoked_at)).where(
+                WidgetTokenRevocation.expires_at >= now
+            )
+        )
+    ).scalar()
+
+    return SecurityCheck(
+        id="widget_token_revocations",
+        category="auth",
+        severity=Severity.info,
+        status=Status.passed,
+        message=(
+            f"{active} active widget token revocation(s); "
+            f"{total - active} stale row(s) pending purge."
+        ),
+        details={
+            "total": total,
+            "active": active,
+            "oldest_active_revoked_at": (
+                oldest_active.isoformat() if oldest_active else None
+            ),
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
@@ -1467,6 +1517,7 @@ async def run_security_audit(db: AsyncSession) -> SecurityAuditResponse:
     checks.append(await _check_mcp_servers_count(db))
     checks.append(await _check_mcp_outbound_url_guard(db))
     checks.append(await _check_machine_control_lease_state(db))
+    checks.append(await _check_widget_token_revocations(db))
 
     summary = _compute_summary(checks)
     score = _compute_score(checks)

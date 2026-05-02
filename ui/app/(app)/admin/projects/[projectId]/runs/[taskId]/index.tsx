@@ -102,6 +102,29 @@ function prLine(run: ProjectCodingRun) {
   ].filter(Boolean).join(" · ") || "PR linked";
 }
 
+function workSurfaceTitle(run: ProjectCodingRun) {
+  const surface = run.work_surface;
+  if (!surface) return "Work surface not reported";
+  if (surface.kind === "project_instance") {
+    if (surface.isolation === "pending") return "Fresh Project instance pending";
+    return "Fresh Project instance";
+  }
+  if (surface.kind === "project") return "Shared Project root";
+  return surface.kind ? `Work surface ${surface.kind}` : "Work surface not reported";
+}
+
+function workSurfaceLine(run: ProjectCodingRun) {
+  const surface = run.work_surface;
+  if (!surface) return "No work-surface payload was returned for this run";
+  const pieces = [
+    surface.display_path || (surface.root_path ? `/${surface.root_path}` : null),
+    surface.status ? `status ${surface.status}` : null,
+    surface.expected === "fresh_project_instance" ? "fresh required" : "shared root",
+    surface.expires_at ? `expires ${formatRunTime(surface.expires_at)}` : null,
+  ].filter(Boolean);
+  return surface.blocker || pieces.join(" · ") || "No work-surface details reported";
+}
+
 export default function ProjectRunDetail() {
   const { projectId, taskId } = useParams<{ projectId: string; taskId: string }>();
   const { data: project, isLoading: projectLoading } = useProject(projectId);
@@ -174,6 +197,12 @@ export default function ProjectRunDetail() {
                 title={dependencyInstance ? `Dependency stack ${dependencyInstance.status}` : "Dependency stack not prepared"}
                 description={dependencyInstance ? `${dependencyInstance.source_path || dependencyInstance.id} · env ${Object.keys(dependencyInstance.env ?? {}).length}` : "No task dependency instance recorded"}
               />
+              <SettingsControlRow
+                leading={<TerminalSquare size={14} />}
+                title={workSurfaceTitle(run)}
+                description={workSurfaceLine(run)}
+                meta={<StatusBadge label={run.work_surface?.isolation || "unknown"} variant={run.work_surface?.active === false ? "warning" : statusTone(run.work_surface?.status || "ready")} />}
+              />
             </div>
           </Section>
 
@@ -228,6 +257,7 @@ export default function ProjectRunDetail() {
           <Section title="Receipt Metadata" description="Raw structured evidence published by the implementation agent.">
             <JsonBlock value={{
               receipt_metadata: receipt?.metadata ?? {},
+              work_surface: run.work_surface ?? {},
               dependency_stack: run.dependency_stack ?? {},
               readiness: run.readiness ?? {},
               task: run.task,

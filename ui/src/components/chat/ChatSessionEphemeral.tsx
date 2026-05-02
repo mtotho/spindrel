@@ -142,6 +142,11 @@ export function EphemeralChatSession({
   const harnessComposerProps = useHarnessComposerProps(sessionBot, sessionId);
   const modelOverride = stored?.modelOverride ?? undefined;
   const modelProviderId = stored?.modelProviderId ?? null;
+  const pinnedSkillIds = useMemo(() => {
+    const payload = context?.payload as Record<string, unknown> | undefined;
+    if (payload?.kind === "note_session") return ["workspace/notes"];
+    return [];
+  }, [context?.payload]);
 
   const [mode, setMode] = useState<"dock" | "modal" | "fullpage">(shape);
   // For ephemeral docks we always land on the panel (no FAB intermediate) —
@@ -212,6 +217,7 @@ export function EphemeralChatSession({
 
   const spawn = useSpawnEphemeralSession();
   const submitChat = useSubmitChat();
+  const cancelChat = useCancelChat();
   const [sendError, setSendError] = useState<string | null>(null);
   const chatState = useChatStore((s) => (sessionId ? s.getChannel(sessionId) : null));
   const turnActive = chatState ? selectIsStreaming(chatState) : false;
@@ -258,6 +264,13 @@ export function EphemeralChatSession({
         const clientLocalId = makeClientLocalId();
         const attachmentPayload = buildChatAttachmentPayload(files);
         const workspaceUploads = attachmentPayload.workspace_uploads ?? [];
+        const messageMetadata = {
+          source: "web",
+          sender_type: "human",
+          client_local_id: clientLocalId,
+          ...(workspaceUploads.length ? { workspace_uploads: workspaceUploads } : {}),
+          ...(pinnedSkillIds.length ? { harness_skill_ids: pinnedSkillIds } : {}),
+        };
         useChatStore.getState().addMessage(activeSessionId, {
           id: `msg-${clientLocalId}`,
           session_id: activeSessionId,
@@ -265,11 +278,8 @@ export function EphemeralChatSession({
           content: message,
           created_at: new Date().toISOString(),
           metadata: {
-            source: "web",
-            sender_type: "human",
-            client_local_id: clientLocalId,
             local_status: "sending",
-            ...(workspaceUploads.length ? { workspace_uploads: workspaceUploads } : {}),
+            ...messageMetadata,
           },
         });
         const result = await submitChat.mutateAsync({
@@ -278,12 +288,7 @@ export function EphemeralChatSession({
           client_id: "web",
           session_id: activeSessionId,
           channel_id: parentChannelId,
-          msg_metadata: {
-            source: "web",
-            sender_type: "human",
-            client_local_id: clientLocalId,
-            ...(workspaceUploads.length ? { workspace_uploads: workspaceUploads } : {}),
-          },
+          msg_metadata: messageMetadata,
           ...(attachmentPayload.attachments?.length ? { attachments: attachmentPayload.attachments } : {}),
           ...(attachmentPayload.file_metadata?.length ? { file_metadata: attachmentPayload.file_metadata } : {}),
           ...(modelOverride ? {
@@ -305,7 +310,7 @@ export function EphemeralChatSession({
         setSendError(err instanceof Error ? err.message : "Failed to send message");
       }
     },
-    [botId, sessionId, parentChannelId, context, spawn, submitChat, modelOverride, modelProviderId, qc],
+    [botId, sessionId, parentChannelId, context, spawn, submitChat, modelOverride, modelProviderId, qc, pinnedSkillIds],
   );
 
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -323,6 +328,16 @@ export function EphemeralChatSession({
     useChatStore.getState().clearProcessing(sessionId);
     qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
   }, [qc, sessionId]);
+  const handleCancel = useCallback(() => {
+    if (!sessionId || !botId) return;
+    cancelChat.mutate({
+      client_id: "web",
+      bot_id: botId,
+      session_id: sessionId,
+      channel_id: parentChannelId ?? scratchBoundChannelId ?? undefined,
+    });
+    syncSessionCancelledState();
+  }, [botId, cancelChat, parentChannelId, scratchBoundChannelId, sessionId, syncSessionCancelledState]);
   const sessionSlashCatalog = useSlashCommandList(botId || undefined, sessionId ?? undefined);
   const sessionAvailableSlashCommands = useMemo(
     () => resolveAvailableSlashCommandIds({
@@ -657,6 +672,7 @@ export function EphemeralChatSession({
                 <ChatComposerShell chatMode={chatMode}>
                   <MessageInput
                     onSend={handleSend}
+                    onCancel={handleCancel}
                     disabled={!botId}
                     isStreaming={isSending}
                     currentBotId={botId || undefined}
@@ -717,6 +733,7 @@ export function EphemeralChatSession({
                 <ChatComposerShell chatMode={chatMode}>
                   <MessageInput
                     onSend={handleSend}
+                    onCancel={handleCancel}
                     disabled={!botId}
                     isStreaming={isSending}
                     currentBotId={botId || undefined}
@@ -759,6 +776,7 @@ export function EphemeralChatSession({
             <ChatComposerShell chatMode={chatMode}>
               <MessageInput
                 onSend={handleSend}
+                onCancel={handleCancel}
                 disabled={!botId}
                 isStreaming={isSending}
                 currentBotId={botId || undefined}

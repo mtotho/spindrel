@@ -11,6 +11,8 @@ import {
   useUpdateToolPolicy,
   useDeleteToolPolicy,
   useTestToolPolicy,
+  ruleAppliesToAutonomous,
+  AUTONOMOUS_ORIGINS,
 } from "@/src/api/hooks/useToolPolicies";
 import {
   Section,
@@ -49,6 +51,7 @@ export default function ToolPolicyDetailScreen() {
   const [priority, setPriority] = useState("100");
   const [reason, setReason] = useState("");
   const [enabled, setEnabled] = useState(true);
+  const [applyToAutonomous, setApplyToAutonomous] = useState(false);
   const [approvalTimeout, setApprovalTimeout] = useState("300");
   const [conditionsJson, setConditionsJson] = useState("{}");
   const [initialized, setInitialized] = useState(isNew);
@@ -68,20 +71,36 @@ export default function ToolPolicyDetailScreen() {
     setPriority(String(rule.priority));
     setReason(rule.reason || "");
     setEnabled(rule.enabled);
+    setApplyToAutonomous(ruleAppliesToAutonomous(rule));
     setApprovalTimeout(String(rule.approval_timeout));
-    setConditionsJson(JSON.stringify(rule.conditions, null, 2));
+    // Strip the origin_kind matcher from the JSON view — the toggle is
+    // the canonical surface. Manual JSON edits to origin_kind still apply
+    // server-side; the toggle just covers the common case.
+    const conditionsForDisplay = { ...(rule.conditions || {}) };
+    delete (conditionsForDisplay as Record<string, unknown>).origin_kind;
+    setConditionsJson(JSON.stringify(conditionsForDisplay, null, 2));
     setInitialized(true);
   }
 
   const isSaving = createMut.isPending || updateMut.isPending;
 
   const handleSave = useCallback(async () => {
-    let conditions = {};
+    let conditions: Record<string, any> = {};
     try {
       conditions = JSON.parse(conditionsJson);
     } catch {
       alert("Invalid JSON in conditions");
       return;
+    }
+
+    // Toggle drives the origin_kind matcher. ON → matches autonomous origins
+    // (rule applies to interactive AND autonomous runs because backend ORs
+    // origin matchers). OFF → matcher is removed; backend default treats the
+    // rule as interactive-only.
+    if (applyToAutonomous) {
+      conditions.origin_kind = { in: [...AUTONOMOUS_ORIGINS] };
+    } else {
+      delete conditions.origin_kind;
     }
 
     const data = {
@@ -109,6 +128,7 @@ export default function ToolPolicyDetailScreen() {
     priority,
     reason,
     enabled,
+    applyToAutonomous,
     approvalTimeout,
     conditionsJson,
     createMut,
@@ -265,6 +285,12 @@ export default function ToolPolicyDetailScreen() {
               onChange={setEnabled}
               label="Enabled"
               description="Disabled rules are skipped during evaluation"
+            />
+            <Toggle
+              value={applyToAutonomous}
+              onChange={setApplyToAutonomous}
+              label="Apply to autonomous runs"
+              description="Heartbeat / scheduled task / subagent / hygiene origins. Off (default) keeps the rule interactive-only."
             />
           </Section>
 

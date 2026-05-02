@@ -109,6 +109,14 @@ isolated Project session when two ad hoc sessions may edit, test, or restart
 the same repo in parallel. Formal coding runs already isolate files, branch,
 Dependency Stack, and dev target ports by default.
 
+Agents and review surfaces should use the work-surface payload instead of
+guessing from cwd. `list_agent_capabilities().project.work_surface` reports the
+current channel/session/task root, and Project run rows expose the run's
+expected and actual root. Formal coding and review tasks should become
+`project_instance` / `isolated` before the first agent turn; if instance setup
+fails, the task should block visibly rather than falling back to the shared
+Project root.
+
 ## Agent Coding Runs
 
 ![Project coding run launcher and receipts](../images/project-workspace-runs.png)
@@ -118,7 +126,7 @@ The service validates that the selected channel belongs to the Project, creates
 a normal background task from the `project_coding_run` preset, and records a
 secret-safe handoff config in `execution_config.project_coding_run`: request,
 repo, base branch, generated work branch, runtime target key names, new-session
-policy, fresh-instance policy, and any task-scoped machine target grant. The
+policy, fresh-instance policy, work-surface readiness, and any task-scoped machine target grant. The
 prompt tells the agent to update from the base branch, switch to the generated
 branch, use Project runtime env, use the granted e2e/machine target only when
 attached to the task, run e2e checks when relevant, and publish

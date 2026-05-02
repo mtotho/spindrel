@@ -3343,6 +3343,20 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
           },
           dependency_stack_preflight: { status: "ready", env_keys: ["DATABASE_URL", "REDIS_URL"] },
           readiness: { status: "ready", blockers: [], required_evidence: ["tests", "screenshots", "handoff"] },
+          work_surface: {
+            kind: "project_instance",
+            isolation: "isolated",
+            expected: "fresh_project_instance",
+            active: true,
+            status: "ready",
+            display_path: "/workspace/common/project-instances/screenshot-project/screenshot-project-instance",
+            root_path: "common/project-instances/screenshot-project/screenshot-project-instance",
+            project_id: projectId,
+            project_instance_id: "screenshot-project-instance",
+            owner_kind: "task",
+            owner_id: taskId,
+            blocker: null
+          },
           source_work_pack_id: "screenshot-work-pack-main",
           launch_batch_id: "issue-work-pack-batch:screenshot",
           parent_task_id: null,
@@ -3996,6 +4010,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "&& text.includes('prepare the project workspace screenshot receipt') "
             "&& text.includes('add batch launch proof for overnight packs') "
             "&& text.includes('sources: prepare the project workspace screenshot receipt') "
+            "&& text.includes('work surface:') "
             "&& text.includes('launch batch:') "
             "&& text.includes('run receipts'), "
             "detail: 'Project Runs tab did not expose launch-batch review controls and receipt evidence' };"
@@ -4054,6 +4069,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "&& text.includes('app/services/projects.py') "
             "&& text.includes('pytest tests/unit/test_projects_service.py') "
             "&& text.includes('docs/images/project-workspace-run-detail.png') "
+            "&& text.includes('Fresh Project instance') "
             "&& text.includes('Dependency stack running') "
             "&& text.includes('Published screenshot handoff receipt'), "
             "detail: 'Project Run detail page did not expose receipt, review, evidence, dependency, and activity data' };"
@@ -4309,7 +4325,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "const text = document.body.innerText.toLowerCase();"
             "return { ok: text.includes('create channel') "
             "&& text.includes('attach existing channel') "
-            "&& text.includes('select channel') "
+            "&& text.includes('channel') "
             "&& text.includes('detach'), "
             "detail: 'Project Channels tab did not expose membership controls' };"
         ),

@@ -409,6 +409,25 @@ def test_project_coding_run_payload_includes_review_tools(monkeypatch):
     assert "finalize_project_coding_run_review" in payload["required_tools"]
 
 
+def test_work_surface_payload_names_project_instance_isolation():
+    surface = SimpleNamespace(
+        kind="project_instance",
+        display_path="/workspace/common/project-instances/demo/123456789abc",
+        index_prefix="common/project-instances/demo/123456789abc",
+        project_id="project-1",
+        project_instance_id="instance-1",
+        project_name="Demo",
+    )
+
+    payload = agent_capabilities._work_surface_payload(surface)
+
+    assert payload["kind"] == "project_instance"
+    assert payload["isolation"] == "isolated"
+    assert payload["active"] is True
+    assert payload["display_path"] == "/workspace/common/project-instances/demo/123456789abc"
+    assert payload["project_instance_id"] == "instance-1"
+
+
 @pytest.mark.asyncio
 async def test_manifest_includes_runtime_context(monkeypatch):
     bot = SimpleNamespace(

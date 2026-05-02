@@ -265,10 +265,16 @@ export default function NoteWorkspacePage() {
             defaultBotId: botId,
             pinnedSessionId: note.session_id,
             context: {
-              page_name: `Notes: ${note.title}`,
+              page_name: `Note: ${note.title}`,
               tags: ["notes", "markdown", "knowledge-base"],
-              tool_hints: ["workspace/notes", "workspace/knowledge_bases", "grill_me"],
-              payload: { note_path: note.path, note_title: note.title },
+              tool_hints: ["workspace/notes", "workspace/knowledge_bases", "workspace/channel_workspaces", "grill_me"],
+              payload: {
+                kind: "note_session",
+                note_path: note.path,
+                note_title: note.title,
+                current_markdown: bodyDraft.slice(0, 12000),
+                instruction: "Pinned notes mode. When the user asks you to write notes, work in this active Markdown note file, not bot memory.",
+              },
             },
           }}
           shape="dock"

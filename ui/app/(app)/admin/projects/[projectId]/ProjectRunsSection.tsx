@@ -130,6 +130,21 @@ function dependencyStackLine(run: ProjectCodingRun) {
   return `Dependency stack: ${instance.status}${target ? ` · ${target}` : ""}${envKeys.length ? ` · env ${envKeys.length}` : ""}`;
 }
 
+function workSurfaceLine(run: ProjectCodingRun) {
+  const surface = run.work_surface;
+  if (!surface) return null;
+  if (surface.blocker) return `Work surface: ${surface.blocker}`;
+  if (surface.kind === "project_instance") {
+    const label = surface.project_instance_id ? surface.project_instance_id.slice(0, 8) : "pending";
+    const path = surface.display_path || (surface.root_path ? `/${surface.root_path}` : null);
+    return `Work surface: isolated ${label}${surface.status ? ` · ${surface.status}` : ""}${path ? ` · ${path}` : ""}`;
+  }
+  if (surface.kind === "project") {
+    return `Work surface: shared Project root${surface.display_path ? ` · ${surface.display_path}` : ""}`;
+  }
+  return surface.kind ? `Work surface: ${surface.kind}` : null;
+}
+
 function shortBatchId(value?: string | null) {
   if (!value) return "";
   const parts = value.split(":");
@@ -721,6 +736,9 @@ export function ProjectRunsSection({
                       )}
                       {executionAccessLine(run.task.machine_target_grant) && (
                         <span className="truncate text-[11px] text-text-dim">Execution access: {executionAccessLine(run.task.machine_target_grant)}</span>
+                      )}
+                      {workSurfaceLine(run) && (
+                        <span className="truncate text-[11px] text-text-dim">{workSurfaceLine(run)}</span>
                       )}
                       {dependencyStackLine(run) && (
                         <span className="truncate text-[11px] text-text-dim">{dependencyStackLine(run)}</span>

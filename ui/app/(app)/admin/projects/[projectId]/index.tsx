@@ -1096,6 +1096,16 @@ function ProjectInstancesSection({
   const createInstance = useCreateProjectInstance(project.id);
   const latest = instances?.[0];
   const readyCount = (instances ?? []).filter((instance) => instance.status === "ready").length;
+  const ownerLink = (instance: ProjectInstance) => {
+    if (!instance.owner_id) return undefined;
+    if (instance.owner_kind === "task") {
+      return <HeaderLink to={`/admin/projects/${project.id}/runs/${instance.owner_id}`} icon={<ExternalLink size={13} />}>Run</HeaderLink>;
+    }
+    if (instance.owner_kind === "session") {
+      return <HeaderLink to="/admin/sessions" icon={<ExternalLink size={13} />}>Session</HeaderLink>;
+    }
+    return undefined;
+  };
 
   return (
     <div data-testid="project-workspace-instances" className="mx-auto flex w-full max-w-[1120px] flex-col gap-7 px-5 py-5 md:px-6">
@@ -1153,15 +1163,23 @@ function ProjectInstancesSection({
                 key={instance.id}
                 leading={<FolderOpen size={14} />}
                 title={`/${instance.root_path}`}
-                description={`${instance.owner_kind ?? "manual"}${instance.owner_id ? ` · ${instance.owner_id}` : ""}`}
+                description={[
+                  instance.owner_kind ?? "manual",
+                  instance.owner_id ? instance.owner_id : null,
+                  instance.expires_at ? `expires ${formatRunTime(instance.expires_at)}` : null,
+                  instance.deleted_at ? `deleted ${formatRunTime(instance.deleted_at)}` : null,
+                ].filter(Boolean).join(" · ")}
                 meta={<StatusBadge label={instance.status} variant={setupTone(instance.status)} />}
                 action={
-                  <HeaderLink
-                    to={`/admin/workspaces/${instance.workspace_id}/files?path=${encodeURIComponent(`/${instance.root_path}`)}`}
-                    icon={<ExternalLink size={13} />}
-                  >
-                    Files
-                  </HeaderLink>
+                  <div className="flex flex-wrap items-center justify-end gap-1">
+                    {ownerLink(instance)}
+                    <HeaderLink
+                      to={`/admin/workspaces/${instance.workspace_id}/files?path=${encodeURIComponent(`/${instance.root_path}`)}`}
+                      icon={<ExternalLink size={13} />}
+                    >
+                      Files
+                    </HeaderLink>
+                  </div>
                 }
               />
             ))

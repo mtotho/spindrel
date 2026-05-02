@@ -411,6 +411,11 @@ async def _run_harness_branch_if_needed(
 ) -> bool:
     if not bot.harness_runtime:
         return False
+    harness_skill_ids = tuple(
+        str(skill_id).strip()
+        for skill_id in ((req.msg_metadata or {}).get("harness_skill_ids") or ())
+        if str(skill_id).strip()
+    )
 
     state.response_text, state.error_text = await _run_harness_turn(
         HarnessTurnRequest(
@@ -424,6 +429,7 @@ async def _run_harness_branch_if_needed(
             msg_metadata=req.msg_metadata,
             pre_user_msg_id=state.pre_user_msg_id,
             suppress_outbox=scope.suppress_outbox,
+            harness_skill_ids=harness_skill_ids,
             harness_attachments=tuple(att_payload or ()),
         )
     )

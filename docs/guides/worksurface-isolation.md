@@ -18,6 +18,13 @@ fall back to channel or bot workspace roots when the Project binding or active
 Project instance is broken. A fresh Project instance is valid only for a
 channel attached to the same parent Project.
 
+Formal Project coding and review runs use fresh Project instances as their
+filesystem isolation boundary. The run API and `list_agent_capabilities` expose
+the expected and active work surface so agents and reviewers can tell whether a
+run is pending instance creation, isolated in a ready instance, deleted, or
+using a shared Project root. A formal run that expects a fresh instance should
+block before agent execution if the instance cannot be prepared.
+
 Bot-private state is separate from the WorkSurface:
 
 - memory files
@@ -80,6 +87,8 @@ Remediated findings:
 - shared workspace subprocess execution no longer injects every Secret Value by default; it only uses `current_allowed_secrets` plus explicit Project runtime `extra_env`
 - legacy `cross_workspace_access` no longer authorizes sibling-channel WorkSurface access; channel files, channel search, history reads, and channel listing now use primary/member participation
 - channel-bound native harnesses use the resolved channel, Project, or Project-instance WorkSurface cwd before `harness_workdir`; `harness_workdir` is only a no-channel launch fallback
+- Project run rows and capability manifests expose work-surface summaries so
+  agents do not infer isolation from cwd text alone
 - `widget://workspace` is codified as an explicit shared widget library, with `shared_root` required and traversal confined to one bundle
 
 ## External Baseline

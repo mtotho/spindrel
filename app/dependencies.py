@@ -132,6 +132,15 @@ async def verify_auth_or_user(
             raise HTTPException(status_code=401, detail="Invalid widget token")
         if not bot_id:
             raise HTTPException(status_code=401, detail="Invalid widget token")
+        # Revocation check — admins kill compromised tokens via
+        # POST /api/v1/admin/widgets/tokens/revoke. The JWT itself is
+        # still cryptographically valid; revocation is a side-band veto.
+        jti = payload.get("jti")
+        if jti:
+            from app.services.widget_token_revocations import is_revoked
+
+            if await is_revoked(db, api_key_id=key_id, jti=jti):
+                raise HTTPException(status_code=401, detail="Widget token revoked")
         pin_id_raw = payload.get("pin_id")
         try:
             pin_id = UUID(pin_id_raw) if pin_id_raw else None

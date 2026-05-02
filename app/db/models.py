@@ -2203,6 +2203,30 @@ class ApiKey(Base):
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
 
+class WidgetTokenRevocation(Base):
+    """Composite-key table for widget JWT revocations.
+
+    Widget tokens (``kind: "widget"``) carry a ``jti`` and the issuing
+    bot's ``api_key_id``; both go into the row so the verifier can
+    rescue ``(api_key_id, jti)`` from the decoded payload and drop the
+    request before any side effects. ``expires_at`` lets the purge
+    sweep reclaim rows once the underlying token is dead anyway.
+    """
+
+    __tablename__ = "widget_token_revocations"
+
+    api_key_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, nullable=False,
+    )
+    jti: Mapped[str] = mapped_column(Text, primary_key=True, nullable=False)
+    revoked_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()"),
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False,
+    )
+
+
 class SecretValue(Base):
     __tablename__ = "secret_values"
 

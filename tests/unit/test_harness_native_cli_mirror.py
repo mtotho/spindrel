@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,8 @@ from app.services.agent_harnesses.native_cli_mirror import (
     _parse_codex_jsonl_record,
     _read_new_records,
     _sync_native_cli_settings,
+    _native_cli_settings_patch,
+    _NativeCliInputSyncer,
     NativeCliMirrorRecord,
 )
 from app.services.agent_harnesses.settings import load_session_settings
@@ -183,6 +186,24 @@ def test_native_transcript_lookup_without_session_id_requires_recent_matching_cw
 
     assert _find_codex_transcript(None, cwd="/work/repo", started_after=0) == fresh
     assert _find_codex_transcript(None, cwd="/missing", started_after=0) is None
+
+
+def test_native_cli_terminal_input_syncer_extracts_submitted_setting_lines():
+    syncer = _NativeCliInputSyncer(
+        spindrel_session_id=uuid.uuid4(),
+        runtime_name="codex",
+    )
+
+    assert syncer.feed(b"/model gpt-5.4-mini") == []
+    assert syncer.feed(b"\r") == ["/model gpt-5.4-mini"]
+    assert syncer.feed(b"/effort hig\x7fgh\n") == ["/effort high"]
+
+
+def test_native_cli_settings_patch_parses_model_effort_and_clear_commands():
+    assert _native_cli_settings_patch("/model gpt-5.4-mini") == {"model": "gpt-5.4-mini"}
+    assert _native_cli_settings_patch("/effort medium") == {"effort": "medium"}
+    assert _native_cli_settings_patch("/model default") == {"model": None}
+    assert _native_cli_settings_patch("testing 123") == {}
 
 
 @pytest.mark.asyncio

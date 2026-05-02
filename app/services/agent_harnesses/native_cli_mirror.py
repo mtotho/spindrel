@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 _POLL_INTERVAL_SEC = 1.5
 _MAX_IDLE_POLLS_AFTER_TERMINAL_EXIT = 4
 _MIRROR_TASKS: set[asyncio.Task] = set()
+_INPUT_SYNC_TASKS: set[asyncio.Task] = set()
+_INPUT_SYNCERS: dict[str, "_NativeCliInputSyncer"] = {}
 _SPINDREL_BLOCK_RE = re.compile(
     r"<spindrel_(?:host_instructions|context_hints|tool_guidance)>.*?</spindrel_(?:host_instructions|context_hints|tool_guidance)>",
     re.DOTALL,
@@ -50,6 +52,37 @@ class NativeCliMirrorRecord:
     content: str
 
 
+@dataclass
+class _NativeCliInputSyncer:
+    spindrel_session_id: uuid.UUID
+    runtime_name: str
+    buffer: str = ""
+
+    def feed(self, data: bytes) -> list[str]:
+        """Return complete command lines typed into the embedded PTY."""
+
+        text = data.decode("utf-8", errors="ignore")
+        lines: list[str] = []
+        for char in text:
+            if char in {"\r", "\n"}:
+                line = self.buffer.strip()
+                self.buffer = ""
+                if line:
+                    lines.append(line)
+                continue
+            if char == "\x03":  # Ctrl-C clears the active input line.
+                self.buffer = ""
+                continue
+            if char in {"\b", "\x7f"}:
+                self.buffer = self.buffer[:-1]
+                continue
+            if char == "\x1b":
+                continue
+            if char.isprintable() or char == "\t":
+                self.buffer = (self.buffer + char)[-2048:]
+        return lines
+
+
 def start_native_cli_mirror(
     *,
     terminal_session_id: str,
@@ -68,6 +101,10 @@ def start_native_cli_mirror(
         logger.debug("native cli mirror skipped: no running event loop")
         return
 
+    _INPUT_SYNCERS[terminal_session_id] = _NativeCliInputSyncer(
+        spindrel_session_id=spindrel_session_id,
+        runtime_name=runtime_name,
+    )
     task = loop.create_task(
         _mirror_loop(
             terminal_session_id=terminal_session_id,
@@ -83,6 +120,42 @@ def start_native_cli_mirror(
     task.add_done_callback(_MIRROR_TASKS.discard)
 
 
+def record_native_cli_terminal_input(terminal_session_id: str, data: bytes) -> None:
+    """Observe embedded native CLI input and sync simple settings immediately.
+
+    Transcript polling remains the durable history path. This hook only watches
+    user-submitted slash commands that change runtime settings so the Spindrel
+    composer does not lag behind the real CLI after switching surfaces.
+    """
+
+    syncer = _INPUT_SYNCERS.get(terminal_session_id)
+    if syncer is None:
+        return
+    lines = syncer.feed(data)
+    if not lines:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    for line in lines:
+        if not _native_cli_settings_patch(line):
+            continue
+        task = loop.create_task(
+            _sync_native_cli_input_command(
+                spindrel_session_id=syncer.spindrel_session_id,
+                runtime_name=syncer.runtime_name,
+                line=line,
+            )
+        )
+        _INPUT_SYNC_TASKS.add(task)
+        task.add_done_callback(_INPUT_SYNC_TASKS.discard)
+
+
+def unregister_native_cli_terminal_input(terminal_session_id: str) -> None:
+    _INPUT_SYNCERS.pop(terminal_session_id, None)
+
+
 async def _mirror_loop(
     *,
     terminal_session_id: str,
@@ -93,67 +166,70 @@ async def _mirror_loop(
     bot_id: str,
     channel_id: uuid.UUID | None,
 ) -> None:
-    path: Path | None = None
-    offset = 0
-    initialized = False
-    seen: set[str] = set()
-    idle_after_exit = 0
-    skip_existing = bool(native_session_id)
-    started_at = time.time()
+    try:
+        path: Path | None = None
+        offset = 0
+        initialized = False
+        seen: set[str] = set()
+        idle_after_exit = 0
+        skip_existing = bool(native_session_id)
+        started_at = time.time()
 
-    while True:
-        terminal = get_terminal_session(terminal_session_id)
-        if terminal is None or terminal.closed:
-            idle_after_exit += 1
-        else:
-            idle_after_exit = 0
+        while True:
+            terminal = get_terminal_session(terminal_session_id)
+            if terminal is None or terminal.closed:
+                idle_after_exit += 1
+            else:
+                idle_after_exit = 0
 
-        if path is None:
-            path = _find_native_transcript(
-                runtime_name,
-                native_session_id,
-                cwd,
-                started_after=started_at - 2,
-            )
-            if path is not None and skip_existing and not initialized:
-                try:
-                    offset = path.stat().st_size
-                except OSError:
-                    offset = 0
-                initialized = True
-
-        if path is not None:
-            try:
-                offset, records = _read_new_records(
-                    path,
-                    offset=offset,
-                    runtime_name=runtime_name,
-                )
-            except Exception:
-                logger.warning(
-                    "native cli mirror failed reading %s transcript %s",
+            if path is None:
+                path = _find_native_transcript(
                     runtime_name,
-                    path,
-                    exc_info=True,
+                    native_session_id,
+                    cwd,
+                    started_after=started_at - 2,
                 )
-                records = []
-            for record in records:
-                if record.key in seen:
-                    continue
-                seen.add(record.key)
-                await _persist_mirrored_record(
-                    spindrel_session_id=spindrel_session_id,
-                    bot_id=bot_id,
-                    channel_id=channel_id,
-                    runtime_name=runtime_name,
-                    native_session_id=native_session_id,
-                    transcript_path=path,
-                    record=record,
-                )
+                if path is not None and skip_existing and not initialized:
+                    try:
+                        offset = path.stat().st_size
+                    except OSError:
+                        offset = 0
+                    initialized = True
 
-        if idle_after_exit >= _MAX_IDLE_POLLS_AFTER_TERMINAL_EXIT:
-            return
-        await asyncio.sleep(_POLL_INTERVAL_SEC)
+            if path is not None:
+                try:
+                    offset, records = _read_new_records(
+                        path,
+                        offset=offset,
+                        runtime_name=runtime_name,
+                    )
+                except Exception:
+                    logger.warning(
+                        "native cli mirror failed reading %s transcript %s",
+                        runtime_name,
+                        path,
+                        exc_info=True,
+                    )
+                    records = []
+                for record in records:
+                    if record.key in seen:
+                        continue
+                    seen.add(record.key)
+                    await _persist_mirrored_record(
+                        spindrel_session_id=spindrel_session_id,
+                        bot_id=bot_id,
+                        channel_id=channel_id,
+                        runtime_name=runtime_name,
+                        native_session_id=native_session_id,
+                        transcript_path=path,
+                        record=record,
+                    )
+
+            if idle_after_exit >= _MAX_IDLE_POLLS_AFTER_TERMINAL_EXIT:
+                return
+            await asyncio.sleep(_POLL_INTERVAL_SEC)
+    finally:
+        unregister_native_cli_terminal_input(terminal_session_id)
 
 
 def _find_native_transcript(
@@ -407,20 +483,7 @@ async def _sync_native_cli_settings(
 
     if record.role != "user":
         return
-    patch: dict[str, str | None] = {}
-    text = (record.content or "").strip()
-    model_match = _NATIVE_CLI_MODEL_RE.match(text)
-    if model_match:
-        raw_model = (model_match.group("model") or "").strip()
-        model = raw_model.strip("\"'")
-        if model:
-            patch["model"] = None if model.lower() in _NATIVE_CLI_CLEAR_VALUES else model
-    effort_match = _NATIVE_CLI_EFFORT_RE.match(text)
-    if effort_match:
-        raw_effort = (effort_match.group("effort") or "").strip()
-        effort = raw_effort.strip("\"'")
-        if effort:
-            patch["effort"] = None if effort.lower() in _NATIVE_CLI_CLEAR_VALUES else effort
+    patch = _native_cli_settings_patch(record.content)
     if not patch:
         return
 
@@ -433,5 +496,46 @@ async def _sync_native_cli_settings(
             "native cli mirror failed to sync %s settings from record %s",
             runtime_name,
             record.key,
+            exc_info=True,
+        )
+
+
+def _native_cli_settings_patch(text: str | None) -> dict[str, str | None]:
+    patch: dict[str, str | None] = {}
+    text = (text or "").strip()
+    model_match = _NATIVE_CLI_MODEL_RE.match(text)
+    if model_match:
+        raw_model = (model_match.group("model") or "").strip()
+        model = raw_model.strip("\"'")
+        if model:
+            patch["model"] = None if model.lower() in _NATIVE_CLI_CLEAR_VALUES else model
+    effort_match = _NATIVE_CLI_EFFORT_RE.match(text)
+    if effort_match:
+        raw_effort = (effort_match.group("effort") or "").strip()
+        effort = raw_effort.strip("\"'")
+        if effort:
+            patch["effort"] = None if effort.lower() in _NATIVE_CLI_CLEAR_VALUES else effort
+    return patch
+
+
+async def _sync_native_cli_input_command(
+    *,
+    spindrel_session_id: uuid.UUID,
+    runtime_name: str,
+    line: str,
+) -> None:
+    patch = _native_cli_settings_patch(line)
+    if not patch:
+        return
+    try:
+        from app.services.agent_harnesses.settings import patch_session_settings
+
+        async with async_session() as db:
+            await patch_session_settings(db, spindrel_session_id, patch=patch)
+    except Exception:
+        logger.warning(
+            "native cli terminal input failed to sync %s settings from line %r",
+            runtime_name,
+            line,
             exc_info=True,
         )

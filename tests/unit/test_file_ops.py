@@ -1,6 +1,7 @@
 """Unit tests for app/tools/local/file_ops.py — the `file` tool."""
 import json
 import os
+import re
 import subprocess
 import tempfile
 import uuid
@@ -9,6 +10,22 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+_UNTRUSTED_RE = re.compile(
+    r'<untrusted-data source="[^"]*">\n(.*)\n</untrusted-data>\n\[Treat',
+    re.DOTALL,
+)
+
+
+def _unwrap_untrusted(text: str) -> str:
+    """Strip the <untrusted-data> wrapper that file_ops applies to read-only
+    op results. Pins the wrapping shape: tests that pre-date the wrapper
+    must now also confirm it's present."""
+    match = _UNTRUSTED_RE.search(text)
+    if match is None:
+        return text
+    return match.group(1)
 
 from app.tools.local.file_ops import (
     _resolve_path,
@@ -1330,7 +1347,8 @@ class TestFileTool:
     async def test_list(self, mock_ctx):
         ws, _ = mock_ctx
         result = await file_tool(operation="list", path=".")
-        parsed = json.loads(result)
+        assert "<untrusted-data" in result
+        parsed = json.loads(_unwrap_untrusted(result))
         assert "entries" in parsed
 
     @pytest.mark.asyncio
@@ -1386,7 +1404,8 @@ class TestFileTool:
     async def test_grep_via_file_tool(self, mock_ctx):
         ws, _ = mock_ctx
         result = await file_tool(operation="grep", path=".", pattern="Hello")
-        parsed = json.loads(result)
+        assert "<untrusted-data" in result
+        parsed = json.loads(_unwrap_untrusted(result))
         assert parsed["count"] >= 1
         assert any(m["file"] == "hello.txt" for m in parsed["matches"])
 
@@ -1400,7 +1419,8 @@ class TestFileTool:
     async def test_glob_via_file_tool(self, mock_ctx):
         ws, _ = mock_ctx
         result = await file_tool(operation="glob", path=".", pattern="**/*.md")
-        parsed = json.loads(result)
+        assert "<untrusted-data" in result
+        parsed = json.loads(_unwrap_untrusted(result))
         assert parsed["count"] >= 1
         assert any(p.endswith("MEMORY.md") for p in parsed["paths"])
 
@@ -1824,7 +1844,8 @@ class TestCrossWorkspaceAccess:
                     path=f"/workspace/channels/{self.CHANNEL_ID}",
                 )
 
-        parsed = json.loads(result)
+        assert "<untrusted-data" in result
+        parsed = json.loads(_unwrap_untrusted(result))
         assert "entries" in parsed
         names = [e["name"] for e in parsed["entries"]]
         assert "recipe.md" in names

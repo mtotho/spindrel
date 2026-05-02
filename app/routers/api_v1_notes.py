@@ -98,7 +98,15 @@ async def get_channel_note(
     channel, bot = await _require_channel(channel_id, db)
     surface = await resolve_notes_surface(db, channel, bot)
     note = read_note(surface, slug)
-    session = await get_or_create_note_session(db, channel=channel, bot=bot, surface=surface, note_path=note["path"], title=note["title"])
+    session = await get_or_create_note_session(
+        db,
+        channel=channel,
+        bot=bot,
+        surface=surface,
+        note_path=note["path"],
+        title=note["title"],
+        content=note["content"],
+    )
     await db.commit()
     return {**note, "session_id": str(session.id)}
 

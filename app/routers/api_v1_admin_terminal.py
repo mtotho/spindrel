@@ -424,6 +424,18 @@ async def terminal_websocket(
                 except Exception:
                     continue
                 session.write_input(data)
+                try:
+                    from app.services.agent_harnesses.native_cli_mirror import (
+                        record_native_cli_terminal_input,
+                    )
+
+                    record_native_cli_terminal_input(session_id, data)
+                except Exception:
+                    logger.debug(
+                        "admin.terminal.native_cli_input_observer_failed",
+                        extra={"session_id": session_id},
+                        exc_info=True,
+                    )
             elif kind == "resize":
                 try:
                     rows = int(msg.get("rows") or 24)
@@ -437,6 +449,14 @@ async def terminal_websocket(
     except Exception:
         logger.exception("admin.terminal.input_pump_error", extra={"session_id": session_id})
     finally:
+        try:
+            from app.services.agent_harnesses.native_cli_mirror import (
+                unregister_native_cli_terminal_input,
+            )
+
+            unregister_native_cli_terminal_input(session_id)
+        except Exception:
+            pass
         output_task.cancel()
         try:
             await output_task

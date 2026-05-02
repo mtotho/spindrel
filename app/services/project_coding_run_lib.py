@@ -529,6 +529,69 @@ def _evidence_summary(receipt: ProjectRunReceipt | None) -> dict[str, Any]:
     }
 
 
+def _task_project_instance_policy(task: Task) -> str:
+    ecfg = task.execution_config if isinstance(task.execution_config, dict) else {}
+    raw = ecfg.get("project_instance")
+    if isinstance(raw, dict) and raw.get("mode") == "fresh":
+        return "fresh"
+    if ecfg.get("fresh_project_instance"):
+        return "fresh"
+    return "shared"
+
+
+def _work_surface_summary(
+    *,
+    project: Project,
+    task: Task,
+    instance: ProjectInstance | None,
+) -> dict[str, Any]:
+    policy = _task_project_instance_policy(task)
+    expected = "fresh_project_instance" if policy == "fresh" else "shared_project_root"
+    if instance is not None:
+        active = instance.status == "ready" and instance.deleted_at is None
+        return {
+            "kind": "project_instance",
+            "isolation": "isolated",
+            "expected": expected,
+            "active": active,
+            "status": instance.status,
+            "display_path": f"/workspace/{instance.root_path.strip('/')}",
+            "root_path": instance.root_path,
+            "project_id": str(project.id),
+            "project_instance_id": str(instance.id),
+            "owner_kind": instance.owner_kind,
+            "owner_id": str(instance.owner_id) if instance.owner_id else None,
+            "expires_at": instance.expires_at.isoformat() if instance.expires_at else None,
+            "deleted_at": instance.deleted_at.isoformat() if instance.deleted_at else None,
+            "blocker": None if active else "Project instance is not ready for this run.",
+        }
+    if policy == "fresh":
+        return {
+            "kind": "project_instance",
+            "isolation": "pending",
+            "expected": expected,
+            "active": False,
+            "status": "pending",
+            "display_path": None,
+            "root_path": None,
+            "project_id": str(project.id),
+            "project_instance_id": None,
+            "blocker": "Fresh Project instance has not been created for this run yet.",
+        }
+    return {
+        "kind": "project",
+        "isolation": "shared",
+        "expected": expected,
+        "active": True,
+        "status": "ready",
+        "display_path": f"/workspace/{project.root_path.strip('/')}",
+        "root_path": project.root_path,
+        "project_id": str(project.id),
+        "project_instance_id": None,
+        "blocker": None,
+    }
+
+
 def _summarize_checks(checks: Any) -> str | None:
     if not isinstance(checks, list) or not checks:
         return None
@@ -705,6 +768,7 @@ async def _coding_run_row(
     dependency_stack = await get_project_dependency_stack(db, project, task_id=task.id, scope="task")
     ctx = ProjectTaskExecutionContext.from_task(task)
     cfg = _task_run_config(task)
+    work_surface = _work_surface_summary(project=project, task=task, instance=instance)
     updated_at = (
         receipt.created_at.isoformat()
         if receipt is not None and receipt.created_at is not None
@@ -726,6 +790,7 @@ async def _coding_run_row(
         "dependency_stack": dependency_stack,
         "dependency_stack_preflight": cfg.get("dependency_stack_preflight") or {},
         "readiness": ctx.readiness_summary(dependency_stack_status=dependency_stack),
+        "work_surface": work_surface,
         "source_work_pack_id": ctx.source_work_pack_id,
         "launch_batch_id": cfg.get("launch_batch_id"),
         "parent_task_id": ctx.lineage.parent_task_id,

@@ -451,7 +451,38 @@ async def _skill_payload(
     }
 
 
-async def _project_payload(db: AsyncSession, channel: Channel | None) -> dict[str, Any]:
+def _work_surface_payload(surface: Any | None) -> dict[str, Any]:
+    if surface is None:
+        return {
+            "kind": None,
+            "isolation": "none",
+            "active": False,
+            "display_path": None,
+            "project_id": None,
+            "project_instance_id": None,
+        }
+    kind = getattr(surface, "kind", None)
+    if kind == "project_instance":
+        isolation = "isolated"
+    elif kind == "project":
+        isolation = "shared"
+    elif kind == "channel":
+        isolation = "channel"
+    else:
+        isolation = "unknown"
+    return {
+        "kind": kind,
+        "isolation": isolation,
+        "active": True,
+        "display_path": getattr(surface, "display_path", None),
+        "root_path": getattr(surface, "index_prefix", None),
+        "project_id": getattr(surface, "project_id", None),
+        "project_instance_id": getattr(surface, "project_instance_id", None),
+        "project_name": getattr(surface, "project_name", None),
+    }
+
+
+async def _project_payload(db: AsyncSession, channel: Channel | None, bot: Bot | None = None) -> dict[str, Any]:
     if channel is None or channel.project_id is None:
         return {"attached": False}
     project = await db.get(Project, channel.project_id)
@@ -465,6 +496,23 @@ async def _project_payload(db: AsyncSession, channel: Channel | None) -> dict[st
         "root_path": project.root_path,
         "prompt_file_path": project.prompt_file_path,
     }
+    if bot is not None:
+        try:
+            from app.agent.bots import get_bot
+            from app.services.projects import resolve_channel_work_surface
+
+            bot_config = get_bot(bot.id)
+            surface = await resolve_channel_work_surface(db, channel, bot_config)
+            payload["work_surface"] = _work_surface_payload(surface)
+        except Exception as exc:
+            payload["work_surface"] = {
+                "kind": None,
+                "isolation": "blocked",
+                "active": False,
+                "project_id": str(project.id),
+                "project_instance_id": None,
+                "error": str(exc),
+            }
     try:
         from app.services.project_runtime import load_project_runtime_environment
         runtime = await load_project_runtime_environment(db, project)
@@ -2013,7 +2061,7 @@ async def build_agent_capability_manifest(
         "tool_error_contract": tool_error_contract(),
         "tools": await _tool_payload(db, bot, include_schemas=include_schemas, max_tools=max_tools),
         "skills": await _skill_payload(db, bot, channel),
-        "project": await _project_payload(db, channel),
+        "project": await _project_payload(db, channel, bot),
         "planning": _planning_payload(session),
         "harness": {
             "runtime": bot.harness_runtime if bot else None,
