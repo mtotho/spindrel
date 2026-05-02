@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": false,
+    "noEmit": false,
+    "outDir": "./.attention-test-dist",
+    "types": ["node"]
+  },
+  "include": [
+    "src/api/types/workspaceMapState.ts",
+    "src/api/hooks/useWorkspaceAttention.ts",
+    "src/components/spatial-canvas/SpatialAttentionModel.ts",
+    "src/lib/hubRoutes.ts",
+    "src/components/attention/attentionDeckLanes.ts",
+    "src/components/attention/attentionDeckLanes.test.ts"
+  ]
+}

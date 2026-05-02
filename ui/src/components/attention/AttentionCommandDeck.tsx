@@ -64,6 +64,15 @@ import {
   type AttentionBuckets,
 } from "../spatial-canvas/SpatialAttentionModel";
 import type { AttentionDeckMode } from "../../lib/hubRoutes";
+import {
+  getBotReport,
+  getIssueIntake,
+  getIssueTriage,
+  isIssueCandidate,
+  modeItems,
+  sortAttention,
+  sortDeckItems,
+} from "./attentionDeckLanes";
 
 type DeckMode = AttentionDeckMode;
 
@@ -117,14 +126,6 @@ function targetLabel(item: WorkspaceAttentionItem): string {
   return item.channel_name ?? item.target_id ?? item.target_kind;
 }
 
-function sortAttention(items: WorkspaceAttentionItem[]): WorkspaceAttentionItem[] {
-  return [...items].sort((a, b) => {
-    const severity = severityRank[b.severity] - severityRank[a.severity];
-    if (severity !== 0) return severity;
-    return new Date(b.last_seen_at ?? b.first_seen_at ?? 0).getTime() - new Date(a.last_seen_at ?? a.first_seen_at ?? 0).getTime();
-  });
-}
-
 function runStatusLabel(run: AttentionTriageRunResponse): string {
   if (run.error || run.status === "failed") return "failed";
   if (run.status === "queued") return "queued";
@@ -166,27 +167,6 @@ function humanizeSuggestedAction(action?: string | null): string {
     .trim();
 }
 
-function getBotReport(item: WorkspaceAttentionItem): any | null {
-  const report = item.evidence?.report_issue;
-  return report && typeof report === "object" ? report : null;
-}
-
-function getIssueIntake(item: WorkspaceAttentionItem): any | null {
-  const intake = item.evidence?.issue_intake;
-  return intake && typeof intake === "object" ? intake : null;
-}
-
-function getIssueTriage(item: WorkspaceAttentionItem): any | null {
-  const triage = item.evidence?.issue_triage;
-  return triage && typeof triage === "object" ? triage : null;
-}
-
-function isIssueCandidate(item: WorkspaceAttentionItem): boolean {
-  if (!getIssueIntake(item) && !getBotReport(item)) return false;
-  const state = String(getIssueTriage(item)?.state ?? "");
-  return !["packed", "dismissed", "needs_info"].includes(state);
-}
-
 function toolSignalClass(tone: "muted" | "warning" | "danger"): string {
   if (tone === "danger") return "bg-danger/10 text-danger-muted";
   if (tone === "warning") return "bg-warning/10 text-warning";
@@ -205,20 +185,6 @@ function severityClass(item: WorkspaceAttentionItem): string {
   if (item.severity === "critical" || item.severity === "error") return "text-danger";
   if (item.severity === "warning") return "text-warning";
   return "text-accent";
-}
-
-function modeItems(mode: DeckMode, buckets: AttentionBuckets): WorkspaceAttentionItem[] {
-  if (mode === "review") return buckets.review;
-  if (mode === "issues") return [];
-  if (mode === "inbox") return [...buckets.untriaged, ...buckets.assigned];
-  if (mode === "cleared") return [...buckets.processed, ...buckets.closed];
-  return [...buckets.triage, ...buckets.review];
-}
-
-function sortDeckItems(mode: DeckMode, items: WorkspaceAttentionItem[]): WorkspaceAttentionItem[] {
-  const sorted = sortAttention(items);
-  if (mode !== "review") return sorted;
-  return sorted.sort((a, b) => Number(Boolean(getBotReport(a))) - Number(Boolean(getBotReport(b))));
 }
 
 function SkeletonBlock({ className }: { className: string }) {
@@ -316,7 +282,10 @@ export function AttentionCommandDeck({
     cleared: buckets.processed.length,
     closed: buckets.closed.length,
   };
-  const activeList = useMemo(() => sortDeckItems(mode, modeItems(mode, buckets)), [buckets, mode]);
+  const activeList = useMemo(
+    () => sortDeckItems(mode, modeItems(mode, buckets, issueCandidates)),
+    [buckets, issueCandidates, mode],
+  );
   const firstReview = useMemo(() => sortAttention(buckets.review)[0] ?? null, [buckets.review]);
   const displayItem = selected ?? activeList[0] ?? null;
   const activeRunId = selectedRunId ?? localSelectedRunId ?? runs[0]?.task_id ?? null;
@@ -351,6 +320,9 @@ export function AttentionCommandDeck({
   useEffect(() => {
     if (!selected) return;
     const state = getAttentionWorkflowState(selected);
+    // While the operator is working an explicit lane, don't yank them out when
+    // the row they just clicked is still valid for that lane.
+    if (mode === "issues" && isIssueCandidate(selected)) return;
     if (state === "operator_review" || state === "bot_report") setDeckMode("review", false);
     else if (state === "processed" || state === "closed") setDeckMode("cleared", false);
     else if (state === "in_sweep") setDeckMode("runs", false);

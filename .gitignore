@@ -34,6 +34,7 @@ Thumbs.db
 .pytest_cache/
 .coverage
 .chat-test-dist/
+.attention-test-dist/
 htmlcov/
 
 # Docker
