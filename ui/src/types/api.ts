@@ -1649,6 +1649,19 @@ export interface ProjectCodingRun {
   review_queue_state?: ProjectFactoryReviewQueueState | string | null;
   review_queue_priority?: number | null;
   review_next_action?: string | null;
+  lifecycle?: {
+    phase?: string;
+    headline?: string;
+    next_action?: string;
+    primary_link?: { label?: string; url?: string | null };
+    evidence?: {
+      tests?: number;
+      screenshots?: number;
+      files?: number;
+      dev_targets?: number;
+    };
+    blocker?: string | null;
+  };
   task: ProjectCodingRunTask;
   receipt?: ProjectRunReceipt | null;
   activity?: Array<Record<string, any>>;

@@ -22,6 +22,12 @@ Everything a bot does with files, containers, and knowledge lives under `workspa
   The `file` tool — read / write / append / edit / replace_section / archive_older_than / batch / grep / glob. The authoritative guide for workspace file operations.
 - [Project Coding Runs](project_coding_runs.md)
   Project-scoped implementation/review runs, handoff receipts, e2e evidence, and finalization.
+- [Project Lifecycle](project_lifecycle.md)
+  End-to-end Project factory flow: setup, PRD, stories, runs, review, follow-up, and cleanup.
+- [Project PRD](project_prd.md)
+  Conversational creation or update of repo-owned product requirements, feature briefs, and track plans.
+- [Project Stories](project_stories.md)
+  Break PRDs, tracks, or planning conversations into discrete stories and optional Work Packs.
 - [Project Init](project_init.md)
   Inspect and initialize a Project's Blueprint, channel skills, dependency stack, runtime env, and readiness.
 - [Issue Intake](issue_intake.md)
@@ -40,7 +46,8 @@ Everything a bot does with files, containers, and knowledge lives under `workspa
 ## The Short Version
 
 - **`file` tool** for every content op on workspace files. Reach for `batch` when you have three or more ops to group atomically.
-- For ad hoc Project-bound repo work, use normal shell/file tools and explicit composer context (`@file:<path>`, `@project:dependencies`) instead of a broad runtime Project-development skill.
+- Runtime skill IDs use the historical `workspace/` namespace because Project, file, channel, and dependency work all happen on a work surface. In user-facing language, call these Project skills.
+- For ad hoc Project-bound repo work, use normal shell/file tools and explicit composer context (`@file:<path>`, `@project:dependencies`, skill mentions such as `@skill:workspace/project_prd`) instead of a broad runtime Project-development skill.
 - **`workspace/memory/`** for durable structured notes. **Knowledge base folders** (`workspace/knowledge-base/`) for retrievable facts.
 - **Attachments** are channel-scoped uploads; use `list_attachments` / `get_attachment` to surface them.
 - **Docker stacks** live under `workspace/stacks/`; bot owns the compose file, container lifecycle is bot-managed.

@@ -471,12 +471,13 @@ async def _persist_mirrored_record(
         "include_in_memory": True,
         "trigger_rag": False,
     }
-    if record.role == "assistant" and effective_native_session_id:
+    if effective_native_session_id:
         metadata["harness"] = {
             "runtime": runtime_name,
             "session_id": effective_native_session_id,
             "source": "harness_native_cli",
         }
+    if record.role == "assistant" and effective_native_session_id:
         try:
             bot = get_bot(bot_id)
             display = bot.display_name or bot.name or bot_id

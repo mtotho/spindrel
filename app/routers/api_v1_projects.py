@@ -422,6 +422,7 @@ class ProjectCodingRunOut(BaseModel):
     review_queue_state: str | None = None
     review_queue_priority: int | None = None
     review_next_action: str | None = None
+    lifecycle: dict = Field(default_factory=dict)
     task: ProjectCodingRunTaskOut
     receipt: ProjectRunReceiptOut | None = None
     activity: list[dict] = Field(default_factory=list)

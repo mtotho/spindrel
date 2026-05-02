@@ -62,6 +62,24 @@ _CHAT_MODE_VALUES = {"default", "terminal"}
 _MEMORY_SCHEME_VALUES = {"workspace-files"}
 _TOOL_DISCOVERY_VALUES = {"on", "off"}
 
+# R4 — fields where a bot self-mutating (target_id == current_bot_id) silently
+# broadens its own authority. Editing these from autonomous origins is refused
+# outright; interactive approval still works (operator is in the conversation).
+# `system_prompt` reprograms behavior; `provider_id`/`model` redirect LLM calls;
+# `pinned_tools`/`tool_discovery` change which tools are exposed every turn.
+_HIGH_IMPACT_SELF_BOT_FIELDS: frozenset[str] = frozenset({
+    "system_prompt",
+    "provider_id",
+    "model",
+    "pinned_tools",
+    "tool_discovery",
+})
+
+# Autonomous origins per app/services/tool_policies.py — kept in sync.
+_AUTONOMOUS_ORIGINS: frozenset[str] = frozenset({
+    "heartbeat", "task", "subagent", "hygiene",
+})
+
 
 def _refuse(scope: str, field: str, reason: str) -> str:
     return json.dumps({
@@ -86,7 +104,15 @@ def _applied(scope: str, target_id: str, field: str, before: Any, after: Any, ra
 # Scope handlers
 # ---------------------------------------------------------------------------
 
-async def _apply_bot(target_id: str, field: str, new_value: Any, rationale: str) -> str:
+async def _apply_bot(
+    target_id: str,
+    field: str,
+    new_value: Any,
+    rationale: str,
+    *,
+    caller_bot_id: str | None,
+    origin_kind: str | None,
+) -> str:
     if field not in _BOT_ALLOWED:
         return _refuse("bot", field, f"not in bot allowlist {sorted(_BOT_ALLOWED)}")
 
@@ -107,6 +133,28 @@ async def _apply_bot(target_id: str, field: str, new_value: Any, rationale: str)
         if not (0.0 <= float(new_value) <= 1.0):
             return _refuse("bot", field, "threshold must be between 0.0 and 1.0")
 
+    # R4 — self-mutation gating. A bot proposing a change to its own row is
+    # legitimate (the configurator skill works that way), but high-impact
+    # fields from autonomous origins silently broaden authority and we refuse
+    # those. Interactive origins still pass through the normal approval lane.
+    is_self = bool(caller_bot_id) and caller_bot_id == target_id
+    if (
+        is_self
+        and field in _HIGH_IMPACT_SELF_BOT_FIELDS
+        and origin_kind in _AUTONOMOUS_ORIGINS
+    ):
+        from app.security.audit import log_self_mutation
+        reason = (
+            f"autonomous self-mutation of '{field}' refused; "
+            f"interactive operator-driven proposal is still allowed"
+        )
+        log_self_mutation(
+            bot_id=target_id, field=field,
+            before=None, after=new_value, rationale=rationale,
+            origin_kind=origin_kind, refused=True, reason=reason,
+        )
+        return _refuse("bot", field, reason)
+
     from app.db.engine import async_session
     from app.db.models import Bot
 
@@ -118,6 +166,14 @@ async def _apply_bot(target_id: str, field: str, new_value: Any, rationale: str)
         setattr(row, field, new_value)
         row.updated_at = datetime.now(timezone.utc)
         await db.commit()
+
+    if is_self:
+        from app.security.audit import log_self_mutation
+        log_self_mutation(
+            bot_id=target_id, field=field,
+            before=before, after=new_value, rationale=rationale,
+            origin_kind=origin_kind, refused=False,
+        )
 
     # Reload in-process bot cache so subsequent turns see the change.
     try:
@@ -376,8 +432,16 @@ async def propose_config_change(
         if not isinstance(item, dict) or not item.get("signal"):
             return _refuse(scope, field, "each evidence item needs a 'signal' string")
 
+    # R4 — caller context for self-mutation gating in _apply_bot.
+    from app.agent.context import current_bot_id, current_run_origin
+    caller_bot_id = current_bot_id.get(None)
+    origin_kind = current_run_origin.get(None)
+
     if scope == "bot":
-        return await _apply_bot(target_id, field, new_value, rationale)
+        return await _apply_bot(
+            target_id, field, new_value, rationale,
+            caller_bot_id=caller_bot_id, origin_kind=origin_kind,
+        )
     if scope == "channel":
         return await _apply_channel(target_id, field, new_value, rationale)
     if scope == "integration":

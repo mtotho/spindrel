@@ -11,6 +11,9 @@ Use this when a user asks whether a Project is set up correctly, wants a new
 Project made ready for agent work, or asks a Project-bound channel to inspect
 the repo and configure the Project.
 
+If the Project is already ready and the user is asking what to do next, load
+`workspace/project_lifecycle`.
+
 ## Goal
 
 Turn the current Project from "a folder a channel points at" into an agent-ready
@@ -23,6 +26,8 @@ work surface:
 - Project channels have the relevant runtime skills enrolled.
 - Project has a repo-owned Project Runbook at `.spindrel/project-runbook.md`
   when agent policy should version with source.
+- Project agents know which lifecycle skill to load next: PRD planning,
+  stories/work packs, implementation runs, review, follow-up, or cleanup.
 - Dependency Stack is declared only when the repo needs Docker-backed backing
   services such as Postgres, Redis, SearXNG, or queues.
 - Dependency Stack points at a Project-local compose file that is reviewable in

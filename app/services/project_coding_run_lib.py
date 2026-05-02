@@ -1043,11 +1043,88 @@ def project_coding_run_review_next_action(state: str) -> str:
     return "Inspect the blocker before continuing."
 
 
+def project_coding_run_lifecycle_summary(row: dict[str, Any]) -> dict[str, Any]:
+    """Human/agent-facing lifecycle summary derived from existing run state."""
+    review = row.get("review") if isinstance(row.get("review"), dict) else {}
+    task = row.get("task") if isinstance(row.get("task"), dict) else {}
+    readiness = row.get("readiness") if isinstance(row.get("readiness"), dict) else {}
+    work_surface = row.get("work_surface") if isinstance(row.get("work_surface"), dict) else {}
+    evidence = review.get("evidence") if isinstance(review.get("evidence"), dict) else {}
+    state = str(row.get("review_queue_state") or project_coding_run_review_queue_state(row))
+    status = str(row.get("status") or task.get("status") or "").lower()
+    task_status = str(task.get("status") or "").lower()
+    blocker = (
+        work_surface.get("blocker")
+        or review.get("blocker")
+        or task.get("error")
+    )
+    blockers = readiness.get("blockers") if isinstance(readiness.get("blockers"), list) else []
+    if not blocker and blockers:
+        blocker = str(blockers[0])
+
+    phase = state
+    if blocker and state not in {"reviewed", "changes_requested", "follow_up_running", "follow_up_created"}:
+        phase = "setup_blocked" if work_surface.get("blocker") or blockers else "blocked"
+    elif task_status in {"pending", "running"} or status in {"pending", "running"}:
+        phase = "running"
+    elif state == "ready_for_review":
+        phase = "needs_review"
+
+    headline_by_phase = {
+        "setup_blocked": "Run setup is blocked",
+        "pending": "Run is waiting to start",
+        "running": "Implementation is running",
+        "needs_review": "Run is ready for review",
+        "reviewing": "Review is in progress",
+        "changes_requested": "Changes were requested",
+        "follow_up_running": "Follow-up is running",
+        "follow_up_created": "Follow-up is ready to inspect",
+        "missing_evidence": "Run is missing review evidence",
+        "reviewed": "Run is reviewed",
+        "blocked": "Run is blocked",
+        "failed": "Run failed",
+    }
+    if phase == "failed" or status == "failed":
+        phase = "failed"
+    headline = headline_by_phase.get(phase, "Inspect this run")
+    next_action = project_coding_run_review_next_action(state)
+    if phase == "setup_blocked":
+        next_action = "Fix the setup or work-surface blocker before editing."
+    elif phase == "running":
+        next_action = "Open the agent log or run detail to watch progress."
+    elif phase == "reviewed":
+        next_action = "No operator action needed."
+    elif phase == "failed":
+        next_action = "Open the run detail and start a follow-up if recovery is available."
+
+    primary_link = {"label": "Open run", "url": None}
+    review_task_id = review.get("review_task_id")
+    if phase == "reviewing" and review_task_id:
+        primary_link = {"label": "Open review agent", "url": f"/admin/tasks/{review_task_id}"}
+    elif task.get("id"):
+        primary_link = {"label": "Open run", "url": f"/admin/projects/{row.get('project_id')}/runs/{task.get('id')}"}
+
+    return {
+        "phase": phase,
+        "headline": headline,
+        "next_action": next_action,
+        "primary_link": primary_link,
+        "evidence": {
+            "tests": evidence.get("tests_count", 0),
+            "screenshots": evidence.get("screenshots_count", 0),
+            "files": evidence.get("changed_files_count", 0),
+            "dev_targets": evidence.get("dev_targets_count", 0),
+        },
+        "blocker": blocker,
+    }
+
+
 def apply_project_coding_run_review_queue(row: dict[str, Any]) -> dict[str, Any]:
     state = project_coding_run_review_queue_state(row)
     row["review_queue_state"] = state
     row["review_queue_priority"] = PROJECT_REVIEW_QUEUE_PRIORITY.get(state, 99)
     row["review_next_action"] = project_coding_run_review_next_action(state)
+    row["lifecycle"] = project_coding_run_lifecycle_summary(row)
     return row
 
 

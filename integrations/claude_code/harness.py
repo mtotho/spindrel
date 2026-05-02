@@ -259,6 +259,8 @@ def build_native_cli_command(
     parts = ["claude"]
     if native_session_id:
         parts.extend(["-r", native_session_id])
+    if title:
+        parts.extend(["--name", title])
     if model:
         parts.extend(["--model", model])
     if effort:

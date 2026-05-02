@@ -389,6 +389,50 @@ async def test_persist_mirrored_assistant_promotes_discovered_native_session_id(
 
 
 @pytest.mark.asyncio
+async def test_persist_mirrored_user_promotes_discovered_native_session_id(
+    db_session,
+    tmp_path: Path,
+):
+    bot = build_bot(id="native-cli-user-promote-bot", name="Harness", model="unused")
+    bot.harness_runtime = "claude-code"
+    channel = build_channel(bot_id=bot.id)
+    session = Session(
+        client_id="native-cli-user-promote-session",
+        bot_id=bot.id,
+        channel_id=channel.id,
+    )
+    db_session.add_all([bot, channel, session])
+    await db_session.commit()
+
+    transcript = tmp_path / "claude-user-native-session.jsonl"
+    transcript.write_text("{}\n", encoding="utf-8")
+    await _persist_mirrored_record(
+        spindrel_session_id=session.id,
+        bot_id=bot.id,
+        channel_id=channel.id,
+        runtime_name="claude-code",
+        native_session_id=None,
+        transcript_path=transcript,
+        record=NativeCliMirrorRecord(
+            key="claude:user-record-1",
+            role="user",
+            content="Native CLI prompt while assistant is still running",
+        ),
+    )
+
+    harness_meta, _ = await load_latest_harness_metadata(db_session, session.id)
+    assert harness_meta is not None
+    assert harness_meta["runtime"] == "claude-code"
+    assert harness_meta["session_id"] == "claude-user-native-session"
+
+    row = await db_session.scalar(select(Message).where(Message.session_id == session.id))
+    assert row is not None
+    assert row.role == "user"
+    assert row.metadata_["harness_native_cli"]["native_session_id"] == "claude-user-native-session"
+    assert row.metadata_["harness"]["session_id"] == "claude-user-native-session"
+
+
+@pytest.mark.asyncio
 async def test_persist_mirrored_record_syncs_settings_without_chat_noise(db_session, tmp_path: Path):
     bot = build_bot(id="native-cli-settings-noise-bot", name="Harness", model="unused")
     channel = build_channel(bot_id=bot.id)

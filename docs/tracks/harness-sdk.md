@@ -616,6 +616,19 @@ Approval mapping intent (final values from schema):
   persist the visible user message immediately, carry `pre_user_msg_id` in
   `Task.execution_config`, and pass that id into harness persistence so the
   dequeued runtime turn does not duplicate or detach the user row.
+- 2026-05-02 Claude native CLI naming parity: the embedded Claude CLI command
+  now passes the Spindrel session title through Claude Code's native `--name`
+  option. The installed CLI documents this value as the prompt-box, `/resume`
+  picker, and terminal-title display name, so this uses a native session naming
+  hook instead of a Spindrel-side transcript rewrite. Codex still has no
+  equivalent installed CLI flag; app-server-created Codex threads continue to
+  use native `thread/name/set` with wrapper-stripped prompt titles.
+- 2026-05-02 native CLI early-resume promotion: mirrored native CLI user rows
+  now carry the same `metadata.harness` runtime/session id as mirrored
+  assistant rows, while only assistant rows receive bot sender identity. This
+  lets Spindrel learn a CLI-started native session as soon as the user's CLI
+  input reaches the transcript, instead of waiting for a final assistant row
+  that may be delayed, interrupted, or still streaming.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

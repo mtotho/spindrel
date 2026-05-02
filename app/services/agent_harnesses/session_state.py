@@ -318,7 +318,7 @@ async def load_latest_harness_metadata(
     stmt = (
         select(Message.metadata_, Message.created_at)
         .where(Message.session_id == session_id)
-        .where(Message.role == "assistant")
+        .where(Message.role.in_(("assistant", "user")))
         .order_by(Message.created_at.desc())
         .limit(50)
     )

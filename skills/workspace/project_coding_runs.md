@@ -31,9 +31,11 @@ Fresh instances clone the declared branch when they are created, so they pick
 up the latest remote state at that moment.
 
 If the user is still shaping a plan, issue list, or multi-part track, load
-`workspace/issue_intake` first and use `create_issue_work_packs` to publish
-proposed work packs for review. Do not skip straight to implementation unless
-the user explicitly asked to launch a coding run.
+`workspace/project_lifecycle` first. Use `workspace/project_prd` for a larger
+requirements/track plan, `workspace/project_stories` to split that plan into
+stories or Work Packs, and `workspace/issue_intake` for rough notes that should
+be triaged later. Do not skip straight to implementation unless the user
+explicitly asked to launch a coding run.
 
 ## Scheduled Runs
 

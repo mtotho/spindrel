@@ -48,7 +48,7 @@ def test_claude_native_cli_command_resumes_session_with_settings():
 
     assert (
         command
-        == "claude -r sess-123 --model claude-sonnet-4-6 --effort high "
+        == "claude -r sess-123 --name 'Harness parity' --model claude-sonnet-4-6 --effort high "
         "--permission-mode bypassPermissions --dangerously-skip-permissions"
     )
 

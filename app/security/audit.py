@@ -61,3 +61,36 @@ def log_tool_execution(
         channel_id or "-",
         truncated_args,
     )
+
+
+def log_self_mutation(
+    *,
+    bot_id: str,
+    field: str,
+    before: object,
+    after: object,
+    rationale: str,
+    origin_kind: str | None,
+    refused: bool = False,
+    reason: str = "",
+) -> None:
+    """Log a bot proposing a config change to its own row.
+
+    Self-mutation is allowed by design (the configurator skill needs it), but
+    every event lands in this audit stream so an operator can review history
+    and catch drift even if individual approvals looked reasonable.
+    """
+    if not _is_enabled():
+        return
+    truncated_rat = (rationale or "")[:_MAX_ARGS_LEN]
+    logger.info(
+        "bot_self_mutation bot=%s field=%s before=%r after=%r origin=%s refused=%s reason=%s rationale=%s",
+        bot_id,
+        field,
+        before,
+        after,
+        origin_kind or "-",
+        refused,
+        reason or "-",
+        truncated_rat,
+    )

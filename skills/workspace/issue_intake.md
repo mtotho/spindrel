@@ -13,6 +13,10 @@ category: workspace
 Use this skill when the user is dumping bugs, ideas, rough notes, or asks to
 turn a planning conversation into proposed Project Work Packs.
 
+If the user is asking for a PRD, feature brief, or larger track plan, load
+`workspace/project_prd` instead. If the user is asking to split a PRD or track
+into implementation units, load `workspace/project_stories` instead.
+
 ## Mental Model
 
 - **Issue Intake item**: a pending rough note. It is not a channel note, not a
