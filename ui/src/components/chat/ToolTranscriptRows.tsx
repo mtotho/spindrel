@@ -202,6 +202,8 @@ export function DefaultToolRows({
                     channelId={entry.kind === "file" ? channelId : null}
                     sessionId={entry.kind === "file" ? sessionId : null}
                     target={entry.target}
+                    pathRoot={entry.pathRoot}
+                    botId={botId}
                     className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap underline-offset-2 hover:underline"
                     style={{ color: t.linkColor, textDecorationColor: `${t.linkColor}66` }}
                     testId="tool-file-target-link"

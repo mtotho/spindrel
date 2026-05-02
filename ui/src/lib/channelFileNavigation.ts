@@ -84,6 +84,38 @@ export function resolveToolTargetFilePath(
   return resolveChannelLinkedFilePath(raw);
 }
 
+/** Resolve a memory-rooted path emitted by the bot's memory tool to the
+ *  workspace-scoped path the channel files viewer expects. Memory files live
+ *  under ``bots/<bot_id>/memory/...`` on disk; the tool reports them as
+ *  ``memory/<rel>`` for human readability. Returns null when the inputs are
+ *  insufficient — callers should fall back to the displayed text without a
+ *  link rather than routing to a wrong path. */
+export function resolveMemoryFilePath(
+  target: string | null | undefined,
+  botId: string | null | undefined,
+): string | null {
+  if (typeof target !== "string" || !target) return null;
+  if (typeof botId !== "string" || !botId) return null;
+  const trimmed = target.trim().replace(/^['"]|['"]$/g, "");
+  if (!trimmed || trimmed.startsWith("/") || trimmed.startsWith("~/") || /\s/.test(trimmed)) {
+    return null;
+  }
+  const cleaned = trimmed.replace(/^\.\//, "").replace(/^\/+/, "");
+  // Already rooted under bots/<botId>/memory — accept as-is when scoped
+  // correctly; reject anything pointing at a different bot's memory.
+  if (cleaned.startsWith("bots/")) {
+    const expectedPrefix = `bots/${botId}/memory/`;
+    return cleaned === `bots/${botId}/memory` || cleaned.startsWith(expectedPrefix)
+      ? cleaned
+      : null;
+  }
+  const rel = cleaned.startsWith("memory/")
+    ? cleaned.slice("memory/".length)
+    : cleaned;
+  if (!rel || rel.split("/").some((part) => part === "..")) return null;
+  return `bots/${botId}/memory/${rel}`;
+}
+
 export function directoryForWorkspaceFile(path: string): string {
   const normalized = normalizeWorkspaceNavigationPath(path);
   if (!normalized) return "";

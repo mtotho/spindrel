@@ -466,6 +466,7 @@ def test_memory_replace_section_presentation_is_memory_file_write():
         "subject_type": "file",
         "label": "Replace Section memory/MEMORY.md",
         "path": "memory/MEMORY.md",
+        "path_root": "memory",
     }
 
 
@@ -495,6 +496,7 @@ def test_memory_append_diff_presentation_is_rich_file_diff():
         "subject_type": "file",
         "label": "Append memory/logs/2026-04-30.md: +1 -0 lines",
         "path": "memory/logs/2026-04-30.md",
+        "path_root": "memory",
         "diff_stats": {"additions": 1, "deletions": 0},
     }
 
@@ -518,7 +520,78 @@ def test_memory_list_presentation_shows_memory_file_count():
         "subject_type": "file",
         "label": "Listed 2 memory file(s)",
         "preview_text": "2 memory files",
+        "path_root": "memory",
     }
+
+
+def test_memory_read_presentation_carries_memory_path_root():
+    """Memory tool reads must declare ``path_root="memory"`` so the chat UI
+    routes link targets to the bot's memory root (``bots/<bot_id>/memory/...``)
+    instead of the channel's Project workspace cwd. Regression for the bug
+    where memory-file links opened nonexistent project paths."""
+
+    surface, summary = derive_tool_presentation(
+        tool_name="memory",
+        arguments={"operation": "read", "path": "MEMORY.md"},
+        result=json.dumps(
+            {"path": "memory/MEMORY.md", "content": "# Memory\n\nFact."},
+            ensure_ascii=False,
+        ),
+        envelope={
+            "content_type": "text/markdown",
+            "body": "# Memory\n\nFact.",
+            "plain_body": "Read memory/MEMORY.md",
+            "display": "inline",
+        },
+    )
+
+    assert surface == "transcript"
+    assert summary["path"] == "memory/MEMORY.md"
+    assert summary["path_root"] == "memory"
+    assert summary["kind"] == "read"
+
+
+def test_get_memory_file_presentation_carries_memory_path_root():
+    surface, summary = derive_tool_presentation(
+        tool_name="get_memory_file",
+        arguments={"name": "MEMORY"},
+        result=json.dumps(
+            {"path": "memory/MEMORY.md", "content": "# Memory"}, ensure_ascii=False
+        ),
+        envelope={
+            "content_type": "application/json",
+            "body": json.dumps({"path": "memory/MEMORY.md"}),
+            "plain_body": "Read memory/MEMORY.md",
+            "display": "badge",
+        },
+    )
+
+    assert surface == "transcript"
+    assert summary["path"] == "memory/MEMORY.md"
+    assert summary["path_root"] == "memory"
+
+
+def test_file_tool_presentation_does_not_set_memory_path_root():
+    """Normal Project file links must keep the legacy workspace-relative
+    behavior — no ``path_root`` field, so the channel files viewer continues
+    to resolve them against the channel's cwd."""
+
+    surface, summary = derive_tool_presentation(
+        tool_name="file",
+        arguments={"operation": "read", "path": "docs/roadmap.md"},
+        result=json.dumps(
+            {"path": "docs/roadmap.md", "content": "# Roadmap"}, ensure_ascii=False
+        ),
+        envelope={
+            "content_type": "text/markdown",
+            "body": "# Roadmap",
+            "plain_body": "Read docs/roadmap.md",
+            "display": "inline",
+        },
+    )
+
+    assert surface in {"transcript", "rich_result"}
+    assert summary.get("path_root") is None
 
 
 def test_widget_envelope_presentation_prefers_widget_surface():
