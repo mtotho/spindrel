@@ -227,6 +227,8 @@ Approval mapping intent (final values from schema):
 - 2026-05-01 local Claude parity refresh: the owned native E2E API prepared a fresh Claude Code parity bot/channel, verified first-party Claude Code auth, and passed the focused native slash direct-command suite locally. A persisted detached session screenshot confirms the two-turn runtime resume path renders in the Spindrel transcript with the Claude runtime model/effort chips intact.
 
 ![Claude harness local resume transcript](../images/harness-claude-native-slash-local.png)
+- 2026-05-01 Claude SDK deep-surface refresh: local owned-port E2E passed Claude TodoWrite, ToolSearch, and native Task/Agent subagent persistence scenarios. Refreshed the existing docs screenshots for those SDK surfaces. The run also found and fixed a local E2E iteration issue where focused harness pytest teardown could remove the prepared parity channels before the next slice; local native-app harness runs now preserve those fixture channels.
+- 2026-05-01 native terminal-output polish: shared harness text tool-result envelopes now strip ANSI/OSC terminal escape sequences before persistence, so Claude/Codex native command output does not render raw color codes in the chat feed.
 - Codex app-server parity now has a supported-version guard and dependency floor. The live deployment was updated to `codex-cli 0.128.0` in the persisted `/home/spindrel` Docker volume, `/apps`, `/hooks`, `/approvals`, and `/fs` were smoke-tested through the app-server, Spindrel blocks older Codex CLIs at auth-status time, and the Codex integration manifest declares `minimum_version: 0.128.0` so startup/enable dependency checks upgrade an existing but stale persisted binary instead of treating it as installed forever.
 
 ### Live parity follow-up — 2026-04-30
@@ -511,6 +513,18 @@ Approval mapping intent (final values from schema):
   handoff path. The local harness screenshot runner can now create bootstrap
   sessions and capture Codex/Claude native `/context` result cards into
   `docs/images/harness-*-native-context-result-dark.png`.
+- 2026-05-02 parity ledger: added `docs/guides/harness-parity.md` as the
+  feature-by-feature audit table for Claude Code and Codex. The ledger ties
+  official runtime docs to Spindrel support state, existing tests/screenshots,
+  Spindrel-added benefits, and the next gaps to deepen, so future parity work
+  starts from an explicit matrix instead of re-discovering already-covered
+  surfaces.
+- 2026-05-02 native CLI round-trip hardening: the live native CLI mirror tests
+  now continue from the mirrored CLI turn with a normal Spindrel chat turn and
+  require the runtime to recall the marker from the immediately previous native
+  CLI turn. Added a `cli` local parity batch preset covering Codex mirror,
+  Codex model/effort sync, and Claude mirror screenshots so this surface can be
+  rerun without the full replay tier.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

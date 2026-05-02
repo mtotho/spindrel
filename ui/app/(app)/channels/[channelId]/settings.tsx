@@ -117,6 +117,7 @@ function buildChannelSettingsForm(settings: ChannelSettings): Partial<ChannelSet
     tags: settings.tags ?? [],
     category: settings.category ?? null,
     chat_mode: settings.chat_mode ?? "default",
+    native_context_policy: settings.native_context_policy ?? "default",
     header_backdrop_mode: settings.header_backdrop_mode ?? "glass",
     plan_mode_control: settings.plan_mode_control ?? "auto",
     layout_mode: settings.layout_mode,

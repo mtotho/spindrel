@@ -358,6 +358,8 @@ export interface Channel {
     layout_mode?: "full" | "rail-header-chat" | "rail-chat" | "dashboard-only";
     /** Chat presentation mode for the main channel surface. */
     chat_mode?: "default" | "terminal";
+    /** Native Spindrel context diet. Harness runtimes use separate harness context settings. */
+    native_context_policy?: "default" | "lean" | "standard" | "rich";
     /** Top-center header strip shell treatment for header-zone widgets. */
     header_backdrop_mode?: "default" | "glass" | "clear";
     /** Composer plan-control visibility. "auto" is the absent/default state. */
@@ -791,10 +793,9 @@ export type WidgetScope =
   | { kind: "channel"; channelId: string; compact?: false | "chip" }
   | { kind: "dashboard"; channelId?: string };
 
-/** Chat-side zone a dashboard pin belongs to. Stored directly on the pin
- *  (``widget_dashboard_pins.zone``) and authored via the multi-canvas
- *  channel dashboard. ``"grid"`` means dashboard-only — the pin does not
- *  surface on the chat screen. */
+/** Legacy chat-side zone a dashboard pin belongs to. New chat shelf visibility
+ *  is explicit on ``widget_config.show_in_chat_shelf``; ``"grid"`` means
+ *  canvas-only unless that flag is set. */
 export type ChatZone = "rail" | "header" | "dock" | "grid";
 
 // Full channel settings (matches server ChannelSettingsOut)
@@ -884,6 +885,8 @@ export interface ChannelSettings {
    *  `channel.config`. "default" keeps the current UI; "terminal" swaps in
    *  the command-first transcript treatment. */
   chat_mode?: "default" | "terminal";
+  /** Native Spindrel context diet. "default" inherits the server default. Harness agents use separate harness context. */
+  native_context_policy?: "default" | "lean" | "standard" | "rich";
   /** Top-center chat header strip shell treatment. Stored in `channel.config`. */
   header_backdrop_mode?: "default" | "glass" | "clear";
   /** Composer plan-control visibility. "auto" hides dormant control on non-harness channels and shows it for harness channels. Stored in `channel.config`. */

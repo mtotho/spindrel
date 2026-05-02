@@ -263,6 +263,7 @@ async def build_admin_channel_settings_out(
     out.pipeline_mode = cfg.get("pipeline_mode") or "auto"
     out.layout_mode = cfg.get("layout_mode") or "full"
     out.chat_mode = cfg.get("chat_mode") or "default"
+    out.native_context_policy = cfg.get("native_context_policy") or "default"
     out.header_backdrop_mode = cfg.get("header_backdrop_mode") or "glass"
     out.plan_mode_control = cfg.get("plan_mode_control") or "auto"
     out.widget_theme_ref = cfg.get("widget_theme_ref")

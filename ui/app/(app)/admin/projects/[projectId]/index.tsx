@@ -1,9 +1,10 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, FolderGit2, FolderOpen, GitPullRequest, Hash, KeyRound, Layers, Play, Plus, RotateCw, Save, ServerCog, Terminal, Trash2, Unlink, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, FolderGit2, FolderOpen, GitPullRequest, Hash, KeyRound, Layers, MessageSquareWarning, Play, Plus, RotateCw, Save, ServerCog, Terminal, Trash2, Unlink, Users } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
 import { useCleanupProjectInstance, useCreateProjectBlueprintFromCurrent, useCreateProjectInstance, useManageProjectDependencyStack, useProject, useProjectChannels, useProjectCodingRunReviewBatches, useProjectCodingRuns, useProjectInstances, useProjectRunReceipts, useProjectRuntimeEnv, useProjectDependencyStack, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
 import { useCreateChannel, useChannels, usePatchChannelSettings } from "@/src/api/hooks/useChannels";
+import { isActiveAttentionItem, useIssueWorkPacks, useWorkspaceAttention, type WorkspaceAttentionItem } from "@/src/api/hooks/useWorkspaceAttention";
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useSecretValues } from "@/src/api/hooks/useSecretValues";
 import { useWorkspace } from "@/src/api/hooks/useWorkspaces";
@@ -128,6 +129,14 @@ function countRunsByStatus(runs: ProjectCodingRun[]) {
   );
 }
 
+function hasIssueIntake(item: WorkspaceAttentionItem) {
+  const evidence = item.evidence ?? {};
+  return Boolean(
+    evidence.issue_intake && typeof evidence.issue_intake === "object"
+    || evidence.report_issue && typeof evidence.report_issue === "object",
+  );
+}
+
 function newestActivityLabel(values: Array<{ created_at?: string | null; updated_at?: string | null }>) {
   const dates = values
     .map((value) => value.updated_at || value.created_at)
@@ -158,8 +167,11 @@ function ProjectOverviewSection({
   filesHref: string;
   setTab: (tab: ProjectTab) => void;
 }) {
+  const navigate = useNavigate();
   const { data: runs = [] } = useProjectCodingRuns(project.id);
   const { data: reviewBatches = [] } = useProjectCodingRunReviewBatches(project.id);
+  const { data: attention = [] } = useWorkspaceAttention();
+  const { data: workPacks = [] } = useIssueWorkPacks();
   const runCounts = countRunsByStatus(runs);
   const readyBatches = reviewBatches.filter(
     (batch) => (batch.actions?.can_start_review || batch.actions?.can_mark_reviewed) && (batch.unreviewed_run_ids?.length ?? batch.ready_run_ids?.length ?? batch.run_count) > 0,
@@ -170,6 +182,21 @@ function ProjectOverviewSection({
   const activeInstances = (instances ?? []).filter((instance) => !["deleted", "expired"].includes(instance.status));
   const dependencyConfigured = Boolean(project.metadata_?.blueprint_snapshot?.dependency_stack);
   const latestRuns = runs.slice(0, 4);
+  const projectChannelIds = new Set((channels ?? []).map((channel) => channel.id));
+  const projectKey = `${project.name} ${project.slug} ${project.root_path}`.toLowerCase();
+  const rawIssueIntake = attention.filter((item) => {
+    if (!isActiveAttentionItem(item) || !hasIssueIntake(item)) return false;
+    if (item.channel_id && projectChannelIds.has(item.channel_id)) return true;
+    const hint = item.evidence?.issue_intake && typeof item.evidence.issue_intake === "object"
+      ? String((item.evidence.issue_intake as any).project_hint || "").toLowerCase()
+      : "";
+    return Boolean(hint && projectKey.includes(hint));
+  });
+  const activeProjectWorkPacks = workPacks.filter((pack) => {
+    if (pack.status !== "proposed" && pack.status !== "needs_info") return false;
+    if (pack.project_id === project.id) return true;
+    return Boolean(pack.channel_id && projectChannelIds.has(pack.channel_id));
+  });
 
   return (
     <div data-testid="project-overview-home" className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
@@ -181,7 +208,7 @@ function ProjectOverviewSection({
         emphasis="primary"
         action={<ActionButton label="Start run" icon={<Play size={14} />} size="small" onPress={() => setTab("runs")} />}
       >
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
           <SettingsControlRow
             compact
             leading={<GitPullRequest size={14} />}
@@ -189,6 +216,14 @@ function ProjectOverviewSection({
             description={`${runCounts.ready} ready, ${runCounts.active} active, ${runCounts.blocked} blocked`}
             meta={<StatusBadge label={runCounts.ready > 0 ? "Review" : runCounts.active > 0 ? "Active" : "Clear"} variant={runCounts.blocked > 0 ? "warning" : runCounts.ready > 0 ? "info" : "success"} />}
             onClick={() => setTab("runs")}
+          />
+          <SettingsControlRow
+            compact
+            leading={<MessageSquareWarning size={14} />}
+            title="Issue intake"
+            description={`${rawIssueIntake.length} raw note${rawIssueIntake.length === 1 ? "" : "s"}, ${activeProjectWorkPacks.length} active work pack${activeProjectWorkPacks.length === 1 ? "" : "s"}`}
+            meta={<StatusBadge label={rawIssueIntake.length || activeProjectWorkPacks.length ? "Review" : "Clear"} variant={rawIssueIntake.length || activeProjectWorkPacks.length ? "info" : "success"} />}
+            onClick={() => navigate("/hub/attention?mode=issues")}
           />
           <SettingsControlRow
             compact

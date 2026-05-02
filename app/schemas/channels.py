@@ -200,6 +200,7 @@ class ChannelSettingsOut(BaseModel):
     pipeline_mode: str = "auto"
     layout_mode: str = "full"
     chat_mode: str = "default"
+    native_context_policy: str = "default"
     header_backdrop_mode: str = "glass"
     plan_mode_control: str = "auto"
     widget_theme_ref: Optional[str] = None

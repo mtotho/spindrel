@@ -96,7 +96,7 @@ export default function HubAttentionPage() {
         variant="detail"
         parentLabel="Hub"
         title="Mission Control Review"
-        subtitle="Review findings, sweep unreviewed items, and inspect receipts"
+        subtitle="Review findings, sweep raw signals, and inspect receipts"
         backTo="/"
         chrome="flow"
         showMenuWithBack

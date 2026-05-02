@@ -392,11 +392,6 @@ async def _load_messages(
     for stripping it before passing messages to the LLM (use ``strip_metadata_keys``).
     """
     bot = get_bot(session.bot_id)
-    context_profile = resolve_context_profile(
-        session=session,
-        profile_name=context_profile_name,
-    )
-
     ws_base_enabled = await _resolve_workspace_base_prompt_enabled(
         db, session.bot_id, session.channel_id,
     )
@@ -456,6 +451,11 @@ async def _load_messages(
     _channel: Channel | None = None
     if session.channel_id:
         _channel = await db.get(Channel, session.channel_id)
+    context_profile = resolve_context_profile(
+        session=session,
+        profile_name=context_profile_name,
+        channel=_channel,
+    )
 
     def _convert_msgs(orm_msgs: list[Message]) -> list[dict]:
         return [_message_to_dict(m, enrich_attachments=True) for m in orm_msgs]

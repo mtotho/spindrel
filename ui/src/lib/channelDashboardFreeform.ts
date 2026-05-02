@@ -6,9 +6,6 @@ export const DASHBOARD_CAMERA_MIN_SCALE = 0.08;
 export const DASHBOARD_CAMERA_MAX_SCALE = 1;
 export const DASHBOARD_CAMERA_EXIT_SCALE = 0.1;
 export const DASHBOARD_CANVAS_GAP = 12;
-export const DASHBOARD_SIDE_RAIL_WIDTH = 260;
-export const DASHBOARD_HEADER_ROW_HEIGHT = 36;
-export const DASHBOARD_HEADER_ROWS = 2;
 
 export interface DashboardCamera {
   x: number;
@@ -43,11 +40,7 @@ export interface DashboardFrame {
   centerWidth: number;
   frameX: number;
   frameY: number;
-  headerHeight: number;
-  railRect: Rect;
   centerRect: Rect;
-  dockRect: Rect;
-  headerRect: Rect;
 }
 
 export interface DashboardNeighborGhost {
@@ -148,7 +141,6 @@ export function dashboardFrame(
   const stepY = preset.rowHeight + DASHBOARD_CANVAS_GAP;
   const frameX = origin.x * stepX;
   const frameY = origin.y * stepY;
-  const headerHeight = DASHBOARD_HEADER_ROWS * DASHBOARD_HEADER_ROW_HEIGHT + DASHBOARD_CANVAS_GAP;
   const bodyH = Math.max(minHeight, preset.defaultTile.h * stepY * 3);
   return {
     origin,
@@ -158,26 +150,7 @@ export function dashboardFrame(
     centerWidth: safeCenterWidth,
     frameX,
     frameY,
-    headerHeight,
-    railRect: {
-      x: frameX - DASHBOARD_SIDE_RAIL_WIDTH - DASHBOARD_CANVAS_GAP,
-      y: frameY,
-      w: DASHBOARD_SIDE_RAIL_WIDTH,
-      h: bodyH,
-    },
     centerRect: { x: frameX, y: frameY, w: safeCenterWidth, h: bodyH },
-    dockRect: {
-      x: frameX + safeCenterWidth + DASHBOARD_CANVAS_GAP,
-      y: frameY,
-      w: DASHBOARD_SIDE_RAIL_WIDTH,
-      h: bodyH,
-    },
-    headerRect: {
-      x: frameX,
-      y: frameY - headerHeight,
-      w: safeCenterWidth,
-      h: headerHeight,
-    },
   };
 }
 
@@ -255,7 +228,7 @@ export function findOpenGridPlacement(
 }
 
 export function fitFrameCamera(
-  frame: Pick<DashboardFrame, "railRect" | "dockRect" | "headerRect" | "centerRect">,
+  frame: Pick<DashboardFrame, "centerRect">,
   viewport: { w: number; h: number },
 ): DashboardCamera {
   const minX = frame.centerRect.x;
@@ -276,7 +249,7 @@ export function fitFrameCamera(
 }
 
 export function homeFrameCamera(
-  frame: Pick<DashboardFrame, "railRect" | "dockRect" | "headerRect" | "centerRect">,
+  frame: Pick<DashboardFrame, "centerRect">,
   viewport: { w: number; h: number },
 ): DashboardCamera {
   const minX = frame.centerRect.x;
@@ -293,7 +266,7 @@ export function homeFrameCamera(
 }
 
 export function placeDashboardNeighborGhosts(
-  frame: Pick<DashboardFrame, "railRect" | "dockRect" | "headerRect" | "centerRect">,
+  frame: Pick<DashboardFrame, "centerRect">,
   neighbors: Array<{ id: string; channelId: string; dx: number; dy: number }>,
 ): DashboardNeighborGhost[] {
   const minX = frame.centerRect.x;

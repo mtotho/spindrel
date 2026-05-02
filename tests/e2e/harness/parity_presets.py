@@ -68,6 +68,11 @@ PRESETS: dict[str, tuple[Slice, ...]] = {
         Slice("terminal", "terminal_tool_output_is_sequential"),
         Slice("replay", "persisted_tool_replay_survives_refetch"),
     ),
+    "cli": (
+        Slice("terminal", "codex_native_cli_terminal_mirrors_to_spindrel"),
+        Slice("terminal", "codex_native_cli_model_effort_syncs_to_spindrel_composer"),
+        Slice("terminal", "claude_native_cli_terminal_mirrors_to_spindrel"),
+    ),
     "fast": (
         Slice("core", "codex and native_slash_direct_commands"),
         Slice("core", "claude and native_slash_direct_commands"),
@@ -97,6 +102,9 @@ PRESETS: dict[str, tuple[Slice, ...]] = {
         Slice("skills", "claude and claude_native_todo_progress_persists"),
         Slice("skills", "claude and claude_native_toolsearch_persists"),
         Slice("skills", "claude and claude_native_subagent_persists"),
+        Slice("terminal", "codex_native_cli_terminal_mirrors_to_spindrel"),
+        Slice("terminal", "codex_native_cli_model_effort_syncs_to_spindrel_composer"),
+        Slice("terminal", "claude_native_cli_terminal_mirrors_to_spindrel"),
         Slice("replay", "persisted_tool_replay_survives_refetch"),
     ),
     "all": (_FULL_SUITE_REPLAY,),
@@ -144,6 +152,18 @@ _SELECTOR_SCREENSHOT_RULES: tuple[tuple[str, str], ...] = (
     ("claude_native_todo_progress_persists", "harness-claude-todowrite-progress"),
     ("claude_native_toolsearch_persists", "harness-claude-toolsearch-discovery"),
     ("claude_native_subagent_persists", "harness-claude-native-subagent"),
+    (
+        "codex_native_cli_terminal_mirrors_to_spindrel",
+        "__inline__:harness-codex-native-cli-terminal,harness-codex-native-cli-mirror",
+    ),
+    (
+        "codex_native_cli_model_effort_syncs_to_spindrel_composer",
+        "__inline__:harness-codex-native-cli-settings-sync",
+    ),
+    (
+        "claude_native_cli_terminal_mirrors_to_spindrel",
+        "__inline__:harness-claude-native-cli-terminal,harness-claude-native-cli-mirror",
+    ),
 )
 
 

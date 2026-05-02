@@ -146,6 +146,7 @@ def test_resolve_specs_preserves_wait_strategy():
     assert resolved["home"].wait_kind == "function"
     assert 'data-testid="home-recent-session-row"' in str(resolved["home"].wait_arg)
     assert 'data-testid="home-unread-center"' in str(resolved["home"].wait_arg)
+    assert 'data-testid="home-action-inbox"' in str(resolved["home"].wait_arg)
     assert resolved["widget-dashboard"].wait_kind == "function"
     assert resolved["chat-pipeline-live"].wait_kind == "function"
 

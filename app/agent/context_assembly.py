@@ -27,7 +27,7 @@ from app.agent.context import (
     set_ephemeral_delegates,
     set_ephemeral_skills,
 )
-from app.agent.context_profiles import ContextProfile, get_context_profile
+from app.agent.context_profiles import ContextProfile, get_context_profile, resolve_context_profile
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -139,7 +139,7 @@ def _build_context_profile_note(
     the model knows what is missing on this run without duplicating the whole
     prompt family.
     """
-    if context_profile.name == "chat":
+    if context_profile.name in {"chat", "chat_lean", "chat_standard", "chat_rich"}:
         return None
 
     lines = [f"Current context profile: {context_profile.name}."]
@@ -2707,20 +2707,37 @@ async def assemble_context(
         extra={"user_message": user_message},
     ))
 
-    context_profile = get_context_profile(context_profile_name or "chat")
     if isinstance(required_tool_names, str):
         required_tool_names = [required_tool_names]
     elif required_tool_names is not None:
         required_tool_names = [str(n) for n in required_tool_names if n]
-    result.context_profile = context_profile.name
-    result.context_origin = current_run_origin.get(None)
-    result.context_policy = context_profile.to_policy_dict()
     current_skills_in_context.set([])
     ledger = AssemblyLedger(budget=budget)
     stage_state = AssemblyStageState(bot=bot)
 
     # --- channel-level tool/skill overrides ---
     _ch_row = await _load_channel_overrides(channel_id=channel_id)
+    if context_profile_name:
+        context_profile = get_context_profile(context_profile_name)
+    else:
+        _session_row = None
+        if session_id is not None:
+            try:
+                from app.db.engine import async_session
+                from app.db.models import Session
+
+                async with async_session() as _profile_db:
+                    _session_row = await _profile_db.get(Session, session_id)
+            except Exception:
+                logger.debug("context profile session lookup failed", exc_info=True)
+        context_profile = resolve_context_profile(
+            session=_session_row,
+            origin=current_run_origin.get(None),
+            channel=_ch_row,
+        )
+    result.context_profile = context_profile.name
+    result.context_origin = current_run_origin.get(None)
+    result.context_policy = context_profile.to_policy_dict()
 
     # --- context pruning (trim stale tool results) ---
     async for _evt in _run_context_pruning(
@@ -3119,7 +3136,7 @@ async def assemble_for_preview(
         budget=budget,
         task_mode=False,
         skip_skill_inject=False,
-        context_profile_name=resolve_context_profile(session=session).name if session is not None else "chat",
+        context_profile_name=resolve_context_profile(session=session, channel=channel).name,
     ):
         pass
 

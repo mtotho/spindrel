@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import {
-  Section, FormRow, TextInput, Toggle, Row, Col,
+  Section, FormRow, SelectInput, TextInput, Toggle, Row, Col,
 } from "@/src/components/shared/FormControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
@@ -44,6 +44,28 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
     <>
       {/* 1. History Mode cards — always visible at top */}
       <HistoryModeSection form={form} patch={patch} botHistoryMode={botHistoryMode} onOpenGuide={() => setGuideOpen(true)} />
+
+      <Section
+        title="Native Context Policy"
+        description="Controls the prompt diet for normal Spindrel chat turns in this channel. Scheduled tasks, heartbeats, and harness agents use their own context policies."
+        noDivider
+      >
+        <FormRow
+          label="Context policy"
+          description="Lean is the default low-context path: 4 live turns plus section index. Rich restores the older broad preload behavior."
+        >
+          <SelectInput
+            value={(form.native_context_policy ?? "default") as string}
+            onChange={(value) => patch("native_context_policy", value as ChannelSettings["native_context_policy"])}
+            options={[
+              { label: "Default — inherit server setting", value: "default" },
+              { label: "Lean — 4 turns, compact section index, on-demand context", value: "lean" },
+              { label: "Standard — 8 turns, selected RAG/context", value: "standard" },
+              { label: "Rich — previous broad context preload", value: "rich" },
+            ]}
+          />
+        </FormRow>
+      </Section>
 
       {/* 2. Compaction settings — conditional on mode */}
       {isFileOrStructured ? (

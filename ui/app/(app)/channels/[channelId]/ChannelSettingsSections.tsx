@@ -537,7 +537,7 @@ export function PresentationSection({
         </FormRow>
         <FormRow
           label="Chat screen layout"
-          description="Controls whether chat includes the channel workbench. Widgets use one workbench surface; dashboard zones only affect the dashboard editor."
+          description="Controls whether chat includes the channel workbench. Chat shelf artifacts are chosen explicitly from the workbench."
         >
           <SelectInput
             value={(form.layout_mode ?? "full") as string}

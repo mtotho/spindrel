@@ -2716,9 +2716,8 @@ export function InteractiveHtmlRenderer({
         || (sourceKind === "integration" && !!sourceIntegrationId)
       )
     );
-  // The `channelId` prop is the authoritative source — set by every render
-  // surface that knows which channel the widget lives on (chat view, channel
-  // dashboards via `ChannelDashboardMultiCanvas`). We deliberately do NOT
+  // The `channelId` prop is the authoritative source, set by every render
+  // surface that knows which channel the widget lives on. We deliberately do NOT
   // fall back to `envelope.source_channel_id` here: that field points at the
   // channel the widget was *emitted from*, which is not always the channel
   // the widget is *being viewed in*, and relying on it previously masked a

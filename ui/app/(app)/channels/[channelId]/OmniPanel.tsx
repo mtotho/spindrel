@@ -122,8 +122,8 @@ export function OmniPanel({
     () => resolvePreset(dashboardRow?.grid_config ?? null),
     [dashboardRow?.grid_config],
   );
-  // Chrome (borderless / hover-scrollbars) is a per-dashboard preference,
-  // so the rail mirrors whatever the channel dashboard is configured for.
+  // Chrome (borderless / hover-scrollbars) is a per-workbench preference,
+  // so shelf artifacts mirror the channel workbench's render settings.
   const chrome = useMemo(
     () => resolveChrome(dashboardRow?.grid_config ?? null),
     [dashboardRow?.grid_config],
@@ -315,14 +315,14 @@ function EmptyWidgets({
     <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 gap-3">
       <Layers size={22} className="text-text-muted opacity-30" />
       <span className="text-center text-xs leading-relaxed text-text-muted/70">
-        Pin widgets on the channel dashboard to surface them in this workbench.
+        Mark an artifact as shown in chat shelf to keep it beside this conversation.
       </span>
       <Link
         to={dashboardHref}
         className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2.5 py-1 text-[11px] font-medium text-text-muted hover:bg-surface-overlay transition-colors"
       >
         <Plus size={11} />
-        Open channel dashboard
+        Open channel workbench
       </Link>
     </div>
   );

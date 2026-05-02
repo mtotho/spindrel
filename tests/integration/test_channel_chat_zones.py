@@ -1,9 +1,8 @@
-"""Integration tests for the chat-zones resolver and HTTP endpoint.
+"""Integration tests for the chat shelf resolver and HTTP endpoint.
 
-Zone membership is now stored directly on each pin (``widget_dashboard_pins.zone``)
-and authored via the multi-canvas channel dashboard editor. The resolver is a
-trivial group-by; these tests drive the moves through the layout API (which
-accepts a ``zone`` field per-item).
+New pins opt into chat via ``widget_config.show_in_chat_shelf``. Legacy
+``rail/header/dock`` zones still map into the single shelf bucket so older
+dashboard rows keep appearing beside chat until they are normalized.
 """
 from __future__ import annotations
 
@@ -69,6 +68,15 @@ async def _move_to_zone(
     assert r.status_code == 200, r.text
 
 
+async def _set_chat_shelf(client, pin_id: str, enabled: bool = True):
+    r = await client.patch(
+        f"/api/v1/widgets/dashboard/pins/{pin_id}/config",
+        json={"config": {"show_in_chat_shelf": enabled}, "merge": True},
+        headers=AUTH_HEADERS,
+    )
+    assert r.status_code == 200, r.text
+
+
 class TestChatZonesEndpoint:
     @pytest.mark.asyncio
     async def test_404_on_unknown_channel(self, client):
@@ -89,47 +97,43 @@ class TestChatZonesEndpoint:
 
     @pytest.mark.asyncio
     async def test_new_channel_pins_default_to_grid(self, client, db_session):
-        """Creating a pin on a channel dashboard lands it in the Grid (main)
-        canvas by default — "Add widget" drops into the page the user is
-        looking at; moves to Rail / Dock / Header happen via the zone chip."""
+        """New pins are canvas-only until explicitly shown in the chat shelf."""
         ch = await _make_channel(db_session)
         pin_id = await _pin_on_channel(client, ch.id, "auto-grid")
         r = await client.get(
             f"/api/v1/channels/{ch.id}/chat-zones", headers=AUTH_HEADERS,
         )
         data = r.json()
-        # Grid-zoned pins are dashboard-only — absent from the chat-zones
-        # response across all three chat-side buckets.
         assert data == {"rail": [], "header": [], "dock": []}
-        # The pin itself still exists on the dashboard, just not surfaced in
-        # chat.
         _ = pin_id
 
     @pytest.mark.asyncio
-    async def test_pin_in_header_zone(self, client, db_session):
+    async def test_pin_marked_for_chat_shelf_appears_in_rail_bucket(self, client, db_session):
         ch = await _make_channel(db_session)
-        pin_id = await _pin_on_channel(client, ch.id, "chip-a")
-        await _move_to_zone(client, ch.id, pin_id, "header", x=0, y=0, w=1, h=1)
+        pin_id = await _pin_on_channel(client, ch.id, "shelf-a")
+        await _set_chat_shelf(client, pin_id)
         r = await client.get(
             f"/api/v1/channels/{ch.id}/chat-zones", headers=AUTH_HEADERS,
         )
         data = r.json()
-        assert data["rail"] == []
+        assert [p["id"] for p in data["rail"]] == [pin_id]
         assert data["dock"] == []
-        assert [p["id"] for p in data["header"]] == [pin_id]
+        assert data["header"] == []
 
     @pytest.mark.asyncio
-    async def test_pin_in_dock_zone(self, client, db_session):
+    async def test_legacy_panel_zones_fold_into_chat_shelf(self, client, db_session):
         ch = await _make_channel(db_session)
-        pin_id = await _pin_on_channel(client, ch.id, "dock-a")
-        await _move_to_zone(client, ch.id, pin_id, "dock", x=0, y=0, w=1, h=6)
+        header_id = await _pin_on_channel(client, ch.id, "header-a")
+        dock_id = await _pin_on_channel(client, ch.id, "dock-a")
+        await _move_to_zone(client, ch.id, header_id, "header", x=2, y=0, w=1, h=1)
+        await _move_to_zone(client, ch.id, dock_id, "dock", x=0, y=1, w=1, h=6)
         r = await client.get(
             f"/api/v1/channels/{ch.id}/chat-zones", headers=AUTH_HEADERS,
         )
         data = r.json()
-        assert data["rail"] == []
         assert data["header"] == []
-        assert [p["id"] for p in data["dock"]] == [pin_id]
+        assert data["dock"] == []
+        assert [p["id"] for p in data["rail"]] == [header_id, dock_id]
 
     @pytest.mark.asyncio
     async def test_grid_zone_excluded(self, client, db_session):
@@ -143,7 +147,7 @@ class TestChatZonesEndpoint:
         assert r.json() == {"rail": [], "header": [], "dock": []}
 
     @pytest.mark.asyncio
-    async def test_moving_pin_shifts_zone(self, client, db_session):
+    async def test_legacy_move_to_grid_removes_from_chat_shelf(self, client, db_session):
         ch = await _make_channel(db_session)
         pin_id = await _pin_on_channel(client, ch.id, "mover")
 
@@ -151,29 +155,29 @@ class TestChatZonesEndpoint:
         data = (await client.get(
             f"/api/v1/channels/{ch.id}/chat-zones", headers=AUTH_HEADERS,
         )).json()
-        assert len(data["dock"]) == 1
+        assert len(data["rail"]) == 1
 
-        await _move_to_zone(client, ch.id, pin_id, "rail")
+        await _move_to_zone(client, ch.id, pin_id, "grid")
         data = (await client.get(
             f"/api/v1/channels/{ch.id}/chat-zones", headers=AUTH_HEADERS,
         )).json()
-        assert len(data["rail"]) == 1
+        assert data["rail"] == []
         assert data["dock"] == []
 
     @pytest.mark.asyncio
-    async def test_header_chip_ordering_by_x(self, client, db_session):
+    async def test_chat_shelf_ordering_by_y_then_position(self, client, db_session):
         ch = await _make_channel(db_session)
         pin_a = await _pin_on_channel(client, ch.id, "a")
         pin_b = await _pin_on_channel(client, ch.id, "b")
         pin_c = await _pin_on_channel(client, ch.id, "c")
-        await _move_to_zone(client, ch.id, pin_a, "header", x=7, y=0, w=1, h=1)
-        await _move_to_zone(client, ch.id, pin_b, "header", x=4, y=0, w=1, h=1)
-        await _move_to_zone(client, ch.id, pin_c, "header", x=5, y=0, w=1, h=1)
+        await _move_to_zone(client, ch.id, pin_a, "rail", x=0, y=7, w=1, h=1)
+        await _move_to_zone(client, ch.id, pin_b, "rail", x=0, y=4, w=1, h=1)
+        await _move_to_zone(client, ch.id, pin_c, "rail", x=0, y=5, w=1, h=1)
 
-        chips = (await client.get(
+        shelf = (await client.get(
             f"/api/v1/channels/{ch.id}/chat-zones", headers=AUTH_HEADERS,
-        )).json()["header"]
-        assert [c["id"] for c in chips] == [pin_b, pin_c, pin_a]
+        )).json()["rail"]
+        assert [p["id"] for p in shelf] == [pin_b, pin_c, pin_a]
 
     @pytest.mark.asyncio
     async def test_invalid_zone_rejected(self, client, db_session):

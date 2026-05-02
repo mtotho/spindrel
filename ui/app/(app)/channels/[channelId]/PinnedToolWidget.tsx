@@ -134,9 +134,8 @@ interface PinnedToolWidgetProps {
    *  owns title, debug, refresh, source, and navigation controls. */
   bodyOnly?: boolean;
   controlsRef?: MutableRefObject<PinnedToolWidgetControls | null>;
-  /** Channel multi-canvas dashboard: the enclosing `DndContext` supplies a
-   *  pre-wired draggable binding (useSortable or useDraggable) so the grip
-   *  icon becomes the single drag handle — intra-canvas AND cross-canvas.
+  /** Workbench edit surfaces can supply a pre-wired draggable binding
+   *  (useSortable or useDraggable) so the grip icon becomes the single drag handle.
    *  When omitted, the widget falls back to its own internal useSortable
    *  (used by the channel-scope OmniPanel rail in runtime chat). */
   externalDrag?: ExternalDragBinding;
@@ -187,9 +186,8 @@ export function PinnedToolWidget({
   // implied by the compact scope, and everything else is the dashboard grid.
   const effectiveLayout: WidgetLayout = layout ?? (isChip ? "chip" : "grid");
   // InteractiveHtmlRenderer pools iframes by dashboard pin id for every
-  // pinned widget surface, including channel-scope chip rendering inside the
-  // channel-dashboard editor. Keep the readiness gate keyed the same way so
-  // cross-panel moves do not re-show the preload skeleton forever after the
+  // pinned widget surface. Keep the readiness gate keyed the same way so
+  // layout changes do not re-show the preload skeleton forever after the
   // pooled iframe is reattached under a different host.
   const keepAliveKey = `dashboard-pin:${widget.id}`;
 
@@ -465,8 +463,8 @@ export function PinnedToolWidget({
 
   // Fallback drag binding for surfaces that don't pass `externalDrag` (the
   // channel-scope OmniPanel rail uses dnd-kit's SortableContext internally).
-  // Dashboard-scope edit mode supplies its own binding from the enclosing
-  // DndContext in `ChannelDashboardMultiCanvas` via the `externalDrag` prop.
+  // Dashboard-scope edit mode can supply its own binding from an enclosing
+  // DndContext via the `externalDrag` prop.
   const fallbackSortable = useSortable({ id: widget.id });
   const {
     attributes: fbAttrs,

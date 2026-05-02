@@ -66,10 +66,13 @@ test("legacy layouts offset once into freeform grid space", () => {
 test("drop classifier treats legacy panel lanes as freeform grid", () => {
   const origin = freeformOriginForPreset(preset);
   const frame = dashboardFrame(preset, origin, 720, 900);
+  const leftOfBoard = { x: frame.centerRect.x - 320, y: frame.centerRect.y, w: 120, h: 100 };
+  const rightOfBoard = { x: frame.centerRect.x + frame.centerRect.w + 80, y: frame.centerRect.y, w: 120, h: 100 };
+  const aboveBoard = { x: frame.centerRect.x, y: frame.centerRect.y - 120, w: 120, h: 30 };
 
-  assert.equal(classifyDashboardDrop({ ...frame.railRect, w: 120, h: 100 }, frame).zone, "grid");
-  assert.equal(classifyDashboardDrop({ ...frame.dockRect, w: 120, h: 100 }, frame).zone, "grid");
-  assert.equal(classifyDashboardDrop({ ...frame.headerRect, w: 120, h: 30 }, frame).zone, "grid");
+  assert.equal(classifyDashboardDrop(leftOfBoard, frame).zone, "grid");
+  assert.equal(classifyDashboardDrop(rightOfBoard, frame).zone, "grid");
+  assert.equal(classifyDashboardDrop(aboveBoard, frame).zone, "grid");
 
   const freeRect = gridLayoutToWorldRect({ x: origin.x + 20, y: origin.y + 20, w: 3, h: 4 }, frame);
   assert.equal(classifyDashboardDrop(freeRect, frame).zone, "grid");

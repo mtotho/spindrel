@@ -30,6 +30,17 @@ logger = logging.getLogger(__name__)
 _CHANNEL_WORKSPACE_BUDGET = 50_000
 
 
+def _cap_text(text: str, max_chars: int | None) -> str:
+    if max_chars is None or max_chars <= 0 or len(text) <= max_chars:
+        return text
+    truncated = text[:max_chars].rstrip()
+    return (
+        f"{truncated}\n\n"
+        f"[Truncated to {max_chars} chars by the active context policy. "
+        "Use memory/file tools for exact details if needed.]"
+    )
+
+
 def channel_workspace_tools() -> list[str]:
     from app.tools.registry import get_local_tool_names_by_metadata
 
@@ -164,6 +175,7 @@ async def inject_memory_scheme(
         if os.path.isfile(md_path):
             content = Path(md_path).read_text()
             if content.strip():
+                content = _cap_text(content, context_profile.memory_bootstrap_max_chars)
                 inject_chars["memory_bootstrap"] = len(content)
                 full = f"Your persistent memory ({mem_file_rel}/MEMORY.md — curated stable facts):\n\n{content}"
                 messages.append({"role": "system", "content": full})
@@ -497,6 +509,10 @@ async def inject_channel_workspace(
         from app.services.bot_indexing import reindex_channel
 
         cw_segments = getattr(ch_row, "index_segments", None) or []
+        if not context_profile.allow_channel_index_segments:
+            _mark_injection_decision(inject_decisions, "channel_index_segments", "skipped_by_profile")
+            return
+
         asyncio.create_task(
             reindex_channel(
                 ch_id,
@@ -549,9 +565,7 @@ async def inject_channel_workspace(
                 elif "search_workspace" in bot.local_tools:
                     seg_header += "(Use search_workspace for targeted searches beyond these auto-retrieved excerpts.)\n\n"
                 seg_content = seg_header + seg_body
-                if not context_profile.allow_channel_index_segments:
-                    _mark_injection_decision(inject_decisions, "channel_index_segments", "skipped_by_profile")
-                elif budget_can_afford(seg_content):
+                if budget_can_afford(seg_content):
                     messages.append({"role": "system", "content": seg_content})
                     budget_consume("channel_index_segments", seg_content)
                     inject_chars["channel_index_segments"] = len(seg_body)
@@ -637,9 +651,17 @@ async def inject_conversation_sections(
             _mark_injection_decision(inject_decisions, "section_index", "skipped_missing")
             return
         si_count = getattr(ch_row, "section_index_count", None)
-        si_count = si_count if si_count is not None else settings.SECTION_INDEX_COUNT
+        si_count = si_count if si_count is not None else (
+            context_profile.section_index_count_default
+            if context_profile.section_index_count_default is not None
+            else settings.SECTION_INDEX_COUNT
+        )
         if si_count > 0:
-            si_verbosity = getattr(ch_row, "section_index_verbosity", None) or settings.SECTION_INDEX_VERBOSITY
+            si_verbosity = (
+                getattr(ch_row, "section_index_verbosity", None)
+                or context_profile.section_index_verbosity_default
+                or settings.SECTION_INDEX_VERBOSITY
+            )
             async with async_session() as db:
                 rows = (await db.execute(
                     select(ConversationSection)

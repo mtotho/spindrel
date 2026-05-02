@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from dataclasses import asdict
 
@@ -623,6 +624,15 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
                 raise ValueError(f"unknown scenario: {only!r}")
 
     specs = resolve_specs(spec_list, placeholders)
+    only_specs = [name.strip() for name in os.environ.get("SPINDREL_SCREENSHOT_SPECS", "").split(",") if name.strip()]
+    if only_specs:
+        wanted = set(only_specs)
+        specs = [spec for spec in specs if spec.name in wanted]
+        missing = sorted(wanted - {spec.name for spec in specs})
+        if missing:
+            raise SystemExit(f"Unknown screenshot spec(s): {', '.join(missing)}")
+        if not specs:
+            raise SystemExit("SPINDREL_SCREENSHOT_SPECS did not select any specs")
 
     # Dev-panel localStorage seed (flagship only — docs-repair doesn't use it).
     if only == "flagship":

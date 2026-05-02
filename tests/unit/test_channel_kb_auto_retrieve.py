@@ -176,3 +176,40 @@ async def test_explicit_kb_segment_does_not_duplicate(tmp_path):
     prefixes = [s["path_prefix"] for s in segments]
     # Only one entry for the KB prefix — the implicit one (explicit KB dedup keeps implicit)
     assert prefixes.count("channels/ch-1/knowledge-base") == 1
+
+
+@pytest.mark.asyncio
+async def test_channel_index_segments_disabled_does_not_retrieve(tmp_path):
+    """Lean native chat disables channel index RAG before retrieval work runs."""
+    bot = _make_bot()
+    ch_row = _make_ch_row()
+
+    fake_cw_root = str(tmp_path / "channels" / "ch-1")
+    messages: list[dict] = []
+    ledger = AssemblyLedger()
+    retrieve_mock = AsyncMock(return_value=(["body"], 0.7))
+
+    with patch("app.services.channel_workspace.ensure_channel_workspace", return_value=fake_cw_root), \
+         patch("app.services.channel_workspace.get_channel_workspace_root", return_value=fake_cw_root), \
+         patch("app.services.channel_workspace_indexing.index_channel_workspace", new=AsyncMock(return_value=None)), \
+         patch("app.agent.fs_indexer.retrieve_filesystem_context", new=retrieve_mock), \
+         patch("app.services.workspace_indexing.resolve_indexing", return_value={
+             "embedding_model": "text-embedding-3-small",
+             "patterns": ["**/*.md"],
+             "similarity_threshold": 0.3,
+             "top_k": 8,
+             "watch": False,
+             "cooldown_seconds": 60,
+             "include_bots": [],
+             "segments": [],
+             "segments_source": "default",
+        }):
+        events = await _collect(_inject_channel_workspace(
+            messages, bot, ch_row, "query", ledger,
+            context_profile=SimpleNamespace(allow_channel_workspace=False, allow_channel_index_segments=False),
+        ))
+
+    retrieve_mock.assert_not_called()
+    assert events == []
+    assert ledger.inject_decisions["channel_workspace"] == "skipped_by_profile"
+    assert ledger.inject_decisions["channel_index_segments"] == "skipped_by_profile"

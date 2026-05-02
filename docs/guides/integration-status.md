@@ -6,7 +6,7 @@ This page is the honest status snapshot for Spindrel's integrations.
 
 It is **not** a marketing matrix. If something is rough, partial, untested, or likely to change, this page should say so plainly.
 
-**Snapshot date:** 2026-04-27
+**Snapshot date:** 2026-05-02
 
 ## Status meanings
 
@@ -31,7 +31,7 @@ It is **not** a marketing matrix. If something is rough, partial, untested, or l
 | Google Workspace | `partial` | Google OAuth, Drive/Gmail/Calendar/Docs/etc. access through the GWS CLI | Slightly tested; some pieces work, but it is still not a fully trusted path |
 | ARR | `working` | Sonarr/Radarr/qBittorrent/Jellyfin/Jellyseerr/Bazarr control and browsing | Large surface area, but mostly tested and working |
 | Claude Code | `working (beta)` | External agent harness runtime for persistent remote Claude Code sessions in the Spindrel web UI | Real and usable today, but harness mode as a whole is still new. Claude is the most proven runtime on that path. Admin-only remote-code-execution surface. |
-| Codex | `untested` | External agent harness runtime via the official `codex app-server` JSON-RPC protocol | v1 shipped 2026-04-27 on the same host/runtime boundary as Claude Code, but it still needs live-binary validation and soak before it should be promised as a trusted path. |
+| Codex | `working (beta)` | External agent harness runtime via the official `codex app-server` JSON-RPC protocol | Live harness parity now covers core turns, native slash surfaces, screenshots, model/effort controls, project instruction discovery, image inputs, and native CLI mirror flows. Still beta because the app-server surface is moving and some native CLI-only flows remain terminal handoff. |
 | Local Companion | `working` | Paired local-machine command provider with session-scoped leases | Confirmed working recently. Recoverable launcher/service commands and reconnecting Linux user-service flow shipped 2026-04-25; still trusted-operator tooling, not a casual-user feature. |
 | Frigate | `working` | Camera/event tools, MQTT push alerts, snapshots/clips, and widget surface | Tested and working |
 | GitHub | `working` | GitHub webhook ingestion plus issue/PR comment dispatch | Working, though the events side is still rough in places |
@@ -57,5 +57,6 @@ It is **not** a marketing matrix. If something is rough, partial, untested, or l
 - [Creating Integrations](../integrations/index.md)
 - [Slack Integration](slack.md)
 - [Browser Live](browser-live.md)
+- [Claude Code and Codex Harness Parity](harness-parity.md)
 - [Home Assistant](homeassistant.md)
 - [Excalidraw](excalidraw.md)

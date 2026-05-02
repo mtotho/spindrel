@@ -2098,9 +2098,11 @@ async def get_session_context(
     from app.agent.bots import get_bot
     from app.agent.context_assembly import AssemblyResult, assemble_context
     from app.agent.context_profiles import resolve_context_profile
+    from app.db.models import Channel
     from app.services.sessions import _load_messages
 
     bot = get_bot(session.bot_id)
+    channel = await db.get(Channel, session.channel_id) if session.channel_id else None
 
     # Load messages the same way the agent loop does
     messages = await _load_messages(db, session)
@@ -2120,7 +2122,7 @@ async def get_session_context(
         attachments=None,
         native_audio=False,
         result=result,
-        context_profile_name=resolve_context_profile(session=session).name,
+        context_profile_name=resolve_context_profile(session=session, channel=channel).name,
     ):
         pass  # drain events — we only want the final messages list
 

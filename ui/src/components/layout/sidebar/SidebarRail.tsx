@@ -22,6 +22,10 @@ import { useAuthStore } from "../../../stores/auth";
 import { useIsAdmin } from "../../../hooks/useScope";
 import { useThemeStore } from "../../../stores/theme";
 import { useVersion } from "../../../api/hooks/useVersion";
+import { useProjectFactoryReviewInbox } from "../../../api/hooks/useProjects";
+import { useLatestHealthSummary } from "../../../api/hooks/useSystemHealth";
+import { useIssueWorkPacks, useWorkspaceAttention, useWorkspaceAttentionBrief } from "../../../api/hooks/useWorkspaceAttention";
+import { useUnreadState } from "../../../api/hooks/useUnread";
 import {
   channelIdFromSlug,
   isChannelSlug,
@@ -32,6 +36,7 @@ import { useChannels } from "../../../api/hooks/useChannels";
 import { useChannelReadStore } from "../../../stores/channelRead";
 import { LucideIconByName } from "../../IconPicker";
 import { cn } from "../../../lib/cn";
+import { buildActionInboxModel } from "../../../lib/actionInbox";
 import { useTodayUpcomingCount } from "./UpcomingRailPopover";
 import { AvatarMenu } from "./AvatarMenu";
 
@@ -112,9 +117,23 @@ export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: Si
   const toggleTheme = useThemeStore((s) => s.toggle);
   const { data: version } = useVersion();
   const upcomingCount = useTodayUpcomingCount();
+  const { data: unreadState } = useUnreadState();
+  const { data: attention } = useWorkspaceAttention();
+  const { data: attentionBrief } = useWorkspaceAttentionBrief();
+  const { data: health } = useLatestHealthSummary();
+  const { data: projectReviewInbox } = useProjectFactoryReviewInbox(8);
+  const { data: workPacks = [] } = useIssueWorkPacks();
   const unreadTotal = useChannelReadStore((s) =>
     Object.values(s.unreadByChannel).reduce((sum, count) => sum + count, 0),
   );
+  const inboxTotal = buildActionInboxModel({
+    unreadStates: unreadState?.states,
+    attentionItems: attention,
+    attentionBrief,
+    health,
+    projectReviewInbox,
+    workPacks,
+  }).total || unreadTotal;
   // `allDashboards` includes channel-scoped dashboards (slug prefix `channel:`)
   // so a user can opt to pin a channel dashboard to the rail like any other.
   const { allDashboards } = useDashboards();
@@ -184,12 +203,12 @@ export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: Si
 
         <RailButton
           active={unreadInboxOpen}
-          title="Unread replies"
+          title="Inbox"
           onClick={onToggleUnreadInbox ?? (() => {})}
           badge={
-            unreadTotal > 0 ? (
+            inboxTotal > 0 ? (
               <span className="absolute top-0.5 right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-accent text-[9px] font-bold text-white flex flex-row items-center justify-center tabular-nums">
-                {unreadTotal > 9 ? "9+" : unreadTotal}
+                {inboxTotal > 9 ? "9+" : inboxTotal}
               </span>
             ) : null
           }

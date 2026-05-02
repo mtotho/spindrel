@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app.agent.context_profiles import get_context_profile, resolve_context_profile, trim_messages_to_recent_turns
+from app.agent.context_profiles import (
+    get_context_profile,
+    resolve_context_profile,
+    resolve_native_context_policy,
+    trim_messages_to_recent_turns,
+)
 
 
 def _session(mode: str) -> SimpleNamespace:
@@ -21,7 +26,32 @@ def test_resolve_context_profile_maps_origins():
     assert resolve_context_profile(origin="task").name == "task_recent"
     assert resolve_context_profile(origin="subagent").name == "task_none"
     assert resolve_context_profile(origin="hygiene").name == "task_none"
-    assert resolve_context_profile(origin="chat").name == "chat"
+    assert resolve_context_profile(origin="chat").name == "chat_lean"
+
+
+def test_native_context_policy_defaults_to_lean():
+    assert resolve_native_context_policy() == "lean"
+    profile = resolve_context_profile(origin="chat")
+    assert profile.name == "chat_lean"
+    assert profile.live_history_turns == 4
+    assert profile.allow_channel_index_segments is False
+    assert profile.allow_channel_workspace is False
+    assert profile.allow_workspace_rag is False
+    assert profile.allow_skill_index is False
+    assert profile.section_index_verbosity_default == "compact"
+
+
+def test_native_context_policy_channel_override():
+    channel = SimpleNamespace(config={"native_context_policy": "rich"})
+    assert resolve_native_context_policy(channel=channel) == "rich"
+    assert resolve_context_profile(origin="chat", channel=channel).name == "chat_rich"
+
+
+def test_native_context_policy_global_default(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "NATIVE_CONTEXT_POLICY_DEFAULT", "standard")
+    assert resolve_context_profile(origin="chat").name == "chat_standard"
 
 
 def test_task_none_overrides_keep_iterations():
@@ -33,7 +63,7 @@ def test_task_none_overrides_keep_iterations():
 def test_chat_profile_inherits_global_keep_iterations():
     """Chat profile must NOT override — it uses the global setting (2) so
     normal turns stay compact."""
-    assert get_context_profile("chat").keep_iterations_override is None
+    assert get_context_profile("chat_lean").keep_iterations_override is None
 
 
 def test_trim_messages_to_recent_turns_preserves_system_prefix():
@@ -69,7 +99,9 @@ def test_trim_messages_to_recent_turns_zero_keeps_only_system():
 
 
 def test_restricted_profiles_expose_context_profile_note_as_optional_injection():
-    assert "context_profile_note" not in get_context_profile("chat").optional_static_injections
+    assert "context_profile_note" not in get_context_profile("chat_lean").optional_static_injections
+    assert "context_profile_note" not in get_context_profile("chat_standard").optional_static_injections
+    assert "context_profile_note" not in get_context_profile("chat_rich").optional_static_injections
     assert "context_profile_note" in get_context_profile("planning").optional_static_injections
     assert "context_profile_note" in get_context_profile("executing").optional_static_injections
     assert "context_profile_note" in get_context_profile("task_recent").optional_static_injections
@@ -78,25 +110,33 @@ def test_restricted_profiles_expose_context_profile_note_as_optional_injection()
 
 
 def test_bot_knowledge_base_profile_admission_is_explicit():
-    assert get_context_profile("chat").allow_bot_knowledge_base is True
+    assert get_context_profile("chat_lean").allow_bot_knowledge_base is False
+    assert get_context_profile("chat_standard").allow_bot_knowledge_base is True
+    assert get_context_profile("chat_rich").allow_bot_knowledge_base is True
     assert get_context_profile("executing").allow_bot_knowledge_base is True
     assert get_context_profile("planning").allow_bot_knowledge_base is False
     assert get_context_profile("task_recent").allow_bot_knowledge_base is False
     assert get_context_profile("task_none").allow_bot_knowledge_base is False
     assert get_context_profile("heartbeat").allow_bot_knowledge_base is False
-    assert "bot_knowledge_base" in get_context_profile("chat").optional_static_injections
+    assert "bot_knowledge_base" not in get_context_profile("chat_lean").optional_static_injections
+    assert "bot_knowledge_base" in get_context_profile("chat_standard").optional_static_injections
+    assert "bot_knowledge_base" in get_context_profile("chat_rich").optional_static_injections
     assert "bot_knowledge_base" in get_context_profile("executing").optional_static_injections
 
 
 def test_heartbeat_profile_suppresses_ambient_skill_index():
-    assert get_context_profile("chat").allow_skill_index is True
+    assert get_context_profile("chat_lean").allow_skill_index is False
+    assert get_context_profile("chat_standard").allow_skill_index is True
+    assert get_context_profile("chat_rich").allow_skill_index is True
     assert get_context_profile("executing").allow_skill_index is True
     assert get_context_profile("heartbeat").allow_skill_index is False
 
 
 def test_profile_policy_matrix_for_restricted_origins():
     expected = {
-        "chat": (8, False, True, True),
+        "chat_lean": (4, False, False, False),
+        "chat_standard": (8, False, True, True),
+        "chat_rich": (8, False, True, True),
         "planning": (2, True, True, False),
         "executing": (4, True, True, True),
         "task_recent": (None, True, True, False),

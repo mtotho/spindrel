@@ -71,8 +71,8 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
             ' && document.querySelectorAll(\'[data-testid="home-user-row"]\').length >= 2'
             ' && !!document.querySelector(\'[data-testid="home-users-section"]\')'
             ' && !!document.querySelector(\'[data-testid="home-unread-center"]\')'
-            ' && !!document.querySelector(\'[data-testid="home-project-factory-pulse"]\')'
-            ' && /Unread center/i.test(document.body.innerText)'
+            ' && !!document.querySelector(\'[data-testid="home-action-inbox"]\')'
+            ' && /Action Inbox/i.test(document.body.innerText)'
         ),
         output="home.png",
         extra_init_scripts=[
@@ -141,6 +141,27 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
           }]
         }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
+      if (url.pathname === "/api/v1/workspace/attention/issue-work-packs") {
+        return new Response(JSON.stringify({
+          work_packs: [{
+            id: "home-work-pack-intake-ui",
+            title: "Mission Control Review tabs do not switch the list",
+            summary: "Review the issue intake navigation and make tab switching reliable.",
+            category: "code_bug",
+            confidence: "high",
+            status: "proposed",
+            source_item_ids: ["home-issue-intake-tabs"],
+            launch_prompt: "Fix Mission Control Review tab switching and verify with screenshots.",
+            project_id: "home-project",
+            project_name: "Spindrel",
+            channel_id: "home-channel",
+            channel_name: "Project factory dogfood",
+            launchable: true,
+            created_at: "2026-05-01T11:50:00Z",
+            updated_at: "2026-05-01T11:50:00Z"
+          }]
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
     }
     return originalFetch(input, init);
   };
@@ -149,10 +170,129 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
         ],
         assert_js=(
             "const text = document.body.innerText;"
-            "return { ok: text.includes('Project Factory') "
-            "&& text.includes('Runs waiting for review') "
-            "&& text.includes('Review overnight Project Factory PR'), "
-            "detail: 'Home did not surface Project Factory review inbox attention' };"
+            "return { ok: /Action Inbox/i.test(text) "
+            "&& text.includes('items need a look') "
+            "&& text.includes('Issue intake') "
+            "&& text.includes('Project reviews'), "
+            "detail: 'Home did not surface actionable review inbox attention' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="home-inbox",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '!!document.querySelector(\'[data-testid="home-action-inbox"]\')'
+            ' && /Action Inbox/i.test(document.body.innerText)'
+        ),
+        output="home-inbox.png",
+        color_scheme="dark",
+        actions=[
+            Action(kind="click", selector='button[title="Inbox"]'),
+            Action(kind="wait_for", selector='[data-testid="home-rail-inbox-panel"]'),
+        ],
+        extra_init_scripts=[
+            """
+(() => {
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (input, init) => {
+    const raw = typeof input === "string" ? input : input?.url;
+    if (raw) {
+      const url = new URL(raw, window.location.origin);
+      if (url.pathname === "/api/v1/projects/review-inbox") {
+        return new Response(JSON.stringify({
+          generated_at: "2026-05-01T12:00:00Z",
+          summary: {
+            total: 3,
+            needs_attention_count: 2,
+            in_flight_count: 1,
+            project_count: 1,
+            ready_for_review: 1,
+            changes_requested: 1,
+            follow_up_running: 1,
+            follow_up_created: 0,
+            missing_evidence: 0,
+            reviewing: 0,
+            reviewed: 0,
+            blocked: 0
+          },
+          items: [{
+            id: "home-project-run-review",
+            project_id: "home-project",
+            project_name: "Spindrel",
+            project_slug: "spindrel",
+            task_id: "home-project-run-review",
+            title: "Review overnight Project Factory PR",
+            branch: "factory/overnight-review",
+            state: "ready_for_review",
+            status: "completed",
+            review_status: "ready_for_review",
+            updated_at: "2026-05-01T11:45:00Z",
+            evidence: { tests_count: 3, screenshots_count: 2, changed_files_count: 5, dev_targets_count: 1 },
+            next_action: "Review the PR, tests, screenshots, and receipt.",
+            links: {
+              project_url: "/admin/projects/home-project",
+              project_runs_url: "/admin/projects/home-project#Runs",
+              run_url: "/admin/projects/home-project/runs/home-project-run-review"
+            }
+          }, {
+            id: "home-project-run-changes",
+            project_id: "home-project",
+            project_name: "Spindrel",
+            project_slug: "spindrel",
+            task_id: "home-project-run-changes",
+            title: "Follow up on intake triage screenshots",
+            branch: "factory/intake-follow-up",
+            state: "changes_requested",
+            status: "completed",
+            review_status: "changes_requested",
+            updated_at: "2026-05-01T11:30:00Z",
+            evidence: { tests_count: 1, screenshots_count: 0, changed_files_count: 2, dev_targets_count: 1 },
+            next_action: "Start a follow-up run from reviewer feedback.",
+            links: {
+              project_url: "/admin/projects/home-project",
+              project_runs_url: "/admin/projects/home-project#Runs",
+              run_url: "/admin/projects/home-project/runs/home-project-changes"
+            }
+          }]
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.pathname === "/api/v1/workspace/attention/issue-work-packs") {
+        return new Response(JSON.stringify({
+          work_packs: [{
+            id: "home-work-pack-intake-ui",
+            title: "Mission Control Review tabs do not switch the list",
+            summary: "Review the issue intake navigation and make tab switching reliable.",
+            category: "code_bug",
+            confidence: "high",
+            status: "proposed",
+            source_item_ids: ["home-issue-intake-tabs"],
+            launch_prompt: "Fix Mission Control Review tab switching and verify with screenshots.",
+            project_id: "home-project",
+            project_name: "Spindrel",
+            channel_id: "home-channel",
+            channel_name: "Project factory dogfood",
+            launchable: true,
+            created_at: "2026-05-01T11:50:00Z",
+            updated_at: "2026-05-01T11:50:00Z"
+          }]
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+    }
+    return originalFetch(input, init);
+  };
+})();
+            """,
+        ],
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: !!document.querySelector('[data-testid=\"home-rail-inbox-panel\"]') "
+            "&& /Ready for review/i.test(text) "
+            "&& text.includes('Project reviews') "
+            "&& text.includes('Issue intake') "
+            "&& /Unread replies/i.test(text), "
+            "detail: 'Home Inbox panel did not group review-ready work and unread replies' };"
         ),
     ),
     ScreenshotSpec(
@@ -3953,6 +4093,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         assert_js=(
             "const text = document.body.innerText;"
             "return { ok: text.includes('Review queue') "
+            "&& text.includes('Issue intake') "
             "&& text.includes('Attached channels') "
             "&& text.includes('Runtime env') "
             "&& text.includes('Work surface') "

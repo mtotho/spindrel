@@ -1,26 +1,26 @@
 import { Link } from "react-router-dom";
-import type { ReactNode } from "react";
 import {
-  Activity,
-  CalendarClock,
   CheckCheck,
   GitMerge,
+  HeartPulse,
+  Inbox,
   MessageSquareWarning,
   Plus,
   Radar,
+  Sparkles,
 } from "lucide-react";
 
 import { useChannels } from "../../api/hooks/useChannels";
 import {
-  isActiveAttentionItem,
+  useIssueWorkPacks,
   useWorkspaceAttention,
+  useWorkspaceAttentionBrief,
 } from "../../api/hooks/useWorkspaceAttention";
 import { useLatestHealthSummary } from "../../api/hooks/useSystemHealth";
-import { useMissionControl } from "../../api/hooks/useMissionControl";
-import { useUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
 import { useUnreadState } from "../../api/hooks/useUnread";
 import { useProjectFactoryReviewInbox } from "../../api/hooks/useProjects";
 import { usePageRefresh } from "../../hooks/usePageRefresh";
+import { buildActionInboxModel, type ActionInboxRow, type ActionInboxTone } from "../../lib/actionInbox";
 import { PageHeader } from "../layout/PageHeader";
 import { RefreshableScrollView } from "../shared/RefreshableScrollView";
 import { AnchorSection } from "../shared/AnchorSection";
@@ -39,162 +39,105 @@ function isOrchestratorClient(clientId: string | undefined): boolean {
   return clientId === "orchestrator:home";
 }
 
-function statusTone(value: "ok" | "warn" | "danger" | "neutral"): string {
+function toneClass(value: ActionInboxTone): string {
   if (value === "danger") return "bg-danger/10 text-danger";
-  if (value === "warn") return "bg-warning/10 text-warning-muted";
-  if (value === "ok") return "bg-success/10 text-success";
+  if (value === "warning") return "bg-warning/10 text-warning-muted";
+  if (value === "success") return "bg-success/10 text-success";
+  if (value === "info") return "bg-accent/10 text-accent";
   return "bg-surface-overlay/45 text-text-muted";
 }
 
-function PulseItem({
-  icon,
-  label,
-  value,
-  detail,
-  tone = "neutral",
-  href,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  detail: string;
-  tone?: "ok" | "warn" | "danger" | "neutral";
-  href?: string;
-}) {
-  const body = (
-    <div className="group flex min-h-[76px] items-start gap-3 rounded-md bg-surface-overlay/25 px-3 py-3 transition-colors hover:bg-surface-overlay/45">
-      <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${statusTone(tone)}`}>
-          {icon}
-      </span>
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <span className="truncate text-sm font-semibold text-text">{value}</span>
-          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">{label}</span>
-        </div>
-        <div className="mt-1 line-clamp-2 text-xs leading-5 text-text-muted">{detail}</div>
-      </div>
-    </div>
-  );
-  return href ? <Link to={href}>{body}</Link> : body;
+function rowIcon(row: ActionInboxRow) {
+  if (row.kind === "replies") return row.count ? <Inbox size={15} /> : <CheckCheck size={15} />;
+  if (row.kind === "project_reviews") return <GitMerge size={15} />;
+  if (row.kind === "issue_intake") return <MessageSquareWarning size={15} />;
+  if (row.kind === "findings") return <Sparkles size={15} />;
+  return <HeartPulse size={15} />;
 }
 
-function HomeOverview() {
+function ActionInboxItem({ row, primary = false }: { row: ActionInboxRow; primary?: boolean }) {
+  const body = (
+    <div className={`group flex min-h-[62px] items-start gap-3 rounded-md px-3 py-3 transition-colors ${primary ? "bg-surface-overlay/40" : "bg-surface-overlay/20"} ${row.href ? "hover:bg-surface-overlay/50" : ""}`}>
+      <span className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${toneClass(row.tone)}`}>
+        {rowIcon(row)}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <span className="truncate text-sm font-semibold text-text">{row.title}</span>
+          {row.count ? (
+            <span className="shrink-0 rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-text-muted">
+              {row.count}
+            </span>
+          ) : null}
+        </span>
+        <span className="mt-0.5 block truncate text-xs leading-5 text-text-muted">{row.detail}</span>
+      </span>
+    </div>
+  );
+  return row.href ? <Link to={row.href}>{body}</Link> : body;
+}
+
+function ActionInboxSection() {
   const { data: channels } = useChannels();
   const { data: attention } = useWorkspaceAttention();
+  const { data: attentionBrief } = useWorkspaceAttentionBrief();
   const { data: health } = useLatestHealthSummary();
-  const { data: missions } = useMissionControl();
-  const { data: upcoming } = useUpcomingActivity(5);
   const { data: unread } = useUnreadState();
-
+  const { data: projectReviewInbox } = useProjectFactoryReviewInbox(8);
+  const { data: workPacks = [] } = useIssueWorkPacks();
   const regularChannels = (channels ?? []).filter((ch) => !isOrchestratorClient(ch.client_id));
-  const activeAttention = (attention ?? []).filter(isActiveAttentionItem);
-  const criticalAttention = activeAttention.filter((item) => item.severity === "critical" || item.severity === "error");
-  const unreadSessions = (unread?.states ?? []).filter((state) => state.unread_agent_reply_count > 0);
-  const unreadCount = unreadSessions.reduce((sum, state) => sum + state.unread_agent_reply_count, 0);
-  const errorCount = health?.summary?.error_count ?? 0;
-  const criticalCount = health?.summary?.critical_count ?? 0;
-  const activeMissions = missions?.summary.active_missions ?? 0;
-  const nextUpcoming = upcoming?.[0] ?? null;
+  const model = buildActionInboxModel({
+    unreadStates: unread?.states,
+    attentionItems: attention,
+    attentionBrief,
+    health,
+    projectReviewInbox,
+    workPacks,
+  });
+  const primaryRow = model.rows[0] ?? {
+    kind: "replies" as const,
+    title: "Caught up",
+    detail: "No unread replies or review-ready work.",
+    count: 0,
+    tone: "success" as const,
+  };
+  const secondaryRows = model.rows.slice(1, 5);
+  const title = model.total ? `${model.total} item${model.total === 1 ? "" : "s"} need a look` : "Caught up";
+  const meta = model.total
+    ? `${model.unreadReplyCount} replies · ${model.actionableReviewCount} review`
+    : `${regularChannels.length} channel${regularChannels.length === 1 ? "" : "s"}`;
 
   return (
     <AnchorSection
-      testId="home-workspace-pulse"
-      icon={<Activity size={14} />}
-      eyebrow="Workspace pulse"
-      title="What needs a look"
-      meta={`${regularChannels.length} channel${regularChannels.length === 1 ? "" : "s"}`}
+      testId="home-action-inbox"
+      icon={model.total ? <Inbox size={14} /> : <CheckCheck size={14} />}
+      eyebrow="Action Inbox"
+      title={title}
+      meta={meta}
       action={
-        <Link to="/hub/attention" className="rounded-md px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/[0.08]">
-          Review
+        <Link to={primaryRow?.href || "/hub/attention"} className="rounded-md px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/[0.08]">
+          Open
         </Link>
       }
       emphasis="primary"
     >
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <PulseItem
-          icon={<Radar size={16} />}
-          label="Attention"
-          value={activeAttention.length ? `${activeAttention.length} active` : "Clear"}
-          detail={criticalAttention.length ? `${criticalAttention.length} urgent finding${criticalAttention.length === 1 ? "" : "s"}` : "No urgent signals"}
-          tone={criticalAttention.length ? "danger" : activeAttention.length ? "warn" : "ok"}
-          href="/hub/attention"
-        />
-        <PulseItem
-          icon={<CheckCheck size={16} />}
-          label="Unread"
-          value={unreadCount ? `${unreadCount} ${unreadCount === 1 ? "reply" : "replies"}` : "Caught up"}
-          detail={unreadSessions.length ? `${unreadSessions.length} session${unreadSessions.length === 1 ? "" : "s"} with unread agent replies` : "No unread agent replies"}
-          tone={unreadCount ? "warn" : "ok"}
-        />
-        <PulseItem
-          icon={<Activity size={16} />}
-          label="Health"
-          value={criticalCount ? `${criticalCount} crit` : errorCount ? `${errorCount} err` : "Clean"}
-          detail={health?.summary ? "Latest daily rollup" : "Rollup pending"}
-          tone={criticalCount ? "danger" : errorCount ? "warn" : health?.summary ? "ok" : "neutral"}
-          href="/hub/daily-health"
-        />
-        <PulseItem
-          icon={<CalendarClock size={16} />}
-          label="Work"
-          value={activeMissions ? `${activeMissions} active` : nextUpcoming ? "Scheduled" : "Quiet"}
-          detail={nextUpcoming ? nextUpcoming.title : "No upcoming work found"}
-          tone={activeMissions ? "warn" : "neutral"}
-          href="/hub/attention"
-        />
-      </div>
-    </AnchorSection>
-  );
-}
-
-function reviewStateLabel(state: string | undefined) {
-  return String(state || "needs_review").replaceAll("_", " ");
-}
-
-function ProjectFactoryPulseSection() {
-  const { data: inbox } = useProjectFactoryReviewInbox(8);
-  const items = inbox?.items ?? [];
-  const needsAttention = inbox?.summary?.needs_attention_count ?? items.filter((item) => item.state !== "reviewed" && item.state !== "reviewing").length;
-  if (!needsAttention) return null;
-  const topItems = items.slice(0, 3);
-
-  return (
-    <AnchorSection
-      testId="home-project-factory-pulse"
-      icon={<GitMerge size={14} />}
-      eyebrow="Project Factory"
-      title="Runs waiting for review"
-      meta={`${needsAttention} need${needsAttention === 1 ? "s" : ""} attention`}
-      action={
-        topItems[0]?.links?.project_runs_url ? (
-          <Link to={topItems[0].links.project_runs_url} className="rounded-md px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/[0.08]">
-            Open
-          </Link>
-        ) : null
-      }
-      emphasis="secondary"
-    >
-      <div className="flex flex-col gap-1">
-        {topItems.map((item) => (
-          <Link
-            key={item.id}
-            to={item.links?.run_url || item.links?.project_runs_url || `/admin/projects/${item.project_id}#Runs`}
-            className="group flex min-h-[58px] items-start gap-3 rounded-md px-2.5 py-2 transition-colors hover:bg-surface-overlay/35"
-          >
-            <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-warning/10 text-warning-muted">
-              <MessageSquareWarning size={14} />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <span className="truncate text-sm font-semibold text-text">{item.title}</span>
-                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">{reviewStateLabel(item.state)}</span>
+      <div className="grid gap-2 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+        <ActionInboxItem row={primaryRow} primary />
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+          {secondaryRows.length ? secondaryRows.map((row) => (
+            <ActionInboxItem key={row.kind} row={row} />
+          )) : (
+            <div className="flex min-h-[62px] items-center gap-3 rounded-md bg-surface-overlay/20 px-3 py-3">
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-overlay/45 text-text-dim">
+                <Radar size={15} />
               </span>
-              <span className="mt-0.5 block truncate text-xs text-text-muted">
-                {item.project_name} · {item.next_action || item.summary_line || "Review run evidence"}
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-text">Signals quiet</span>
+                <span className="block text-xs text-text-muted">Raw Attention stays in Mission Control when you need it.</span>
               </span>
-            </span>
-          </Link>
-        ))}
+            </div>
+          )}
+        </div>
       </div>
     </AnchorSection>
   );
@@ -231,8 +174,7 @@ export function HomeDashboard() {
       />
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
         <main className="box-border flex w-full max-w-[1600px] flex-col gap-5 px-4 py-4 sm:px-6 lg:px-8 lg:py-5">
-          <HomeOverview />
-          <ProjectFactoryPulseSection />
+          <ActionInboxSection />
           <div className="xl:hidden">
             <UnreadCenterSection />
           </div>

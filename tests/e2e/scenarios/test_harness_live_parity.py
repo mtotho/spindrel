@@ -191,8 +191,10 @@ def _should_capture_screenshots(name: str) -> bool:
     if capture in {"0", "false", "no", "off"}:
         return False
     only = os.environ.get("HARNESS_PARITY_SCREENSHOT_ONLY", "").strip()
-    if only and only not in name:
-        return False
+    if only:
+        allowed = [item.strip() for item in only.split(",") if item.strip()]
+        if allowed and not any(item in name for item in allowed):
+            return False
     return capture in {"1", "true", "yes", "on", "auto"}
 
 
@@ -826,6 +828,7 @@ async def _send_native_cli_prompt_via_ui(
     session_id: str,
     prompt: str,
     marker: str,
+    expected_response: str | None = None,
     terminal_screenshot_name: str | None = None,
     mirror_screenshot_name: str | None = None,
     toggle_to_chat_after_submit: bool = True,
@@ -948,18 +951,23 @@ async def _send_native_cli_prompt_via_ui(
                     f"debug screenshot: {debug_path}; body tail:\n{body[-2000:]}"
                 )
             await _assert_no_horizontal_overflow(page, "native-cli-terminal")
-            if terminal_out_path is not None:
-                await page.screenshot(path=str(terminal_out_path), full_page=False)
             await xterm.click(position={"x": 80, "y": 120})
+            with contextlib.suppress(Exception):
+                await page.locator('[data-testid="admin-terminal-xterm"] textarea').first.evaluate(
+                    "(node) => node.focus()"
+                )
             await page.keyboard.type(prompt, delay=8)
             await page.keyboard.press("Enter")
+            wait_text = expected_response or marker
+            await page.wait_for_function(
+                "(text) => document.body.innerText.toLowerCase().includes(text.toLowerCase())",
+                arg=wait_text,
+                timeout=int(_timeout() * 1000),
+            )
+            if terminal_out_path is not None:
+                await page.screenshot(path=str(terminal_out_path), full_page=False)
             if toggle_to_chat_after_submit:
                 await page.get_by_role("button", name=re.compile(r"^Spindrel chat$")).click(timeout=30_000)
-            await page.wait_for_function(
-                "(marker) => document.body.innerText.toLowerCase().includes(marker.toLowerCase())",
-                arg=marker,
-                timeout=60_000,
-            )
             await _assert_no_horizontal_overflow(page, "native-cli-ui")
             if mirror_out_path is not None:
                 await page.screenshot(path=str(mirror_out_path), full_page=False)
@@ -1100,6 +1108,46 @@ async def _sync_native_cli_settings_via_ui(
         finally:
             await browser.close()
     return out_path
+
+
+async def _assert_spindrel_chat_resumes_after_native_cli(
+    client: E2EClient,
+    *,
+    case: HarnessCase,
+    channel_id: str,
+    session_id: str,
+    bot_id: str,
+    marker: str,
+) -> StreamResult:
+    """Prove a chat-mode turn resumes the same native thread after CLI use.
+
+    The follow-up prompt intentionally does not include the marker value. If the
+    runtime replies with it, Spindrel did more than persist a mirrored transcript
+    row: the next harness chat turn re-entered the native thread that the
+    embedded CLI just mutated.
+    """
+
+    result = await client.chat_session_stream(
+        (
+            "The immediately previous user turn happened in the embedded native CLI. "
+            "Without calling tools or reading files, reply exactly: "
+            "spindrel roundtrip ok <the marker token from that previous native CLI turn>"
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    expected = f"spindrel roundtrip ok {marker}"
+    assert expected in result.response_text.lower(), (
+        f"{case.name} chat mode did not resume native CLI thread state; "
+        f"expected {expected!r}, got {result.response_text!r}"
+    )
+    status = await client.get_session_harness_status(session_id)
+    assert status.get("runtime") == case.runtime
+    assert status.get("harness_session_id"), status
+    return result
 
 
 def _browser_ui_url(client: E2EClient) -> str:
@@ -2392,6 +2440,7 @@ async def test_live_codex_native_cli_terminal_mirrors_to_spindrel(
         session_id=session_id,
         prompt=f"Reply exactly: native cli mirror ok {marker}",
         marker=marker,
+        expected_response=f"native cli mirror ok {marker}",
         terminal_screenshot_name=(
             "harness-codex-native-cli-terminal-dark"
             if _should_capture_screenshots("harness-codex-native-cli-terminal")
@@ -2413,6 +2462,16 @@ async def test_live_codex_native_cli_terminal_mirrors_to_spindrel(
 
     if mirror_screenshot is not None:
         assert mirror_screenshot.is_file(), f"native CLI mirror screenshot was not written: {mirror_screenshot}"
+
+    roundtrip = await _assert_spindrel_chat_resumes_after_native_cli(
+        client,
+        case=case,
+        channel_id=channel_id,
+        session_id=session_id,
+        bot_id=bot_id,
+        marker=marker,
+    )
+    assert f"spindrel roundtrip ok {marker}" in roundtrip.response_text.lower()
 
 
 @pytest.mark.asyncio
@@ -2485,6 +2544,7 @@ async def test_live_claude_native_cli_terminal_mirrors_to_spindrel(
         session_id=session_id,
         prompt=f"Reply exactly: native cli mirror ok {marker}",
         marker=marker,
+        expected_response=f"native cli mirror ok {marker}",
         terminal_screenshot_name=(
             "harness-claude-native-cli-terminal-dark"
             if _should_capture_screenshots("harness-claude-native-cli-terminal")
@@ -2507,6 +2567,16 @@ async def test_live_claude_native_cli_terminal_mirrors_to_spindrel(
 
     assert mirrored_message is not None, f"Claude native CLI mirror did not persist marker {marker}"
     assert f"native cli mirror ok {marker}" in str(mirrored_message.get("content") or "").lower()
+
+    roundtrip = await _assert_spindrel_chat_resumes_after_native_cli(
+        client,
+        case=case,
+        channel_id=channel_id,
+        session_id=session_id,
+        bot_id=bot_id,
+        marker=marker,
+    )
+    assert f"spindrel roundtrip ok {marker}" in roundtrip.response_text.lower()
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)

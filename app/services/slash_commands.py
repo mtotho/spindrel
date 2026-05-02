@@ -578,7 +578,7 @@ async def _build_session_context_summary(
 
     bot = get_bot(session.bot_id)
     channel = await db.get(Channel, session.channel_id) if session.channel_id else None
-    profile = resolve_context_profile(session=session)
+    profile = resolve_context_profile(session=session, channel=channel)
     messages = await _load_messages(db, session)
     result = AssemblyResult()
     async for _event in assemble_context(

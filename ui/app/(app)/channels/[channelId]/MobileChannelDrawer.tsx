@@ -460,15 +460,15 @@ function EmptyWidgetsMessage({
     >
       <Layers size={22} className="opacity-40" />
       <p className="text-[12px] leading-relaxed opacity-70">
-        No widgets pinned yet. Open this channel on desktop and use the
-        dashboard editor to add widgets.
+        No chat shelf artifacts yet. Open the channel workbench and mark
+        useful artifacts as shown in chat shelf.
       </p>
       <a
         href={dashboardHref ?? `/widgets/channel/${encodeURIComponent(channelId)}`}
         className="text-[12px] underline opacity-80"
         style={{ color: t.accent }}
       >
-        Open channel dashboard
+        Open channel workbench
       </a>
     </div>
   );

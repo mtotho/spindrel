@@ -131,18 +131,32 @@ async def prepare_stream_setup(
     if resolved_context_profile is None:
         origin = current_run_origin.get(None)
         session = None
+        channel = None
         if session_id is not None:
             try:
                 from app.db.engine import async_session
-                from app.db.models import Session
+                from app.db.models import Channel, Session
 
                 async with async_session() as profile_db:
                     session = await profile_db.get(Session, session_id)
+                    profile_channel_id = channel_id or getattr(session, "channel_id", None)
+                    if profile_channel_id is not None:
+                        channel = await profile_db.get(Channel, profile_channel_id)
             except Exception:
                 logger.debug("context profile session lookup failed", exc_info=True)
+        elif channel_id is not None:
+            try:
+                from app.db.engine import async_session
+                from app.db.models import Channel
+
+                async with async_session() as profile_db:
+                    channel = await profile_db.get(Channel, channel_id)
+            except Exception:
+                logger.debug("context profile channel lookup failed", exc_info=True)
         resolved_context_profile = resolve_context_profile(
             session=session,
             origin=origin,
+            channel=channel,
         ).name
 
     budget = None

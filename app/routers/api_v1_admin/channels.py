@@ -527,6 +527,9 @@ class ChannelSettingsUpdate(BaseModel):
     # Chat presentation mode. "default" (default) | "terminal". Stored
     # inside channel.config JSONB.
     chat_mode: Optional[str] = None
+    # Native Spindrel context diet. Harness agents use separate harness context.
+    # "default" clears the key and falls back to NATIVE_CONTEXT_POLICY_DEFAULT.
+    native_context_policy: Optional[str] = None
     # Header strip shell treatment. "glass" is the resolved default;
     # "default" remains the solid Surface compatibility value.
     # Stored inside channel.config JSONB.
@@ -890,6 +893,22 @@ async def admin_channel_settings_update(
             cfg.pop("chat_mode", None)
         else:
             cfg["chat_mode"] = cm
+        channel.config = cfg
+        flag_modified(channel, "config")
+
+    if "native_context_policy" in updates:
+        ncp = updates.pop("native_context_policy")
+        _valid_native_context_policy = {"default", "lean", "standard", "rich"}
+        if ncp is not None and ncp not in _valid_native_context_policy:
+            raise HTTPException(
+                status_code=422,
+                detail=f"native_context_policy must be one of: {sorted(_valid_native_context_policy)}",
+            )
+        cfg = dict(channel.config or {})
+        if ncp in (None, "default"):
+            cfg.pop("native_context_policy", None)
+        else:
+            cfg["native_context_policy"] = ncp
         channel.config = cfg
         flag_modified(channel, "config")
 

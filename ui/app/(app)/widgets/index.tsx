@@ -186,8 +186,8 @@ export default function WidgetsDashboardPage() {
   const inPanelMode = !isChannelScoped && layoutMode === "panel" && panelPin !== null;
   /** While a widget is being dragged in edit mode, this tracks that a
    *  drag is in progress so `EditModeGridGuides` can show its column-index
-   *  tick row. The channel dashboard now uses the multi-canvas editor, so
-   *  chat-zone bands are gone — guide state is dragging/not-dragging. */
+   *  tick row. Channel workbench placement is freeform, so guide state is
+   *  dragging/not-dragging. */
   const [dragging, setDragging] = useState(false);
   const gridRowCount = useMemo(() => {
     let max = 0;
@@ -1040,7 +1040,7 @@ function EmptyState({ onAddClick }: { onAddClick: () => void }) {
         <button
           type="button"
           onClick={onAddClick}
-          className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 transition-opacity"
+          className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-3 py-1.5 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
         >
           <Plus size={13} />
           Open widget builder
@@ -1199,7 +1199,7 @@ function AddWidgetSplitButton({
       <button
         type="button"
         onClick={onOpenSheet}
-        className="inline-flex items-center gap-1.5 h-8 rounded-l-md bg-accent pl-2.5 pr-2 text-[12px] font-medium text-white hover:opacity-90 transition-opacity"
+        className="inline-flex h-8 items-center gap-1.5 rounded-l-md border border-r-0 border-surface-border bg-surface/40 pl-2.5 pr-2 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
         aria-label={label}
         title={label}
       >
@@ -1209,7 +1209,7 @@ function AddWidgetSplitButton({
       <button
         type="button"
         onClick={() => setMenuOpen((v) => !v)}
-        className="inline-flex items-center justify-center h-8 w-7 rounded-r-md bg-accent pl-0 pr-1 text-white hover:opacity-90 transition-opacity border-l border-white/20"
+        className="inline-flex h-8 w-7 items-center justify-center rounded-r-md border border-surface-border bg-surface/40 pl-0 pr-1 text-text-dim transition-colors hover:bg-surface-overlay hover:text-text"
         aria-label="More widget actions"
         aria-haspopup="menu"
         aria-expanded={menuOpen}

@@ -368,7 +368,7 @@ export function AttentionCommandDeck({
     }
     if (!sweepable.length) {
       setDeckMode(buckets.review.length ? "review" : "inbox");
-      setNotice(buckets.review.length ? "No new items to sweep. Review the existing findings." : "No unreviewed items are ready for Operator.");
+      setNotice(buckets.review.length ? "No new signals to sweep. Review the existing findings." : "No raw signals are ready for Operator.");
       return;
     }
     onSelect(null);
@@ -503,7 +503,7 @@ export function AttentionCommandDeck({
       return {
         eyebrow: "Operator sweep",
         title: "Watch the active sweep",
-        detail: "Unreviewed items are being classified into findings or cleared receipts.",
+        detail: "Raw signals are being classified into findings or cleared receipts.",
         action: "View run log",
         icon: <Loader2 size={15} className="animate-spin" />,
         onClick: () => setDeckMode("runs"),
@@ -542,16 +542,16 @@ export function AttentionCommandDeck({
         eyebrow: "Issue intake",
         title: "Triage raw issues into work packs",
         detail: `${counts.issues} conversational or agent-reported issue${counts.issues === 1 ? "" : "s"} can be grouped before any Project run launches.`,
-        action: "Open issues",
+        action: "Open intake",
         icon: <MessageSquare size={15} />,
         onClick: () => setDeckMode("issues"),
       };
     }
     if (counts.inbox > 0) {
       return {
-        eyebrow: "Unreviewed items",
-        title: "Sweep unreviewed items",
-        detail: `${counts.inbox} item${counts.inbox === 1 ? "" : "s"} can be classified before you review them manually.`,
+        eyebrow: "Signals",
+      title: "Sweep raw signals",
+      detail: `${counts.inbox} signal${counts.inbox === 1 ? "" : "s"} can be classified before you review them manually.`,
         action: "Start sweep",
         icon: <Sparkles size={15} />,
         onClick: startSweep,
@@ -589,7 +589,7 @@ export function AttentionCommandDeck({
             </div>
             <div className="mt-1 text-sm leading-5 text-text-muted">
               {channelId ? "Channel-filtered" : "Workspace"} review · {counts.review} findings
-              {counts.botReports ? ` (${counts.botReports} bot report${counts.botReports === 1 ? "" : "s"})` : ""} · {counts.issues} issue intake · {counts.inbox} unreviewed · {counts.cleared} cleared
+              {counts.botReports ? ` (${counts.botReports} bot report${counts.botReports === 1 ? "" : "s"})` : ""} · {counts.issues} issue intake · {counts.inbox} signals · {counts.cleared} cleared
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -617,7 +617,7 @@ export function AttentionCommandDeck({
               onClick={startSweep}
             >
               {sweepBusy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              {sweepBusy ? "Sweep running" : sweepable.length ? "Sweep unreviewed" : "Nothing to sweep"}
+              {sweepBusy ? "Sweep running" : sweepable.length ? "Sweep signals" : "Nothing to sweep"}
             </button>
           </div>
         </div>
@@ -716,15 +716,15 @@ function DeckQueue({
   onSelect: (item: WorkspaceAttentionItem | null) => void;
   onRunSelect: (runId: string | null) => void;
 }) {
-  const title = mode === "issues" ? "Issue intake" : mode === "inbox" ? "Unreviewed" : mode === "review" ? "Findings" : mode === "cleared" ? "Cleared" : "Sweep history";
+  const title = mode === "issues" ? "Issue intake" : mode === "inbox" ? "Signals" : mode === "review" ? "Findings" : mode === "cleared" ? "Cleared" : "Sweep history";
   return (
     <aside className="min-h-0 overflow-y-auto rounded-md bg-surface-overlay/20 px-3 py-3">
       <div>
         <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Needs action</div>
         <div className="space-y-1">
           <ModeButton active={mode === "review"} icon={<Sparkles size={14} />} label="Findings" count={counts.review} onClick={() => onModeChange("review")} />
-          <ModeButton active={mode === "issues"} icon={<MessageSquare size={14} />} label="Issues" count={counts.issues} onClick={() => onModeChange("issues")} />
-          <ModeButton active={mode === "inbox"} icon={<Inbox size={14} />} label="Unreviewed" count={counts.inbox} onClick={() => onModeChange("inbox")} />
+          <ModeButton active={mode === "issues"} icon={<MessageSquare size={14} />} label="Issue intake" count={counts.issues} onClick={() => onModeChange("issues")} />
+          <ModeButton active={mode === "inbox"} icon={<Inbox size={14} />} label="Signals" count={counts.inbox} onClick={() => onModeChange("inbox")} />
         </div>
         <div className="mb-1 mt-4 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Review history</div>
         <div className="space-y-1">
@@ -1531,7 +1531,7 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
-            {botReport ? "Bot-reported issue" : reviewed ? "Operator finding" : "Unreviewed item"}
+            {botReport ? "Bot-reported issue" : reviewed ? "Operator finding" : "Raw signal"}
           </div>
           <h2 className="mt-1 text-2xl font-semibold tracking-normal text-text">{item.title}</h2>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-text-muted">

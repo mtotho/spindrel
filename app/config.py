@@ -825,6 +825,7 @@ class Settings(BaseSettings):
 
     # Chat History defaults
     DEFAULT_HISTORY_MODE: str = "file"  # "summary" | "structured" | "file"
+    NATIVE_CONTEXT_POLICY_DEFAULT: str = "lean"  # "lean" | "standard" | "rich"
     SECTION_INDEX_COUNT: int = 10
     SECTION_INDEX_VERBOSITY: str = "standard"  # "compact" | "standard" | "detailed"
     HISTORY_WRITE_FILES: bool = False

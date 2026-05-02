@@ -34,6 +34,9 @@ class ContextProfile:
     allow_skill_index: bool
     mandatory_static_injections: tuple[str, ...] = ()
     optional_static_injections: tuple[str, ...] = ()
+    memory_bootstrap_max_chars: int | None = None
+    section_index_count_default: int | None = None
+    section_index_verbosity_default: str | None = None
     # When set, overrides ``settings.IN_LOOP_PRUNING_KEEP_ITERATIONS`` for this
     # profile. Long-running task profiles (hygiene, skill review) need a larger
     # window than chat because they sweep many channels per run and otherwise
@@ -50,12 +53,72 @@ class ContextProfile:
             "keep_iterations_override": self.keep_iterations_override,
             "mandatory_static_injections": list(self.mandatory_static_injections),
             "optional_static_injections": list(self.optional_static_injections),
+            "memory_bootstrap_max_chars": self.memory_bootstrap_max_chars,
+            "section_index_count_default": self.section_index_count_default,
+            "section_index_verbosity_default": self.section_index_verbosity_default,
         }
 
 
 _PROFILES: dict[str, ContextProfile] = {
-    "chat": ContextProfile(
-        name="chat",
+    "chat_lean": ContextProfile(
+        name="chat_lean",
+        live_history_turns=4,
+        include_compaction_summary=True,
+        allow_plan_artifact=False,
+        allow_conversation_sections=True,
+        allow_memory_recent_logs=False,
+        allow_channel_workspace=False,
+        allow_channel_index_segments=False,
+        allow_bot_knowledge_base=False,
+        allow_workspace_rag=False,
+        allow_temporal_context=True,
+        allow_pinned_widgets=True,
+        allow_tool_refusal_guard=True,
+        allow_tool_index=False,
+        allow_skill_index=False,
+        mandatory_static_injections=("memory_bootstrap",),
+        optional_static_injections=(
+            "section_index",
+            "temporal_context",
+            "pinned_widgets",
+            "tool_refusal_guard",
+        ),
+        memory_bootstrap_max_chars=4000,
+        section_index_count_default=8,
+        section_index_verbosity_default="compact",
+    ),
+    "chat_standard": ContextProfile(
+        name="chat_standard",
+        live_history_turns=8,
+        include_compaction_summary=True,
+        allow_plan_artifact=False,
+        allow_conversation_sections=True,
+        allow_memory_recent_logs=False,
+        allow_channel_workspace=False,
+        allow_channel_index_segments=False,
+        allow_bot_knowledge_base=True,
+        allow_workspace_rag=True,
+        allow_temporal_context=True,
+        allow_pinned_widgets=True,
+        allow_tool_refusal_guard=True,
+        allow_tool_index=False,
+        allow_skill_index=True,
+        mandatory_static_injections=("memory_bootstrap",),
+        optional_static_injections=(
+            "bot_knowledge_base",
+            "conversation_sections",
+            "section_index",
+            "workspace_rag",
+            "temporal_context",
+            "pinned_widgets",
+            "tool_refusal_guard",
+        ),
+        memory_bootstrap_max_chars=8000,
+        section_index_count_default=10,
+        section_index_verbosity_default="standard",
+    ),
+    "chat_rich": ContextProfile(
+        name="chat_rich",
         live_history_turns=8,
         include_compaction_summary=True,
         allow_plan_artifact=False,
@@ -188,6 +251,38 @@ _PROFILES: dict[str, ContextProfile] = {
     ),
 }
 
+_PROFILES["chat"] = _PROFILES["chat_lean"]
+
+_NATIVE_CONTEXT_POLICY_TO_PROFILE = {
+    "lean": "chat_lean",
+    "standard": "chat_standard",
+    "rich": "chat_rich",
+}
+
+
+def normalize_native_context_policy(value: Any) -> str | None:
+    raw = str(value or "").strip().lower()
+    if raw in {"lean", "standard", "rich"}:
+        return raw
+    return None
+
+
+def resolve_native_context_policy(*, channel: Any | None = None) -> str:
+    if channel is not None:
+        cfg = getattr(channel, "config", None) or {}
+        channel_policy = normalize_native_context_policy(cfg.get("native_context_policy"))
+        if channel_policy:
+            return channel_policy
+
+    from app.config import settings
+
+    return normalize_native_context_policy(getattr(settings, "NATIVE_CONTEXT_POLICY_DEFAULT", "lean")) or "lean"
+
+
+def resolve_native_chat_profile(*, channel: Any | None = None) -> ContextProfile:
+    policy = resolve_native_context_policy(channel=channel)
+    return get_context_profile(_NATIVE_CONTEXT_POLICY_TO_PROFILE[policy])
+
 
 def get_context_profile(name: str) -> ContextProfile:
     return _PROFILES.get(name, _PROFILES["chat"])
@@ -198,6 +293,7 @@ def resolve_context_profile(
     session: Session | None = None,
     profile_name: str | None = None,
     origin: str | None = None,
+    channel: Any | None = None,
 ) -> ContextProfile:
     if profile_name:
         return get_context_profile(profile_name)
@@ -216,7 +312,7 @@ def resolve_context_profile(
     if origin == "task":
         return _PROFILES["task_recent"]
 
-    return _PROFILES["chat"]
+    return resolve_native_chat_profile(channel=channel)
 
 
 def trim_messages_to_recent_turns(messages: list[dict], max_turns: int | None) -> list[dict]:

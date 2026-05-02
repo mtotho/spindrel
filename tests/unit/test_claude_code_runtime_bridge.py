@@ -459,6 +459,31 @@ def test_tool_result_uses_lookup_to_resolve_tool_name():
     ]
 
 
+def test_text_tool_result_strips_terminal_ansi_sequences():
+    emitter = _RecordingEmitter()
+    msg = UserMessage(
+        content=[ToolResultBlock(
+            tool_use_id="tu_bash",
+            content="\x1b[00;34m.claude\x1b[0m\nplain\n",
+            is_error=False,
+        )],
+    )
+
+    _bridge_message(
+        msg,
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id={"tu_bash": "Bash"},
+        final_text_parts=[],
+        result_meta={},
+    )
+
+    result = emitter.calls[0][1]
+    assert result["result_summary"] == ".claude"
+    assert result["envelope"]["body"] == ".claude\nplain"
+    assert "\x1b" not in result["envelope"]["body"]
+
+
 def test_bash_tool_result_emits_text_envelope():
     emitter = _RecordingEmitter()
     msg = UserMessage(

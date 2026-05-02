@@ -28,7 +28,7 @@ async def _collect_events(bot, messages, ws_root):
     """Run _inject_memory_scheme and collect all yielded events."""
     injected_paths: set = set()
     ledger = AssemblyLedger()
-    context_profile = get_context_profile("chat")
+    context_profile = get_context_profile("chat_rich")
 
     from unittest.mock import patch
 
@@ -43,6 +43,26 @@ async def _collect_events(bot, messages, ws_root):
         ):
             events.append(event)
     return events, messages, injected_paths
+
+
+async def _collect_events_with_profile(bot, messages, ws_root, profile_name: str):
+    injected_paths: set = set()
+    ledger = AssemblyLedger()
+    context_profile = get_context_profile(profile_name)
+
+    from unittest.mock import patch
+
+    with patch("app.services.workspace.workspace_service") as mock_ws, \
+         patch("app.services.memory_scheme.get_memory_root", return_value=os.path.join(ws_root, "memory")), \
+         patch("app.services.memory_scheme.get_memory_index_prefix", return_value=f"bots/{bot.id}/memory"), \
+         patch("app.services.memory_scheme.get_memory_rel_path", return_value="memory"):
+        mock_ws.get_workspace_root.return_value = ws_root
+        events = []
+        async for event in _inject_memory_scheme(
+            messages, bot, ledger, injected_paths, context_profile,
+        ):
+            events.append(event)
+    return events, messages, injected_paths, ledger
 
 
 @pytest.fixture
@@ -112,6 +132,27 @@ class TestLooseFileSurfacing:
 
         loose_msg = [m for m in messages if "Other files in" in m.get("content", "")]
         assert "reference/" in loose_msg[0]["content"]
+
+
+class TestMemoryPolicyCaps:
+    async def test_lean_profile_caps_memory_bootstrap_and_skips_logs(self, mem_ws):
+        (mem_ws / "memory" / "MEMORY.md").write_text("x" * 5000)
+
+        bot = _make_bot(ws_root=str(mem_ws))
+        messages: list[dict] = []
+        events, messages, _, ledger = await _collect_events_with_profile(
+            bot,
+            messages,
+            str(mem_ws),
+            "chat_lean",
+        )
+
+        event_types = [e["type"] for e in events]
+        assert "memory_scheme_bootstrap" in event_types
+        assert "memory_scheme_today_log" not in event_types
+        bootstrap_msg = next(m for m in messages if "Your persistent memory" in m.get("content", ""))
+        assert "Truncated to 4000 chars" in bootstrap_msg["content"]
+        assert ledger.inject_decisions["memory_today_log"] == "skipped_by_profile"
 
 
 class TestMemoryWriteNudge:

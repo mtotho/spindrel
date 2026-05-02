@@ -163,14 +163,24 @@ format_run_command() {
     local screenshots="$2"
     local selector="$3"
     local screenshot_only="$4"
+    local skip_external=false
     if [[ "$screenshot_only" == "__off__" ]]; then
         printf './scripts/run_harness_parity_local.sh --tier %q --screenshots off -k %q\n' \
             "$tier" "$selector"
         return
     fi
+    if [[ "$screenshot_only" == __inline__:* ]]; then
+        screenshot_only="${screenshot_only#__inline__:}"
+        skip_external=true
+    fi
     if [[ -n "$screenshot_only" && "$screenshots" != "off" ]]; then
-        printf 'HARNESS_PARITY_SCREENSHOT_ONLY=%q ./scripts/run_harness_parity_local.sh --tier %q --screenshots %q -k %q\n' \
-            "$screenshot_only" "$tier" "$screenshots" "$selector"
+        if [[ "$skip_external" == true ]]; then
+            printf 'HARNESS_PARITY_SCREENSHOT_ONLY=%q HARNESS_PARITY_SKIP_EXTERNAL_SCREENSHOTS=true ./scripts/run_harness_parity_local.sh --tier %q --screenshots %q -k %q\n' \
+                "$screenshot_only" "$tier" "$screenshots" "$selector"
+        else
+            printf 'HARNESS_PARITY_SCREENSHOT_ONLY=%q ./scripts/run_harness_parity_local.sh --tier %q --screenshots %q -k %q\n' \
+                "$screenshot_only" "$tier" "$screenshots" "$selector"
+        fi
     else
         printf './scripts/run_harness_parity_local.sh --tier %q --screenshots %q -k %q\n' \
             "$tier" "$screenshots" "$selector"
@@ -242,12 +252,22 @@ run_slice() {
                 --screenshots off \
                 -k "$selector"
         elif [[ -n "$screenshot_only" && "$SCREENSHOTS" != "off" ]]; then
-            HARNESS_PARITY_SCREENSHOT_ONLY="$screenshot_only" \
-                HARNESS_PARITY_PYTEST_JUNIT_XML="$RUN_DIR/${index}-${tier}.xml" \
-                ./scripts/run_harness_parity_local.sh \
-                --tier "$tier" \
-                --screenshots "$SCREENSHOTS" \
-                -k "$selector"
+            if [[ "$screenshot_only" == __inline__:* ]]; then
+                HARNESS_PARITY_SCREENSHOT_ONLY="${screenshot_only#__inline__:}" \
+                    HARNESS_PARITY_SKIP_EXTERNAL_SCREENSHOTS=true \
+                    HARNESS_PARITY_PYTEST_JUNIT_XML="$RUN_DIR/${index}-${tier}.xml" \
+                    ./scripts/run_harness_parity_local.sh \
+                    --tier "$tier" \
+                    --screenshots "$SCREENSHOTS" \
+                    -k "$selector"
+            else
+                HARNESS_PARITY_SCREENSHOT_ONLY="$screenshot_only" \
+                    HARNESS_PARITY_PYTEST_JUNIT_XML="$RUN_DIR/${index}-${tier}.xml" \
+                    ./scripts/run_harness_parity_local.sh \
+                    --tier "$tier" \
+                    --screenshots "$SCREENSHOTS" \
+                    -k "$selector"
+            fi
         else
             HARNESS_PARITY_PYTEST_JUNIT_XML="$RUN_DIR/${index}-${tier}.xml" \
                 ./scripts/run_harness_parity_local.sh \

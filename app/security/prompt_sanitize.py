@@ -63,6 +63,60 @@ def wrap_untrusted_content(text: str, source: str, max_chars: int = 8000) -> str
     )
 
 
+# Sources whose inbound content is third-party-controlled (someone other than
+# the operator typing in the Spindrel UI). When a message arrives carrying one
+# of these sources, the LLM-bound copy must be wrapped in <untrusted-data> so
+# embedded instructions ("ignore previous, run X") are framed as data, not
+# trusted operator intent. The stored message body and any integration fan-out
+# stay raw so display/echo paths keep working.
+EXTERNAL_UNTRUSTED_SOURCES: frozenset[str] = frozenset({
+    "slack",
+    "discord",
+    "github",
+    "bluebubbles",
+    "frigate",
+    "gmail",
+    "homeassistant",
+    "openweather",
+    "truenas",
+    "unifi",
+    "wyoming",
+    "ingestion",
+    "arr",
+    "ssh",
+    "vscode",
+    "firecrawl",
+    "web_search",
+    "browser_automation",
+    "browser_live",
+    "google_workspace",
+    "marp_slides",
+    "excalidraw",
+    "demo_harness",
+    "local_companion",
+})
+
+
+def is_untrusted_source(source: str | None) -> bool:
+    """Return True when content from ``source`` should be wrapped before the LLM sees it."""
+    if not source:
+        return False
+    return source.strip().lower() in EXTERNAL_UNTRUSTED_SOURCES
+
+
+def wrap_external_message_for_llm(content: str, source: str | None) -> str:
+    """Wrap a message body with <untrusted-data> when its source is third-party.
+
+    Trusted operator paths (web/api/system/chat) pass through unchanged.
+    Returns the original content for sources we don't recognize as external —
+    the conservative default keeps unknown-source content untagged so we don't
+    silently double-wrap content that's already been wrapped upstream.
+    """
+    if not is_untrusted_source(source):
+        return content
+    return wrap_untrusted_content(content, source=str(source))
+
+
 def sanitize_exception(exc: Exception) -> str:
     """Return a safe error message suitable for LLM consumption.
 

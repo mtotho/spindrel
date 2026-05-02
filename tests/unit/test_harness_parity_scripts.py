@@ -5,6 +5,8 @@ import subprocess
 from pathlib import Path
 import textwrap
 
+import pytest
+
 from scripts.harness_parity_junit_skips import unexpected_skips
 
 
@@ -157,6 +159,35 @@ def test_harness_parity_local_batch_ui_preset_uses_current_pytest_selectors() ->
     assert "--tier terminal --screenshots off -k terminal_tool_output_is_sequential" in proc.stdout
     assert "--tier replay --screenshots off -k persisted_tool_replay_survives_refetch" in proc.stdout
     assert "mobile_context_panel" not in proc.stdout
+
+
+def test_harness_parity_local_batch_cli_preset_targets_native_cli_roundtrip() -> None:
+    proc = _run_script("--preset", "cli", "--screenshots", "docs", "--dry-run")
+
+    assert proc.returncode == 0, proc.stderr
+    assert "--tier terminal --screenshots docs -k codex_native_cli_terminal_mirrors_to_spindrel" in proc.stdout
+    assert "--tier terminal --screenshots docs -k codex_native_cli_model_effort_syncs_to_spindrel_composer" in proc.stdout
+    assert "--tier terminal --screenshots docs -k claude_native_cli_terminal_mirrors_to_spindrel" in proc.stdout
+    assert "HARNESS_PARITY_SKIP_EXTERNAL_SCREENSHOTS=true" in proc.stdout
+    assert "harness-codex-native-cli-terminal" in proc.stdout
+    assert "harness-codex-native-cli-mirror" in proc.stdout
+    assert "harness-codex-native-cli-settings-sync" in proc.stdout
+    assert "harness-claude-native-cli-terminal" in proc.stdout
+    assert "harness-claude-native-cli-mirror" in proc.stdout
+
+
+def test_harness_parity_screenshot_filter_accepts_comma_separated_names(monkeypatch) -> None:
+    parity = pytest.importorskip("tests.e2e.scenarios.test_harness_live_parity")
+
+    monkeypatch.setenv("HARNESS_PARITY_CAPTURE_SCREENSHOTS", "auto")
+    monkeypatch.setenv(
+        "HARNESS_PARITY_SCREENSHOT_ONLY",
+        "harness-codex-native-cli-terminal,harness-codex-native-cli-mirror",
+    )
+
+    assert parity._should_capture_screenshots("harness-codex-native-cli-terminal")
+    assert parity._should_capture_screenshots("harness-codex-native-cli-mirror")
+    assert not parity._should_capture_screenshots("harness-claude-native-cli-terminal")
 
 
 def test_harness_parity_strict_skip_gate_allows_intentional_runtime_skips(tmp_path) -> None:

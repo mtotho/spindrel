@@ -1,20 +1,21 @@
 /**
  * DashboardDnd — DnD primitives for the channel dashboard edit surface.
  *
- * One `DndContext` (owned by ChannelDashboardMultiCanvas) wraps four
- * `DroppableCanvas` regions (rail / header / dock / grid). Tiles come in two
- * flavors:
+ * The current channel workbench uses one freeform board. This module still
+ * owns the shared drag bindings and resize handles used by pinned widgets.
+ * Historical helpers below are kept for non-channel dashboard compatibility,
+ * but they should not reintroduce panel-zone placement on the workbench.
  *
- *   - `SortableTile` — 1-D list canvases (rail, header, dock). Reorder via
- *     dnd-kit's SortableContext; persistence maps array index → y (or x for
- *     header).
+ * Tiles come in two flavors:
+ *
+ *   - `SortableTile` — 1-D list canvases in legacy dashboard views.
  *
  *   - `GridTile` — 2-D free-positioning canvas (grid). Uses `useDraggable` +
  *     a drop-time snap calc against the canvas's bounding rect. Resize
  *     handles on the south / east / south-east edges write w/h directly.
  *
  * All layout persistence goes through the same `applyLayout([{id, zone,
- * x, y, w, h}])` path — no second writer, no positional classifier.
+ * x, y, w, h}])` path.
  */
 import {
   useCallback,
@@ -182,7 +183,7 @@ export function DroppableCanvas({
 }
 
 // ---------------------------------------------------------------------------
-// SortableTile — for rail / header / dock (1-D lists).
+// SortableTile — for legacy 1-D dashboard lists.
 // ---------------------------------------------------------------------------
 
 interface SortableTileProps {
@@ -471,8 +472,8 @@ export function ResizeHandles({
 
 // ---------------------------------------------------------------------------
 // Small hook: track whether any tile is currently being dragged in the
-// enclosing DndContext. Fed by ChannelDashboardMultiCanvas via props; also
-// useful for EditModeGridGuides's "show column ticks while dragging".
+// enclosing DndContext. Useful for EditModeGridGuides's "show column ticks
+// while dragging".
 // ---------------------------------------------------------------------------
 
 export function useCanvasMeasure() {

@@ -8,11 +8,13 @@ normal Spindrel tools use, without inspecting the workspace after the fact.
 from __future__ import annotations
 
 import difflib
+import re
 from typing import Any
 
 
 DIFF_CONTENT_TYPE = "application/vnd.spindrel.diff+text"
 TEXT_CONTENT_TYPE = "text/plain"
+ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 
 
 def build_text_tool_result(
@@ -27,7 +29,7 @@ def build_text_tool_result(
     preview_text: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return ``(envelope, summary)`` for runtime-supplied plain output."""
-    text = body.strip("\n")
+    text = strip_ansi(body).strip("\n")
     plain = label or first_nonempty_line(text) or "Command output"
     envelope: dict[str, Any] = {
         "content_type": TEXT_CONTENT_TYPE,
@@ -55,6 +57,11 @@ def build_text_tool_result(
     if path:
         summary["path"] = path
     return envelope, summary
+
+
+def strip_ansi(text: str) -> str:
+    """Remove terminal ANSI/OSC escape sequences from persisted plain output."""
+    return ANSI_ESCAPE_RE.sub("", text)
 
 
 def build_diff_tool_result(

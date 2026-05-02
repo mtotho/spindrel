@@ -27,14 +27,14 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  FileText,
-  GripVertical,
   Loader2,
   MoreHorizontal,
   Search,
   StickyNote,
   X,
 } from "lucide-react";
+import { useThemeTokens } from "@/src/theme/tokens";
+import { getFileIcon } from "./ChannelFileExplorerData";
 import {
   buildChannelSessionPickerEntries,
   buildChannelSessionPickerGroups,
@@ -155,13 +155,13 @@ export function ChannelSessionTabStrip({
     if (!available)
       return { visibleTabs: tabs, overflowTabs: [] as ChannelTopTabItem[] };
     const gap = 4;
-    const overflowButtonWidth = 60;
+    const overflowButtonWidth = 42;
     const visible: ChannelTopTabItem[] = [];
     const hidden: ChannelTopTabItem[] = [];
     let used = 0;
     for (let index = 0; index < tabs.length; index++) {
       const tab = tabs[index]!;
-      const width = tabWidths[tab.key] ?? (tab.kind === "split" ? 240 : 170);
+      const width = tabWidths[tab.key] ?? (tab.kind === "split" ? 190 : 150);
       const remainingAfterThis = tabs.length - index - 1;
       const reserve = remainingAfterThis > 0 ? overflowButtonWidth + gap : 0;
       const nextUsed = used + (visible.length > 0 ? gap : 0) + width;
@@ -288,7 +288,7 @@ export function ChannelSessionTabStrip({
         data-testid="channel-session-tab-strip"
         role="tablist"
         aria-label="Open chat tabs"
-        className="relative flex h-9 shrink-0 items-center gap-1 overflow-hidden px-3 pb-1 text-[12px]"
+        className="relative flex h-8 shrink-0 items-center gap-1 overflow-hidden px-3 text-[12px]"
       >
         <div
           ref={measureRef}
@@ -345,11 +345,10 @@ export function ChannelSessionTabStrip({
                 event.stopPropagation();
                 setOverflowOpen((open) => !open);
               }}
-              className="flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] text-text-dim transition-colors hover:bg-surface-overlay/60 hover:text-text"
+              className="flex h-7 shrink-0 items-center justify-center rounded-md px-2 text-text-dim transition-colors hover:bg-surface-overlay/60 hover:text-text"
               title={`${overflowTabs.length} hidden ${overflowTabs.length === 1 ? "tab" : "tabs"}`}
             >
               <MoreHorizontal size={14} />
-              More
             </button>
             {overflowOpen &&
               overflowMenuPosition &&
@@ -404,54 +403,20 @@ function MeasuredSessionTab({
   tab: ChannelTopTabItem;
   pending: boolean;
 }) {
+  const label = compactTabLabel(tab);
   return (
     <div
       data-measure-tab-key={tab.key}
       className={[
-        "flex h-8 shrink-0 items-center gap-1 rounded-md px-1.5 text-left text-[12px]",
-        tab.kind === "split" ? "max-w-[360px]" : "max-w-[260px]",
+        "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-left text-[12px]",
+        tab.kind === "split" ? "max-w-[240px]" : "max-w-[220px]",
       ].join(" ")}
     >
-      <span className="flex h-6 w-4 shrink-0 items-center justify-center">
-        <GripVertical size={12} />
-      </span>
-      {tab.kind === "split" ? (
-        <div className="flex min-w-0 flex-1 items-center gap-0.5">
-          {tab.panes.map((pane, index) => (
-            <span
-              key={pane.id}
-              className={[
-                "flex h-6 min-w-0 items-center gap-1 border border-surface-border/70 px-2 text-[11px]",
-                index === 0 ? "rounded-l-md" : "",
-                index === tab.panes.length - 1 ? "rounded-r-md" : "",
-              ].join(" ")}
-            >
-              {pane.primary && (
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full" />
-              )}
-              <span className="min-w-0 truncate">{pane.label}</span>
-            </span>
-          ))}
-        </div>
-      ) : (
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          {tab.kind === "file" ? (
-            <FileText size={12} className="shrink-0" />
-          ) : tab.primary ? (
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full" />
-          ) : null}
-          <span className="min-w-0 truncate">{tab.label}</span>
-          <span className="hidden shrink-0 text-[10px] uppercase tracking-[0.08em] lg:inline">
-            {tab.kind === "file"
-              ? tab.splitActive
-                ? "Split"
-                : "File"
-              : tab.primary
-                ? "Primary"
-                : "Session"}
-          </span>
-        </div>
-      )}
+      <TabKindIcon tab={tab} />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {tab.primary && <PrimaryBadge />}
+      {tab.kind === "split" && <SplitCountBadge count={tab.panes.length} />}
+      {tab.kind === "file" && tab.splitActive && <SplitCountBadge count={2} title="Open in split" />}
       {pending && <Loader2 size={11} className="shrink-0" />}
       {tab.unreadCount > 0 && (
         <span className="h-4 min-w-4 shrink-0 px-1 text-[9px]">9+</span>
@@ -460,6 +425,53 @@ function MeasuredSessionTab({
         <X size={12} />
       </span>
     </div>
+  );
+}
+
+function compactTabLabel(tab: ChannelTopTabItem): string {
+  if (tab.kind !== "split") return tab.label;
+  return tab.panes.find((pane) => pane.focused)?.label ?? tab.panes[0]?.label ?? tab.label;
+}
+
+function TabKindIcon({ tab }: { tab: ChannelTopTabItem }) {
+  const t = useThemeTokens();
+  if (tab.kind === "file") {
+    return (
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden="true">
+        {getFileIcon(tab.path || tab.label, null, t.textDim)}
+      </span>
+    );
+  }
+  return (
+    <StickyNote
+      size={13}
+      className={tab.primary ? "shrink-0 text-accent" : "shrink-0 text-text-dim"}
+      aria-hidden="true"
+    />
+  );
+}
+
+function PrimaryBadge() {
+  return (
+    <span
+      className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-accent/15 px-1 text-[9px] font-semibold text-accent"
+      title="Primary"
+      aria-label="Primary"
+    >
+      P
+    </span>
+  );
+}
+
+function SplitCountBadge({ count, title = "Split view" }: { count: number; title?: string }) {
+  return (
+    <span
+      className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-overlay px-1 text-[9px] font-semibold text-text-dim"
+      title={title}
+      aria-label={title}
+    >
+      {count}
+    </span>
   );
 }
 
@@ -476,16 +488,12 @@ function OverflowTabRow({
 }) {
   const kindLabel =
     tab.kind === "file"
-      ? tab.splitActive
-        ? "Split file"
-        : "File"
+      ? "File"
       : tab.kind === "split"
         ? "Split"
-        : tab.primary
-          ? "Primary"
-          : tab.kind === "surface" && tab.surface.kind === "scratch"
-            ? "Scratch"
-            : "Session";
+        : tab.kind === "surface" && tab.surface.kind === "scratch"
+          ? "Scratch"
+          : "Chat";
   return (
     <div className="group flex min-w-0 items-center gap-1 rounded-md hover:bg-surface-overlay/60">
       <button
@@ -493,17 +501,12 @@ function OverflowTabRow({
         onClick={onSelect}
         className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-muted group-hover:text-text"
       >
-        {tab.kind === "file" ? (
-          <FileText size={13} className="shrink-0 text-text-dim" />
-        ) : tab.primary ? (
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80" />
-        ) : (
-          <StickyNote size={13} className="shrink-0 text-text-dim" />
-        )}
-        <span className="min-w-0 flex-1 truncate">{tab.label}</span>
+        <TabKindIcon tab={tab} />
+        <span className="min-w-0 flex-1 truncate">{compactTabLabel(tab)}</span>
         <span className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-text-dim">
           {kindLabel}
         </span>
+        {tab.primary && <PrimaryBadge />}
         {pending && (
           <Loader2 size={11} className="shrink-0 animate-spin text-accent" />
         )}
@@ -651,11 +654,13 @@ function SortableSessionTab({
     setNodeRef(node);
     registerTabRef(node);
   };
+  const label = compactTabLabel(tab);
   return (
     <div
       ref={setCombinedRef}
       style={style}
       {...attributes}
+      {...listeners}
       role="tab"
       tabIndex={tabIndex}
       aria-selected={tab.active}
@@ -667,10 +672,10 @@ function SortableSessionTab({
       data-reorderable="true"
       title={[tab.label, tab.meta].filter(Boolean).join("\n")}
       className={[
-        "group relative flex h-8 shrink-0 touch-pan-x items-center gap-1 rounded-md px-1.5 text-left transition-colors",
-        tab.kind === "split" ? "max-w-[360px]" : "max-w-[260px]",
+        "group relative flex h-7 shrink-0 cursor-pointer touch-pan-x items-center gap-1.5 rounded-md px-2 text-left transition-colors active:cursor-grabbing",
+        tab.kind === "split" ? "max-w-[240px]" : "max-w-[220px]",
         tab.active
-          ? "bg-surface-overlay/60 text-text"
+          ? "bg-surface-overlay/70 text-text"
           : "text-text-muted hover:bg-surface-overlay/45 hover:text-text",
         isDragging ? "z-10 opacity-30" : "",
         pending ? "bg-accent/[0.06]" : "",
@@ -719,79 +724,11 @@ function SortableSessionTab({
         setMenuPosition({ x: event.clientX, y: event.clientY });
       }}
     >
-      <span
-        aria-hidden="true"
-        className="flex h-6 w-4 shrink-0 cursor-grab items-center justify-center rounded text-text-dim/40 opacity-0 transition-colors group-hover:bg-surface-overlay group-hover:text-text group-hover:opacity-100 group-focus-within:opacity-100 group-active:cursor-grabbing"
-        {...listeners}
-      >
-        <GripVertical size={12} aria-hidden="true" />
-      </span>
-      {tab.kind === "split" ? (
-        <div
-          data-testid="channel-session-split-tab"
-          className="flex min-w-0 flex-1 items-center gap-0.5"
-        >
-          {tab.panes.map((pane, index) => (
-            <button
-              key={pane.id}
-              type="button"
-              data-testid="channel-session-split-tab-pane"
-              data-focused={pane.focused ? "true" : "false"}
-              onClick={(event) => {
-                event.stopPropagation();
-                onFocusSplitPane(tab, pane.id);
-              }}
-              className={[
-                "flex h-6 min-w-0 items-center gap-1 border border-surface-border/70 px-2 text-[11px] transition-colors",
-                index === 0 ? "rounded-l-md" : "",
-                index === tab.panes.length - 1 ? "rounded-r-md" : "",
-                pane.focused
-                  ? "bg-surface-overlay/80 text-text"
-                  : "bg-surface/60 text-text-muted hover:bg-surface-overlay/70 hover:text-text",
-              ].join(" ")}
-            >
-              {pane.primary && (
-                <span
-                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80"
-                  aria-hidden="true"
-                />
-              )}
-              <span className="min-w-0 truncate">{pane.label}</span>
-            </button>
-          ))}
-        </div>
-      ) : tab.kind === "file" ? (
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          <FileText
-            size={12}
-            className="shrink-0 text-text-dim"
-            aria-hidden="true"
-          />
-          <span className="min-w-0 truncate">{tab.label}</span>
-          <span className="hidden shrink-0 text-[10px] uppercase tracking-[0.08em] text-text-dim lg:inline">
-            {tab.splitActive ? "Split" : "File"}
-          </span>
-        </div>
-      ) : (
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          {tab.primary && (
-            <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80"
-              aria-hidden="true"
-            />
-          )}
-          <span className="min-w-0 truncate">{tab.label}</span>
-          {tab.meta && (
-            <span className="hidden shrink-0 text-[10px] uppercase tracking-[0.08em] text-text-dim lg:inline">
-              {tab.primary
-                ? "Primary"
-                : tab.kind === "surface" && tab.surface.kind === "scratch"
-                  ? "Scratch"
-                  : "Session"}
-            </span>
-          )}
-        </div>
-      )}
+      <TabKindIcon tab={tab} />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {tab.primary && <PrimaryBadge />}
+      {tab.kind === "split" && <SplitCountBadge count={tab.panes.length} />}
+      {tab.kind === "file" && tab.splitActive && <SplitCountBadge count={2} title="Open in split" />}
       {pending && (
         <Loader2
           size={11}
@@ -900,6 +837,23 @@ function SortableSessionTab({
                 </button>
                 {tab.kind === "split" ? (
                   <>
+                    <div className="my-1 h-px bg-surface-border/60" />
+                    <div className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-[0.08em] text-text-dim/70">
+                      Focus pane
+                    </div>
+                    {tab.panes.map((pane) => (
+                      <button
+                        key={`focus-${pane.id}`}
+                        type="button"
+                        onClick={() => {
+                          closeMenu();
+                          onFocusSplitPane(tab, pane.id);
+                        }}
+                        className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
+                      >
+                        {pane.label}
+                      </button>
+                    ))}
                     <div className="my-1 h-px bg-surface-border/60" />
                     <div className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-[0.08em] text-text-dim/70">
                       Unsplit to
@@ -1024,63 +978,18 @@ function SessionTabDragGhost({
   tab: ChannelTopTabItem;
   pending: boolean;
 }) {
+  const label = compactTabLabel(tab);
   return (
     <div
       className={[
-        "flex h-8 max-w-[360px] items-center gap-1 rounded-md border border-surface-border/70 bg-surface-raised px-1.5 text-left text-[12px] text-text shadow-xl",
+        "flex h-7 max-w-[260px] items-center gap-1.5 rounded-md border border-surface-border/70 bg-surface-raised px-2 text-left text-[12px] text-text shadow-xl",
         tab.kind === "split" ? "min-w-[220px]" : "min-w-[160px]",
       ].join(" ")}
     >
-      <span
-        aria-hidden="true"
-        className="flex h-6 w-4 shrink-0 items-center justify-center rounded text-text-dim/70"
-      >
-        <GripVertical size={12} aria-hidden="true" />
-      </span>
-      {tab.kind === "split" ? (
-        <div className="flex min-w-0 flex-1 items-center gap-0.5">
-          {tab.panes.map((pane, index) => (
-            <span
-              key={pane.id}
-              className={[
-                "flex h-6 min-w-0 items-center gap-1 border border-surface-border/70 px-2 text-[11px]",
-                index === 0 ? "rounded-l-md" : "",
-                index === tab.panes.length - 1 ? "rounded-r-md" : "",
-                pane.focused
-                  ? "bg-accent/[0.10] text-text"
-                  : "bg-surface/60 text-text-muted",
-              ].join(" ")}
-            >
-              {pane.primary && (
-                <span
-                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80"
-                  aria-hidden="true"
-                />
-              )}
-              <span className="min-w-0 truncate">{pane.label}</span>
-            </span>
-          ))}
-        </div>
-      ) : tab.kind === "file" ? (
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          <FileText
-            size={12}
-            className="shrink-0 text-text-dim"
-            aria-hidden="true"
-          />
-          <span className="min-w-0 truncate">{tab.label}</span>
-        </div>
-      ) : (
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          {tab.primary && (
-            <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80"
-              aria-hidden="true"
-            />
-          )}
-          <span className="min-w-0 truncate">{tab.label}</span>
-        </div>
-      )}
+      <TabKindIcon tab={tab} />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {tab.primary && <PrimaryBadge />}
+      {tab.kind === "split" && <SplitCountBadge count={tab.panes.length} />}
       {pending && (
         <Loader2
           size={11}

@@ -19,6 +19,13 @@ endpoint, then `PLAYWRIGHT_CHROMIUM_EXECUTABLE` such as `/snap/bin/chromium`,
 then Playwright-managed Chromium. If no backend is available, install the
 managed fallback with `python -m playwright install chromium`.
 
+For focused visual feedback while developing one surface, select exact specs
+without running the whole bundle:
+
+```bash
+SPINDREL_SCREENSHOT_SPECS=home,home-inbox python -m scripts.screenshots capture --only flagship
+```
+
 ## Spindrel live-server harness captures
 
 Do not rely on memory alone to decide whether you are targeting the main

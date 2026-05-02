@@ -137,8 +137,13 @@ async def inject_message(
         raise ValueError(f"Session {session_id} not found")
 
     # Sanitize inbound content from external integrations
-    from app.security.prompt_sanitize import sanitize_unicode
+    from app.security.prompt_sanitize import sanitize_unicode, wrap_external_message_for_llm
     content = sanitize_unicode(content)
+    # The stored Message body and any integration fan-out keep ``content`` raw
+    # so display/echo paths show the original. The Task prompt below — what the
+    # LLM actually consumes — gets wrapped in <untrusted-data> so embedded
+    # instructions can't masquerade as trusted operator intent.
+    llm_bound_content = wrap_external_message_for_llm(content, source)
 
     metadata = {"source": source}
     if extra_metadata:
@@ -182,7 +187,7 @@ async def inject_message(
             client_id=session.client_id,
             session_id=session_id,
             channel_id=session.channel_id,
-            prompt=content,
+            prompt=llm_bound_content,
             status="pending",
             task_type="api",
             dispatch_type=effective_dispatch.get("type") or "none",

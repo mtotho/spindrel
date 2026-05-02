@@ -327,7 +327,7 @@ if [[ "$capture_status" -eq 2 ]]; then
     exit 2
 fi
 
-if [[ "$capture_status" -eq 0 ]]; then
+if [[ "$capture_status" -eq 0 && "${HARNESS_PARITY_SKIP_EXTERNAL_SCREENSHOTS:-false}" != "true" ]]; then
     echo ""
     echo "=== Harness Live Screenshots ==="
     screenshot_args=()

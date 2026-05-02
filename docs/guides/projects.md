@@ -293,6 +293,15 @@ attention across every Project. Home uses that endpoint as a compact Project
 Factory pulse: it appears only when runs need operator attention and links
 directly back to the relevant Project run or Runs page.
 
+Raw conversational issue notes published by Project-bound agents are reviewed
+before they become runs. Home's Project Factory pulse links to Mission Control
+Issue Intake when raw notes or active Work Packs exist, and every Project
+Overview has an Issue intake entry beside the run review queue. That entry opens
+`/hub/attention?mode=issues`, where the operator can review raw notes, start an
+issue-triage run, inspect triage receipts, edit/dismiss/needs-info Work Packs,
+choose Project/channel launch targets, and launch one or several packs into
+Project coding runs.
+
 ![Project review session launched from selected coding runs](../images/project-workspace-review-launched.png)
 
 Launching a review session creates a normal task from the
@@ -333,8 +342,9 @@ artifacts, not ad hoc local captures:
 
 | Artifact | What it proves |
 |---|---|
-| [Project work hub](../images/project-workspace-detail.png) | Project detail opens as an agent-work home with pulse, runs, readiness, channels, and work-surface entry points instead of dropping directly into files. |
-| [Home Project Factory pulse](../images/home.png) | Home surfaces cross-Project Factory review attention only when runs need review, evidence, or follow-up, with direct links back to Project Runs. |
+| [Project work hub](../images/project-workspace-detail.png) | Project detail opens as an agent-work home with pulse, runs, readiness, channels, work-surface entry points, and both coding-run review plus raw Issue Intake/work-pack review links. |
+| [Home Action Inbox](../images/home.png) | Home separates actionable replies, Project reviews, issue intake, Mission Control findings, and health from raw Attention noise. |
+| [Rail Inbox](../images/home-inbox.png) | The left rail Inbox groups review-ready work and unread replies without making raw Attention counts look urgent. |
 | [Project Review Inbox](../images/project-workspace-review-inbox.png) | Operator queue with ready, changes-requested, follow-up, missing-evidence, and blocked states plus source Work Pack launch-batch provenance. |
 | [Project Run detail](../images/project-workspace-run-detail.png) | Canonical review page for one coding run, including summary, receipt, review decision, changed files, tests, screenshots, dev targets, dependency stack, activity, and raw metadata. |
 | [Project Run follow-up](../images/project-workspace-run-follow-up.png) | Recovery flow for a changes-requested run: suggested feedback, Start follow-up, and the created follow-up task link. |
