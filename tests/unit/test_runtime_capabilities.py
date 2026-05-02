@@ -123,6 +123,48 @@ def test_codex_capabilities_shape():
     assert caps.native_compaction is True
 
 
+def test_codex_native_command_mappings_are_schema_verified():
+    """Every app-server backed native command path must be in the drift guard."""
+    from integrations.codex import schema
+    from integrations.codex.harness import _resolve_codex_native_app_server_call
+
+    examples = {
+        "config": [(), ("requirements",), ("set", "model", '"gpt-5.4"')],
+        "mcp-status": [(), ("resource", "read", "server", "uri://fixture")],
+        "plugins": [(), ("read", "fixture"), ("uninstall", "plugin-id")],
+        "marketplace": [
+            ("add", "https://example.invalid/marketplace"),
+            ("remove", "fixture"),
+            ("upgrade",),
+        ],
+        "skills": [(), ("disable", "reviewer")],
+        "features": [(), ("enable", "dynamicTools")],
+        "status": [()],
+        "hooks": [()],
+        "apps": [()],
+        "fs": [(), ("read", "README.md"), ("info", "README.md")],
+        "resume": [
+            (),
+            ("loaded",),
+            ("show", "thread-1"),
+            ("responses", "thread-1"),
+            ("fork", "thread-1"),
+        ],
+        "agents": [(), ("show", "thread-1"), ("turns", "thread-1")],
+        "cloud": [()],
+        "approvals": [()],
+        "review": [("worktree",), ("branch", "main"), ("commit", "abc123")],
+    }
+
+    required = set(schema.REQUIRED_CLIENT_REQUEST_METHODS)
+    for command_id, args_cases in examples.items():
+        for args in args_cases:
+            resolved = _resolve_codex_native_app_server_call(command_id, args)
+            assert resolved is not None, (command_id, args)
+            method, _params = resolved
+            assert method in required, (command_id, args, method)
+
+
 @pytest.mark.asyncio
 async def test_runtime_model_surface_uses_live_effort_projection():
     class Runtime:

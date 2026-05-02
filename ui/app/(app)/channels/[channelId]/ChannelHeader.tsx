@@ -8,16 +8,17 @@ import {
   Hash,
   Lock,
   LayoutDashboard,
+  Layers,
   Cog,
   NotebookText,
   PanelRight,
-  Search,
   Sparkles,
   StickyNote,
   X as CloseIcon,
   User as UserIcon,
   MoreHorizontal,
   AlertTriangle,
+  Files,
   FolderKanban,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -139,6 +140,7 @@ function ChannelHeaderImpl({
   bot,
   columns,
   goBack,
+  workspaceId,
   isMobile: routeIsMobile,
   contextBudget,
   onContextBudgetClick,
@@ -154,7 +156,6 @@ function ChannelHeaderImpl({
   findingsCount = 0,
   scratchOpen,
   onOpenSessions,
-  onOpenMobileNotes,
   scratchSessionId,
   onOpenMainChat,
   dashboardHref,
@@ -175,10 +176,8 @@ function ChannelHeaderImpl({
     left: 0,
     width: 190,
   });
-  // Mobile hamburger opens the channel drawer (Widgets/Files/Jump) rather
-  // than the plain command palette — drawer's Jump tab wraps the palette
-  // content inline, so channel-route mobile users get one surface with nav
-  // + widgets + files all reachable from a single tap.
+  // Mobile hamburger opens global Jump, matching the rest of the app. The
+  // channel workbench drawer is opened from explicit channel actions.
   const setMobileDrawerOpen = useUIStore((s) => s.setMobileDrawerOpen);
   const setChannelPanelTab = useUIStore((s) => s.setChannelPanelTab);
   const openPalette = useUIStore((s) => s.openPalette);
@@ -511,22 +510,15 @@ function ChannelHeaderImpl({
           danger: false,
         }
       : null,
-    isMobile && onOpenMobileNotes
+    isMobile && channelId
       ? {
           key: "notes",
           label: "Notes",
           icon: NotebookText,
-          onClick: onOpenMobileNotes,
-          active: false,
-          danger: false,
-        }
-      : null,
-    isMobile
-      ? {
-          key: "jump",
-          label: "Jump to…",
-          icon: Search,
-          onClick: () => openPalette(),
+          onClick: () => {
+            setChannelPanelTab(channelId, "notes");
+            setMobileDrawerOpen(channelId, true);
+          },
           active: false,
           danger: false,
         }
@@ -590,15 +582,38 @@ function ChannelHeaderImpl({
           disabled: false,
         }
       : null,
-    showDashboardButton
+    isMobile && showDashboardButton
+      ? {
+          key: "widgets",
+          label: "Widgets",
+          icon: Layers,
+          onClick: () => toggleDrawerToWidgets(channelId),
+          active: !!widgetsDrawerActive,
+          danger: false,
+          disabled: false,
+        }
+      : null,
+    isMobile && channelId && workspaceId
+      ? {
+          key: "files",
+          label: "Files",
+          icon: Files,
+          onClick: () => {
+            setChannelPanelTab(channelId, "files");
+            setMobileDrawerOpen(channelId, true);
+          },
+          active: drawerOpen && drawerTab === "files",
+          danger: false,
+          disabled: false,
+        }
+      : null,
+    !isMobile && showDashboardButton
       ? {
           key: "widgets",
           label: "Workbench",
           icon: LayoutDashboard,
-          onClick: isMobile
-            ? () => toggleDrawerToWidgets(channelId)
-            : () => navigate(dashboardHref ?? `/widgets/channel/${channelId}`),
-          active: !!widgetsDrawerActive,
+          onClick: () => navigate(dashboardHref ?? `/widgets/channel/${channelId}`),
+          active: false,
           danger: false,
           disabled: false,
         }
@@ -687,8 +702,9 @@ function ChannelHeaderImpl({
         <button
           className="header-icon-btn"
           style={{ width: 44, height: 44 }}
-          onClick={() => setMobileDrawerOpen(channelId, true)}
-          title="Open menu"
+          onClick={() => openPalette()}
+          title="Jump"
+          aria-label="Jump"
         >
           <Menu size={18} color={t.textMuted} />
         </button>

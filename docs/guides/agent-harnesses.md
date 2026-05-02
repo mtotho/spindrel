@@ -25,6 +25,8 @@ There is no Spindrel agent middleman in the turn. Internally the runtime is sele
 
 2. **Authenticate the harness from the admin UI.** Open `/admin/harnesses`. Each enabled integration that provides a harness shows up as a card. For Claude, click **Run `claude login`** if needed. For Codex, install the binary first, then run `codex login` once in the same host/container environment that Spindrel will spawn. The auth-status card distinguishes "binary missing", "unsupported CLI version", and "not logged in" so setup failures are obvious before the first turn.
 
+    Claude CLI login is an operator-owned, self-hosted setup path. Spindrel does not resell or proxy Claude.ai login/rate-limit access for third parties; a hosted multi-tenant deployment needs an Anthropic-supported provider/API-key auth model instead of sharing a local CLI identity.
+
     Under the hood the CLI writes credentials to `$CLAUDE_CONFIG_DIR/.credentials.json` (default `~/.claude/.credentials.json`). The Claude Agent SDK that the integration installed inherits these credentials — no API key needed. See [Admin Terminal](admin-terminal.md) for the terminal mechanics.
 
     *Old SSH workflow* (still works if you prefer): `docker exec -it spindrel claude login`.
@@ -197,11 +199,15 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 
 ![Codex native CLI messages mirrored back into Spindrel chat](../images/native-cli/harness-codex-native-cli-mirror-dark.png)
 
+![Codex CLI-first turn promoted and resumed from Spindrel chat](../images/native-cli/harness-codex-native-cli-first-roundtrip-dark.png)
+
 ![Codex native CLI model and effort synced into Spindrel composer](../images/native-cli/harness-codex-native-cli-settings-sync-dark.png)
 
 ![Claude Code native CLI embedded in a harness session](../images/native-cli/harness-claude-native-cli-terminal-dark.png)
 
 ![Claude Code native CLI messages mirrored back into Spindrel chat](../images/native-cli/harness-claude-native-cli-mirror-dark.png)
+
+![Claude Code native CLI model and effort synced into Spindrel composer](../images/native-cli/harness-claude-native-cli-settings-sync-dark.png)
 
 Regenerate the non-question fixtures with:
 

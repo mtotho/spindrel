@@ -83,6 +83,11 @@ What still needs user or operator decision?
 
 ## Conversation Rules
 
+- **Ask one clarifying question at a time using `AskUserQuestion` when the
+  harness exposes it.** Bulk-asking five questions in chat produces interview-
+  dump answers that miss nuance. Drip questions: ask one, wait for the
+  answer, ask the next one informed by it. Stop when goal / users /
+  constraints / success criteria are clear enough to draft.
 - Ask targeted questions only when the answer materially changes the PRD.
 - Prefer concrete use cases over abstract platform language.
 - Preserve user wording for pain points and goals when useful.

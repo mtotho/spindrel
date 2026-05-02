@@ -129,6 +129,17 @@ function normalizeChannelPanelPrefs(
   };
 }
 
+function normalizePersistedChannelPanelPrefs(
+  prefs: Partial<ChannelPanelPrefs> | undefined,
+): ChannelPanelPrefs {
+  return {
+    ...normalizeChannelPanelPrefs(prefs),
+    // Drawer visibility is runtime chrome. Persisting it makes mobile routes
+    // reopen into a full-screen drawer with no explicit user action.
+    mobileDrawerOpen: false,
+  };
+}
+
 function normalizeFileTabPaths(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   const paths: string[] = [];
@@ -422,7 +433,11 @@ export const useUIStore = create<UIState>()(
         fileExplorerSplit: state.fileExplorerSplit,
         rightDockHidden: state.rightDockHidden,
         omniPanelTab: normalizeOmniPanelTab(state.omniPanelTab) ?? "sessions",
-        channelPanelPrefs: state.channelPanelPrefs,
+        channelPanelPrefs: Object.fromEntries(
+          Object.entries(state.channelPanelPrefs).map(
+            ([channelId, prefs]) => [channelId, normalizePersistedChannelPanelPrefs(prefs)],
+          ),
+        ),
         recentPages: state.recentPages,
       }),
       // Migrate old string[] format to RecentPage[]
@@ -432,7 +447,7 @@ export const useUIStore = create<UIState>()(
         omniPanelTab: normalizeOmniPanelTab((persisted as Partial<UIState>)?.omniPanelTab) ?? current.omniPanelTab,
         channelPanelPrefs: Object.fromEntries(
           Object.entries((persisted as Partial<UIState>)?.channelPanelPrefs ?? {}).map(
-            ([channelId, prefs]) => [channelId, normalizeChannelPanelPrefs(prefs as Partial<ChannelPanelPrefs>)],
+            ([channelId, prefs]) => [channelId, normalizePersistedChannelPanelPrefs(prefs as Partial<ChannelPanelPrefs>)],
           ),
         ),
         recentPages: ((persisted as Partial<UIState>)?.recentPages ?? []).map(

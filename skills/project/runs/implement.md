@@ -31,27 +31,44 @@ through composer mentions (`@file:<path>`, `@project:dependencies`).
 
 ## Procedure
 
-1. Inspect current state and call
+1. **Read the repo contract first.** Call `get_project_factory_state` and
+   inspect `repo_workflow.sections.runs` and `repo_workflow.sections.hooks`.
+   When `runs` is non-null, follow that section's branch / test / PR
+   conventions verbatim - it overrides the generic guidance below. When
+   `hooks` is non-null, treat it as the source of truth for `before_run` /
+   `after_run` shell commands and run them at the matching phase. The
+   repo-owned `.spindrel/WORKFLOW.md` always wins over this skill's
+   defaults.
+2. **Research before editing.** Use `grep`, `Read`, `glob`, and (when
+   helpful) sub-agent dispatch to understand the relevant code before
+   touching it. Read the actual files referenced by the run prompt; do not
+   improvise from filenames alone. For non-trivial work, write a short
+   `.spindrel/runs/<run_id>/plan.md` artifact recording: scope, files you
+   expect to touch, test plan, open questions. The plan is yours -
+   throwaway between sessions, not a permanent doc - but writing it forces
+   the research pass and gives the reviewer a hook to compare against the
+   final receipt.
+3. Inspect current state and call
    `prepare_project_run_handoff(action="prepare_branch")` before editing.
-2. Make focused changes with native harness file/shell tools inside the Project
+4. Make focused changes with native harness file/shell tools inside the Project
    work surface. Treat `SPINDREL_DEV_*_PORT` values as Project app leases (not
    the host Spindrel API/UI port).
-3. If the Project declares a Dependency Stack, call
+5. If the Project declares a Dependency Stack, call
    `get_project_dependency_stack` before Docker-backed work. Use
    `manage_project_dependency_stack` for prepare/reload/restart/rebuild,
    logs, service commands, and health. Do not call raw `docker` or
    `docker compose`; edit the Project compose file and reload through the tool
    when the stack shape changes.
-4. Run the smallest useful repo-local tests first with the native Project
+6. Run the smallest useful repo-local tests first with the native Project
    shell/runtime env. Do not wrap unit tests in Docker, Dockerfile.test, or
    docker compose. For UI work, run typecheck, start the Project app/dev
    server on the assigned dev target port when present, and capture
    screenshots against that server. Do not restart another agent's process or
    the host Spindrel e2e/API server.
-5. Near handoff, call `prepare_project_run_handoff(action="open_pr")` when
+7. Near handoff, call `prepare_project_run_handoff(action="open_pr")` when
    GitHub credentials and `gh` are available. If not, record the exact
    blocker.
-6. Finish with `publish_project_run_receipt`. Make the receipt review-ready
+8. Finish with `publish_project_run_receipt`. Make the receipt review-ready
    with structured records:
    - files: `{path, status, summary}`
    - tests: `{command, status, exit_code, summary}`

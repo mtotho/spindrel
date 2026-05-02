@@ -257,6 +257,13 @@ def test_write_env_subscription_mode_uses_placeholder_until_oauth(monkeypatch, t
     assert "subscription mode" in capsys.readouterr().out
 
 
+def test_attachment_vision_e2e_defaults_to_subscription_mini_model():
+    body = (agent_e2e_dev.REPO_ROOT / "tests/e2e/scenarios/test_attachment_vision_routing.py").read_text()
+
+    assert 'VISION_MODEL = os.environ.get("E2E_VISION_MODEL", "gpt-5.4-mini")' in body
+    assert 'VISION_MODEL = os.environ.get("E2E_VISION_MODEL", "gpt-5.4")' not in body
+
+
 def test_doctor_redacts_api_keys(monkeypatch, tmp_path, capsys):
     env_path = tmp_path / ".env.agent-e2e"
     env_path.write_text(

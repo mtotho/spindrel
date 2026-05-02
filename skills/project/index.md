@@ -34,10 +34,19 @@ phrase-matched.
 | `runs_in_flight` | `project/runs/implement` (implementer) or `project/runs/review` (reviewer) | Active coding runs or active review tasks. |
 | `needs_review` | `project/runs/review` | One or more runs are `ready_for_review` with no active reviewer. |
 | `reviewed_idle` | ask the user what is next | All runs reviewed. |
+| `get_project_factory_state` itself errored | report the error verbatim, do not retry blindly | The state call is the cluster's first action; if it fails, surface the failure to the user before guessing a stage. |
+| Channel is not Project-bound | stop and ask the user to attach the channel to a Project | This skill cluster only operates inside Project-bound channels; do not improvise. |
+| `readiness.blockers` is non-empty | route to `project/setup/init` regardless of `current_stage` | Unresolved setup blockers (missing Blueprint, secret slot, unconfigured intake) gate everything downstream. |
 
 If the user is dumping rough bugs or ideas in any stage, recognise it and load
 `project/intake` for the capture path. Intake is conversational; it never
 launches work.
+
+If a run is in a non-terminal failure state (`failed` / `stalled`,
+`changes_requested`, `missing_evidence`, `blocked`, or a loop iteration
+returned `needs_review` / `blocked`), load `project/runs/recovery` to pick
+between `continue`, `retry`, `hand_off`, and `abandon` instead of treating
+it as a normal review.
 
 ## Work Surface Discipline
 

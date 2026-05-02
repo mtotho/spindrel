@@ -1,8 +1,8 @@
 /**
  * MobileChannelDrawer — channel-scoped full-height mobile drawer.
  *
- * Replaces the old `MobileOmniSheet` bottom sheet. Opened by the channel
- * header's hamburger, the drawer exposes the channel workbench surfaces:
+ * Replaces the old `MobileOmniSheet` bottom sheet. Explicit channel actions
+ * open this drawer for the channel workbench surfaces:
  *
  *   [Sessions] [Notes] [Widgets (N)] [Files]
  *
@@ -14,8 +14,8 @@
  *          the mobile file viewer so dirty-file guards stay coherent.
  *
  *
- * Desktop never mounts this drawer. Non-channel routes keep hamburger =
- * plain `CommandPalette`.
+ * Desktop never mounts this drawer. Mobile channel hamburger opens the global
+ * Jump palette instead.
  */
 import { useCallback, useEffect, useMemo } from "react";
 import ReactDOM from "react-dom";
@@ -220,48 +220,48 @@ export function MobileChannelDrawer({
         paddingTop: "env(safe-area-inset-top)",
       }}
     >
-      {/* Tab strip — rich channel work surfaces. Global Jump remains available
-          through the app palette shortcut and header entry points. */}
       <div
-        className="flex items-center gap-1 overflow-x-auto px-2 py-1.5 scroll-subtle"
+        className="flex items-center gap-1 px-2 py-1.5"
         style={{ backgroundColor: t.surfaceRaised }}
       >
-        <DrawerTab
-          label="Sessions"
-          icon={<MessageCircle size={13} />}
-          active={activeTab === "sessions"}
-          onClick={() => setTab("sessions")}
-          t={t}
-        />
-        <DrawerTab
-          label="Notes"
-          icon={<NotebookText size={13} />}
-          active={activeTab === "notes"}
-          onClick={() => setTab("notes")}
-          t={t}
-        />
-        <DrawerTab
-          label="Widgets"
-          icon={<Layers size={13} />}
-          count={totalWidgets}
-          active={activeTab === "widgets"}
-          onClick={() => setTab("widgets")}
-          t={t}
-        />
-        {hasWorkspace && (
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scroll-subtle">
           <DrawerTab
-            label="Files"
-            icon={<Files size={13} />}
-            active={activeTab === "files"}
-            onClick={() => setTab("files")}
+            label="Sessions"
+            icon={<MessageCircle size={13} />}
+            active={activeTab === "sessions"}
+            onClick={() => setTab("sessions")}
             t={t}
           />
-        )}
+          <DrawerTab
+            label="Notes"
+            icon={<NotebookText size={13} />}
+            active={activeTab === "notes"}
+            onClick={() => setTab("notes")}
+            t={t}
+          />
+          <DrawerTab
+            label="Widgets"
+            icon={<Layers size={13} />}
+            count={totalWidgets}
+            active={activeTab === "widgets"}
+            onClick={() => setTab("widgets")}
+            t={t}
+          />
+          {hasWorkspace && (
+            <DrawerTab
+              label="Files"
+              icon={<Files size={13} />}
+              active={activeTab === "files"}
+              onClick={() => setTab("files")}
+              t={t}
+            />
+          )}
+        </div>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close menu"
-          className="ml-auto flex items-center justify-center w-9 h-9 rounded-md"
+          className="ml-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md"
           style={{ color: t.textDim }}
         >
           <X size={18} />
@@ -526,7 +526,7 @@ function DrawerTab({
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-1.5 rounded-md transition-colors duration-150"
+      className="flex shrink-0 items-center gap-1.5 rounded-md transition-colors duration-150"
       style={{
         color: active ? t.text : t.textMuted,
         backgroundColor: active ? t.surfaceOverlay : "transparent",

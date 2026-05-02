@@ -81,6 +81,7 @@ _RUN_DETAILS_RETURNS = {
         "ok": {"type": "boolean"},
         "project": {"type": "object"},
         "selection": {"type": "object"},
+        "continuation": {"type": "object"},
         "run": {"type": "object"},
         "work_surface": {"type": "object"},
         "receipt": {"type": "object"},
@@ -288,6 +289,27 @@ def _project_run_detail_payload(project: Any, run: dict[str, Any], *, selection:
     task_id = str(run.get("task", {}).get("id") or run.get("id") or "")
     detail_url = f"{project_url}/runs/{task_id}" if task_id else project_url
     receipt_metadata = receipt.get("metadata") if isinstance(receipt, dict) and isinstance(receipt.get("metadata"), dict) else {}
+
+    # Phase 4BG.2 - hoist continuation lineage to the top level so the
+    # implement skill can branch on first-vs-continuation behavior without
+    # digging into the nested run dict. Symphony Continuation Logic analog.
+    attempt = int(run.get("continuation_index") or 0)
+    continuations = run.get("continuations") if isinstance(run.get("continuations"), list) else []
+    prior_attempt_task_id: str | None = None
+    if attempt == 1:
+        prior_attempt_task_id = str(run.get("root_task_id") or "") or None
+    elif attempt > 1 and len(continuations) >= attempt - 1:
+        prior_entry = continuations[attempt - 2]
+        prior_attempt_task_id = str(prior_entry.get("task_id") or "") or None
+    continuation_block = {
+        "attempt": attempt,
+        "is_continuation": attempt > 0,
+        "continuation_count": int(run.get("continuation_count") or 0),
+        "root_task_id": str(run.get("root_task_id") or "") or None,
+        "prior_attempt_task_id": prior_attempt_task_id,
+        "latest_continuation": run.get("latest_continuation"),
+    }
+
     return {
         "ok": True,
         "project": {
@@ -300,6 +322,7 @@ def _project_run_detail_payload(project: Any, run: dict[str, Any], *, selection:
             "mode": selection,
             "latest_meaningful": selection == "latest_meaningful",
         },
+        "continuation": continuation_block,
         "run": run,
         "work_surface": run.get("work_surface") if isinstance(run.get("work_surface"), dict) else {},
         "receipt": receipt,

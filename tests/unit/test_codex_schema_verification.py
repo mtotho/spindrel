@@ -18,6 +18,12 @@ def _write_client_request_schema(path: Path, methods: list[str]) -> None:
     path.write_text(json.dumps({"oneOf": [{"properties": {"method": {"enum": methods}}}]}))
 
 
+def _write_required_client_request_schema(path: Path, *, extra: list[str] | None = None) -> None:
+    methods = list(schema.REQUIRED_CLIENT_REQUEST_METHODS)
+    methods.extend(extra or [])
+    _write_client_request_schema(path, methods)
+
+
 def test_verify_schema_against_binary_checks_required_fields(monkeypatch):
     def _fake_run(cmd, *, check, capture_output, text, timeout):
         out = Path(cmd[-1])
@@ -26,24 +32,7 @@ def test_verify_schema_against_binary_checks_required_fields(monkeypatch):
         _write_schema(out / "ToolRequestUserInputResponse.json", ["answers"])
         _write_schema(out / "DynamicToolCallResponse.json", ["contentItems", "success"])
         _write_schema(out / "v2" / "ThreadTokenUsageUpdatedNotification.json", ["tokenUsage"])
-        _write_client_request_schema(
-            out / "ClientRequest.json",
-            [
-                schema.METHOD_APPS_LIST,
-                schema.METHOD_COMMAND_EXECUTE,
-                schema.METHOD_THREAD_FORK,
-                schema.METHOD_THREAD_ARCHIVE,
-                schema.METHOD_THREAD_UNARCHIVE,
-                schema.METHOD_THREAD_ROLLBACK,
-                schema.METHOD_THREAD_SET_NAME,
-                schema.METHOD_THREAD_LOADED_LIST,
-                schema.METHOD_REVIEW_START,
-                schema.METHOD_FS_READ_TEXT_FILE,
-                schema.METHOD_FS_LIST_DIRECTORY,
-                schema.METHOD_FS_GET_FILE_INFO,
-                schema.METHOD_CONFIG_REQUIREMENTS_LIST,
-            ],
-        )
+        _write_required_client_request_schema(out / "ClientRequest.json")
 
     monkeypatch.setattr(schema.subprocess, "run", _fake_run)
 
@@ -58,24 +47,7 @@ def test_verify_schema_against_binary_raises_on_drift(monkeypatch):
         _write_schema(out / "ToolRequestUserInputResponse.json", ["answers"])
         _write_schema(out / "DynamicToolCallResponse.json", ["contentItems", "success"])
         _write_schema(out / "v2" / "ThreadTokenUsageUpdatedNotification.json", ["tokenUsage"])
-        _write_client_request_schema(
-            out / "ClientRequest.json",
-            [
-                schema.METHOD_APPS_LIST,
-                schema.METHOD_COMMAND_EXECUTE,
-                schema.METHOD_THREAD_FORK,
-                schema.METHOD_THREAD_ARCHIVE,
-                schema.METHOD_THREAD_UNARCHIVE,
-                schema.METHOD_THREAD_ROLLBACK,
-                schema.METHOD_THREAD_SET_NAME,
-                schema.METHOD_THREAD_LOADED_LIST,
-                schema.METHOD_REVIEW_START,
-                schema.METHOD_FS_READ_TEXT_FILE,
-                schema.METHOD_FS_LIST_DIRECTORY,
-                schema.METHOD_FS_GET_FILE_INFO,
-                schema.METHOD_CONFIG_REQUIREMENTS_LIST,
-            ],
-        )
+        _write_required_client_request_schema(out / "ClientRequest.json")
 
     monkeypatch.setattr(schema.subprocess, "run", _fake_run)
 
@@ -91,26 +63,33 @@ def test_verify_schema_against_binary_raises_on_method_drift(monkeypatch):
         _write_schema(out / "ToolRequestUserInputResponse.json", ["answers"])
         _write_schema(out / "DynamicToolCallResponse.json", ["contentItems", "success"])
         _write_schema(out / "v2" / "ThreadTokenUsageUpdatedNotification.json", ["tokenUsage"])
-        _write_client_request_schema(
-            out / "ClientRequest.json",
-            [
-                "apps/list",
-                schema.METHOD_COMMAND_EXECUTE,
-                schema.METHOD_THREAD_FORK,
-                schema.METHOD_THREAD_ARCHIVE,
-                schema.METHOD_THREAD_UNARCHIVE,
-                schema.METHOD_THREAD_ROLLBACK,
-                schema.METHOD_THREAD_SET_NAME,
-                schema.METHOD_THREAD_LOADED_LIST,
-                schema.METHOD_REVIEW_START,
-                schema.METHOD_FS_READ_TEXT_FILE,
-                schema.METHOD_FS_LIST_DIRECTORY,
-                schema.METHOD_FS_GET_FILE_INFO,
-                schema.METHOD_CONFIG_REQUIREMENTS_LIST,
-            ],
-        )
+        methods = [
+            method for method in schema.REQUIRED_CLIENT_REQUEST_METHODS
+            if method != schema.METHOD_APPS_LIST
+        ]
+        methods.append("apps/list")
+        _write_client_request_schema(out / "ClientRequest.json", methods)
 
     monkeypatch.setattr(schema.subprocess, "run", _fake_run)
 
     with pytest.raises(schema.CodexSchemaError, match="app/list"):
+        schema.verify_schema_against_binary("/bin/codex")
+
+
+def test_verify_schema_against_binary_raises_on_untracked_method(monkeypatch):
+    def _fake_run(cmd, *, check, capture_output, text, timeout):
+        out = Path(cmd[-1])
+        _write_schema(out / "v2" / "ThreadStartParams.json", ["dynamicTools"])
+        _write_schema(out / "v2" / "TurnStartParams.json", ["collaborationMode"])
+        _write_schema(out / "ToolRequestUserInputResponse.json", ["answers"])
+        _write_schema(out / "DynamicToolCallResponse.json", ["contentItems", "success"])
+        _write_schema(out / "v2" / "ThreadTokenUsageUpdatedNotification.json", ["tokenUsage"])
+        _write_required_client_request_schema(
+            out / "ClientRequest.json",
+            extra=["thread/delete"],
+        )
+
+    monkeypatch.setattr(schema.subprocess, "run", _fake_run)
+
+    with pytest.raises(schema.CodexSchemaError, match="untracked method"):
         schema.verify_schema_against_binary("/bin/codex")

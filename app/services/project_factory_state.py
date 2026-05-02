@@ -55,6 +55,25 @@ from app.services.projects import (
 )
 
 
+def _concurrency_payload(
+    snapshot: dict[str, Any] | None, runs_classification: dict[str, Any]
+) -> dict[str, Any]:
+    """Phase 4BG.3 - cap / in_flight / headroom view of run concurrency.
+
+    `cap` is the Blueprint policy from 4BB.3 (`max_concurrent_runs`) when set,
+    else `null`. `in_flight` counts currently executing coding runs (pending +
+    running implementation tasks). `headroom` is `null` when no cap is set,
+    otherwise `max(0, cap - in_flight)` so the agent can answer "safe to
+    launch another?" without consuming a launch slot. Symphony Orchestrator
+    Runtime State analog (concurrency view only - claim/retry queues defer).
+    """
+    cap_raw = snapshot.get("max_concurrent_runs") if isinstance(snapshot, dict) else None
+    cap = int(cap_raw) if isinstance(cap_raw, int) and cap_raw > 0 else None
+    in_flight = int(runs_classification.get("active_implementation") or 0)
+    headroom = max(0, cap - in_flight) if cap is not None else None
+    return {"cap": cap, "in_flight": in_flight, "headroom": headroom}
+
+
 def _repo_workflow_payload(project: Any, snapshot: dict[str, Any] | None) -> dict[str, Any]:
     """Surface the parsed ``.spindrel/WORKFLOW.md`` for a Project.
 
@@ -151,7 +170,10 @@ def _planning_artifact_signals(project: Project) -> dict[str, Any]:
 
 def _classify_runs(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Apply queue-state derivation to each run; return counts + flags used by stage rules."""
+    from app.services.project_coding_run_lib import project_coding_run_phase
+
     counts: dict[str, int] = {}
+    by_phase: dict[str, int] = {}
     ready_for_review = 0
     in_flight = 0
     active_implementation = 0
@@ -163,6 +185,11 @@ def _classify_runs(rows: list[dict[str, Any]]) -> dict[str, Any]:
         apply_project_coding_run_review_queue(row)
         state = str(row.get("review_queue_state") or "").strip()
         counts[state] = counts.get(state, 0) + 1
+        # Phase 4BG.3 - by_phase mirror of by_queue_state; agent uses this to
+        # answer "is this Project bottlenecked on testing vs handoff?" without
+        # iterating run rows itself.
+        phase = project_coding_run_phase(row)
+        by_phase[phase] = by_phase.get(phase, 0) + 1
         total += 1
         task = row.get("task") if isinstance(row.get("task"), dict) else {}
         task_status = str(task.get("status") or "").lower()
@@ -183,6 +210,7 @@ def _classify_runs(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
     return {
         "by_queue_state": counts,
+        "by_phase": by_phase,
         "ready_for_review": ready_for_review,
         "in_flight": in_flight,
         "active_implementation": active_implementation,
@@ -384,12 +412,14 @@ async def get_project_factory_state(
         "run_packs": pack_counts,
         "runs": {
             "by_queue_state": runs_classification["by_queue_state"],
+            "by_phase": runs_classification["by_phase"],
             "total": runs_classification["total"],
             "ready_for_review": runs_classification["ready_for_review"],
             "in_flight": runs_classification["in_flight"],
             "active_implementation": runs_classification["active_implementation"],
             "reviewed": runs_classification["reviewed"],
             "active_review_task": runs_classification["has_active_review_task"],
+            "concurrency": _concurrency_payload(snapshot, runs_classification),
         },
         "planning": planning_signals,
         "recent_receipts": recent_receipts,

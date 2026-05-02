@@ -96,6 +96,85 @@ METHOD_USER_LIMITS = "user/limits"
 METHOD_USER_LIMITS_SUBSCRIPTION = "user/limits/subscription"
 METHOD_ACCOUNT_RATE_LIMITS_READ = "account/rateLimits/read"
 
+REQUIRED_CLIENT_REQUEST_METHODS: tuple[str, ...] = (
+    METHOD_APPS_LIST,
+    METHOD_COMMAND_EXECUTE,
+    METHOD_THREAD_FORK,
+    METHOD_THREAD_ARCHIVE,
+    METHOD_THREAD_UNARCHIVE,
+    METHOD_THREAD_ROLLBACK,
+    METHOD_THREAD_SET_NAME,
+    METHOD_THREAD_LOADED_LIST,
+    METHOD_THREAD_LIST,
+    METHOD_THREAD_READ,
+    METHOD_THREAD_TURNS_LIST,
+    METHOD_REVIEW_START,
+    METHOD_ACCOUNT_READ,
+    METHOD_CONFIG_READ,
+    METHOD_CONFIG_VALUE_WRITE,
+    METHOD_MCP_SERVER_STATUS_LIST,
+    METHOD_MCP_SERVER_RESOURCE_READ,
+    METHOD_PLUGIN_LIST,
+    METHOD_PLUGIN_READ,
+    METHOD_PLUGIN_UNINSTALL,
+    METHOD_MARKETPLACE_ADD,
+    METHOD_MARKETPLACE_REMOVE,
+    METHOD_MARKETPLACE_UPGRADE,
+    METHOD_SKILLS_LIST,
+    METHOD_SKILLS_CONFIG_WRITE,
+    METHOD_EXPERIMENTAL_FEATURE_LIST,
+    METHOD_EXPERIMENTAL_FEATURE_ENABLEMENT_SET,
+    METHOD_HOOKS_LIST,
+    METHOD_FS_READ_TEXT_FILE,
+    METHOD_FS_LIST_DIRECTORY,
+    METHOD_FS_GET_FILE_INFO,
+    METHOD_CONFIG_REQUIREMENTS_LIST,
+    METHOD_ACCOUNT_RATE_LIMITS_READ,
+)
+
+# Current app-server methods that Spindrel intentionally does not expose as
+# native slash commands yet. Keeping this list explicit makes newly added
+# protocol methods fail the drift guard until they are either supported or
+# intentionally classified here.
+UNEXPOSED_CLIENT_REQUEST_METHODS: tuple[str, ...] = (
+    "account/login/cancel",
+    "account/login/start",
+    "account/logout",
+    "account/sendAddCreditsNudgeEmail",
+    "config/mcpServer/reload",
+    "device/key/create",
+    "device/key/public",
+    "device/key/sign",
+    "externalAgentConfig/detect",
+    "externalAgentConfig/import",
+    "feedback/upload",
+    "fuzzyFileSearch/sessionStart",
+    "fuzzyFileSearch/sessionStop",
+    "fuzzyFileSearch/sessionUpdate",
+    "memory/reset",
+    "mock/experimentalMethod",
+    "modelProvider/capabilities/read",
+    "thread/approveGuardianDeniedAction",
+    "thread/backgroundTerminals/clean",
+    "thread/decrement_elicitation",
+    "thread/goal/clear",
+    "thread/goal/get",
+    "thread/goal/set",
+    "thread/increment_elicitation",
+    "thread/inject_items",
+    "thread/memoryMode/set",
+    "thread/metadata/update",
+    "thread/realtime/appendAudio",
+    "thread/realtime/appendText",
+    "thread/realtime/listVoices",
+    "thread/realtime/start",
+    "thread/realtime/stop",
+    "thread/shellCommand",
+    "thread/unsubscribe",
+    "turn/steer",
+    "windowsSandbox/setupStart",
+)
+
 
 # ---------------------------------------------------------------------------
 # Notification + item kinds (server → client, fire-and-forget)
@@ -301,23 +380,10 @@ def verify_schema_against_binary(binary_path: str) -> None:
     _require_property(dynamic_tool, DYNAMIC_TOOL_RESULT_CONTENT_ITEMS, "DynamicToolCallResponse")
     _require_property(dynamic_tool, DYNAMIC_TOOL_RESULT_SUCCESS, "DynamicToolCallResponse")
     _require_property(token_usage, "tokenUsage", "ThreadTokenUsageUpdatedNotification")
-    _require_methods(
+    _require_methods(client_request, REQUIRED_CLIENT_REQUEST_METHODS, "ClientRequest")
+    _reject_untracked_methods(
         client_request,
-        (
-            METHOD_APPS_LIST,
-            METHOD_COMMAND_EXECUTE,
-            METHOD_THREAD_FORK,
-            METHOD_THREAD_ARCHIVE,
-            METHOD_THREAD_UNARCHIVE,
-            METHOD_THREAD_ROLLBACK,
-            METHOD_THREAD_SET_NAME,
-            METHOD_THREAD_LOADED_LIST,
-            METHOD_REVIEW_START,
-            METHOD_FS_READ_TEXT_FILE,
-            METHOD_FS_LIST_DIRECTORY,
-            METHOD_FS_GET_FILE_INFO,
-            METHOD_CONFIG_REQUIREMENTS_LIST,
-        ),
+        _snapshot_client_request_methods(),
         "ClientRequest",
     )
 
@@ -342,6 +408,18 @@ def _require_methods(schema_doc: dict, methods: tuple[str, ...], label: str) -> 
             raise CodexSchemaError(f"{label} missing required method {method!r}")
 
 
+def _reject_untracked_methods(schema_doc: dict, tracked: set[str], label: str) -> None:
+    available = _collect_schema_method_values(schema_doc)
+    untracked = sorted(method for method in available if method not in tracked)
+    if untracked:
+        preview = ", ".join(repr(method) for method in untracked[:8])
+        extra = "" if len(untracked) <= 8 else f", and {len(untracked) - 8} more"
+        raise CodexSchemaError(
+            f"{label} has untracked method(s) that need schema.py/native command "
+            f"classification: {preview}{extra}"
+        )
+
+
 def _collect_schema_method_values(value: object) -> set[str]:
     found: set[str] = set()
     if isinstance(value, dict):
@@ -357,3 +435,13 @@ def _collect_schema_method_values(value: object) -> set[str]:
         for child in value:
             found.update(_collect_schema_method_values(child))
     return found
+
+
+def _snapshot_client_request_methods() -> set[str]:
+    snapshot = {
+        value
+        for name, value in globals().items()
+        if name.startswith("METHOD_") and isinstance(value, str) and "/" in value
+    }
+    snapshot.update(UNEXPOSED_CLIENT_REQUEST_METHODS)
+    return snapshot

@@ -76,6 +76,7 @@ PRESETS: dict[str, tuple[Slice, ...]] = {
         Slice("terminal", "codex_native_cli_first_turn_promotes_thread_id"),
         Slice("terminal", "codex_native_cli_model_effort_syncs_to_spindrel_composer"),
         Slice("terminal", "claude_native_cli_terminal_mirrors_to_spindrel"),
+        Slice("terminal", "claude_native_cli_model_effort_syncs_to_spindrel_composer"),
     ),
     "fast": (
         Slice("core", "codex and native_slash_direct_commands"),
@@ -115,6 +116,7 @@ PRESETS: dict[str, tuple[Slice, ...]] = {
         Slice("terminal", "codex_native_cli_terminal_mirrors_to_spindrel"),
         Slice("terminal", "codex_native_cli_model_effort_syncs_to_spindrel_composer"),
         Slice("terminal", "claude_native_cli_terminal_mirrors_to_spindrel"),
+        Slice("terminal", "claude_native_cli_model_effort_syncs_to_spindrel_composer"),
         Slice("replay", "persisted_tool_replay_survives_refetch"),
     ),
     "all": (_FULL_SUITE_REPLAY,),
@@ -171,8 +173,16 @@ _SELECTOR_SCREENSHOT_RULES: tuple[tuple[str, str], ...] = (
         "__inline__:harness-codex-native-cli-settings-sync",
     ),
     (
+        "codex_native_cli_first_turn_promotes_thread_id",
+        "__inline__:harness-codex-native-cli-first-roundtrip",
+    ),
+    (
         "claude_native_cli_terminal_mirrors_to_spindrel",
         "__inline__:harness-claude-native-cli-terminal,harness-claude-native-cli-mirror",
+    ),
+    (
+        "claude_native_cli_model_effort_syncs_to_spindrel_composer",
+        "__inline__:harness-claude-native-cli-settings-sync",
     ),
 )
 

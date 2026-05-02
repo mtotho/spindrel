@@ -1,6 +1,6 @@
 ---
 name: Project Init
-description: Inspect a Project and bring it to agent-ready state - applied Blueprint, runtime env, dependency stack, channel skill enrollment, and Project Runbook.
+description: Inspect a Project and bring it to agent-ready state - applied Blueprint, runtime env, dependency stack, channel skill enrollment, and the repo-resident `.spindrel/WORKFLOW.md` contract.
 triggers: project init, initialize project, setup project, project setup audit, configure project, project readiness, blueprint from current
 category: project
 ---
@@ -23,8 +23,10 @@ surface:
 - Blueprint repo declarations match the actual repo roots, remotes, and intended
   branches; no credentials embedded in remote URLs.
 - Project channels have the relevant runtime skills enrolled.
-- Project has a repo-owned Runbook at `.spindrel/project-runbook.md` when policy
-  should version with source.
+- Project has the single repo-owned contract at `.spindrel/WORKFLOW.md`
+  carrying policy / intake / runs / hooks / dependencies sections. (The
+  legacy `.spindrel/project-runbook.md` is now a redirect stub - its policy
+  content lives in WORKFLOW.md's `## Policy` section.)
 - Dependency Stack declared only if Docker-backed services (Postgres, Redis,
   search index, queues) are needed; pointed at a Project-local compose file.
 - Runtime env keys, required secret slots, dev targets, and setup commands are
@@ -36,13 +38,29 @@ surface:
 2. Call `list_agent_capabilities` and read the `project`, `tools`, and
    `skills.recommended_now` sections. Load `agent_readiness/operator` if
    recommended.
-3. Inspect the Project root like a normal checkout. Look for `AGENTS.md`,
-   README/setup docs, package files, compose files, test scripts, env examples,
-   child git repos. Do not assume a stack before reading the repo.
-4. Create or update `.spindrel/project-runbook.md` when repo-owned policy is
-   missing or stale. Cover branch/base-branch rules, repo-local test commands,
-   dependency stack usage, dev targets, screenshot/e2e evidence, receipt
-   expectations, GitHub/Linear/external-tracker handoff rules.
+3. **Prime the repo before recommending anything.** Run this short scan in
+   order:
+   a. Read `AGENTS.md` / `CLAUDE.md` if present - this is the entry-point
+      doc the repo author wrote for agents. Treat it as authoritative.
+   b. Read `README.md` and any obvious setup doc (`SETUP.md`,
+      `CONTRIBUTING.md`).
+   c. List the repo root and identify the stack from package files
+      (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `Gemfile`,
+      etc.) and any `docker-compose*.yml` / `Dockerfile*`.
+   d. Read recent git history (`git log --oneline -20` or the harness
+      equivalent) - the most recent direction is almost always relevant
+      context for setup decisions.
+   e. Look for child git repos under the Project root; a Project root may
+      hold sibling repos, not just one.
+   Do not assume a stack before reading. Do not skip this step even when the
+   user has already described the Project in chat.
+4. Check `repo_workflow.present` from `get_project_factory_state`. When the
+   file is missing, offer to write a starter via
+   `write_project_workflow_starter` (asks first; never silently overwrites).
+   When the file is present, treat its sections as authoritative. Migration
+   note: any legacy `.spindrel/project-runbook.md` content should be folded
+   into WORKFLOW.md's `## Policy` section by hand and the runbook reduced to
+   a one-line redirect stub.
 5. If there is no applied Blueprint, create one from the current Project:
    `POST /api/v1/projects/{project_id}/blueprint-from-current` with
    `{"apply_to_project": true}`. For end-to-end recipe details, load
@@ -74,8 +92,10 @@ surface:
     `/api/v1/projects/{project_id}/runtime-env`, and
     `/api/v1/projects/{project_id}/dependency-stack`. Report what is ready,
     what changed, and what still needs a user decision.
-11. Configure the issue-intake convention exactly once per Project. Read
-    `intake_config.kind` from `get_project_factory_state`:
+11. Configure the issue-intake convention exactly once per Project. **Skip
+    this step entirely when `repo_workflow.sections.intake` is non-null** -
+    WORKFLOW.md is the source of truth and `intake_config` is not consulted.
+    Otherwise read `intake_config.kind` from `get_project_factory_state`:
     - `unset` -> ask the user where issues should live and persist the answer
       with `update_project_intake_config`. Choices:
       - **A file in this repo** -> ask for a relative path. If the user has no

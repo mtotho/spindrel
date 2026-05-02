@@ -168,12 +168,15 @@ def test_harness_parity_local_batch_cli_preset_targets_native_cli_roundtrip() ->
     assert "--tier terminal --screenshots docs -k codex_native_cli_terminal_mirrors_to_spindrel" in proc.stdout
     assert "--tier terminal --screenshots docs -k codex_native_cli_model_effort_syncs_to_spindrel_composer" in proc.stdout
     assert "--tier terminal --screenshots docs -k claude_native_cli_terminal_mirrors_to_spindrel" in proc.stdout
+    assert "--tier terminal --screenshots docs -k claude_native_cli_model_effort_syncs_to_spindrel_composer" in proc.stdout
     assert "HARNESS_PARITY_SKIP_EXTERNAL_SCREENSHOTS=true" in proc.stdout
     assert "harness-codex-native-cli-terminal" in proc.stdout
     assert "harness-codex-native-cli-mirror" in proc.stdout
+    assert "harness-codex-native-cli-first-roundtrip" in proc.stdout
     assert "harness-codex-native-cli-settings-sync" in proc.stdout
     assert "harness-claude-native-cli-terminal" in proc.stdout
     assert "harness-claude-native-cli-mirror" in proc.stdout
+    assert "harness-claude-native-cli-settings-sync" in proc.stdout
 
 
 def test_harness_parity_screenshot_filter_accepts_comma_separated_names(monkeypatch) -> None:

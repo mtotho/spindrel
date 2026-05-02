@@ -209,6 +209,9 @@ async def test_get_project_factory_state_unconfigured_for_brand_new_project(db_s
     assert state["intake"] == {"pending": 0}
     assert state["run_packs"] == {"proposed": 0, "needs_info": 0, "launched": 0, "dismissed": 0}
     assert state["runs"]["total"] == 0
+    # Phase 4BG.3 - by_phase + concurrency block present even when no runs exist.
+    assert state["runs"]["by_phase"] == {}
+    assert state["runs"]["concurrency"] == {"cap": None, "in_flight": 0, "headroom": None}
     suggested = state["suggested_next_action"]
     assert suggested["stage"] == "unconfigured"
     assert suggested["skill_id_to_load"] == "project/setup/init"

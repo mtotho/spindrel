@@ -114,6 +114,10 @@ repeat browser/device-code OAuth. Normal `prepare-deps` preserves the local e2e
 DB and only starts shared dependencies. Start the Spindrel app/API/UI from this
 checkout on your own unused ports while iterating. The explicit DB reset
 command is `python scripts/agent_e2e_dev.py wipe-db --yes`.
+For ChatGPT subscription e2e, use the cheapest capable model by default:
+`gpt-5.4-mini`. Do not override bootstrap commands, temp bots, or live e2e
+defaults to a larger model just because a user trace, screenshot, or production
+bot used one. Larger models need an explicit model-specific regression reason.
 If the dependency Compose project has stale/dead containers that Docker cannot
 remove, treat that as a helper/stack bug to repair. Capture the failing command
 and Docker state, then fix the default dependency-stack behavior instead of

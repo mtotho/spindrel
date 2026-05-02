@@ -19,7 +19,7 @@ from ..harness.client import E2EClient
 
 
 VISION_PROVIDER_ID = os.environ.get("E2E_VISION_PROVIDER_ID", "chatgpt-subscription")
-VISION_MODEL = os.environ.get("E2E_VISION_MODEL", "gpt-5.4")
+VISION_MODEL = os.environ.get("E2E_VISION_MODEL", "gpt-5.4-mini")
 
 
 def _solid_png_base64(rgb: tuple[int, int, int], *, size: int = 16) -> str:
@@ -72,6 +72,12 @@ async def vision_bot(client: E2EClient) -> str:
     if provider_resp.status_code == 404:
         pytest.skip(f"Provider {VISION_PROVIDER_ID!r} is not configured")
     provider_resp.raise_for_status()
+
+    oauth_resp = await client.get(f"/api/v1/admin/providers/openai-oauth/status/{VISION_PROVIDER_ID}")
+    if oauth_resp.status_code == 200 and not oauth_resp.json().get("connected"):
+        pytest.skip(
+            f"Provider {VISION_PROVIDER_ID!r} is configured but has no connected OAuth token"
+        )
 
     models_resp = await client.get(f"/api/v1/admin/providers/{VISION_PROVIDER_ID}/models")
     models_resp.raise_for_status()

@@ -6,9 +6,10 @@ test / PR policy, intake schema, run hook commands, dependency-stack
 references. The generic ``skills/project/*`` cluster reads this file and only
 falls back to its own defaults when the relevant section is absent.
 
-This module is read-only: parsing only. The starter writer ships in 4BE.4.
-The runtime never silently mutates an existing WORKFLOW.md - the file is
-repo-owned and reviewable.
+Parsing is permissive (4BE.0). The starter writer (4BE.4) refuses to
+overwrite an existing file - the runtime never silently mutates a WORKFLOW.md
+that the user/repo authored. Only ``write_workflow_starter`` is allowed to
+create the file, and only when it is absent.
 """
 from __future__ import annotations
 
@@ -146,4 +147,110 @@ def project_workflow_file(
         frontmatter=frontmatter,
         sections=sections,
         raw=raw,
+    )
+
+
+_STARTER_TEMPLATE = """\
+---
+name: {project_name}
+spindrel_workflow_version: 1
+---
+
+# {project_name} Workflow
+
+This file is the single repo-owned contract Spindrel reads to know how to
+work in this Project. Edit it directly. Spindrel never silently mutates this
+file - the only write that ever lands here is the explicit starter at
+Project setup, and only when this file did not already exist.
+
+The generic `skills/project/*` cluster is the fallback for any section left
+empty. Whatever you write below wins.
+
+## Policy
+
+Branch policy, base branch, repo-local test command, screenshot evidence
+location, PR conventions go here. Example:
+
+> Branch from `master`. Open PRs via `gh`. Repo-local tests:
+> `pytest tests/unit -q`. Screenshots land in `tests/screenshots/`.
+
+## Intake
+
+Where rough bugs / ideas / tech-debt notes get captured. Default schema:
+
+    ## YYYY-MM-DD HH:MM <kebab-slug>
+    **kind:** bug | idea | tech-debt | question · **area:** <subsystem> · **status:** open
+    Body. 1-10 lines.
+
+Default path: `docs/inbox.md` in the canonical repo. Replace this section if
+your repo uses GitHub Issues, Linear, a folder of files, or any other
+convention - whatever you write here is what Spindrel does.
+
+## Runs
+
+Branch / test / PR conventions for Project coding runs. Spindrel reads this
+section before launching or implementing a run.
+
+## Hooks
+
+Optional shell commands keyed by phase:
+
+    before_run: <command>
+    after_run: <command>
+
+## Dependencies
+
+Notes on backing services, dev targets, and secrets the Project expects.
+"""
+
+
+@dataclass(frozen=True)
+class WorkflowStarterResult:
+    """Outcome of a ``write_workflow_starter`` call."""
+
+    ok: bool
+    host_path: str | None
+    relative_path: str
+    error: str | None = None
+
+
+def write_workflow_starter(
+    project: Any,
+    snapshot: dict[str, Any] | None = None,
+    *,
+    project_name: str | None = None,
+) -> WorkflowStarterResult:
+    """Write a starter ``.spindrel/WORKFLOW.md`` only when absent.
+
+    Refuses to overwrite an existing file - the file is repo-owned and the
+    runtime is not allowed to silently rewrite it. Returns a structured
+    failure when the Project has no canonical repo or when the file already
+    exists, so the calling tool/skill can report the blocker without
+    raising.
+    """
+    host_root = project_canonical_repo_host_path(project, snapshot)
+    if host_root is None:
+        return WorkflowStarterResult(
+            ok=False,
+            host_path=None,
+            relative_path=WORKFLOW_RELATIVE_PATH,
+            error="project has no canonical repo configured",
+        )
+
+    host_path = Path(host_root) / WORKFLOW_RELATIVE_PATH
+    if host_path.exists():
+        return WorkflowStarterResult(
+            ok=False,
+            host_path=str(host_path),
+            relative_path=WORKFLOW_RELATIVE_PATH,
+            error="workflow file already exists; refusing to overwrite",
+        )
+
+    name = project_name or getattr(project, "name", None) or "Project"
+    host_path.parent.mkdir(parents=True, exist_ok=True)
+    host_path.write_text(_STARTER_TEMPLATE.format(project_name=name), encoding="utf-8")
+    return WorkflowStarterResult(
+        ok=True,
+        host_path=str(host_path),
+        relative_path=WORKFLOW_RELATIVE_PATH,
     )

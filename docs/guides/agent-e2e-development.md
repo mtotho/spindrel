@@ -154,6 +154,13 @@ python scripts/agent_e2e_dev.py bootstrap-subscription \
   --model gpt-5.4-mini
 ```
 
+Use the cheapest capable subscription model by default. For current subscription
+e2e work that means `gpt-5.4-mini`. Do not upgrade bootstrap commands, temp
+bots, or live e2e defaults to a larger model just because a user-reported trace
+or admin screenshot used one. Use a larger model only when the scenario is
+explicitly a model-specific regression, and name that reason in the test/env
+override.
+
 Subscription mode writes a local fallback placeholder so local startup can
 boot before OAuth exists. `bootstrap-subscription` then creates or reuses an
 `openai-subscription` provider, runs the device-code OAuth flow, and patches

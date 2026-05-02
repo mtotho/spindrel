@@ -25,6 +25,27 @@ maintenance, or implementation work in the current Project-bound channel.
 5. When recurring work needs adjustment, **edit/resume** the existing
    schedule rather than creating a duplicate.
 
+## Examples
+
+**Good - bounded, observable, single-purpose:**
+
+> "Each weekday at 09:00 UTC, run `pytest tests/unit/test_billing.py -q` in
+> the Project work surface. If anything fails, publish a no-change receipt
+> with `status=blocked` and the failing test names in the metadata. If
+> everything passes, publish a no-change receipt with `status=ok`."
+
+Why good: scope is one command, success/failure shape is explicit, the
+receipt is the artifact, no PR is opened on a passing fire.
+
+**Bad - vague and unbounded:**
+
+> "Check on the codebase daily and fix any problems you see."
+
+Why bad: no scope, no test command, no success/failure shape, no
+artifact contract. Each fire improvises differently and the review queue
+fills with non-actionable receipts. If you find yourself writing a
+schedule prompt this short, expand it or do not schedule it.
+
 ## Inspect and Tune
 
 - Schedule fires show up in the Project Runs cockpit like any other coding
