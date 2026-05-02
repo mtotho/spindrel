@@ -8,7 +8,7 @@ import { useDraftsStore } from "@/src/stores/drafts";
 import type { AttentionDeckMode } from "@/src/lib/hubRoutes";
 
 function readDeckMode(value: string | null): AttentionDeckMode | null {
-  return value === "review" || value === "issues" || value === "inbox" || value === "runs" || value === "cleared" ? value : null;
+  return value === "review" || value === "inbox" || value === "runs" || value === "cleared" ? value : null;
 }
 
 export default function HubAttentionPage() {
@@ -44,7 +44,7 @@ export default function HubAttentionPage() {
   }, [requestedItemId]);
 
   useEffect(() => {
-    if (requestedMode === "runs" || requestedMode === "issues" || requestedMode === "cleared" || requestedItemId || selectedId || !filteredItems.length) return;
+    if (requestedMode === "runs" || requestedMode === "cleared" || requestedItemId || selectedId || !filteredItems.length) return;
     setSelectedId(filteredItems[0].id);
   }, [filteredItems, requestedItemId, requestedMode, selectedId]);
 

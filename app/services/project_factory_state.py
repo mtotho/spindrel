@@ -358,7 +358,7 @@ async def get_project_factory_state(
     planning_signals = _planning_artifact_signals(project)
 
     recent_receipts_models = await list_project_run_receipts(
-        db, project, limit=max(1, min(recent_receipt_limit, 25))
+        db, project.id, limit=max(1, min(recent_receipt_limit, 25))
     )
     recent_receipts = [_recent_receipt_summary(r) for r in recent_receipts_models]
 

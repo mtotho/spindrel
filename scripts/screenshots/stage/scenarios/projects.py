@@ -395,8 +395,8 @@ def stage_project_workspace(
         channel_id=dogfood_channel_id,
         role="assistant",
         content=(
-            "`create_issue_work_packs` `tool_result`\n"
-            "Created 2 proposed Work Packs.\n"
+            "`propose_run_packs` `tool_result`\n"
+            "Wrote 2 Run Pack proposals to `.spindrel/audits/dogfood-sweep.md`.\n"
             "- Dogfood code pack: launch-ready with tests, screenshot evidence, receipt, and review handoff.\n"
             "- Dogfood needs-info pack: future visual polish requires operator scope before launch.\n"
             "Triage receipt: grouped coding work separately from planning work."

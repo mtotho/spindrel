@@ -106,9 +106,10 @@ issues", or similar, switch to grouping mode:
    future read-side ingestion).
 2. Summarize pending raw intake separately from existing Run Packs.
 3. Load `project/plan/run_packs` to draft groupings; do not auto-publish.
-4. When the user approves the proposed packs, call `propose_run_packs`
-   (or, until 4BD.4 ships, the legacy `create_issue_work_packs`) with the
-   full batch and a triage receipt.
+4. When the user approves the proposed packs, call `propose_run_packs` with
+   the full batch and the target `source_artifact_path` (e.g.
+   `.spindrel/audits/<slug>.md`). Pack proposals land as a markdown section in
+   that artifact; no DB row is created.
 
 ## Tool Boundaries
 
@@ -120,9 +121,8 @@ issues", or similar, switch to grouping mode:
 - `file_ops` - read existing intake during triage; write directly when the
   WORKFLOW.md `## Intake` section dictates a custom schema or path.
 - `report_issue` - autonomous scheduled/heartbeat/task runs reporting blockers.
-- `report_issue_work_packs` - restricted triage-task reporting path only.
-- `publish_issue_intake` - **deprecated**, kept only while existing channels
-  drain old Mission Control intake. Do not use for new captures.
+- `propose_run_packs` - groups intake into launchable Run Pack proposals
+  written to a repo-resident artifact (e.g. `.spindrel/audits/<slug>.md`).
 
 ## Boundaries
 

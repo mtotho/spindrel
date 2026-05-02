@@ -1152,11 +1152,23 @@ async def _send_native_cli_prompt_via_ui(
                 await page.wait_for_timeout(250)
                 await page.keyboard.press("Enter")
             wait_text = expected_response or marker
-            await page.wait_for_function(
-                "(text) => document.body.innerText.toLowerCase().includes(text.toLowerCase())",
-                arg=wait_text,
-                timeout=int(_timeout() * 1000),
-            )
+            try:
+                await page.wait_for_function(
+                    "(text) => document.body.innerText.toLowerCase().includes(text.toLowerCase())",
+                    arg=wait_text,
+                    timeout=int(_timeout() * 1000),
+                )
+            except Exception:
+                debug_path = _artifact_root() / "native-cli" / f"harness-{runtime_name}-native-cli-response-timeout.png"
+                debug_path.parent.mkdir(parents=True, exist_ok=True)
+                with contextlib.suppress(Exception):
+                    await page.screenshot(path=str(debug_path), full_page=False)
+                body = await page.locator("body").inner_text(timeout=10_000)
+                raise AssertionError(
+                    "Native CLI response did not appear in the terminal; "
+                    f"expected text: {wait_text!r}; debug screenshot: {debug_path}; "
+                    f"body tail:\n{body[-3000:]}"
+                )
             if terminal_out_path is not None:
                 await page.screenshot(path=str(terminal_out_path), full_page=False)
             if toggle_to_chat_after_submit:
@@ -1643,10 +1655,10 @@ async def _assert_harness_chat_mode_ui(
                     assert await page.locator('[data-testid="terminal-tool-output"]').count() > 0
                     assert await page.locator('[data-testid="tool-trace-strip"]').count() == 0
 
-                    transcript_text = await page.locator(
+                    transcript_texts = await page.locator(
                         '[data-testid="terminal-tool-transcript"]'
-                    ).inner_text(timeout=10_000)
-                    lower = transcript_text.lower()
+                    ).evaluate_all("(nodes) => nodes.map((node) => node.innerText || '')")
+                    lower = "\n".join(str(text) for text in transcript_texts).lower()
                     assert "harness-spindrel:" not in lower
                     assert "tool calls" not in lower
                 else:

@@ -14,9 +14,10 @@ or pile of Issue Intake split into discrete implementation units. Run Packs
 are the canonical product unit: one Run Pack is a proposed launchable Project
 coding run with a clear PR target.
 
-(Internal data model still says "Issue Work Pack" today; the user-facing name
-is **Run Pack**. Tools currently named `create_issue_work_packs` will be
-renamed in a later phase.)
+Run Packs are file-resident — proposals land as a markdown section in a
+repo artifact (e.g. `.spindrel/audits/<slug>.md` or `.spindrel/prds/<slug>.md`)
+via `propose_run_packs`, not as DB rows. The launching coding run carries
+`source_artifact: {path, section?, commit_sha?}` back to that artifact.
 
 ## Run Pack Shape
 
@@ -39,8 +40,9 @@ fresh instances.
 
 1. Load the relevant PRD or planning artifact if one exists. If the user is
    planning only in chat, use the current conversation as source material.
-2. If saved Issue Intake items are part of the source, call `list_issue_intake`
-   and use existing source item IDs.
+2. If saved intake notes are part of the source, read them from the Project's
+   configured intake substrate (`intake_config.host_target` from
+   `get_project_factory_state`) using `file_ops`.
 3. Draft Run Packs first in chat. Do not publish until the user is ready.
 4. Mark each pack as one of:
    - `launchable` - ready to become a Run Pack and a coding run prompt
@@ -58,27 +60,9 @@ fresh instances.
    - Project run receipt requirements
    - Blueprint-impact flag if applicable
 6. When the user wants the packs published for launch/review, call
-   `create_issue_work_packs` with the full proposed set and a `triage_receipt`.
-
-## `triage_receipt` Schema
-
-The `triage_receipt` block sent with `create_issue_work_packs` carries the
-operator-readable summary. Include it on every batch:
-
-```json
-{
-  "summary": "One sentence covering what kind of work this batch is and how big.",
-  "grouping_rationale": "Why these items were grouped this way (or split).",
-  "launch_readiness": "Which packs are ready to launch immediately, which need an answer first, which are planning-only.",
-  "follow_up_questions": ["Anything that needs the operator's decision before launch."],
-  "excluded": [
-    {"source_item_id": "...", "reason": "Already shipped / duplicate / not actionable / out of scope."}
-  ],
-  "not_code_items": [
-    {"title": "...", "reason": "Planning, research, or external decision."}
-  ]
-}
-```
+   `propose_run_packs(packs=[...], source_artifact_path=".spindrel/audits/<slug>.md", section="Proposed Run Packs")`.
+   The tool writes the section idempotently — re-running with the same path
+   replaces the section, so iterating on the proposed set is cheap.
 
 A Run Pack itself includes:
 
@@ -97,14 +81,13 @@ A Run Pack itself includes:
 
 ## Conversion Rules
 
-- Use existing `source_item_ids` from `list_issue_intake` when grouping saved
-  intake.
-- Omit `source_item_ids` for pure conversation planning - Spindrel creates
-  backing conversation intake items and links them.
+- Quote source intake-note slugs in `source_item_ids` (e.g. the
+  `## YYYY-MM-DD HH:MM <slug>` heading) when grouping notes from the inbox file.
+- Omit `source_item_ids` for pure conversation planning.
 - A Run Pack is **proposed launch material**, not a coding run. Launch happens
   separately, through the Project/Issue Intake UI or an explicit user
   instruction.
-- Prefer one `create_issue_work_packs` call containing the full batch with
+- Prefer one `propose_run_packs` call containing the full batch with
   `triage_receipt`.
 
 ## Boundaries

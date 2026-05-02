@@ -1,10 +1,10 @@
 import { Link } from "react-router-dom";
-import { Check, CheckCheck, GitMerge, Hash, HeartPulse, Inbox, Loader2, MessageSquareWarning, Sparkles, X } from "lucide-react";
+import { Check, CheckCheck, GitMerge, Hash, HeartPulse, Inbox, Loader2, Sparkles, X } from "lucide-react";
 import { useMemo } from "react";
 import { useChannels } from "../../../api/hooks/useChannels";
 import { useProjectFactoryReviewInbox } from "../../../api/hooks/useProjects";
 import { useLatestHealthSummary } from "../../../api/hooks/useSystemHealth";
-import { useIssueWorkPacks, useWorkspaceAttention, useWorkspaceAttentionBrief } from "../../../api/hooks/useWorkspaceAttention";
+import { useWorkspaceAttention, useWorkspaceAttentionBrief } from "../../../api/hooks/useWorkspaceAttention";
 import { useMarkRead, useUnreadState, type SessionReadState } from "../../../api/hooks/useUnread";
 import { buildActionInboxModel, type ActionInboxRow, type ActionInboxTone } from "../../../lib/actionInbox";
 import { cn } from "../../../lib/cn";
@@ -49,7 +49,6 @@ function rowToneClass(tone: ActionInboxTone): string {
 
 function actionRowIcon(row: ActionInboxRow) {
   if (row.kind === "project_reviews") return <GitMerge size={13} />;
-  if (row.kind === "issue_intake") return <MessageSquareWarning size={13} />;
   if (row.kind === "findings") return <Sparkles size={13} />;
   if (row.kind === "health") return <HeartPulse size={13} />;
   return <Inbox size={13} />;
@@ -88,7 +87,6 @@ export function UnreadInboxPanel({ onClose }: UnreadInboxPanelProps) {
   const { data: attentionBrief } = useWorkspaceAttentionBrief();
   const { data: health } = useLatestHealthSummary();
   const { data: projectReviewInbox } = useProjectFactoryReviewInbox(8);
-  const { data: workPacks = [] } = useIssueWorkPacks();
   const markRead = useMarkRead();
 
   const channelNameById = useMemo(() => {
@@ -111,7 +109,6 @@ export function UnreadInboxPanel({ onClose }: UnreadInboxPanelProps) {
     attentionBrief,
     health,
     projectReviewInbox,
-    workPacks,
   });
   const reviewRows = actionInbox.rows.filter((row) => row.kind !== "replies" && row.count > 0);
 

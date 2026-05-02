@@ -8404,7 +8404,7 @@
             "type": "boolean"
           },
           "effective_native_context_policy": {
-            "default": "lean",
+            "default": "standard",
             "title": "Effective Native Context Policy",
             "type": "string"
           },
@@ -8627,10 +8627,54 @@
             "title": "Name",
             "type": "string"
           },
+          "native_context_compaction_utilization": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Context Compaction Utilization"
+          },
+          "native_context_live_history_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Context Live History Ratio"
+          },
+          "native_context_min_recent_turns": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Context Min Recent Turns"
+          },
           "native_context_policy": {
             "default": "default",
             "title": "Native Context Policy",
             "type": "string"
+          },
+          "native_context_warning_utilization": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Context Warning Utilization"
           },
           "passive_memory": {
             "default": true,
@@ -9290,6 +9334,39 @@
             ],
             "title": "Name"
           },
+          "native_context_compaction_utilization": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Context Compaction Utilization"
+          },
+          "native_context_live_history_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Context Live History Ratio"
+          },
+          "native_context_min_recent_turns": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Context Min Recent Turns"
+          },
           "native_context_policy": {
             "anyOf": [
               {
@@ -9300,6 +9377,17 @@
               }
             ],
             "title": "Native Context Policy"
+          },
+          "native_context_warning_utilization": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Context Warning Utilization"
           },
           "passive_memory": {
             "anyOf": [
@@ -14419,381 +14507,6 @@
           "updated_at"
         ],
         "title": "IntegrationBindingOut",
-        "type": "object"
-      },
-      "IssueIntakeCreateRequest": {
-        "properties": {
-          "category_hint": {
-            "default": "bug",
-            "title": "Category Hint",
-            "type": "string"
-          },
-          "channel_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Channel Id"
-          },
-          "expected_behavior": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expected Behavior"
-          },
-          "observed_behavior": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Observed Behavior"
-          },
-          "project_hint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Project Hint"
-          },
-          "severity": {
-            "default": "warning",
-            "title": "Severity",
-            "type": "string"
-          },
-          "steps": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Steps",
-            "type": "array"
-          },
-          "summary": {
-            "title": "Summary",
-            "type": "string"
-          },
-          "tags": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Tags",
-            "type": "array"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          }
-        },
-        "required": [
-          "title",
-          "summary"
-        ],
-        "title": "IssueIntakeCreateRequest",
-        "type": "object"
-      },
-      "IssueWorkPackActionRequest": {
-        "properties": {
-          "note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
-          }
-        },
-        "title": "IssueWorkPackActionRequest",
-        "type": "object"
-      },
-      "IssueWorkPackBatchLaunchRequest": {
-        "properties": {
-          "channel_id": {
-            "format": "uuid",
-            "title": "Channel Id",
-            "type": "string"
-          },
-          "loop_policy": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Loop Policy"
-          },
-          "note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
-          },
-          "project_id": {
-            "format": "uuid",
-            "title": "Project Id",
-            "type": "string"
-          },
-          "work_pack_ids": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "title": "Work Pack Ids",
-            "type": "array"
-          }
-        },
-        "required": [
-          "work_pack_ids",
-          "project_id",
-          "channel_id"
-        ],
-        "title": "IssueWorkPackBatchLaunchRequest",
-        "type": "object"
-      },
-      "IssueWorkPackCreateRequest": {
-        "properties": {
-          "category": {
-            "default": "code_bug",
-            "title": "Category",
-            "type": "string"
-          },
-          "channel_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Channel Id"
-          },
-          "confidence": {
-            "default": "medium",
-            "title": "Confidence",
-            "type": "string"
-          },
-          "launch_prompt": {
-            "default": "",
-            "title": "Launch Prompt",
-            "type": "string"
-          },
-          "metadata": {
-            "additionalProperties": true,
-            "title": "Metadata",
-            "type": "object"
-          },
-          "project_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Project Id"
-          },
-          "source_item_ids": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "title": "Source Item Ids",
-            "type": "array"
-          },
-          "summary": {
-            "default": "",
-            "title": "Summary",
-            "type": "string"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          }
-        },
-        "required": [
-          "title"
-        ],
-        "title": "IssueWorkPackCreateRequest",
-        "type": "object"
-      },
-      "IssueWorkPackLaunchRequest": {
-        "properties": {
-          "channel_id": {
-            "format": "uuid",
-            "title": "Channel Id",
-            "type": "string"
-          },
-          "loop_policy": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Loop Policy"
-          },
-          "project_id": {
-            "format": "uuid",
-            "title": "Project Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "project_id",
-          "channel_id"
-        ],
-        "title": "IssueWorkPackLaunchRequest",
-        "type": "object"
-      },
-      "IssueWorkPackUpdateRequest": {
-        "properties": {
-          "category": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Category"
-          },
-          "channel_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Channel Id"
-          },
-          "confidence": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Confidence"
-          },
-          "launch_prompt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Launch Prompt"
-          },
-          "project_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Project Id"
-          },
-          "source_item_ids": {
-            "anyOf": [
-              {
-                "items": {
-                  "format": "uuid",
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Item Ids"
-          },
-          "summary": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Summary"
-          },
-          "title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Title"
-          }
-        },
-        "title": "IssueWorkPackUpdateRequest",
-        "type": "object"
-      },
-      "IssueWorkPacksResponse": {
-        "properties": {
-          "work_packs": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Work Packs",
-            "type": "array"
-          }
-        },
-        "required": [
-          "work_packs"
-        ],
-        "title": "IssueWorkPacksResponse",
         "type": "object"
       },
       "JobStatusOut": {
@@ -20379,7 +20092,7 @@
             "title": "Runtime Target",
             "type": "object"
           },
-          "source_work_pack": {
+          "source_artifact": {
             "anyOf": [
               {
                 "additionalProperties": true,
@@ -20389,19 +20102,7 @@
                 "type": "null"
               }
             ],
-            "title": "Source Work Pack"
-          },
-          "source_work_pack_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Work Pack Id"
+            "title": "Source Artifact"
           },
           "status": {
             "title": "Status",
@@ -20520,12 +20221,12 @@
             "title": "Run Ids",
             "type": "array"
           },
-          "source_work_packs": {
+          "source_artifacts": {
             "items": {
               "additionalProperties": true,
               "type": "object"
             },
-            "title": "Source Work Packs",
+            "title": "Source Artifacts",
             "type": "array"
           },
           "status": {
@@ -20748,12 +20449,12 @@
             ],
             "title": "Session Id"
           },
-          "source_work_packs": {
+          "source_artifacts": {
             "items": {
               "additionalProperties": true,
               "type": "object"
             },
-            "title": "Source Work Packs",
+            "title": "Source Artifacts",
             "type": "array"
           },
           "status": {
@@ -21345,17 +21046,15 @@
             "title": "Request",
             "type": "string"
           },
-          "source_work_pack_id": {
+          "source_artifact": {
             "anyOf": [
               {
-                "format": "uuid",
-                "type": "string"
+                "$ref": "#/components/schemas/SourceArtifactIn"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Source Work Pack Id"
+            ]
           }
         },
         "required": [
@@ -27888,6 +27587,42 @@
           "fallback_text"
         ],
         "title": "SlashCommandResult",
+        "type": "object"
+      },
+      "SourceArtifactIn": {
+        "description": "Repo-resident artifact a Project coding run was derived from.\n\nPhase 4BD.5 of the Project Factory issue substrate. Replaces the bespoke\n``source_work_pack_id`` UUID with a file pointer so launches reference\ndurable Tracks/PRDs/audits in the canonical repo instead of a row in a\ndeleted DB table.",
+        "properties": {
+          "commit_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Sha"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "SourceArtifactIn",
         "type": "object"
       },
       "SourceFileTarget": {
@@ -38225,7 +37960,7 @@
       },
       "patch": {
         "description": "Update a bot's config via JSON.",
-        "operationId": "admin_bot_update_api_v1_admin_bots__bot_id__patch",
+        "operationId": "admin_bot_update_api_v1_admin_bots__bot_id__patch_2",
         "parameters": [
           {
             "in": "path",
@@ -38285,7 +38020,7 @@
       },
       "put": {
         "description": "Update a bot's config via JSON.",
-        "operationId": "admin_bot_update_api_v1_admin_bots__bot_id__put",
+        "operationId": "admin_bot_update_api_v1_admin_bots__bot_id__patch",
         "parameters": [
           {
             "in": "path",
@@ -40476,7 +40211,7 @@
       },
       "patch": {
         "description": "Update heartbeat settings.",
-        "operationId": "admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch",
+        "operationId": "admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch_2",
         "parameters": [
           {
             "in": "path",
@@ -40537,7 +40272,7 @@
       },
       "put": {
         "description": "Update heartbeat settings.",
-        "operationId": "admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_put",
+        "operationId": "admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch",
         "parameters": [
           {
             "in": "path",
@@ -41441,7 +41176,7 @@
       },
       "patch": {
         "description": "Update channel settings.",
-        "operationId": "admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch",
+        "operationId": "admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch_2",
         "parameters": [
           {
             "in": "path",
@@ -41502,7 +41237,7 @@
       },
       "put": {
         "description": "Update channel settings.",
-        "operationId": "admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_put",
+        "operationId": "admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch",
         "parameters": [
           {
             "in": "path",
@@ -50920,7 +50655,7 @@
       },
       "patch": {
         "description": "Update task fields. Only provided fields are changed.",
-        "operationId": "admin_update_task_api_v1_admin_tasks__task_id__patch",
+        "operationId": "admin_update_task_api_v1_admin_tasks__task_id__patch_2",
         "parameters": [
           {
             "in": "path",
@@ -50981,7 +50716,7 @@
       },
       "put": {
         "description": "Update task fields. Only provided fields are changed.",
-        "operationId": "admin_update_task_api_v1_admin_tasks__task_id__put",
+        "operationId": "admin_update_task_api_v1_admin_tasks__task_id__patch",
         "parameters": [
           {
             "in": "path",
@@ -58240,7 +57975,7 @@
       },
       "patch": {
         "description": "Update any subset of channel settings + heartbeat config in one call.\n\nScope requirements depend on which fields are set:\n- Heartbeat fields only \u2192 ``channels.heartbeat:write``\n- Non-heartbeat fields (or both) \u2192 ``channels.config:write``\n``channels.config:write`` always covers heartbeat as a parent scope.",
-        "operationId": "update_channel_config_api_v1_channels__channel_id__config_patch",
+        "operationId": "update_channel_config_api_v1_channels__channel_id__config_patch_2",
         "parameters": [
           {
             "in": "path",
@@ -58308,7 +58043,7 @@
       },
       "put": {
         "description": "Update any subset of channel settings + heartbeat config in one call.\n\nScope requirements depend on which fields are set:\n- Heartbeat fields only \u2192 ``channels.heartbeat:write``\n- Non-heartbeat fields (or both) \u2192 ``channels.config:write``\n``channels.config:write`` always covers heartbeat as a parent scope.",
-        "operationId": "update_channel_config_api_v1_channels__channel_id__config_put",
+        "operationId": "update_channel_config_api_v1_channels__channel_id__config_patch",
         "parameters": [
           {
             "in": "path",
@@ -73944,811 +73679,6 @@
         ]
       }
     },
-    "/api/v1/workspace/attention/issue-intake": {
-      "post": {
-        "operationId": "create_issue_intake_route_api_v1_workspace_attention_issue_intake_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IssueIntakeCreateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Issue Intake Route",
-        "tags": [
-          "workspace-attention"
-        ]
-      }
-    },
-    "/api/v1/workspace/attention/issue-triage-runs": {
-      "get": {
-        "operationId": "list_issue_triage_runs_route_api_v1_workspace_attention_issue_triage_runs_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AttentionTriageRunsResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Issue Triage Runs Route",
-        "tags": [
-          "workspace-attention"
-        ]
-      },
-      "post": {
-        "operationId": "create_issue_triage_run_route_api_v1_workspace_attention_issue_triage_runs_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AttentionTriageRunRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Issue Triage Run Route",
-        "tags": [
-          "workspace-attention"
-        ]
-      }
-    },
-    "/api/v1/workspace/attention/issue-triage-runs/{task_id}": {
-      "get": {
-        "operationId": "get_issue_triage_run_route_api_v1_workspace_attention_issue_triage_runs__task_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "task_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Task Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Issue Triage Run Route",
-        "tags": [
-          "workspace-attention"
-        ]
-      }
-    },
-    "/api/v1/workspace/attention/issue-work-packs": {
-      "get": {
-        "operationId": "list_issue_work_packs_route_api_v1_workspace_attention_issue_work_packs_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "status",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Status"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 50,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IssueWorkPacksResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Issue Work Packs Route",
-        "tags": [
-          "workspace-attention"
-        ]
-      },
-      "post": {
-        "operationId": "create_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IssueWorkPackCreateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Issue Work Pack Route",
-        "tags": [
-          "workspace-attention"
-        ]
-      }
-    },
-    "/api/v1/workspace/attention/issue-work-packs/batch-launch-project-runs": {
-      "post": {
-        "operationId": "batch_launch_issue_work_packs_route_api_v1_workspace_attention_issue_work_packs_batch_launch_project_runs_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IssueWorkPackBatchLaunchRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Batch Launch Issue Work Packs Route",
-        "tags": [
-          "workspace-attention"
-        ]
-      }
-    },
-    "/api/v1/workspace/attention/issue-work-packs/{pack_id}": {
-      "get": {
-        "operationId": "get_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "pack_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Pack Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Issue Work Pack Route",
-        "tags": [
-          "workspace-attention"
-        ]
-      },
-      "patch": {
-        "operationId": "update_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "pack_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Pack Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IssueWorkPackUpdateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Update Issue Work Pack Route",
-        "tags": [
-          "workspace-attention"
-        ]
-      }
-    },
-    "/api/v1/workspace/attention/issue-work-packs/{pack_id}/dismiss": {
-      "post": {
-        "operationId": "dismiss_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__dismiss_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "pack_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Pack Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IssueWorkPackActionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Dismiss Issue Work Pack Route",
-        "tags": [
-          "workspace-attention"
-        ]
-      }
-    },
-    "/api/v1/workspace/attention/issue-work-packs/{pack_id}/launch-project-run": {
-      "post": {
-        "operationId": "launch_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__launch_project_run_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "pack_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Pack Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IssueWorkPackLaunchRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Launch Issue Work Pack Route",
-        "tags": [
-          "workspace-attention"
-        ]
-      }
-    },
-    "/api/v1/workspace/attention/issue-work-packs/{pack_id}/needs-info": {
-      "post": {
-        "operationId": "needs_info_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__needs_info_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "pack_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Pack Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IssueWorkPackActionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Needs Info Issue Work Pack Route",
-        "tags": [
-          "workspace-attention"
-        ]
-      }
-    },
-    "/api/v1/workspace/attention/issue-work-packs/{pack_id}/reopen": {
-      "post": {
-        "operationId": "reopen_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__reopen_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "pack_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Pack Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IssueWorkPackActionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Reopen Issue Work Pack Route",
-        "tags": [
-          "workspace-attention"
-        ]
-      }
-    },
     "/api/v1/workspace/attention/triage-runs": {
       "get": {
         "operationId": "list_attention_triage_runs_route_api_v1_workspace_attention_triage_runs_get",
@@ -77150,7 +76080,7 @@
         ]
       },
       "patch": {
-        "operationId": "update_workspace_api_v1_workspaces__workspace_id__patch",
+        "operationId": "update_workspace_api_v1_workspaces__workspace_id__patch_2",
         "parameters": [
           {
             "in": "path",
@@ -77216,7 +76146,7 @@
         ]
       },
       "put": {
-        "operationId": "update_workspace_api_v1_workspaces__workspace_id__put",
+        "operationId": "update_workspace_api_v1_workspaces__workspace_id__patch",
         "parameters": [
           {
             "in": "path",
@@ -77470,7 +76400,7 @@
       },
       "patch": {
         "description": "Update a bot's workspace membership and/or config fields.",
-        "operationId": "update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch",
+        "operationId": "update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch_2",
         "parameters": [
           {
             "in": "path",
@@ -77544,7 +76474,7 @@
       },
       "put": {
         "description": "Update a bot's workspace membership and/or config fields.",
-        "operationId": "update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__put",
+        "operationId": "update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch",
         "parameters": [
           {
             "in": "path",
@@ -77620,7 +76550,7 @@
     "/api/v1/workspaces/{workspace_id}/bots/{bot_id}/indexing": {
       "patch": {
         "description": "Update per-bot indexing overrides within a workspace. Send null to clear a field (inherit).",
-        "operationId": "update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch",
+        "operationId": "update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch_2",
         "parameters": [
           {
             "in": "path",
@@ -77694,7 +76624,7 @@
       },
       "put": {
         "description": "Update per-bot indexing overrides within a workspace. Send null to clear a field (inherit).",
-        "operationId": "update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_put",
+        "operationId": "update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch",
         "parameters": [
           {
             "in": "path",

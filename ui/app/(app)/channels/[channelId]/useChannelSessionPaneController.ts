@@ -60,8 +60,8 @@ export function useChannelRouteSessionSurface(): ChannelRouteSessionState {
   const sessionMatch = useMatch("/channels/:channelId/session/:sessionId");
   const [scratchSearch] = useSearchParams();
   const routeSessionId = sessionMatch?.params.sessionId ?? null;
-  const isChannelSessionRoute = !!sessionMatch && scratchSearch.get("surface") === "channel";
-  const isScratchRoute = !!sessionMatch && !isChannelSessionRoute;
+  const isScratchRoute = !!sessionMatch && scratchSearch.get("scratch") === "true";
+  const isChannelSessionRoute = !!sessionMatch && !isScratchRoute;
   const routeSessionSurface: ChannelSessionSurface | null = routeSessionId
     ? isScratchRoute
       ? { kind: "scratch", sessionId: routeSessionId }

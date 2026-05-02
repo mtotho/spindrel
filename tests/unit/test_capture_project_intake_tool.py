@@ -44,8 +44,8 @@ def test_project_intake_skill_routes_via_capture_tool_not_publish():
     assert "intake_config" in text, (
         "Skill must read intake_config from get_project_factory_state to know which substrate to use."
     )
-    assert "deprecated" in text.lower() and "publish_issue_intake" in text, (
-        "Skill must mark publish_issue_intake as deprecated until 4BD.6 retires it."
+    assert "publish_issue_intake" not in text, (
+        "Phase 4BD.6 - publish_issue_intake is removed; the skill must not reference it."
     )
     assert "repo_workflow.sections.intake" in text, (
         "Phase 4BE.2 - skill must read the WORKFLOW.md ## Intake section first "

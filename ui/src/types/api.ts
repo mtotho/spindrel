@@ -1636,19 +1636,7 @@ export interface ProjectCodingRun {
     deleted_at?: string | null;
     blocker?: string | null;
   };
-  source_work_pack_id?: string | null;
-  source_work_pack?: {
-    id: string;
-    title: string;
-    summary?: string;
-    category?: string;
-    confidence?: string;
-    status?: string;
-    source_item_ids?: string[];
-    launch_prompt?: string;
-    created_at?: string | null;
-    updated_at?: string | null;
-  } | null;
+  source_artifact?: { path: string; section?: string | null; commit_sha?: string | null } | null;
   launch_batch_id?: string | null;
   parent_task_id?: string | null;
   root_task_id?: string | null;

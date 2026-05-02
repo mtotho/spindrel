@@ -122,7 +122,6 @@ export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: Si
   const { data: attentionBrief } = useWorkspaceAttentionBrief();
   const { data: health } = useLatestHealthSummary();
   const { data: projectReviewInbox } = useProjectFactoryReviewInbox(8);
-  const { data: workPacks = [] } = useIssueWorkPacks();
   const unreadTotal = useChannelReadStore((s) =>
     Object.values(s.unreadByChannel).reduce((sum, count) => sum + count, 0),
   );
@@ -132,7 +131,6 @@ export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: Si
     attentionBrief,
     health,
     projectReviewInbox,
-    workPacks,
   }).total || unreadTotal;
   // `allDashboards` includes channel-scoped dashboards (slug prefix `channel:`)
   // so a user can opt to pin a channel dashboard to the rail like any other.

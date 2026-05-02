@@ -6,7 +6,7 @@ export const MEMORY_CENTER_HREF = "/admin/learning#Memory";
 export const ATTENTION_COMMAND_DECK_HREF = "/hub/attention";
 export const COMMAND_CENTER_HREF = ATTENTION_COMMAND_DECK_HREF;
 
-export type AttentionDeckMode = "review" | "issues" | "inbox" | "runs" | "cleared";
+export type AttentionDeckMode = "review" | "inbox" | "runs" | "cleared";
 
 export interface AttentionDeckHrefOptions {
   itemId?: string | null;

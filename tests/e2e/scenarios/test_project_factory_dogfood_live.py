@@ -17,7 +17,17 @@ import pytest
 from tests.e2e.harness.client import E2EClient
 
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.e2e,
+    pytest.mark.skip(
+        reason=(
+            "Phase 4BD.6 dropped the IssueWorkPack substrate. This live dogfood "
+            "scenario will be rewritten against propose_run_packs + source_artifact "
+            "in a follow-up slice (see docs/tracks/projects.md Phase 4BD)."
+        )
+    ),
+]
 
 ARTIFACT_PATH = Path("scratch/agent-e2e/project-factory-dogfood-live.json")
 

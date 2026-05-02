@@ -196,7 +196,7 @@ export interface paths {
          * Admin Bot Update
          * @description Update a bot's config via JSON.
          */
-        put: operations["admin_bot_update_api_v1_admin_bots__bot_id__put"];
+        put: operations["admin_bot_update_api_v1_admin_bots__bot_id__patch"];
         post?: never;
         /**
          * Admin Bot Delete
@@ -209,7 +209,7 @@ export interface paths {
          * Admin Bot Update
          * @description Update a bot's config via JSON.
          */
-        patch: operations["admin_bot_update_api_v1_admin_bots__bot_id__patch"];
+        patch: operations["admin_bot_update_api_v1_admin_bots__bot_id__patch_2"];
         trace?: never;
     };
     "/api/v1/admin/bots/{bot_id}/editor-data": {
@@ -867,7 +867,7 @@ export interface paths {
          * Admin Channel Heartbeat Update
          * @description Update heartbeat settings.
          */
-        put: operations["admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_put"];
+        put: operations["admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch"];
         post?: never;
         delete?: never;
         options?: never;
@@ -876,7 +876,7 @@ export interface paths {
          * Admin Channel Heartbeat Update
          * @description Update heartbeat settings.
          */
-        patch: operations["admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch"];
+        patch: operations["admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch_2"];
         trace?: never;
     };
     "/api/v1/admin/channels/{channel_id}/heartbeat/fire": {
@@ -1119,7 +1119,7 @@ export interface paths {
          * Admin Channel Settings Update
          * @description Update channel settings.
          */
-        put: operations["admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_put"];
+        put: operations["admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1128,7 +1128,7 @@ export interface paths {
          * Admin Channel Settings Update
          * @description Update channel settings.
          */
-        patch: operations["admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch"];
+        patch: operations["admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch_2"];
         trace?: never;
     };
     "/api/v1/admin/channels/{channel_id}/tasks": {
@@ -3868,7 +3868,7 @@ export interface paths {
          * Admin Update Task
          * @description Update task fields. Only provided fields are changed.
          */
-        put: operations["admin_update_task_api_v1_admin_tasks__task_id__put"];
+        put: operations["admin_update_task_api_v1_admin_tasks__task_id__patch"];
         post?: never;
         /**
          * Admin Delete Task
@@ -3881,7 +3881,7 @@ export interface paths {
          * Admin Update Task
          * @description Update task fields. Only provided fields are changed.
          */
-        patch: operations["admin_update_task_api_v1_admin_tasks__task_id__patch"];
+        patch: operations["admin_update_task_api_v1_admin_tasks__task_id__patch_2"];
         trace?: never;
     };
     "/api/v1/admin/tasks/{task_id}/children": {
@@ -5545,7 +5545,7 @@ export interface paths {
          *     - Non-heartbeat fields (or both) → ``channels.config:write``
          *     ``channels.config:write`` always covers heartbeat as a parent scope.
          */
-        put: operations["update_channel_config_api_v1_channels__channel_id__config_put"];
+        put: operations["update_channel_config_api_v1_channels__channel_id__config_patch"];
         post?: never;
         delete?: never;
         options?: never;
@@ -5559,7 +5559,7 @@ export interface paths {
          *     - Non-heartbeat fields (or both) → ``channels.config:write``
          *     ``channels.config:write`` always covers heartbeat as a parent scope.
          */
-        patch: operations["update_channel_config_api_v1_channels__channel_id__config_patch"];
+        patch: operations["update_channel_config_api_v1_channels__channel_id__config_patch_2"];
         trace?: never;
     };
     "/api/v1/channels/{channel_id}/context-breakdown": {
@@ -9298,179 +9298,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/workspace/attention/issue-intake": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create Issue Intake Route */
-        post: operations["create_issue_intake_route_api_v1_workspace_attention_issue_intake_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspace/attention/issue-triage-runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Issue Triage Runs Route */
-        get: operations["list_issue_triage_runs_route_api_v1_workspace_attention_issue_triage_runs_get"];
-        put?: never;
-        /** Create Issue Triage Run Route */
-        post: operations["create_issue_triage_run_route_api_v1_workspace_attention_issue_triage_runs_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspace/attention/issue-triage-runs/{task_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Issue Triage Run Route */
-        get: operations["get_issue_triage_run_route_api_v1_workspace_attention_issue_triage_runs__task_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspace/attention/issue-work-packs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Issue Work Packs Route */
-        get: operations["list_issue_work_packs_route_api_v1_workspace_attention_issue_work_packs_get"];
-        put?: never;
-        /** Create Issue Work Pack Route */
-        post: operations["create_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspace/attention/issue-work-packs/batch-launch-project-runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Batch Launch Issue Work Packs Route */
-        post: operations["batch_launch_issue_work_packs_route_api_v1_workspace_attention_issue_work_packs_batch_launch_project_runs_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspace/attention/issue-work-packs/{pack_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Issue Work Pack Route */
-        get: operations["get_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Update Issue Work Pack Route */
-        patch: operations["update_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__patch"];
-        trace?: never;
-    };
-    "/api/v1/workspace/attention/issue-work-packs/{pack_id}/dismiss": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Dismiss Issue Work Pack Route */
-        post: operations["dismiss_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__dismiss_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspace/attention/issue-work-packs/{pack_id}/launch-project-run": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Launch Issue Work Pack Route */
-        post: operations["launch_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__launch_project_run_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspace/attention/issue-work-packs/{pack_id}/needs-info": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Needs Info Issue Work Pack Route */
-        post: operations["needs_info_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__needs_info_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspace/attention/issue-work-packs/{pack_id}/reopen": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Reopen Issue Work Pack Route */
-        post: operations["reopen_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__reopen_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/workspace/attention/triage-runs": {
         parameters: {
             query?: never;
@@ -10091,14 +9918,14 @@ export interface paths {
         /** Get Workspace */
         get: operations["get_workspace_api_v1_workspaces__workspace_id__get"];
         /** Update Workspace */
-        put: operations["update_workspace_api_v1_workspaces__workspace_id__put"];
+        put: operations["update_workspace_api_v1_workspaces__workspace_id__patch"];
         post?: never;
         /** Delete Workspace */
         delete: operations["delete_workspace_api_v1_workspaces__workspace_id__delete"];
         options?: never;
         head?: never;
         /** Update Workspace */
-        patch: operations["update_workspace_api_v1_workspaces__workspace_id__patch"];
+        patch: operations["update_workspace_api_v1_workspaces__workspace_id__patch_2"];
         trace?: never;
     };
     "/api/v1/workspaces/{workspace_id}/bots": {
@@ -10142,7 +9969,7 @@ export interface paths {
          * Update Workspace Bot
          * @description Update a bot's workspace membership and/or config fields.
          */
-        put: operations["update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__put"];
+        put: operations["update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch"];
         post?: never;
         /**
          * Remove Bot From Workspace
@@ -10158,7 +9985,7 @@ export interface paths {
          * Update Workspace Bot
          * @description Update a bot's workspace membership and/or config fields.
          */
-        patch: operations["update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch"];
+        patch: operations["update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch_2"];
         trace?: never;
     };
     "/api/v1/workspaces/{workspace_id}/bots/{bot_id}/indexing": {
@@ -10173,7 +10000,7 @@ export interface paths {
          * Update Bot Indexing
          * @description Update per-bot indexing overrides within a workspace. Send null to clear a field (inherit).
          */
-        put: operations["update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_put"];
+        put: operations["update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch"];
         post?: never;
         delete?: never;
         options?: never;
@@ -10182,7 +10009,7 @@ export interface paths {
          * Update Bot Indexing
          * @description Update per-bot indexing overrides within a workspace. Send null to clear a field (inherit).
          */
-        patch: operations["update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch"];
+        patch: operations["update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch_2"];
         trace?: never;
     };
     "/api/v1/workspaces/{workspace_id}/channels": {
@@ -14054,7 +13881,7 @@ export interface components {
             context_compaction: boolean;
             /**
              * Effective Native Context Policy
-             * @default lean
+             * @default standard
              */
             effective_native_context_policy: string;
             /**
@@ -14122,11 +13949,19 @@ export interface components {
             };
             /** Name */
             name: string;
+            /** Native Context Compaction Utilization */
+            native_context_compaction_utilization?: number | null;
+            /** Native Context Live History Ratio */
+            native_context_live_history_ratio?: number | null;
+            /** Native Context Min Recent Turns */
+            native_context_min_recent_turns?: number | null;
             /**
              * Native Context Policy
              * @default default
              */
             native_context_policy: string;
+            /** Native Context Warning Utilization */
+            native_context_warning_utilization?: number | null;
             /**
              * Passive Memory
              * @default true
@@ -14298,8 +14133,16 @@ export interface components {
             } | null;
             /** Name */
             name?: string | null;
+            /** Native Context Compaction Utilization */
+            native_context_compaction_utilization?: number | null;
+            /** Native Context Live History Ratio */
+            native_context_live_history_ratio?: number | null;
+            /** Native Context Min Recent Turns */
+            native_context_min_recent_turns?: number | null;
             /** Native Context Policy */
             native_context_policy?: string | null;
+            /** Native Context Warning Utilization */
+            native_context_warning_utilization?: number | null;
             /** Passive Memory */
             passive_memory?: boolean | null;
             /** Pinned Widget Context Enabled */
@@ -16211,139 +16054,6 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
-        };
-        /** IssueIntakeCreateRequest */
-        IssueIntakeCreateRequest: {
-            /**
-             * Category Hint
-             * @default bug
-             */
-            category_hint: string;
-            /** Channel Id */
-            channel_id?: string | null;
-            /** Expected Behavior */
-            expected_behavior?: string | null;
-            /** Observed Behavior */
-            observed_behavior?: string | null;
-            /** Project Hint */
-            project_hint?: string | null;
-            /**
-             * Severity
-             * @default warning
-             */
-            severity: string;
-            /** Steps */
-            steps?: string[];
-            /** Summary */
-            summary: string;
-            /** Tags */
-            tags?: string[];
-            /** Title */
-            title: string;
-        };
-        /** IssueWorkPackActionRequest */
-        IssueWorkPackActionRequest: {
-            /** Note */
-            note?: string | null;
-        };
-        /** IssueWorkPackBatchLaunchRequest */
-        IssueWorkPackBatchLaunchRequest: {
-            /**
-             * Channel Id
-             * Format: uuid
-             */
-            channel_id: string;
-            /** Loop Policy */
-            loop_policy?: {
-                [key: string]: unknown;
-            } | null;
-            /** Note */
-            note?: string | null;
-            /**
-             * Project Id
-             * Format: uuid
-             */
-            project_id: string;
-            /** Work Pack Ids */
-            work_pack_ids: string[];
-        };
-        /** IssueWorkPackCreateRequest */
-        IssueWorkPackCreateRequest: {
-            /**
-             * Category
-             * @default code_bug
-             */
-            category: string;
-            /** Channel Id */
-            channel_id?: string | null;
-            /**
-             * Confidence
-             * @default medium
-             */
-            confidence: string;
-            /**
-             * Launch Prompt
-             * @default
-             */
-            launch_prompt: string;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
-            /** Project Id */
-            project_id?: string | null;
-            /** Source Item Ids */
-            source_item_ids?: string[];
-            /**
-             * Summary
-             * @default
-             */
-            summary: string;
-            /** Title */
-            title: string;
-        };
-        /** IssueWorkPackLaunchRequest */
-        IssueWorkPackLaunchRequest: {
-            /**
-             * Channel Id
-             * Format: uuid
-             */
-            channel_id: string;
-            /** Loop Policy */
-            loop_policy?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Project Id
-             * Format: uuid
-             */
-            project_id: string;
-        };
-        /** IssueWorkPackUpdateRequest */
-        IssueWorkPackUpdateRequest: {
-            /** Category */
-            category?: string | null;
-            /** Channel Id */
-            channel_id?: string | null;
-            /** Confidence */
-            confidence?: string | null;
-            /** Launch Prompt */
-            launch_prompt?: string | null;
-            /** Project Id */
-            project_id?: string | null;
-            /** Source Item Ids */
-            source_item_ids?: string[] | null;
-            /** Summary */
-            summary?: string | null;
-            /** Title */
-            title?: string | null;
-        };
-        /** IssueWorkPacksResponse */
-        IssueWorkPacksResponse: {
-            /** Work Packs */
-            work_packs: {
-                [key: string]: unknown;
-            }[];
         };
         /** JobStatusOut */
         JobStatusOut: {
@@ -18279,12 +17989,10 @@ export interface components {
             runtime_target?: {
                 [key: string]: unknown;
             };
-            /** Source Work Pack */
-            source_work_pack?: {
+            /** Source Artifact */
+            source_artifact?: {
                 [key: string]: unknown;
             } | null;
-            /** Source Work Pack Id */
-            source_work_pack_id?: string | null;
             /** Status */
             status: string;
             task: components["schemas"]["ProjectCodingRunTaskOut"];
@@ -18332,8 +18040,8 @@ export interface components {
             run_count: number;
             /** Run Ids */
             run_ids?: string[];
-            /** Source Work Packs */
-            source_work_packs?: {
+            /** Source Artifacts */
+            source_artifacts?: {
                 [key: string]: unknown;
             }[];
             /** Status */
@@ -18440,8 +18148,8 @@ export interface components {
             selected_task_ids?: string[];
             /** Session Id */
             session_id?: string | null;
-            /** Source Work Packs */
-            source_work_packs?: {
+            /** Source Artifacts */
+            source_artifacts?: {
                 [key: string]: unknown;
             }[];
             /** Status */
@@ -18632,8 +18340,7 @@ export interface components {
              * @default
              */
             request: string;
-            /** Source Work Pack Id */
-            source_work_pack_id?: string | null;
+            source_artifact?: components["schemas"]["SourceArtifactIn"] | null;
         };
         /** ProjectCodingRunsReviewedWrite */
         ProjectCodingRunsReviewedWrite: {
@@ -21002,6 +20709,23 @@ export interface components {
             };
             /** Result Type */
             result_type: string;
+        };
+        /**
+         * SourceArtifactIn
+         * @description Repo-resident artifact a Project coding run was derived from.
+         *
+         *     Phase 4BD.5 of the Project Factory issue substrate. Replaces the bespoke
+         *     ``source_work_pack_id`` UUID with a file pointer so launches reference
+         *     durable Tracks/PRDs/audits in the canonical repo instead of a row in a
+         *     deleted DB table.
+         */
+        SourceArtifactIn: {
+            /** Commit Sha */
+            commit_sha?: string | null;
+            /** Path */
+            path: string;
+            /** Section */
+            section?: string | null;
         };
         /** SourceFileTarget */
         SourceFileTarget: {
@@ -24794,7 +24518,7 @@ export interface operations {
             };
         };
     };
-    admin_bot_update_api_v1_admin_bots__bot_id__put: {
+    admin_bot_update_api_v1_admin_bots__bot_id__patch: {
         parameters: {
             query?: never;
             header: {
@@ -24865,7 +24589,7 @@ export interface operations {
             };
         };
     };
-    admin_bot_update_api_v1_admin_bots__bot_id__patch: {
+    admin_bot_update_api_v1_admin_bots__bot_id__patch_2: {
         parameters: {
             query?: never;
             header: {
@@ -26134,7 +25858,7 @@ export interface operations {
             };
         };
     };
-    admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_put: {
+    admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch: {
         parameters: {
             query?: never;
             header: {
@@ -26171,7 +25895,7 @@ export interface operations {
             };
         };
     };
-    admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch: {
+    admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch_2: {
         parameters: {
             query?: never;
             header: {
@@ -26689,7 +26413,7 @@ export interface operations {
             };
         };
     };
-    admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_put: {
+    admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch: {
         parameters: {
             query?: never;
             header: {
@@ -26726,7 +26450,7 @@ export interface operations {
             };
         };
     };
-    admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch: {
+    admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch_2: {
         parameters: {
             query?: never;
             header: {
@@ -32541,7 +32265,7 @@ export interface operations {
             };
         };
     };
-    admin_update_task_api_v1_admin_tasks__task_id__put: {
+    admin_update_task_api_v1_admin_tasks__task_id__patch: {
         parameters: {
             query?: never;
             header: {
@@ -32609,7 +32333,7 @@ export interface operations {
             };
         };
     };
-    admin_update_task_api_v1_admin_tasks__task_id__patch: {
+    admin_update_task_api_v1_admin_tasks__task_id__patch_2: {
         parameters: {
             query?: never;
             header: {
@@ -36350,7 +36074,7 @@ export interface operations {
             };
         };
     };
-    update_channel_config_api_v1_channels__channel_id__config_put: {
+    update_channel_config_api_v1_channels__channel_id__config_patch: {
         parameters: {
             query?: never;
             header?: {
@@ -36387,7 +36111,7 @@ export interface operations {
             };
         };
     };
-    update_channel_config_api_v1_channels__channel_id__config_patch: {
+    update_channel_config_api_v1_channels__channel_id__config_patch_2: {
         parameters: {
             query?: never;
             header?: {
@@ -44536,464 +44260,6 @@ export interface operations {
             };
         };
     };
-    create_issue_intake_route_api_v1_workspace_attention_issue_intake_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["IssueIntakeCreateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_issue_triage_runs_route_api_v1_workspace_attention_issue_triage_runs_get: {
-        parameters: {
-            query?: {
-                limit?: number;
-            };
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AttentionTriageRunsResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_issue_triage_run_route_api_v1_workspace_attention_issue_triage_runs_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AttentionTriageRunRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_issue_triage_run_route_api_v1_workspace_attention_issue_triage_runs__task_id__get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_issue_work_packs_route_api_v1_workspace_attention_issue_work_packs_get: {
-        parameters: {
-            query?: {
-                status?: string | null;
-                limit?: number;
-            };
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IssueWorkPacksResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["IssueWorkPackCreateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    batch_launch_issue_work_packs_route_api_v1_workspace_attention_issue_work_packs_batch_launch_project_runs_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["IssueWorkPackBatchLaunchRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path: {
-                pack_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__patch: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path: {
-                pack_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["IssueWorkPackUpdateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    dismiss_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__dismiss_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path: {
-                pack_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["IssueWorkPackActionRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    launch_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__launch_project_run_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path: {
-                pack_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["IssueWorkPackLaunchRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    needs_info_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__needs_info_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path: {
-                pack_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["IssueWorkPackActionRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    reopen_issue_work_pack_route_api_v1_workspace_attention_issue_work_packs__pack_id__reopen_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path: {
-                pack_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["IssueWorkPackActionRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_attention_triage_runs_route_api_v1_workspace_attention_triage_runs_get: {
         parameters: {
             query?: {
@@ -46325,7 +45591,7 @@ export interface operations {
             };
         };
     };
-    update_workspace_api_v1_workspaces__workspace_id__put: {
+    update_workspace_api_v1_workspaces__workspace_id__patch: {
         parameters: {
             query?: never;
             header?: {
@@ -46393,7 +45659,7 @@ export interface operations {
             };
         };
     };
-    update_workspace_api_v1_workspaces__workspace_id__patch: {
+    update_workspace_api_v1_workspaces__workspace_id__patch_2: {
         parameters: {
             query?: never;
             header?: {
@@ -46497,7 +45763,7 @@ export interface operations {
             };
         };
     };
-    update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__put: {
+    update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch: {
         parameters: {
             query?: never;
             header?: {
@@ -46569,7 +45835,7 @@ export interface operations {
             };
         };
     };
-    update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch: {
+    update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch_2: {
         parameters: {
             query?: never;
             header?: {
@@ -46607,7 +45873,7 @@ export interface operations {
             };
         };
     };
-    update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_put: {
+    update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch: {
         parameters: {
             query?: never;
             header?: {
@@ -46645,7 +45911,7 @@ export interface operations {
             };
         };
     };
-    update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch: {
+    update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch_2: {
         parameters: {
             query?: never;
             header?: {

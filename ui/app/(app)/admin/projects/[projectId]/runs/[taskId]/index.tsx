@@ -88,7 +88,7 @@ function reviewStatus(run: ProjectCodingRun) {
 }
 
 function problemTitle(run: ProjectCodingRun) {
-  return run.source_work_pack?.title || run.task.title || run.request || "Project coding run";
+  return run.task.title || run.request || "Project coding run";
 }
 
 function lifecycleHeadline(run: ProjectCodingRun) {
@@ -100,12 +100,13 @@ function lifecycleNextAction(run: ProjectCodingRun) {
 }
 
 function problemSummary(run: ProjectCodingRun) {
-  return run.source_work_pack?.summary || run.request || run.receipt?.summary || "No problem statement was recorded for this run.";
+  return run.request || run.receipt?.summary || "No problem statement was recorded for this run.";
 }
 
 function sourceLine(run: ProjectCodingRun) {
+  const artifact = run.source_artifact;
   const pieces = [
-    run.source_work_pack_id ? `work pack ${String(run.source_work_pack_id).slice(0, 8)}` : null,
+    artifact?.path ? `artifact ${artifact.path}${artifact.section ? `#${artifact.section}` : ""}` : null,
     run.launch_batch_id ? `batch ${run.launch_batch_id}` : null,
     run.task.channel_id ? `channel ${String(run.task.channel_id).slice(0, 8)}` : null,
     run.task.session_id ? `session ${String(run.task.session_id).slice(0, 8)}` : null,
@@ -310,21 +311,18 @@ export default function ProjectRunDetail() {
                   <StatusBadge label={reviewStatus(run)} variant={statusTone(reviewStatus(run))} />
                   {prMerged && <StatusBadge label="merged" variant="success" />}
                   {terminalReviewed && <StatusBadge label="reviewed" variant="success" />}
-                  {run.source_work_pack?.category && <StatusBadge label={run.source_work_pack.category.replaceAll("_", " ")} variant="neutral" />}
                 </div>
                 <h1 className="mt-3 text-xl font-semibold leading-7 tracking-normal text-text">{problemTitle(run)}</h1>
                 <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-text-muted">{problemSummary(run)}</p>
                 <div className="mt-3 text-xs text-text-dim">{sourceLine(run)}</div>
               </div>
-              {run.source_work_pack && (
+              {run.source_artifact?.path && (
                 <div className="rounded-md bg-surface-overlay/25 px-3 py-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">Source Work Pack</div>
-                  <div className="mt-1 text-sm font-semibold text-text">{run.source_work_pack.title}</div>
-                  <div className="mt-1 text-xs leading-5 text-text-muted">
-                    {[run.source_work_pack.category?.replaceAll("_", " "), run.source_work_pack.status, run.source_work_pack.confidence != null ? `confidence ${run.source_work_pack.confidence}` : null]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">Source Artifact</div>
+                  <div className="mt-1 text-sm font-semibold text-text">{run.source_artifact.path}{run.source_artifact.section ? ` · ${run.source_artifact.section}` : ""}</div>
+                  {run.source_artifact.commit_sha && (
+                    <div className="mt-1 text-xs text-text-dim">commit {String(run.source_artifact.commit_sha).slice(0, 8)}</div>
+                  )}
                 </div>
               )}
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-overlay/25 px-3 py-2">

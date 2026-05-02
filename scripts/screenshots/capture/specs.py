@@ -3703,8 +3703,8 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
             owner_id: taskId,
             blocker: null
           },
-          source_work_pack_id: "screenshot-work-pack-main",
-          launch_batch_id: "issue-work-pack-batch:screenshot",
+          source_artifact: { path: ".spindrel/audits/screenshot-sweep.md", section: "Proposed Run Packs" },
+          launch_batch_id: "run-pack-batch:screenshot",
           parent_task_id: null,
           root_task_id: taskId,
           continuation_index: 0,
@@ -3897,7 +3897,7 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
             id: "screenshot-project-coding-run-batch-peer",
             request: "Add batch launch proof for overnight packs.",
             branch: "screenshot/project-coding-run-batch-proof",
-            source_work_pack_id: "screenshot-work-pack-batch-peer",
+            source_artifact: { path: ".spindrel/audits/screenshot-sweep.md", section: "Proposed Run Packs" },
             task: { ...(first.task || {}), id: peerTaskId, title: "Project coding run batch peer" },
             receipt: first.receipt ? {
               ...first.receipt,

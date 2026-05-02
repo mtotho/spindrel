@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { buildActionInboxModel, type ActionInboxInput } from "./actionInbox.ts";
-import type { IssueWorkPack, WorkspaceAttentionItem } from "../api/hooks/useWorkspaceAttention";
+import type { WorkspaceAttentionItem } from "../api/hooks/useWorkspaceAttention";
 import type { SessionReadState } from "../api/hooks/useUnread";
 import type { ProjectFactoryReviewInboxItem } from "../types/api";
 
@@ -44,20 +44,6 @@ function attention(overrides: Partial<WorkspaceAttentionItem>): WorkspaceAttenti
   };
 }
 
-function pack(overrides: Partial<IssueWorkPack> = {}): IssueWorkPack {
-  return {
-    id: "pack-1",
-    title: "Fix issue",
-    summary: "Summary",
-    category: "code_bug",
-    confidence: "medium",
-    status: "proposed",
-    source_item_ids: [],
-    launch_prompt: "Fix it",
-    ...overrides,
-  };
-}
-
 function projectItem(overrides: Partial<ProjectFactoryReviewInboxItem> = {}): ProjectFactoryReviewInboxItem {
   return {
     id: "run-1",
@@ -81,7 +67,7 @@ test("action inbox excludes raw untriaged attention from the actionable count", 
   assert.equal(model.rows[0]?.title, "Caught up");
 });
 
-test("action inbox counts replies, project reviews, issue intake, work packs, findings, and health", () => {
+test("action inbox counts replies, project reviews, findings, and health", () => {
   const input: ActionInboxInput = {
     unreadStates: [unread(2)],
     projectReviewInbox: {
@@ -90,10 +76,8 @@ test("action inbox counts replies, project reviews, issue intake, work packs, fi
       projects: [],
     },
     attentionItems: [
-      attention({ id: "issue", evidence: { issue_intake: { category_hint: "bug" } } }),
       attention({ id: "finding", evidence: { operator_triage: { state: "ready_for_review" } } }),
     ],
-    workPacks: [pack()],
     attentionBrief: {
       generated_at: "2026-05-01T10:00:00Z",
       summary: { autofix: 1, blockers: 0, fix_packs: 0, decisions: 0, quiet: 0, running: 0, cleared: 0, total: 1 },
@@ -112,11 +96,10 @@ test("action inbox counts replies, project reviews, issue intake, work packs, fi
 
   assert.equal(model.unreadReplyCount, 2);
   assert.equal(model.projectReviewCount, 1);
-  assert.equal(model.issueIntakeCount, 2);
   assert.equal(model.findingsCount, 2);
   assert.equal(model.healthCount, 2);
-  assert.equal(model.total, 9);
-  assert.deepEqual(model.rows.map((row) => row.kind), ["replies", "project_reviews", "issue_intake", "findings", "health"]);
+  assert.equal(model.total, 7);
+  assert.deepEqual(model.rows.map((row) => row.kind), ["replies", "project_reviews", "findings", "health"]);
 });
 
 test("action inbox does not treat reviewed project runs as actionable when summary is absent", () => {

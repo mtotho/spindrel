@@ -14,7 +14,17 @@ import pytest
 from tests.e2e.harness.client import E2EClient
 
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.e2e,
+    pytest.mark.skip(
+        reason=(
+            "Phase 4BD.6 dropped the IssueWorkPack substrate. This scenario will "
+            "be rewritten against the file-based source_artifact pipeline in a "
+            "follow-up slice (see docs/tracks/projects.md Phase 4BD)."
+        )
+    ),
+]
 
 
 async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClient) -> None:
