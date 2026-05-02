@@ -109,9 +109,11 @@ def test_with_task_execution_config_does_not_double_inject_report_issue():
 
 
 def test_with_task_execution_config_preserves_unrelated_fields():
+    pre_user_msg_id = uuid.uuid4()
     base = _base_request(
         user_message="prompt",
         is_heartbeat=True,
+        pre_user_msg_id=pre_user_msg_id,
         harness_model_override="claude-sonnet-4-6",
         harness_effort_override="high",
         harness_attachments=({"id": "att-1"},),
@@ -123,3 +125,12 @@ def test_with_task_execution_config_preserves_unrelated_fields():
     assert derived.harness_effort_override == "high"
     assert derived.harness_attachments == ({"id": "att-1"},)
     assert derived.session_id == base.session_id
+    assert derived.pre_user_msg_id == pre_user_msg_id
+
+
+def test_with_task_execution_config_recovers_pre_user_id_from_execution_config():
+    pre_user_msg_id = uuid.uuid4()
+    derived = _base_request().with_task_execution_config({
+        "pre_user_msg_id": str(pre_user_msg_id),
+    })
+    assert derived.pre_user_msg_id == pre_user_msg_id

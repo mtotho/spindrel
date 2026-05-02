@@ -656,6 +656,22 @@ def _task_project_instance_policy(task: Task) -> str:
     return "shared"
 
 
+def _stall_state_for_task(task: Task) -> dict[str, Any] | None:
+    """Return the persisted stall_state dict if this run is still in-flight.
+
+    Cleared automatically once the task finishes — a completed/failed run
+    should never read as ``stalled`` even if a stale marker survives the
+    transition.
+    """
+    if str(task.status or "").lower() not in {"pending", "running"}:
+        return None
+    cfg = task.execution_config if isinstance(task.execution_config, dict) else {}
+    raw = cfg.get("stall_state")
+    if not isinstance(raw, dict) or not raw.get("stalled_at"):
+        return None
+    return raw
+
+
 def _work_surface_summary(
     *,
     project: Project,
@@ -664,6 +680,11 @@ def _work_surface_summary(
 ) -> dict[str, Any]:
     policy = _task_project_instance_policy(task)
     expected = "fresh_project_instance" if policy == "fresh" else "shared_project_root"
+    stall_state = _stall_state_for_task(task)
+    stall_overlay: dict[str, Any] = {}
+    if stall_state:
+        stall_overlay["run_phase_override"] = "stalled"
+        stall_overlay["stall_state"] = stall_state
     if instance is not None:
         active = instance.status == "ready" and instance.deleted_at is None
         return {
@@ -681,6 +702,7 @@ def _work_surface_summary(
             "expires_at": instance.expires_at.isoformat() if instance.expires_at else None,
             "deleted_at": instance.deleted_at.isoformat() if instance.deleted_at else None,
             "blocker": None if active else "Project instance is not ready for this run.",
+            **stall_overlay,
         }
     if policy == "fresh":
         return {
@@ -694,6 +716,7 @@ def _work_surface_summary(
             "project_id": str(project.id),
             "project_instance_id": None,
             "blocker": "Fresh Project instance has not been created for this run yet.",
+            **stall_overlay,
         }
     return {
         "kind": "project",
@@ -706,6 +729,7 @@ def _work_surface_summary(
         "project_id": str(project.id),
         "project_instance_id": None,
         "blocker": None,
+        **stall_overlay,
     }
 
 
@@ -1011,6 +1035,7 @@ async def _project_run_loop_iterations(
 def project_coding_run_review_queue_state(row: dict[str, Any]) -> str:
     review = row.get("review") if isinstance(row.get("review"), dict) else {}
     task = row.get("task") if isinstance(row.get("task"), dict) else {}
+    work_surface = row.get("work_surface") if isinstance(row.get("work_surface"), dict) else {}
     latest = row.get("latest_continuation") if isinstance(row.get("latest_continuation"), dict) else None
     evidence = review.get("evidence") if isinstance(review.get("evidence"), dict) else {}
     review_status = str(review.get("status") or row.get("status") or "").strip()
@@ -1018,6 +1043,12 @@ def project_coding_run_review_queue_state(row: dict[str, Any]) -> str:
 
     if review.get("reviewed") or review_status == "reviewed":
         return "reviewed"
+    # Stall sweep coupling: a run flagged stalled by the background sweep
+    # surfaces in the operator queue as ``blocked``. The fine-grained
+    # ``run_phase`` axis still reads as ``stalled`` (recoverable / no recent
+    # activity) so the two stay distinct.
+    if work_surface.get("run_phase_override") == "stalled":
+        return "blocked"
     if latest:
         latest_status = str(latest.get("review_status") or latest.get("status") or "").strip()
         if latest_status in {"pending", "running"}:

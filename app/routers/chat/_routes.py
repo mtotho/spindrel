@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -339,6 +339,7 @@ async def _queue_channel_task(
     run: _NormalChatRun,
     message: str,
     pre_user_msg_id: uuid.UUID | None = None,
+    delay_seconds: int = 0,
 ) -> TaskModel:
     execution_config = (
         {"session_scoped": True, "external_delivery": req.external_delivery}
@@ -355,6 +356,11 @@ async def _queue_channel_task(
         prompt=message,
         status="pending",
         created_at=datetime.now(timezone.utc),
+        scheduled_at=(
+            datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
+            if delay_seconds > 0
+            else None
+        ),
         execution_config=execution_config or None,
     )
     db.add(queued_task)
@@ -500,6 +506,7 @@ async def _start_or_queue_normal_turn(
             run=run,
             message=prepared.message,
             pre_user_msg_id=queued_user_msg_id,
+            delay_seconds=10,
         )
         await db.commit()
         await db.refresh(queued_task)
@@ -727,6 +734,7 @@ async def _enqueue_sub_session_turn(
             prompt=message,
             status="pending",
             created_at=datetime.now(timezone.utc),
+            scheduled_at=datetime.now(timezone.utc) + timedelta(seconds=10),
             execution_config={"session_scoped": True, "pre_user_msg_id": str(queued_user_msg_id)},
         )
         db.add(queued_task)

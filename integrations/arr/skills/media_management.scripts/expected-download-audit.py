@@ -48,19 +48,43 @@ def normalize(text):
 
 
 def entries(data):
-    if not isinstance(data, dict):
+    if isinstance(data, list):
+        iterable = enumerate(data)
+    elif isinstance(data, dict):
+        for key in ("shows", "movies", "items", "entries", "tracked", "registry"):
+            nested = data.get(key)
+            if isinstance(nested, (dict, list)):
+                return entries(nested)
+        iterable = data.items()
+    else:
         return []
+
     out = []
-    for key, value in data.items():
-        if key.startswith("_") or key in {"schema_version", "last_updated", "notes"}:
+    for key, value in iterable:
+        key_text = str(key)
+        if key_text.startswith("_") or key_text in {"schema_version", "last_updated", "notes", "metadata"}:
             continue
         if not isinstance(value, dict):
             continue
-        title = value.get("title") or value.get("name") or value.get("series_title") or key
-        state = str(value.get("state") or value.get("status") or value.get("lifecycle") or "active").lower()
+        title = (
+            value.get("title")
+            or value.get("name")
+            or value.get("series_title")
+            or value.get("seriesTitle")
+            or value.get("movieTitle")
+            or key_text
+        )
+        tracking = value.get("tracking") if isinstance(value.get("tracking"), dict) else {}
+        state = str(
+            tracking.get("status")
+            or value.get("state")
+            or value.get("status")
+            or value.get("lifecycle")
+            or "active"
+        ).lower()
         if state in {"dropped", "ignored", "inactive", "resolved", "complete"}:
             continue
-        out.append({"key": key, "title": title, "norm": normalize(title), "raw": value})
+        out.append({"key": key_text, "title": title, "norm": normalize(title), "raw": value})
     return out
 
 
@@ -92,6 +116,7 @@ shows_data = read_json(TRACKED_SHOWS)
 movies_data = read_json(TRACKED_MOVIES)
 tracked_shows = entries(shows_data)
 tracked_movies = entries(movies_data)
+tracked_registry_empty = not tracked_shows and not tracked_movies
 
 snapshot = load_jsonish(tools.arr_heartbeat_snapshot(
     include_services=["sonarr", "radarr"],
@@ -110,6 +135,7 @@ counts = {
     "missing_now": 0,
     "missing_upcoming": 0,
     "unmatched_missing": 0,
+    "registry_empty": 1 if tracked_registry_empty else 0,
 }
 
 for episode in list_from(snapshot, "sonarr", "calendar", "episodes"):
@@ -161,7 +187,7 @@ for episode in list_from(snapshot, "sonarr", "wanted", "episodes") + list_from(s
             "season": episode.get("season") or episode.get("seasonNumber"),
             "episode": episode.get("episode") or episode.get("episodeNumber"),
         }))
-    else:
+    elif tracked_shows:
         counts["unmatched_missing"] += 1
 
 for movie in list_from(snapshot, "radarr", "wanted", "movies") + list_from(snapshot, "radarr", "wanted", "items"):
@@ -175,7 +201,7 @@ for movie in list_from(snapshot, "radarr", "wanted", "movies") + list_from(snaps
             "title": movie.get("title") or movie.get("movieTitle"),
             "year": movie.get("year"),
         }))
-    else:
+    elif tracked_movies:
         counts["unmatched_missing"] += 1
 
 for service in ("sonarr", "radarr"):
@@ -195,13 +221,19 @@ for service in ("sonarr", "radarr"):
             "tracked_status": queued.get("tracked_status") or queued.get("trackedDownloadStatus"),
         }))
 
-problem_count = counts["missing_now"] + counts["unmatched_missing"]
+problem_count = counts["missing_now"] + counts["unmatched_missing"] + counts["registry_empty"]
 status = "needs_attention" if problem_count else "ok"
-summary = (
-    f"{counts['tracked_shows']} tracked shows, {counts['tracked_movies']} tracked movies; "
-    f"{counts['missing_now']} due/wanted missing, {counts['missing_upcoming']} upcoming missing, "
-    f"{counts['queued']} queued, {counts['downloaded']} calendar entries already downloaded."
-)
+if tracked_registry_empty:
+    summary = (
+        "Tracked ARR registry loaded empty; check data/tracked-shows.json and "
+        "data/tracked-movies.json shape before trusting expected-download counts."
+    )
+else:
+    summary = (
+        f"{counts['tracked_shows']} tracked shows, {counts['tracked_movies']} tracked movies; "
+        f"{counts['missing_now']} due/wanted missing, {counts['missing_upcoming']} upcoming missing, "
+        f"{counts['queued']} queued, {counts['downloaded']} calendar entries already downloaded."
+    )
 
 output = {
     "status": status,

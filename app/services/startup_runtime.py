@@ -77,6 +77,13 @@ def start_boot_background_services(
     handle.schedule(index_filesystems_and_start_watchers(), name="fs_index")
     handle.schedule(background_warmup(), name="bg_warmup")
 
+    from app.services.project_run_stall_sweep import (
+        _sweep_disabled_via_env,
+        project_run_stall_sweep_loop,
+    )
+    if not _sweep_disabled_via_env():
+        handle.schedule(project_run_stall_sweep_loop(), name="project_run_stall_sweep")
+
 
 async def index_filesystems_and_start_watchers() -> None:
     """Index workspace and legacy filesystem directories, then start watchers."""

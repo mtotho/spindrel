@@ -68,3 +68,24 @@ async def test_session_scoped_queued_channel_task_keeps_delivery_policy_and_pre_
         "external_delivery": "none",
         "pre_user_msg_id": str(pre_user_msg_id),
     }
+
+
+async def test_busy_queued_channel_task_can_be_initially_deferred():
+    db = _FakeDb()
+    run = SimpleNamespace(
+        channel=SimpleNamespace(id=uuid.uuid4()),
+        session_id=uuid.uuid4(),
+        session_scoped_delivery=True,
+    )
+
+    task = await _queue_channel_task(
+        db=db,
+        req=ChatRequest(message="queued", bot_id="bot-a", external_delivery="none"),
+        run=run,
+        message="queued",
+        pre_user_msg_id=uuid.uuid4(),
+        delay_seconds=10,
+    )
+
+    assert task.scheduled_at is not None
+    assert task.scheduled_at > task.created_at

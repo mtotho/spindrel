@@ -75,8 +75,15 @@ class HarnessTurnRequest:
         permission_mode = (
             "bypassPermissions" if bool(ecfg.get("skip_tool_approval")) else None
         )
+        pre_user_msg_id = self.pre_user_msg_id
+        if pre_user_msg_id is None and ecfg.get("pre_user_msg_id"):
+            try:
+                pre_user_msg_id = uuid.UUID(str(ecfg.get("pre_user_msg_id")))
+            except (TypeError, ValueError):
+                pre_user_msg_id = None
         return replace(
             self,
+            pre_user_msg_id=pre_user_msg_id,
             harness_tool_names=tool_names,
             harness_skill_ids=skill_ids,
             harness_permission_mode_override=permission_mode,
