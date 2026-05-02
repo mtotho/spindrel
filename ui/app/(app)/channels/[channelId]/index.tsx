@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation, useMatch, useSearchParams } from "
 import { useQueryClient } from "@tanstack/react-query";
 import { PipelineRunModal } from "./PipelineRunModal";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { ChevronUp, ChevronDown } from "lucide-react";
+import { ChevronLeft, ChevronUp, ChevronDown } from "lucide-react";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { OmniPanel } from "./OmniPanel";
 import { MobileChannelDrawer } from "./MobileChannelDrawer";
@@ -156,6 +156,20 @@ function CollapsedPanelSpine({
         </span>
       </div>
     </div>
+  );
+}
+
+function PanelEdgeCollapseHandle({ onCollapse }: { onCollapse: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label="Collapse workbench panel"
+      title="Collapse workbench"
+      onClick={onCollapse}
+      className="absolute right-[-9px] top-3 z-[36] flex h-10 w-4 items-center justify-center rounded-full border border-surface-border/60 bg-surface-raised/95 text-text-dim shadow-lg shadow-black/20 transition-colors hover:bg-surface-overlay hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+    >
+      <ChevronLeft size={13} />
+    </button>
   );
 }
 
@@ -1373,6 +1387,7 @@ export default function ChatScreen() {
             <div
               style={{
                 width: panelLayout.left.mode === "push" ? panelLayout.left.width : 0,
+                position: panelLayout.left.mode === "push" ? "relative" : undefined,
                 ...(panelLayout.left.mode === "overlay"
                   ? {
                       position: "absolute",
@@ -1385,33 +1400,39 @@ export default function ChatScreen() {
                       boxShadow: "18px 0 36px rgba(0,0,0,0.28)",
                     }
                   : {}),
-                overflow: "hidden",
+                overflow: "visible",
                 transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)",
                 flexShrink: 0,
               }}
             >
               {showExplorer && (
-                <OmniPanel
-                  channelId={channelId}
-                  dashboardHref={channelDashboardHref}
-                  workspaceId={fileWorkspaceId ?? undefined}
-                  fileRootPath={fileRootPath}
-                  fileRootLabel="Project"
-                  botId={channel?.bot_id}
-                  channelDisplayName={channel?.display_name || channel?.name}
-                  activeFile={activeFile}
-                  onSelectFile={handleSelectFile}
-                  onOpenTerminal={openTerminalAtPath}
-                  onClose={handleCloseExplorer}
-                  width={panelLayout.left.width}
-                  activeTab={panelPrefs.leftTab}
-                  onTabChange={(tab) => setChannelPanelTab(channelId, tab)}
-                  onCollapse={() => patchChannelPanelPrefs(channelId, { leftOpen: false })}
-                  project={channel?.project ?? null}
-                  onActivateSessionSurface={(surface) =>
-                    handleOverlayActivateSessionSurface(surface, "switch")
-                  }
-                />
+                <>
+                  <div style={{ height: "100%", overflow: "hidden" }}>
+                    <OmniPanel
+                      channelId={channelId}
+                      dashboardHref={channelDashboardHref}
+                      workspaceId={fileWorkspaceId ?? undefined}
+                      fileRootPath={fileRootPath}
+                      fileRootLabel="Project"
+                      botId={channel?.bot_id}
+                      channelDisplayName={channel?.display_name || channel?.name}
+                      activeFile={activeFile}
+                      onSelectFile={handleSelectFile}
+                      onOpenTerminal={openTerminalAtPath}
+                      onClose={handleCloseExplorer}
+                      width={panelLayout.left.width}
+                      activeTab={panelPrefs.leftTab}
+                      onTabChange={(tab) => setChannelPanelTab(channelId, tab)}
+                      project={channel?.project ?? null}
+                      onActivateSessionSurface={(surface) =>
+                        handleOverlayActivateSessionSurface(surface, "switch")
+                      }
+                    />
+                  </div>
+                  <PanelEdgeCollapseHandle
+                    onCollapse={() => patchChannelPanelPrefs(channelId, { leftOpen: false })}
+                  />
+                </>
               )}
             </div>
           )}

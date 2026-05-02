@@ -685,18 +685,31 @@ async def inject_conversation_sections(
             if rows:
                 from app.services.compaction import format_section_index
 
-                text = format_section_index(
-                    rows,
-                    verbosity=si_verbosity,
-                    total_sections=total,
-                    all_tags=all_tags,
-                )
-                if budget_can_afford(text):
-                    inject_chars["section_index"] = len(text)
-                    messages.append({"role": "system", "content": text})
-                    budget_consume("section_index", text)
+                admitted_text = ""
+                admitted_count = 0
+                verbosity_order = [si_verbosity]
+                if si_verbosity != "compact":
+                    verbosity_order.append("compact")
+                for verbosity in verbosity_order:
+                    for count in range(len(rows), 0, -1):
+                        candidate = format_section_index(
+                            rows[:count],
+                            verbosity=verbosity,
+                            total_sections=total,
+                            all_tags=all_tags,
+                        )
+                        if budget_can_afford(candidate):
+                            admitted_text = candidate
+                            admitted_count = count
+                            break
+                    if admitted_text:
+                        break
+                if admitted_text:
+                    inject_chars["section_index"] = len(admitted_text)
+                    messages.append({"role": "system", "content": admitted_text})
+                    budget_consume("section_index", admitted_text)
                     _mark_injection_decision(inject_decisions, "section_index", "admitted")
-                    yield {"type": "section_index_context", "count": len(rows), "chars": len(text)}
+                    yield {"type": "section_index_context", "count": admitted_count, "chars": len(admitted_text)}
                 else:
                     _mark_injection_decision(inject_decisions, "section_index", "skipped_by_budget")
             else:

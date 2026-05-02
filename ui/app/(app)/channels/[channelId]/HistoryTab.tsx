@@ -29,7 +29,7 @@ function resolvedNativeContextPolicy(form: Partial<ChannelSettings>): NativeCont
   if (form.native_context_policy && form.native_context_policy !== "default") {
     return form.native_context_policy;
   }
-  return form.effective_native_context_policy ?? "lean";
+  return form.effective_native_context_policy ?? "standard";
 }
 
 // ---------------------------------------------------------------------------
@@ -63,21 +63,46 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
       >
         <FormRow
           label="Context policy"
-          description="This decides how much existing context is preloaded into the model. The controls below either store history or override one specific preload component."
+          description="This decides the token budget for raw chat replay. The controls below store archived history or override one specific preload component."
         >
           <SelectInput
             value={(form.native_context_policy ?? "default") as string}
             onChange={(value) => patch("native_context_policy", value as ChannelSettings["native_context_policy"])}
             options={[
               { label: "Default — inherit server setting", value: "default" },
-              { label: "Lean — 4 turns, compact section index, on-demand context", value: "lean" },
-              { label: "Standard — 8 turns, selected RAG/context", value: "standard" },
-              { label: "Rich — previous broad context preload", value: "rich" },
+              { label: "Low Budget — tight token-fit replay, on-demand context", value: "lean" },
+              { label: "Medium Budget — adaptive replay plus selected RAG/context", value: "standard" },
+              { label: "High Budget — larger replay and broader ambient context", value: "rich" },
+              { label: "Manual — custom replay and pressure thresholds", value: "manual" },
             ]}
           />
         </FormRow>
+        {form.native_context_policy === "manual" && (
+          <Row stack={isMobile}>
+            <Col minWidth={isMobile ? 0 : 200}>
+              <FormRow label="Replay Budget" description="Fraction of usable model context reserved for raw chat replay. Example: 0.45 = 45%.">
+                <TextInput
+                  value={form.native_context_live_history_ratio?.toString() ?? ""}
+                  onChangeText={(v) => { const n = parseFloat(v); patch("native_context_live_history_ratio", Number.isNaN(n) ? undefined : n); }}
+                  placeholder="0.45"
+                  type="number"
+                />
+              </FormRow>
+            </Col>
+            <Col minWidth={isMobile ? 0 : 200}>
+              <FormRow label="Recent Floor" description="Newest user turns kept even if they exceed the replay target.">
+                <TextInput
+                  value={form.native_context_min_recent_turns?.toString() ?? ""}
+                  onChangeText={(v) => { const n = parseInt(v); patch("native_context_min_recent_turns", Number.isNaN(n) ? undefined : n); }}
+                  placeholder="2"
+                  type="number"
+                />
+              </FormRow>
+            </Col>
+          </Row>
+        )}
         <InfoBanner variant="info">
-          <strong className="text-text">How to read this page:</strong> Context policy controls prompt assembly. Archival settings control how history is saved into sections. Section Index controls the compact history index that can still be shown when live turns are low.
+          <strong className="text-text">How to read this page:</strong> Context policy controls prompt assembly. Archival settings control how history is saved into sections. Section Index controls the compact history index that can still be shown when raw replay is trimmed.
         </InfoBanner>
       </Section>
 

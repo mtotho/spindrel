@@ -260,7 +260,6 @@ export function AttentionCommandDeck({
   const counts = {
     review: buckets.review.length,
     botReports: buckets.review.filter((item) => getBotReport(item)).length,
-    issues: issueCandidates.length,
     inbox: buckets.untriaged.length + buckets.assigned.length,
     running: buckets.triage.length,
     cleared: buckets.processed.length,
@@ -288,11 +287,10 @@ export function AttentionCommandDeck({
   useEffect(() => {
     if (initialMode || selected || runModePinned) return;
     if (counts.review > 0) setModeState("review");
-    else if (counts.issues > 0) setModeState("issues");
     else if (counts.inbox > 0) setModeState("inbox");
     else if (runs.length > 0) setModeState("runs");
     else setModeState("cleared");
-  }, [initialMode, selected?.id, counts.review, counts.issues, counts.inbox, runs.length, runModePinned]);
+  }, [initialMode, selected?.id, counts.review, counts.inbox, runs.length, runModePinned]);
 
   useEffect(() => {
     if (hasActiveRun || selectedRunLoaded) setSweepStarting(false);
@@ -304,7 +302,6 @@ export function AttentionCommandDeck({
     if (state === "operator_review" || state === "bot_report") setDeckMode("review", false);
     else if (state === "processed" || state === "closed") setDeckMode("cleared", false);
     else if (state === "in_sweep") setDeckMode("runs", false);
-    else if (isIssueCandidate(selected)) setDeckMode("issues", false);
     else setDeckMode("inbox", false);
   }, [selected?.id]);
 
@@ -487,16 +484,6 @@ export function AttentionCommandDeck({
         onClick: () => focusReviewFinding(),
       };
     }
-    if (counts.issues > 0) {
-      return {
-        eyebrow: "Issue intake",
-        title: "Triage raw issues into work packs",
-        detail: `${counts.issues} conversational or agent-reported issue${counts.issues === 1 ? "" : "s"} can be grouped before any Project run launches.`,
-        action: "Open intake",
-        icon: <MessageSquare size={15} />,
-        onClick: () => setDeckMode("issues"),
-      };
-    }
     if (counts.inbox > 0) {
       return {
         eyebrow: "Signals",
@@ -516,7 +503,7 @@ export function AttentionCommandDeck({
       onClick: () => setDeckMode("cleared"),
     };
   })();
-  const detailOwnsFocus = mode === "issues" || mode === "runs" || mode === "cleared" || Boolean(displayItem);
+  const detailOwnsFocus = mode === "runs" || mode === "cleared" || Boolean(displayItem);
   const showWhatNow = !detailOwnsFocus;
   const visibleBrief = !detailOwnsFocus ? brief : null;
   const selectRunFromQueue = (runId: string | null) => {
@@ -539,7 +526,7 @@ export function AttentionCommandDeck({
             </div>
             <div className="mt-1 text-sm leading-5 text-text-muted">
               {channelId ? "Channel-filtered" : "Workspace"} review · {counts.review} findings
-              {counts.botReports ? ` (${counts.botReports} bot report${counts.botReports === 1 ? "" : "s"})` : ""} · {counts.issues} issue intake · {counts.inbox} signals · {counts.cleared} cleared
+              {counts.botReports ? ` (${counts.botReports} bot report${counts.botReports === 1 ? "" : "s"})` : ""} · {counts.inbox} signals · {counts.cleared} cleared
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -628,9 +615,7 @@ export function AttentionCommandDeck({
           onRunSelect={selectRunFromQueue}
         />
         <main ref={detailRef} tabIndex={-1} className="min-h-0 overflow-y-auto rounded-md bg-surface-overlay/20 px-4 py-4 outline-none">
-          {mode === "issues" ? (
-            <IssueIntakeWorkspace items={issueCandidates} />
-          ) : mode === "runs" ? (
+          {mode === "runs" ? (
             <RunLogWorkspace pending={sweepBusy} selectedRun={selectedRun} activeRunId={activeRunId} />
           ) : displayItem ? (
             <DeckItemDetail item={displayItem} onReply={onReply} />
@@ -656,7 +641,7 @@ function DeckQueue({
   onRunSelect,
 }: {
   mode: DeckMode;
-  counts: { review: number; botReports: number; issues: number; inbox: number; running: number; cleared: number; closed: number };
+  counts: { review: number; botReports: number; inbox: number; running: number; cleared: number; closed: number };
   runCount: number;
   runs: AttentionTriageRunResponse[];
   selectedRunId: string | null;
@@ -666,14 +651,13 @@ function DeckQueue({
   onSelect: (item: WorkspaceAttentionItem | null) => void;
   onRunSelect: (runId: string | null) => void;
 }) {
-  const title = mode === "issues" ? "Issue intake" : mode === "inbox" ? "Signals" : mode === "review" ? "Findings" : mode === "cleared" ? "Cleared" : "Sweep history";
+  const title = mode === "inbox" ? "Signals" : mode === "review" ? "Findings" : mode === "cleared" ? "Cleared" : "Sweep history";
   return (
     <aside className="min-h-0 overflow-y-auto rounded-md bg-surface-overlay/20 px-3 py-3">
       <div>
         <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Needs action</div>
         <div className="space-y-1">
           <ModeButton active={mode === "review"} icon={<Sparkles size={14} />} label="Findings" count={counts.review} onClick={() => onModeChange("review")} />
-          <ModeButton active={mode === "issues"} icon={<MessageSquare size={14} />} label="Issue intake" count={counts.issues} onClick={() => onModeChange("issues")} />
           <ModeButton active={mode === "inbox"} icon={<Inbox size={14} />} label="Signals" count={counts.inbox} onClick={() => onModeChange("inbox")} />
         </div>
         <div className="mb-1 mt-4 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Review history</div>

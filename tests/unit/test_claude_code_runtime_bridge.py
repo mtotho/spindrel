@@ -51,6 +51,7 @@ from integrations.claude_code.harness import _normalize_claude_agent_definitions
 from integrations.claude_code.harness import _normalize_claude_mcp_servers  # noqa: E402
 from integrations.claude_code.harness import _normalize_claude_option_passthrough  # noqa: E402
 from integrations.claude_code.harness import _normalize_claude_plugin_configs  # noqa: E402
+from integrations.claude_code.harness import _parent_tools_restricted_to_configured_agents  # noqa: E402
 from integrations.claude_code.harness import _record_claude_hook_event  # noqa: E402
 from integrations.claude_code.harness import _set_claude_agent_kwargs  # noqa: E402
 from integrations.claude_code.harness import _set_claude_mcp_server_kwargs  # noqa: E402
@@ -356,9 +357,11 @@ def test_claude_agent_runtime_settings_map_to_sdk_agent_definitions():
             self,
             agents: dict | None = None,
             allowed_tools: list[str] | None = None,
+            tools: list[str] | None = None,
         ) -> None:
             self.agents = agents
             self.allowed_tools = allowed_tools
+            self.tools = tools
 
     ctx = _ctx(
         runtime_settings={
@@ -384,7 +387,8 @@ def test_claude_agent_runtime_settings_map_to_sdk_agent_definitions():
     assert agent.tools == []
     assert agent.model == "claude-haiku-4-5"
     assert "unknown" not in agent.__dict__
-    assert options_kwargs["allowed_tools"] == ["Read", "Agent(marker-agent)"]
+    assert options_kwargs["tools"] == ["Agent"]
+    assert options_kwargs["allowed_tools"] == ["Agent(marker-agent)"]
 
 
 def test_claude_agent_runtime_settings_accept_generic_agents_key_in_claude_adapter():
@@ -459,6 +463,82 @@ def test_claude_agent_runtime_settings_do_not_add_allowlist_when_bypass_already_
 
     assert set(options_kwargs["agents"]) == {"marker-agent"}
     assert options_kwargs["allowed_tools"] == ["Agent", "Read"]
+
+
+def test_claude_agent_runtime_settings_preserve_explicit_parent_tools():
+    class Options:
+        def __init__(
+            self,
+            agents: dict | None = None,
+            allowed_tools: list[str] | None = None,
+            tools: list[str] | None = None,
+        ) -> None:
+            self.agents = agents
+            self.allowed_tools = allowed_tools
+            self.tools = tools
+
+    ctx = _ctx(
+        runtime_settings={
+            "claude_agents": {
+                "marker-agent": {
+                    "description": "Return a deterministic marker.",
+                    "prompt": "Reply with the configured marker only.",
+                }
+            }
+        },
+    )
+    options_kwargs: dict = {"allowed_tools": ["Read"], "tools": ["Read", "Agent"]}
+
+    _set_claude_agent_kwargs(Options, options_kwargs, ctx)
+
+    assert set(options_kwargs["agents"]) == {"marker-agent"}
+    assert options_kwargs["tools"] == ["Read", "Agent"]
+    assert options_kwargs["allowed_tools"] == ["Agent(marker-agent)"]
+
+
+def test_claude_agent_runtime_settings_disable_default_filesystem_sources():
+    class Options:
+        def __init__(
+            self,
+            agents: dict | None = None,
+            allowed_tools: list[str] | None = None,
+            tools: list[str] | None = None,
+            setting_sources: list[str] | None = None,
+        ) -> None:
+            self.agents = agents
+            self.allowed_tools = allowed_tools
+            self.tools = tools
+            self.setting_sources = setting_sources
+
+    ctx = _ctx(
+        runtime_settings={
+            "claude_agents": {
+                "marker-agent": {
+                    "description": "Return a deterministic marker.",
+                    "prompt": "Reply with the configured marker only.",
+                }
+            }
+        },
+    )
+    options_kwargs: dict = {
+        "allowed_tools": ["Read"],
+        "setting_sources": ["user", "project", "local"],
+    }
+
+    _set_claude_agent_kwargs(Options, options_kwargs, ctx)
+
+    assert options_kwargs["setting_sources"] == []
+    assert options_kwargs["allowed_tools"] == ["Agent(marker-agent)"]
+
+
+def test_claude_agent_parent_tool_restriction_detection():
+    assert _parent_tools_restricted_to_configured_agents(
+        {"agents": {"marker": object()}, "tools": ["Agent"]}
+    )
+    assert not _parent_tools_restricted_to_configured_agents(
+        {"agents": {"marker": object()}, "tools": ["Read", "Agent"]}
+    )
+    assert not _parent_tools_restricted_to_configured_agents({"tools": ["Agent"]})
 
 
 def test_normalize_claude_agent_definitions_ignores_invalid_entries():

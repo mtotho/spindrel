@@ -11,9 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import BotConfig, get_bot
 from app.agent.context_profiles import (
+    resolve_chat_live_history_policy,
     resolve_context_profile,
+    trim_messages_to_token_budget,
     trim_messages_to_recent_turns,
 )
+from app.agent.context_budget import get_model_context_window
 from app.agent.persona import get_persona
 from app.db.engine import async_session
 from sqlalchemy.orm import selectinload
@@ -462,6 +465,29 @@ async def _load_messages(
         channel=_channel,
     )
 
+    def _active_history_for_context(active: list[dict]) -> list[dict]:
+        if context_profile.live_history_strategy != "token_fit" or not context_profile.name.startswith("chat"):
+            return trim_messages_to_recent_turns(active, context_profile.live_history_turns)
+
+        ratio, min_turns = resolve_chat_live_history_policy(context_profile, channel=_channel)
+        if ratio is None:
+            return trim_messages_to_recent_turns(active, context_profile.live_history_turns)
+
+        effective_model = model_override or (_channel.model_override if _channel and _channel.model_override else bot.model)
+        effective_provider = provider_id_override or (
+            _channel.model_provider_id_override if _channel and _channel.model_provider_id_override else bot.model_provider_id
+        )
+        window = get_model_context_window(effective_model, effective_provider)
+        from app.config import settings
+
+        usable = max(0, window - int(window * settings.CONTEXT_BUDGET_RESERVE_RATIO))
+        budget_tokens = max(0, int(usable * ratio))
+        return trim_messages_to_token_budget(
+            active,
+            max_tokens=budget_tokens,
+            min_recent_turns=min_turns,
+        )
+
     def _convert_msgs(orm_msgs: list[Message]) -> list[dict]:
         return [_message_to_dict(m, enrich_attachments=True) for m in orm_msgs]
 
@@ -502,7 +528,7 @@ async def _load_messages(
 
             _inject_channel_context(messages, passive)
             _inject_bootstrap_context(messages, len(active))
-            active = trim_messages_to_recent_turns(active, context_profile.live_history_turns)
+            active = _active_history_for_context(active)
             if active:
                 messages.append({"role": "system", "content": "--- BEGIN RECENT CONVERSATION HISTORY ---"})
                 messages.extend(active)
@@ -532,7 +558,7 @@ async def _load_messages(
                 messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
             _inject_channel_context(messages, passive)
             _inject_bootstrap_context(messages, len(active))
-            active = trim_messages_to_recent_turns(active, context_profile.live_history_turns)
+            active = _active_history_for_context(active)
             if active:
                 messages.append({"role": "system", "content": "--- BEGIN RECENT CONVERSATION HISTORY ---"})
                 messages.extend(active)
@@ -553,7 +579,7 @@ async def _load_messages(
     passive = _filter_profile_history(passive)
     active = _filter_profile_history(active)
     active = _rewrite_active_history_for_model(_filter_old_heartbeats(active))
-    active = trim_messages_to_recent_turns(active, context_profile.live_history_turns)
+    active = _active_history_for_context(active)
     messages = _base_messages()
     _inject_channel_context(messages, passive)
     _inject_bootstrap_context(messages, len(active))

@@ -887,10 +887,14 @@ export interface ChannelSettings {
    *  `channel.config`. "default" keeps the current UI; "terminal" swaps in
    *  the command-first transcript treatment. */
   chat_mode?: "default" | "terminal";
-  /** Native Spindrel context diet. "default" inherits the server default. Harness agents use separate harness context. */
-  native_context_policy?: "default" | "lean" | "standard" | "rich";
+  /** Native Spindrel context budget. "default" inherits the server default. Harness agents use separate harness context. */
+  native_context_policy?: "default" | "lean" | "standard" | "rich" | "manual";
   /** Resolved native context diet after channel/global defaults. */
-  effective_native_context_policy?: "lean" | "standard" | "rich";
+  effective_native_context_policy?: "lean" | "standard" | "rich" | "manual";
+  native_context_live_history_ratio?: number | null;
+  native_context_min_recent_turns?: number | null;
+  native_context_warning_utilization?: number | null;
+  native_context_compaction_utilization?: number | null;
   /** Top-center chat header strip shell treatment. Stored in `channel.config`. */
   header_backdrop_mode?: "default" | "glass" | "clear";
   /** Composer plan-control visibility. "auto" hides dormant control on non-harness channels and shows it for harness channels. Stored in `channel.config`. */

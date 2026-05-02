@@ -133,8 +133,9 @@ async def _upsert_tool_row(
     # of embedding state) so it's usable via manual enrollment.
     if embedding is None:
         h = f"noembed:{h}"
+    table = ToolEmbedding.__table__
     stmt = (
-        pg_insert(ToolEmbedding)
+        pg_insert(table)
         .values(
             tool_key=tool_key,
             tool_name=tool_name,
@@ -146,7 +147,7 @@ async def _upsert_tool_row(
             embed_text=embed_text_value,
             content_hash=h,
             embedding=embedding,
-            **{"schema": schema},  # "schema" is the DB column name; schema_ is the ORM attr
+            schema=schema,
         )
         .on_conflict_do_update(
             index_elements=["tool_key"],
@@ -163,7 +164,7 @@ async def _upsert_tool_row(
                 "embedding": embedding,
                 "indexed_at": datetime.now(timezone.utc),
             },
-            where=ToolEmbedding.content_hash != h,
+            where=table.c.content_hash != h,
         )
     )
     async with async_session() as db:

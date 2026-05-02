@@ -12,7 +12,6 @@ import {
 
 import { useChannels } from "../../api/hooks/useChannels";
 import {
-  useIssueWorkPacks,
   useWorkspaceAttention,
   useWorkspaceAttentionBrief,
 } from "../../api/hooks/useWorkspaceAttention";

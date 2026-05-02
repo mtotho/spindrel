@@ -201,7 +201,11 @@ class ChannelSettingsOut(BaseModel):
     layout_mode: str = "full"
     chat_mode: str = "default"
     native_context_policy: str = "default"
-    effective_native_context_policy: str = "lean"
+    effective_native_context_policy: str = "standard"
+    native_context_live_history_ratio: Optional[float] = None
+    native_context_min_recent_turns: Optional[int] = None
+    native_context_warning_utilization: Optional[float] = None
+    native_context_compaction_utilization: Optional[float] = None
     header_backdrop_mode: str = "glass"
     plan_mode_control: str = "auto"
     widget_theme_ref: Optional[str] = None

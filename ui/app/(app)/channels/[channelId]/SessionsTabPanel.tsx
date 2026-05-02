@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { FolderOpen, MessageCircle, Plus, StickyNote } from "lucide-react";
+import { FolderOpen, MessageCircle, Plus } from "lucide-react";
 import {
   useChannelSessionCatalog,
   useResetScratchSession,
@@ -171,7 +171,7 @@ export function SessionsTabPanel({
             channelRows.length === 0 &&
             scratchRows.length === 0 && (
               <div className="mx-1 rounded-md border border-dashed border-surface-border bg-surface-raised/40 px-4 py-8 text-center">
-                <StickyNote size={18} className="mx-auto mb-2 text-text-dim/70" />
+                <MessageCircle size={18} className="mx-auto mb-2 text-text-dim/70" />
                 <div className="text-[12px] text-text-muted">No sessions yet</div>
                 <button
                   type="button"
@@ -207,19 +207,23 @@ function SessionRow({
     <button
       type="button"
       onClick={onClick}
-      className={`relative mx-1 rounded-md px-3 py-2.5 text-left transition-colors ${
+      className={`relative mx-1 rounded-md px-2.5 py-2 text-left transition-colors ${
         row.is_current
           ? "bg-accent/[0.08] text-text before:absolute before:left-0 before:top-1/2 before:h-4 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-accent"
           : "bg-surface-raised/70 text-text hover:bg-surface-overlay/55"
       }`}
     >
-      <div className="flex items-start gap-2">
-        <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emphasis/10 text-emphasis">
-          {isPrimary ? <MessageCircle size={13} /> : <StickyNote size={13} />}
+      <div className="flex items-center gap-2">
+        <div
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
+            isPrimary ? "bg-accent/[0.08] text-accent" : "bg-surface-overlay/65 text-text-dim"
+          }`}
+        >
+          <MessageCircle size={12} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+            <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
               {title}
             </span>
             {isPrimary && (
@@ -227,13 +231,15 @@ function SessionRow({
                 Primary
               </span>
             )}
+            <span className="max-w-[120px] shrink-0 truncate text-[10px] text-text-dim">
+              {meta}
+            </span>
           </div>
           {row.preview && (
-            <div className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-text-muted">
+            <div className="mt-0.5 truncate text-[11px] text-text-muted">
               {row.preview}
             </div>
           )}
-          <div className="mt-1 text-[10px] text-text-dim">{meta}</div>
         </div>
       </div>
     </button>

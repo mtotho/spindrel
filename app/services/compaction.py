@@ -2555,7 +2555,9 @@ def format_section_index(
             _tag_counts = Counter(all_tags)
             if _tag_counts:
                 _sorted = sorted(_tag_counts.items(), key=lambda x: (-x[1], x[0]))
-                _tag_summary = ", ".join(f"{tag} ({cnt})" for tag, cnt in _sorted)
+                _tag_summary = ", ".join(f"{tag} ({cnt})" for tag, cnt in _sorted[:30])
+                if len(_sorted) > 30:
+                    _tag_summary += f", +{len(_sorted) - 30} more"
                 header += f"\n\nTopic coverage (all {total_sections} sections): {_tag_summary}"
 
     if verbosity == "compact":

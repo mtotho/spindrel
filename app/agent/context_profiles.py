@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from app.agent.prompt_sizing import message_prompt_tokens
 from app.services.session_plan_mode import (
     PLAN_MODE_BLOCKED,
     PLAN_MODE_DONE,
@@ -32,6 +33,9 @@ class ContextProfile:
     allow_tool_refusal_guard: bool
     allow_tool_index: bool
     allow_skill_index: bool
+    live_history_strategy: str = "turns"
+    live_history_budget_ratio: float | None = None
+    min_recent_turns: int = 0
     mandatory_static_injections: tuple[str, ...] = ()
     optional_static_injections: tuple[str, ...] = ()
     memory_bootstrap_max_chars: int | None = None
@@ -54,6 +58,9 @@ class ContextProfile:
         return {
             "name": self.name,
             "live_history_turns": self.live_history_turns,
+            "live_history_strategy": self.live_history_strategy,
+            "live_history_budget_ratio": self.live_history_budget_ratio,
+            "min_recent_turns": self.min_recent_turns,
             "allow_plan_artifact": self.allow_plan_artifact,
             "allow_tool_index": self.allow_tool_index,
             "allow_skill_index": self.allow_skill_index,
@@ -72,7 +79,10 @@ class ContextProfile:
 _PROFILES: dict[str, ContextProfile] = {
     "chat_lean": ContextProfile(
         name="chat_lean",
-        live_history_turns=4,
+        live_history_turns=None,
+        live_history_strategy="token_fit",
+        live_history_budget_ratio=0.20,
+        min_recent_turns=2,
         include_compaction_summary=True,
         allow_plan_artifact=False,
         allow_conversation_sections=True,
@@ -103,7 +113,10 @@ _PROFILES: dict[str, ContextProfile] = {
     ),
     "chat_standard": ContextProfile(
         name="chat_standard",
-        live_history_turns=8,
+        live_history_turns=None,
+        live_history_strategy="token_fit",
+        live_history_budget_ratio=0.45,
+        min_recent_turns=2,
         include_compaction_summary=True,
         allow_plan_artifact=False,
         allow_conversation_sections=True,
@@ -137,7 +150,10 @@ _PROFILES: dict[str, ContextProfile] = {
     ),
     "chat_rich": ContextProfile(
         name="chat_rich",
-        live_history_turns=8,
+        live_history_turns=None,
+        live_history_strategy="token_fit",
+        live_history_budget_ratio=0.65,
+        min_recent_turns=3,
         include_compaction_summary=True,
         allow_plan_artifact=False,
         allow_conversation_sections=True,
@@ -282,18 +298,19 @@ _PROFILES: dict[str, ContextProfile] = {
     ),
 }
 
-_PROFILES["chat"] = _PROFILES["chat_lean"]
+_PROFILES["chat"] = _PROFILES["chat_standard"]
 
 _NATIVE_CONTEXT_POLICY_TO_PROFILE = {
     "lean": "chat_lean",
     "standard": "chat_standard",
     "rich": "chat_rich",
+    "manual": "chat_standard",
 }
 
 
 def normalize_native_context_policy(value: Any) -> str | None:
     raw = str(value or "").strip().lower()
-    if raw in {"lean", "standard", "rich"}:
+    if raw in {"lean", "standard", "rich", "manual"}:
         return raw
     return None
 
@@ -307,12 +324,42 @@ def resolve_native_context_policy(*, channel: Any | None = None) -> str:
 
     from app.config import settings
 
-    return normalize_native_context_policy(getattr(settings, "NATIVE_CONTEXT_POLICY_DEFAULT", "lean")) or "lean"
+    return normalize_native_context_policy(getattr(settings, "NATIVE_CONTEXT_POLICY_DEFAULT", "standard")) or "standard"
 
 
 def resolve_native_chat_profile(*, channel: Any | None = None) -> ContextProfile:
     policy = resolve_native_context_policy(channel=channel)
     return get_context_profile(_NATIVE_CONTEXT_POLICY_TO_PROFILE[policy])
+
+
+def resolve_chat_live_history_policy(
+    profile: ContextProfile,
+    *,
+    channel: Any | None = None,
+) -> tuple[float | None, int]:
+    """Return live-history token-fit ratio and minimum recent turns.
+
+    Manual channel overrides live in ``Channel.config`` so deployments do not
+    need schema churn for tuning knobs.
+    """
+    ratio = profile.live_history_budget_ratio
+    min_turns = profile.min_recent_turns
+    if channel is not None:
+        cfg = getattr(channel, "config", None) or {}
+        if normalize_native_context_policy(cfg.get("native_context_policy")) == "manual":
+            try:
+                manual_ratio = float(cfg.get("native_context_live_history_ratio"))
+                if 0.01 <= manual_ratio <= 0.95:
+                    ratio = manual_ratio
+            except (TypeError, ValueError):
+                pass
+            try:
+                manual_min = int(cfg.get("native_context_min_recent_turns"))
+                if manual_min >= 0:
+                    min_turns = manual_min
+            except (TypeError, ValueError):
+                pass
+    return ratio, min_turns
 
 
 def get_context_profile(name: str) -> ContextProfile:
@@ -370,3 +417,63 @@ def trim_messages_to_recent_turns(messages: list[dict], max_turns: int | None) -
 
     keep_from = turn_starts[-max_turns] if max_turns <= len(turn_starts) else 0
     return sys_prefix + body[keep_from:]
+
+
+def trim_messages_to_token_budget(
+    messages: list[dict],
+    *,
+    max_tokens: int,
+    min_recent_turns: int = 2,
+) -> list[dict]:
+    """Trim replay history newest-first by complete user-started turns.
+
+    System prefix is preserved. The newest ``min_recent_turns`` are kept even
+    when they exceed the target so normal chat does not lose immediate
+    continuity. Final tool-pair sanitization still runs after loading.
+    """
+    if max_tokens <= 0:
+        return trim_messages_to_recent_turns(messages, min_recent_turns)
+
+    sys_prefix: list[dict] = []
+    body: list[dict] = []
+    in_body = False
+    for msg in messages:
+        if not in_body and msg.get("role") == "system":
+            sys_prefix.append(msg)
+        else:
+            in_body = True
+            body.append(msg)
+    if not body:
+        return sys_prefix
+
+    turn_starts = [idx for idx, msg in enumerate(body) if msg.get("role") == "user"]
+    if not turn_starts:
+        return sys_prefix + body if sum(message_prompt_tokens(m) for m in body) <= max_tokens else sys_prefix
+
+    turns: list[list[dict]] = []
+    leading = body[:turn_starts[0]]
+    if leading:
+        turns.append(leading)
+    for pos, start in enumerate(turn_starts):
+        end = turn_starts[pos + 1] if pos + 1 < len(turn_starts) else len(body)
+        turns.append(body[start:end])
+
+    kept_reversed: list[list[dict]] = []
+    used = 0
+    user_turns_kept = 0
+    for turn in reversed(turns):
+        is_user_turn = any(msg.get("role") == "user" for msg in turn)
+        turn_tokens = sum(message_prompt_tokens(msg) for msg in turn)
+        must_keep = is_user_turn and user_turns_kept < min_recent_turns
+        if must_keep or used + turn_tokens <= max_tokens:
+            kept_reversed.append(turn)
+            used += turn_tokens
+            if is_user_turn:
+                user_turns_kept += 1
+        elif is_user_turn and user_turns_kept >= min_recent_turns:
+            continue
+
+    kept: list[dict] = []
+    for turn in reversed(kept_reversed):
+        kept.extend(turn)
+    return sys_prefix + kept

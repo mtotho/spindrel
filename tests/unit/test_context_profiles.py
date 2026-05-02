@@ -4,8 +4,10 @@ from types import SimpleNamespace
 
 from app.agent.context_profiles import (
     get_context_profile,
+    resolve_chat_live_history_policy,
     resolve_context_profile,
     resolve_native_context_policy,
+    trim_messages_to_token_budget,
     trim_messages_to_recent_turns,
 )
 
@@ -26,25 +28,38 @@ def test_resolve_context_profile_maps_origins():
     assert resolve_context_profile(origin="task").name == "task_recent"
     assert resolve_context_profile(origin="subagent").name == "task_none"
     assert resolve_context_profile(origin="hygiene").name == "task_none"
-    assert resolve_context_profile(origin="chat").name == "chat_lean"
+    assert resolve_context_profile(origin="chat").name == "chat_standard"
 
 
-def test_native_context_policy_defaults_to_lean():
-    assert resolve_native_context_policy() == "lean"
+def test_native_context_policy_defaults_to_standard():
+    assert resolve_native_context_policy() == "standard"
     profile = resolve_context_profile(origin="chat")
-    assert profile.name == "chat_lean"
-    assert profile.live_history_turns == 4
+    assert profile.name == "chat_standard"
+    assert profile.live_history_strategy == "token_fit"
+    assert profile.live_history_budget_ratio == 0.45
     assert profile.allow_channel_index_segments is False
     assert profile.allow_channel_workspace is False
-    assert profile.allow_workspace_rag is False
-    assert profile.allow_skill_index is False
-    assert profile.section_index_verbosity_default == "compact"
+    assert profile.allow_workspace_rag is True
+    assert profile.allow_skill_index is True
+    assert profile.section_index_verbosity_default == "standard"
 
 
 def test_native_context_policy_channel_override():
     channel = SimpleNamespace(config={"native_context_policy": "rich"})
     assert resolve_native_context_policy(channel=channel) == "rich"
     assert resolve_context_profile(origin="chat", channel=channel).name == "chat_rich"
+
+
+def test_native_context_policy_manual_uses_standard_profile_with_manual_budget():
+    channel = SimpleNamespace(config={
+        "native_context_policy": "manual",
+        "native_context_live_history_ratio": 0.33,
+        "native_context_min_recent_turns": 4,
+    })
+    profile = resolve_context_profile(origin="chat", channel=channel)
+    assert resolve_native_context_policy(channel=channel) == "manual"
+    assert profile.name == "chat_standard"
+    assert resolve_chat_live_history_policy(profile, channel=channel) == (0.33, 4)
 
 
 def test_native_context_policy_global_default(monkeypatch):
@@ -97,6 +112,35 @@ def test_trim_messages_to_recent_turns_zero_keeps_only_system():
     ]
 
 
+def test_trim_messages_to_token_budget_keeps_many_short_turns():
+    messages = [{"role": "system", "content": "system"}]
+    for i in range(12):
+        messages.extend([
+            {"role": "user", "content": f"u{i}"},
+            {"role": "assistant", "content": f"a{i}"},
+        ])
+
+    trimmed = trim_messages_to_token_budget(messages, max_tokens=1000, min_recent_turns=2)
+
+    assert trimmed == messages
+
+
+def test_trim_messages_to_token_budget_trims_oldest_complete_turns():
+    messages = [{"role": "system", "content": "system"}]
+    for i in range(6):
+        messages.extend([
+            {"role": "user", "content": f"user {i} " + ("x" * 100)},
+            {"role": "assistant", "content": f"assistant {i} " + ("y" * 100)},
+        ])
+
+    trimmed = trim_messages_to_token_budget(messages, max_tokens=80, min_recent_turns=2)
+    contents = [m["content"] for m in trimmed if m["role"] in {"user", "assistant"}]
+
+    assert contents[0].startswith("user 4")
+    assert contents[-1].startswith("assistant 5")
+    assert all(not content.startswith("user 0") for content in contents)
+
+
 def test_restricted_profiles_expose_context_profile_note_as_optional_injection():
     assert "context_profile_note" not in get_context_profile("chat_lean").optional_static_injections
     assert "context_profile_note" not in get_context_profile("chat_standard").optional_static_injections
@@ -133,9 +177,9 @@ def test_heartbeat_profile_suppresses_ambient_skill_index():
 
 def test_profile_policy_matrix_for_restricted_origins():
     expected = {
-        "chat_lean": (4, False, False, False),
-        "chat_standard": (8, False, True, True),
-        "chat_rich": (8, False, True, True),
+        "chat_lean": (None, False, False, False),
+        "chat_standard": (None, False, True, True),
+        "chat_rich": (None, False, True, True),
         "planning": (2, True, True, False),
         "executing": (4, True, True, True),
         "task_recent": (4, True, True, False),

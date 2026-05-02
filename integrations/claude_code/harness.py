@@ -553,6 +553,10 @@ class ClaudeCodeRuntime:
                 "claude-code: skipping Spindrel MCP bridge for native slash passthrough %r",
                 prompt.split(maxsplit=1)[0],
             )
+        elif _parent_tools_restricted_to_configured_agents(options_kwargs):
+            logger.debug(
+                "claude-code: skipping Spindrel MCP bridge for configured SDK-agent parent turn"
+            )
         else:
             await apply_tool_bridge(ctx, self, attach=_attach)
 
@@ -1413,8 +1417,37 @@ def _set_claude_agent_kwargs(
     if not agent_definitions:
         return
     options_kwargs["agents"] = agent_definitions
+    _restrict_parent_tools_to_configured_agents(options_cls, options_kwargs)
     if ctx.permission_mode != "bypassPermissions":
         _allow_configured_claude_agents(options_kwargs, agent_definitions.keys())
+
+
+def _restrict_parent_tools_to_configured_agents(
+    options_cls: Any,
+    options_kwargs: dict[str, Any],
+) -> None:
+    """Keep parent turns focused when explicit SDK agents are injected."""
+    try:
+        sig = inspect.signature(options_cls)
+        names = set(sig.parameters)
+    except Exception:
+        names = set(getattr(options_cls, "__annotations__", {}) or {})
+    if "tools" in names and "tools" not in options_kwargs:
+        options_kwargs["tools"] = ["Agent"]
+    allowed = list(options_kwargs.get("allowed_tools") or [])
+    options_kwargs["allowed_tools"] = [
+        tool for tool in allowed
+        if tool in {"Agent", "Task"} or tool.startswith(("Agent(", "Task("))
+    ]
+    if "setting_sources" in names and options_kwargs.get("setting_sources") == ["user", "project", "local"]:
+        options_kwargs["setting_sources"] = []
+    elif "settingSources" in names and options_kwargs.get("settingSources") == ["user", "project", "local"]:
+        options_kwargs["settingSources"] = []
+
+
+def _parent_tools_restricted_to_configured_agents(options_kwargs: Mapping[str, Any]) -> bool:
+    tools = options_kwargs.get("tools")
+    return bool(options_kwargs.get("agents")) and tools == ["Agent"]
 
 
 def _allow_configured_claude_agents(

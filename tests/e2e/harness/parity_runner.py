@@ -432,6 +432,7 @@ def cmd_prepare(args) -> int:
             integration_id,
             tuple(config.get("install_endpoints") or ()),
         )
+    dev._set_integration_enabled(api_url, api_key, "browser_automation")
 
     if native_app:
         api_url = dev._restart_native_api(

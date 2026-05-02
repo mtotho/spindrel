@@ -269,7 +269,11 @@ async def build_admin_channel_settings_out(
 
         out.effective_native_context_policy = resolve_native_context_policy(channel=channel)
     except Exception:
-        out.effective_native_context_policy = "lean"
+        out.effective_native_context_policy = "standard"
+    out.native_context_live_history_ratio = cfg.get("native_context_live_history_ratio")
+    out.native_context_min_recent_turns = cfg.get("native_context_min_recent_turns")
+    out.native_context_warning_utilization = cfg.get("native_context_warning_utilization")
+    out.native_context_compaction_utilization = cfg.get("native_context_compaction_utilization")
     out.header_backdrop_mode = cfg.get("header_backdrop_mode") or "glass"
     out.plan_mode_control = cfg.get("plan_mode_control") or "auto"
     out.widget_theme_ref = cfg.get("widget_theme_ref")

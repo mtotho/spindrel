@@ -530,6 +530,10 @@ class ChannelSettingsUpdate(BaseModel):
     # Native Spindrel context diet. Harness agents use separate harness context.
     # "default" clears the key and falls back to NATIVE_CONTEXT_POLICY_DEFAULT.
     native_context_policy: Optional[str] = None
+    native_context_live_history_ratio: Optional[float] = None
+    native_context_min_recent_turns: Optional[int] = None
+    native_context_warning_utilization: Optional[float] = None
+    native_context_compaction_utilization: Optional[float] = None
     # Header strip shell treatment. "glass" is the resolved default;
     # "default" remains the solid Surface compatibility value.
     # Stored inside channel.config JSONB.
@@ -898,7 +902,7 @@ async def admin_channel_settings_update(
 
     if "native_context_policy" in updates:
         ncp = updates.pop("native_context_policy")
-        _valid_native_context_policy = {"default", "lean", "standard", "rich"}
+        _valid_native_context_policy = {"default", "lean", "standard", "rich", "manual"}
         if ncp is not None and ncp not in _valid_native_context_policy:
             raise HTTPException(
                 status_code=422,
@@ -909,6 +913,28 @@ async def admin_channel_settings_update(
             cfg.pop("native_context_policy", None)
         else:
             cfg["native_context_policy"] = ncp
+        channel.config = cfg
+        flag_modified(channel, "config")
+
+    for key in (
+        "native_context_live_history_ratio",
+        "native_context_min_recent_turns",
+        "native_context_warning_utilization",
+        "native_context_compaction_utilization",
+    ):
+        if key not in updates:
+            continue
+        value = updates.pop(key)
+        cfg = dict(channel.config or {})
+        if value is None:
+            cfg.pop(key, None)
+        elif key == "native_context_min_recent_turns":
+            cfg[key] = max(0, int(value))
+        else:
+            numeric = float(value)
+            if numeric < 0 or numeric > 1:
+                raise HTTPException(status_code=422, detail=f"{key} must be between 0 and 1")
+            cfg[key] = numeric
         channel.config = cfg
         flag_modified(channel, "config")
 
