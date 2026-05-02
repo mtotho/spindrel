@@ -16,6 +16,8 @@ class RuntimeModelSurface:
     available_models: tuple[str, ...]
     model_options: tuple[HarnessModelOption, ...]
     effort_values: tuple[str, ...]
+    default_model: str | None = None
+    default_effort: str | None = None
 
 
 def _ordered_unique(values) -> tuple[str, ...]:
@@ -75,4 +77,23 @@ async def resolve_runtime_model_surface(runtime: Any) -> RuntimeModelSurface:
         available_models=available_models,
         model_options=source_model_options,
         effort_values=live_efforts or tuple(caps.effort_values),
+        default_model=source_model_options[0].id if source_model_options else None,
+        default_effort=source_model_options[0].default_effort if source_model_options else None,
     )
+
+
+async def resolve_runtime_effective_defaults(runtime: Any) -> tuple[str | None, str | None]:
+    """Return the runtime's configured default model/effort when available."""
+
+    if hasattr(runtime, "default_model_settings"):
+        try:
+            defaults = await runtime.default_model_settings()
+            if isinstance(defaults, tuple) and len(defaults) >= 2:
+                model = defaults[0] if isinstance(defaults[0], str) and defaults[0].strip() else None
+                effort = defaults[1] if isinstance(defaults[1], str) and defaults[1].strip() else None
+                if model or effort:
+                    return model, effort
+        except Exception:
+            pass
+    surface = await resolve_runtime_model_surface(runtime)
+    return surface.default_model, surface.default_effort

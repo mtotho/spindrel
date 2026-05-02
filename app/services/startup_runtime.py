@@ -338,15 +338,21 @@ async def session_cleanup_worker() -> None:
         try:
             await asyncio.sleep(600)
             from app.agent.session_allows import cleanup_stale as allow_cleanup
+            from app.db.engine import async_session
+            from app.services.project_instances import cleanup_expired_task_project_instances
             from app.services.session_locks import sweep_stale as lock_sweep
 
             allow_removed = allow_cleanup()
             lock_removed = lock_sweep()
-            if allow_removed or lock_removed:
+            async with async_session() as db:
+                project_instance_cleanup = await cleanup_expired_task_project_instances(db)
+            cleaned_instances = int(project_instance_cleanup.get("cleaned") or 0)
+            if allow_removed or lock_removed or cleaned_instances:
                 logger.debug(
-                    "Session cleanup: %d allow + %d session-lock entries evicted",
+                    "Session cleanup: %d allow + %d session-lock entries evicted, %d expired Project instances cleaned",
                     allow_removed,
                     lock_removed,
+                    cleaned_instances,
                 )
         except Exception:
             logger.warning("Session cleanup failed", exc_info=True)

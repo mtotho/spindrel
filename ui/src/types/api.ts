@@ -1475,6 +1475,13 @@ export interface ProjectInstance {
   owner_id?: string | null;
   expires_at?: string | null;
   deleted_at?: string | null;
+  cleanup?: {
+    expired?: boolean;
+    can_cleanup?: boolean;
+    auto_cleanup_eligible?: boolean;
+    blocker?: string | null;
+    task_status?: string | null;
+  };
   created_at: string;
   updated_at: string;
   resolved?: {
@@ -1619,11 +1626,18 @@ export interface ProjectCodingRun {
       expires_at?: string | null;
       deleted_at?: string | null;
     } | null;
+    recovery?: {
+      can_continue?: boolean;
+      blocker?: string | null;
+      suggested_feedback?: string | null;
+      latest_continuation_id?: string | null;
+    };
     actions?: {
       can_refresh?: boolean;
       can_mark_reviewed?: boolean;
       can_cleanup_instance?: boolean;
       can_request_changes?: boolean;
+      can_continue?: boolean;
     };
   };
   created_at?: string | null;

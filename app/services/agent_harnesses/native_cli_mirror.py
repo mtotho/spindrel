@@ -18,9 +18,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from sqlalchemy import select
+
 from app.agent.bots import get_bot
 from app.db.engine import async_session
-from app.db.models import Session
+from app.db.models import Message, Session
 from app.services.sessions import store_passive_message
 from app.services.terminal import get_session as get_terminal_session
 
@@ -43,6 +45,7 @@ _NATIVE_CLI_SYNTHETIC_TEXT = {
 _NATIVE_CLI_MODEL_RE = re.compile(r"^/model(?:\s+(?P<model>\S.*?))?\s*$", re.IGNORECASE)
 _NATIVE_CLI_EFFORT_RE = re.compile(r"^/effort(?:\s+(?P<effort>\S+))?\s*$", re.IGNORECASE)
 _NATIVE_CLI_CLEAR_VALUES = {"default", "runtime-default", "runtime_default", "clear", "none", "null", "off"}
+_NATIVE_CLI_SETTINGS_ACK_RE = re.compile(r"^Using\s+`?[^`\n]+`?\s+for this turn\.\s*$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -457,6 +460,11 @@ async def _persist_mirrored_record(
             runtime_name=runtime_name,
             record=record,
         )
+        if await _has_mirrored_record(db, spindrel_session_id=spindrel_session_id, record_key=record.key):
+            return
+        if _is_native_cli_settings_management_record(record):
+            await db.commit()
+            return
         await store_passive_message(
             db,
             spindrel_session_id,
@@ -465,6 +473,24 @@ async def _persist_mirrored_record(
             channel_id=channel_id or session.channel_id,
             role=record.role,
         )
+
+
+async def _has_mirrored_record(db, *, spindrel_session_id: uuid.UUID, record_key: str) -> bool:
+    existing = await db.scalar(
+        select(Message.id)
+        .where(Message.session_id == spindrel_session_id)
+        .where(Message.metadata_["harness_native_cli"]["record_key"].astext == record_key)
+        .limit(1)
+    )
+    return existing is not None
+
+
+def _is_native_cli_settings_management_record(record: NativeCliMirrorRecord) -> bool:
+    if record.role == "user":
+        return bool(_native_cli_settings_patch(record.content))
+    if record.role == "assistant":
+        return bool(_NATIVE_CLI_SETTINGS_ACK_RE.match((record.content or "").strip()))
+    return False
 
 
 async def _sync_native_cli_settings(

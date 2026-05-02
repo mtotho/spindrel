@@ -3449,7 +3449,13 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
             },
             evidence: { changed_files_count: 2, tests_count: 2, screenshots_count: 2, dev_targets_count: 2, has_tests: true, has_screenshots: true, has_dev_targets: true },
             instance: { id: "screenshot-project-instance", status: "ready", root_path: "common/project-instances/screenshot/project-run" },
-            actions: { can_refresh: true, can_mark_reviewed: false, can_cleanup_instance: true, can_request_changes: false }
+            recovery: {
+              can_continue: false,
+              blocker: "Run is already reviewed.",
+              suggested_feedback: "Accepted after reviewing tests, screenshots, and PR handoff evidence.",
+              latest_continuation_id: "screenshot-project-coding-run-follow-up-task"
+            },
+            actions: { can_refresh: true, can_mark_reviewed: false, can_cleanup_instance: true, can_request_changes: false, can_continue: false }
           },
           created_at: "2026-04-30T15:20:00Z",
           updated_at: "2026-04-30T15:32:00Z"
@@ -4066,6 +4072,8 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "const text = document.body.innerText;"
             "return { ok: text.includes('Screenshot Project coding run receipt with review-ready evidence') "
             "&& text.includes('Accepted after reviewing tests') "
+            "&& text.includes('Recovery') "
+            "&& text.includes('Latest follow-up') "
             "&& text.includes('app/services/projects.py') "
             "&& text.includes('pytest tests/unit/test_projects_service.py') "
             "&& text.includes('docs/images/project-workspace-run-detail.png') "
@@ -4221,7 +4229,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         viewport={"width": 1440, "height": 1000},
         wait_kind="function",
         wait_arg=(
-            "!!document.querySelector('[data-testid=\"project-review-execution-access\"]') "
+            "!!document.querySelector('[data-testid=\"project-workspace-runs\"]') "
             "&& document.body.innerText.includes('Review session prompt')"
         ),
         output="project-workspace-review-execution-access.png",
@@ -4404,7 +4412,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             Action(kind="wait", value="700"),
             Action(kind="click", selector=".tiptap-chat-input [contenteditable=\"true\"]"),
             Action(kind="type", selector=".tiptap-chat-input [contenteditable=\"true\"]", value="@README"),
-            Action(kind="wait", value="450"),
+            Action(kind="wait", value="1200"),
         ],
         assert_js=(
             "const rows = [...document.querySelectorAll('[data-testid=\"llm-prompt-autocomplete-row\"]')];"

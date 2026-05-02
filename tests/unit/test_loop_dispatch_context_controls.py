@@ -128,3 +128,43 @@ async def test_duplicate_mutating_tool_block_emits_dedicated_event():
 
     assert dispatch.await_count == 1
     assert any(event.get("type") == "tool_duplicate_blocked" for event in events)
+
+
+@pytest.mark.asyncio
+async def test_repeated_report_issue_is_blocked_after_first_call():
+    dispatch = AsyncMock(return_value=ToolCallResult(
+        result_for_llm='{"item": {"id": "issue-1"}}',
+        tool_event={"type": "tool_result", "tool": "report_issue", "result": '{"item": {"id": "issue-1"}}'},
+    ))
+    state = LoopRunState(messages=[{"role": "user", "content": "hi"}])
+    tool_calls = [
+        _tc("report_issue", '{"dedupe":"a","title":"first","summary":"first","category":"missing_permission"}', "tc_1"),
+        _tc("report_issue", '{"dedupe":"b","title":"second","summary":"second","category":"missing_permission"}', "tc_2"),
+    ]
+
+    with patch("app.agent.loop_dispatch.get_tool_safety_tier", return_value="mutating"):
+        events = [
+            event async for event in dispatch_iteration_tool_calls(
+                accumulated_tool_calls=tool_calls,
+                ctx=_ctx(),
+                state=state,
+                iteration=0,
+                provider_id="openai",
+                summarize_settings=_summarize_settings(),
+                skip_tool_policy=False,
+                effective_allowed=None,
+                settings_obj=_settings(),
+                session_lock_manager=SimpleNamespace(is_cancel_requested=lambda session_id: False),
+                dispatch_tool_call_fn=dispatch,
+                is_client_tool_fn=lambda name: False,
+            )
+        ]
+
+    assert dispatch.await_count == 1
+    assert state.tool_calls_made == ["report_issue", "report_issue"]
+    assert any(
+        event.get("type") == "tool_duplicate_blocked"
+        and event.get("tool") == "report_issue"
+        for event in events
+    )
+    assert "Only one report_issue call is allowed" in state.messages[-1]["content"]

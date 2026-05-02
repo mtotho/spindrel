@@ -275,6 +275,10 @@ async def continue_project_coding_run(
         task.execution_config["session_target"] = dict(parent_ecfg["session_target"])
     if isinstance(parent_ecfg.get("project_instance"), dict):
         task.execution_config["project_instance"] = dict(parent_ecfg["project_instance"])
+    parent.execution_config = {
+        **parent_ecfg,
+        "latest_continuation_task_id": str(task.id),
+    }
     db.add(task)
     await db.commit()
     await db.refresh(task)

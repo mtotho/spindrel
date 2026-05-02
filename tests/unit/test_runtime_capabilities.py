@@ -12,7 +12,10 @@ from app.services.agent_harnesses.base import (
     HarnessSlashCommandPolicy,
     RuntimeCapabilities,
 )
-from app.services.agent_harnesses.capabilities import resolve_runtime_model_surface
+from app.services.agent_harnesses.capabilities import (
+    resolve_runtime_effective_defaults,
+    resolve_runtime_model_surface,
+)
 from app.services.slash_commands import COMMANDS, _filter_specs_for_runtime
 
 
@@ -155,6 +158,26 @@ async def test_runtime_model_surface_uses_live_effort_projection():
     assert [option.id for option in surface.model_options] == ["live-a", "live-b"]
     assert surface.available_models == ("live-a", "live-b")
     assert surface.effort_values == ("low", "medium", "high", "xhigh")
+    assert surface.default_model == "live-a"
+    assert surface.default_effort == "medium"
+
+
+@pytest.mark.asyncio
+async def test_runtime_effective_defaults_prefers_runtime_config_hook():
+    class Runtime:
+        def capabilities(self):
+            return RuntimeCapabilities(
+                display_name="Live",
+                supported_models=("fallback",),
+                model_options=(
+                    HarnessModelOption(id="fallback", effort_values=("low",), default_effort="low"),
+                ),
+            )
+
+        async def default_model_settings(self):
+            return "configured-model", "high"
+
+    assert await resolve_runtime_effective_defaults(Runtime()) == ("configured-model", "high")
 
 
 def test_claude_and_codex_have_distinct_display_names():

@@ -687,14 +687,24 @@ async def mark_project_coding_run_reviewed(db: AsyncSession, project: Project, t
     return await get_project_coding_run(db, project, task.id)
 
 
-async def cleanup_project_coding_run_instance(db: AsyncSession, project: Project, task_id: uuid.UUID) -> dict[str, Any]:
+async def cleanup_project_coding_run_instance(
+    db: AsyncSession,
+    project: Project,
+    task_id: uuid.UUID,
+    *,
+    actor: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     task = await _load_project_coding_task(db, project, task_id)
     instance = await db.get(ProjectInstance, task.project_instance_id) if task.project_instance_id else None
     status = "reported"
     summary = "Project coding run has no fresh instance to clean up."
     result: dict[str, Any] = {"cleaned": False}
     if instance is not None:
-        if instance.owner_kind == "task" and instance.owner_id == task.id:
+        if task.status in {"pending", "running"}:
+            status = "blocked"
+            summary = "Project coding run instance cleanup blocked: run is still active."
+            result = {"cleaned": False, "project_instance_id": str(instance.id), "task_status": task.status}
+        elif instance.owner_kind == "task" and instance.owner_id == task.id:
             from app.db.models import ProjectDependencyStackInstance
             from app.services.project_dependency_stacks import destroy_project_dependency_stack
 
@@ -726,7 +736,7 @@ async def cleanup_project_coding_run_instance(db: AsyncSession, project: Project
         action_type="instance.cleanup",
         status=status,
         summary=summary,
-        actor={"kind": "operator"},
+        actor=actor or {"kind": "operator"},
         target={"project_id": str(project.id), "task_id": str(task.id)},
         result=result,
         rollback_hint=summary if status == "blocked" else None,

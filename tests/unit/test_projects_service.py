@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -9,6 +10,7 @@ from app.db.models import Project, ProjectInstance
 from app.agent.context import current_project_instance_id
 from app.services.project_instances import (
     project_directory_from_instance,
+    project_instance_cleanup_summary,
     project_instance_root_path,
     task_project_instance_policy,
     work_surface_from_project_instance,
@@ -140,6 +142,29 @@ def test_task_project_instance_policy_accepts_nested_and_shortcut_forms():
     assert task_project_instance_policy({"project_instance": {"mode": "fresh"}}).fresh is True
     assert task_project_instance_policy({"fresh_project_instance": True}).fresh is True
     assert task_project_instance_policy({"project_instance": {"mode": "shared"}}).fresh is False
+
+
+def test_project_instance_cleanup_summary_blocks_active_task_instances():
+    now = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    instance = ProjectInstance(
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        root_path="common/project-instances/demo/abcdef",
+        status="ready",
+        owner_kind="task",
+        owner_id=uuid.uuid4(),
+        expires_at=now - timedelta(hours=1),
+    )
+
+    active = project_instance_cleanup_summary(instance, task_status="running", now=now)
+    complete = project_instance_cleanup_summary(instance, task_status="complete", now=now)
+
+    assert active["expired"] is True
+    assert active["can_cleanup"] is False
+    assert "active run" in active["blocker"]
+    assert complete["can_cleanup"] is True
+    assert complete["auto_cleanup_eligible"] is True
 
 
 def test_project_directory_stays_inside_shared_workspace(monkeypatch, tmp_path):

@@ -8,9 +8,14 @@ runtime must translate between them on every turn, including resumed threads.
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
+
+import pytest
 
 from integrations.codex import schema
 from integrations.codex.harness import (
+    CodexRuntime,
+    _DEFAULT_MODEL_SETTINGS_CACHE,
     build_native_cli_command,
     _codex_thread_name_from_prompt,
     _build_turn_input,
@@ -182,3 +187,29 @@ def test_parse_model_options_preserves_per_model_efforts_and_defaults():
             default_effort="medium",
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_codex_default_model_settings_reads_config(monkeypatch):
+    class Client:
+        async def initialize(self):
+            return {}
+
+        async def request(self, method, params):
+            assert method == schema.METHOD_CONFIG_READ
+            assert params == {}
+            return {
+                "config": {
+                    "model": "gpt-5.4-mini",
+                    "model_reasoning_effort": "medium",
+                }
+            }
+
+    @asynccontextmanager
+    async def spawn(**kwargs):
+        yield Client()
+
+    _DEFAULT_MODEL_SETTINGS_CACHE.clear()
+    monkeypatch.setattr("integrations.codex.harness.CodexAppServer.spawn", spawn)
+
+    assert await CodexRuntime().default_model_settings() == ("gpt-5.4-mini", "medium")

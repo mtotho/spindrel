@@ -1,8 +1,8 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, FolderGit2, FolderOpen, GitPullRequest, Hash, KeyRound, Layers, Play, Plus, RotateCw, Save, ServerCog, Terminal, Unlink, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, FolderGit2, FolderOpen, GitPullRequest, Hash, KeyRound, Layers, Play, Plus, RotateCw, Save, ServerCog, Terminal, Trash2, Unlink, Users } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
-import { useCreateProjectBlueprintFromCurrent, useCreateProjectInstance, useManageProjectDependencyStack, useProject, useProjectChannels, useProjectCodingRunReviewBatches, useProjectCodingRuns, useProjectInstances, useProjectRunReceipts, useProjectRuntimeEnv, useProjectDependencyStack, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
+import { useCleanupProjectInstance, useCreateProjectBlueprintFromCurrent, useCreateProjectInstance, useManageProjectDependencyStack, useProject, useProjectChannels, useProjectCodingRunReviewBatches, useProjectCodingRuns, useProjectInstances, useProjectRunReceipts, useProjectRuntimeEnv, useProjectDependencyStack, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
 import { useCreateChannel, useChannels, usePatchChannelSettings } from "@/src/api/hooks/useChannels";
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useSecretValues } from "@/src/api/hooks/useSecretValues";
@@ -1094,8 +1094,10 @@ function ProjectInstancesSection({
   instances?: ProjectInstance[];
 }) {
   const createInstance = useCreateProjectInstance(project.id);
+  const cleanupInstance = useCleanupProjectInstance(project.id);
   const latest = instances?.[0];
   const readyCount = (instances ?? []).filter((instance) => instance.status === "ready").length;
+  const cleanupReadyCount = (instances ?? []).filter((instance) => instance.cleanup?.can_cleanup).length;
   const ownerLink = (instance: ProjectInstance) => {
     if (!instance.owner_id) return undefined;
     if (instance.owner_kind === "task") {
@@ -1136,9 +1138,9 @@ function ProjectInstancesSection({
           />
           <SettingsControlRow
             leading={<Clock3 size={14} />}
-            title="Latest"
-            description={latest ? formatRunTime(latest.created_at) : "No instance has been created"}
-            meta={<StatusBadge label={latest?.status ?? "none"} variant={setupTone(latest?.status ?? "pending")} />}
+            title="Cleanup ready"
+            description={cleanupReadyCount > 0 ? `${cleanupReadyCount} instance${cleanupReadyCount === 1 ? "" : "s"} can be cleaned up.` : latest ? `Latest: ${formatRunTime(latest.created_at)}` : "No instance has been created"}
+            meta={<StatusBadge label={cleanupReadyCount > 0 ? `${cleanupReadyCount} ready` : latest?.status ?? "none"} variant={cleanupReadyCount > 0 ? "warning" : setupTone(latest?.status ?? "pending")} />}
           />
         </div>
         {createInstance.error && (
@@ -1166,13 +1168,30 @@ function ProjectInstancesSection({
                 description={[
                   instance.owner_kind ?? "manual",
                   instance.owner_id ? instance.owner_id : null,
+                  instance.cleanup?.task_status ? `task ${instance.cleanup.task_status}` : null,
                   instance.expires_at ? `expires ${formatRunTime(instance.expires_at)}` : null,
                   instance.deleted_at ? `deleted ${formatRunTime(instance.deleted_at)}` : null,
+                  instance.cleanup?.blocker && !instance.cleanup.can_cleanup ? instance.cleanup.blocker : null,
                 ].filter(Boolean).join(" · ")}
-                meta={<StatusBadge label={instance.status} variant={setupTone(instance.status)} />}
+                meta={
+                  <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5">
+                    <StatusBadge label={instance.status} variant={setupTone(instance.status)} />
+                    {instance.cleanup?.expired && instance.status !== "deleted" ? <QuietPill label="expired" tone="warning" /> : null}
+                  </span>
+                }
                 action={
                   <div className="flex flex-wrap items-center justify-end gap-1">
                     {ownerLink(instance)}
+                    {instance.cleanup?.can_cleanup ? (
+                      <ActionButton
+                        label={cleanupInstance.isPending ? "Cleaning" : "Clean up"}
+                        icon={<Trash2 size={13} />}
+                        size="small"
+                        variant="danger"
+                        disabled={cleanupInstance.isPending}
+                        onPress={() => cleanupInstance.mutate(instance.id)}
+                      />
+                    ) : null}
                     <HeaderLink
                       to={`/admin/workspaces/${instance.workspace_id}/files?path=${encodeURIComponent(`/${instance.root_path}`)}`}
                       icon={<ExternalLink size={13} />}

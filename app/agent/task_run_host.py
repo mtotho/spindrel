@@ -74,6 +74,10 @@ you found a real blocker, missing permission, recurring system/tool failure, or
 setup problem that needs a human decision. Do not report ordinary task progress,
 temporary noise, or issues you can fix directly. Keep reports concise and
 actionable: what happened, why it matters, and the next useful action.
+If required tools are missing, make at most one report_issue call with
+category="missing_permission", a stable dedupe key, and a concrete
+suggested_action. After that, stop using tools and produce a concise final
+response.
 """
 
 
@@ -87,6 +91,11 @@ def _task_run_control_policy(ecfg: dict) -> dict | None:
     if configured_tools:
         existing = [str(name) for name in (policy.get("required_tools") or []) if name]
         policy["required_tools"] = list(dict.fromkeys([*existing, *configured_tools]))
+    elif ecfg.get("heartbeat") and bool(ecfg.get("allow_issue_reporting")):
+        hard_cap = int(policy.get("hard_max_llm_calls") or 0)
+        soft_cap = int(policy.get("soft_max_llm_calls") or 0)
+        policy["hard_max_llm_calls"] = min(hard_cap, 2) if hard_cap > 0 else 2
+        policy["soft_max_llm_calls"] = min(soft_cap, 1) if soft_cap > 0 else 1
     return policy or None
 
 

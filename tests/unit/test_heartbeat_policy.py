@@ -3,14 +3,14 @@
 from app.services.heartbeat_policy import normalize_heartbeat_execution_policy
 
 
-def test_null_policy_defaults_to_medium():
+def test_null_policy_defaults_to_low():
     policy = normalize_heartbeat_execution_policy(None)
 
-    assert policy["preset"] == "medium"
-    assert policy["soft_max_llm_calls"] == 12
-    assert policy["hard_max_llm_calls"] == 30
-    assert policy["soft_current_prompt_tokens"] == 150_000
-    assert policy["target_seconds"] == 180
+    assert policy["preset"] == "low"
+    assert policy["soft_max_llm_calls"] == 6
+    assert policy["hard_max_llm_calls"] == 12
+    assert policy["soft_current_prompt_tokens"] == 50_000
+    assert policy["target_seconds"] == 90
 
 
 def test_known_presets_expand_to_expected_values():
@@ -38,7 +38,7 @@ def test_numeric_override_without_preset_becomes_custom():
     policy = normalize_heartbeat_execution_policy({"hard_max_llm_calls": 40})
 
     assert policy["preset"] == "custom"
-    assert policy["soft_max_llm_calls"] == 12
+    assert policy["soft_max_llm_calls"] == 6
     assert policy["hard_max_llm_calls"] == 40
 
 

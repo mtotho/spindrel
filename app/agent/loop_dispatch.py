@@ -77,6 +77,10 @@ def _tool_call_is_cacheable(name: str, args: Any = None) -> bool:
     return name in _READ_ONLY_CACHEABLE_TOOLS or get_tool_safety_tier(name) == "readonly"
 
 
+def _report_issue_already_called(state: LoopRunState) -> bool:
+    return "report_issue" in state.tool_calls_made
+
+
 def _tool_batch_has_cache_pressure(tool_calls: list[dict[str, Any]], state: LoopRunState) -> bool:
     seen: set[Any] = set()
     for tc in tool_calls:
@@ -570,6 +574,31 @@ async def dispatch_iteration_tool_calls(
                 continue
 
             if get_tool_safety_tier(name) in _PARALLEL_UNSAFE_TIERS:
+                if name == "report_issue" and _report_issue_already_called(state):
+                    error = json.dumps({
+                        "error": (
+                            "Only one report_issue call is allowed per run. "
+                            "Use the existing issue report and produce a concise final response."
+                        )
+                    })
+                    state.tool_calls_made.append(name)
+                    state.tool_call_trace.append(cache_key)
+                    state.messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": error,
+                    })
+                    yield _event_with_compaction_tag({
+                        "type": "tool_duplicate_blocked",
+                        "tool": name,
+                        "error": "Repeated report_issue call blocked",
+                    }, ctx.compaction)
+                    yield _event_with_compaction_tag({
+                        "type": "tool_result",
+                        "tool": name,
+                        "error": "Repeated report_issue call blocked",
+                    }, ctx.compaction)
+                    continue
                 if cache_key in state.mutating_tool_call_seen:
                     error = json.dumps({
                         "error": (

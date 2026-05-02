@@ -234,6 +234,10 @@ export interface HarnessStatus {
   harness_session_id: string | null;
   model: string | null;
   effort: string | null;
+  default_model: string | null;
+  default_effort: string | null;
+  effective_model: string | null;
+  effective_effort: string | null;
   permission_mode: string | null;
   session_plan_mode: string | null;
   pending_hint_count: number;

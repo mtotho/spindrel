@@ -227,6 +227,8 @@ _CODEX_NATIVE_COMMANDS: tuple[HarnessRuntimeCommandSpec, ...] = (
 
 _AUTH_STATUS_CACHE: dict[str, tuple[float, AuthStatus]] = {}
 _AUTH_STATUS_TTL = 30.0  # seconds
+_DEFAULT_MODEL_SETTINGS_CACHE: dict[str, tuple[float, tuple[str | None, str | None]]] = {}
+_DEFAULT_MODEL_SETTINGS_TTL = 30.0  # seconds
 _CODEX_SKILL_TOKEN_RE = re.compile(r"(?<![\w$])\$([A-Za-z][\w.-]*)")
 
 
@@ -301,6 +303,37 @@ class CodexRuntime:
             logger.warning("codex: model/list failed; using fallback list", exc_info=True)
             return self.capabilities().model_options
         return _parse_model_options(result) or self.capabilities().model_options
+
+    async def default_model_settings(self) -> tuple[str | None, str | None]:
+        """Return Codex's configured runtime default model and effort.
+
+        This mirrors what the native CLI shows in `/status` before Spindrel has
+        written any per-session override.
+        """
+
+        cached = _DEFAULT_MODEL_SETTINGS_CACHE.get(self.name)
+        if cached and (time.monotonic() - cached[0]) < _DEFAULT_MODEL_SETTINGS_TTL:
+            return cached[1]
+        try:
+            async with CodexAppServer.spawn() as client:
+                await client.initialize()
+                result = await client.request(schema.METHOD_CONFIG_READ, {})
+        except CodexBinaryNotFound:
+            return _CODEX_FALLBACK_MODELS[0], "medium"
+        except Exception:
+            logger.warning("codex: config/read failed; using fallback default model", exc_info=True)
+            return _CODEX_FALLBACK_MODELS[0], "medium"
+        config = result.get("config") if isinstance(result, dict) else None
+        if not isinstance(config, dict):
+            return _CODEX_FALLBACK_MODELS[0], "medium"
+        model = config.get("model")
+        effort = config.get("model_reasoning_effort")
+        defaults = (
+            model if isinstance(model, str) and model.strip() else _CODEX_FALLBACK_MODELS[0],
+            effort if isinstance(effort, str) and effort.strip() else "medium",
+        )
+        _DEFAULT_MODEL_SETTINGS_CACHE[self.name] = (time.monotonic(), defaults)
+        return defaults
 
     async def start_turn(
         self,

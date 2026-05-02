@@ -1010,6 +1010,98 @@ async def _send_native_cli_prompt_via_ui(
     return terminal_out_path, mirror_out_path, mirrored_message
 
 
+async def _sync_native_cli_settings_via_ui(
+    client: E2EClient,
+    *,
+    runtime_name: str,
+    channel_id: str,
+    session_id: str,
+    model: str,
+    effort: str | None,
+    screenshot_name: str | None = None,
+) -> Path | None:
+    pytest.importorskip("playwright.async_api")
+    from playwright.async_api import async_playwright
+    from scripts.screenshots.playwright_runtime import launch_async_browser
+
+    ui_url = _browser_ui_url(client)
+    api_url = _browser_api_url(client)
+    route = f"{ui_url}/channels/{channel_id}/session/{session_id}?surface=channel"
+    out_path = (
+        _artifact_root() / "native-cli" / f"{Path(screenshot_name).stem}.png"
+        if screenshot_name
+        else None
+    )
+    if out_path is not None:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    async def _wait_settings(expected_model: str, expected_effort: str | None) -> None:
+        deadline = time.monotonic() + 45
+        while time.monotonic() < deadline:
+            settings = await client.get_session_harness_settings(session_id)
+            if settings.get("model") == expected_model and (
+                expected_effort is None or settings.get("effort") == expected_effort
+            ):
+                return
+            await asyncio.sleep(1)
+        raise AssertionError(
+            f"native CLI settings did not sync to model={expected_model!r}, effort={expected_effort!r}"
+        )
+
+    create_resp = await client._client.post(f"/api/v1/admin/sessions/{session_id}/harness/native-terminal")
+    create_resp.raise_for_status()
+    terminal_session_id = str(create_resp.json()["session_id"])
+    await _send_terminal_input(
+        client,
+        terminal_session_id=terminal_session_id,
+        text=f"/model {model}\r",
+        wait_for=model,
+        timeout=30,
+    )
+    await _wait_settings(model, None)
+    if effort:
+        create_resp = await client._client.post(f"/api/v1/admin/sessions/{session_id}/harness/native-terminal")
+        create_resp.raise_for_status()
+        terminal_session_id = str(create_resp.json()["session_id"])
+        await _send_terminal_input(
+            client,
+            terminal_session_id=terminal_session_id,
+            text=f"/effort {effort}\r",
+            wait_for=effort,
+            timeout=30,
+        )
+        await _wait_settings(model, effort)
+
+    async with async_playwright() as pw:
+        browser = await launch_async_browser(pw)
+        try:
+            context = await browser.new_context(
+                viewport={"width": 1440, "height": 900},
+                color_scheme="dark",
+            )
+            await context.add_init_script(
+                _browser_auth_init_script(api_url=api_url, api_key=client.config.api_key)
+            )
+            page = await context.new_page()
+            await page.goto(route, wait_until="domcontentloaded", timeout=60_000)
+            await page.wait_for_function(
+                """({ model, effort }) => {
+                    const text = document.body.innerText.toLowerCase();
+                    return text.includes(model.toLowerCase())
+                        && (!effort || text.includes(`effort ${effort.toLowerCase()}`));
+                }""",
+                arg={"model": model, "effort": effort},
+                timeout=30_000,
+            )
+            await _assert_no_horizontal_overflow(page, "native-cli-settings-sync")
+            if out_path is not None:
+                await page.screenshot(path=str(out_path), full_page=False)
+            await context.close()
+        finally:
+            await browser.close()
+    return out_path
+
+
 def _browser_ui_url(client: E2EClient) -> str:
     return (
         os.environ.get("SPINDREL_BROWSER_URL")
@@ -2321,6 +2413,50 @@ async def test_live_codex_native_cli_terminal_mirrors_to_spindrel(
 
     if mirror_screenshot is not None:
         assert mirror_screenshot.is_file(), f"native CLI mirror screenshot was not written: {mirror_screenshot}"
+
+
+@pytest.mark.asyncio
+async def test_live_codex_native_cli_model_effort_syncs_to_spindrel_composer(
+    client: E2EClient,
+) -> None:
+    _requires_tier("terminal")
+    case = next(harness for harness in HARNESSES if harness.name == "codex")
+    channel_id, session_id, _bot_id = await _fresh_session(client, case)
+    caps = await client.get_runtime_capabilities(case.runtime)
+    model, effort = _choose_model_and_effort(case, caps)
+    assert model, f"no Codex model available for native CLI settings sync: {caps}"
+
+    status_before = await client.get_session_harness_status(session_id)
+    assert status_before.get("effective_model") or status_before.get("default_model"), status_before
+    assert status_before.get("effective_effort") or status_before.get("default_effort"), status_before
+
+    screenshot = await _sync_native_cli_settings_via_ui(
+        client,
+        runtime_name=case.runtime,
+        channel_id=channel_id,
+        session_id=session_id,
+        model=model,
+        effort=effort,
+        screenshot_name=(
+            "harness-codex-native-cli-settings-sync-dark"
+            if _should_capture_screenshots("harness-codex-native-cli-settings-sync")
+            else None
+        ),
+    )
+    settings = await client.get_session_harness_settings(session_id)
+    assert settings["model"] == model
+    if effort:
+        assert settings["effort"] == effort
+    status_after = await client.get_session_harness_status(session_id)
+    assert status_after["effective_model"] == model
+    if effort:
+        assert status_after["effective_effort"] == effort
+    messages = await client.get_session_messages(session_id, limit=20)
+    mirrored_text = "\n".join(str(message.get("content") or "") for message in messages)
+    assert f"/model {model}" not in mirrored_text
+    assert f"Using `{model}` for this turn." not in mirrored_text
+    if screenshot is not None:
+        assert screenshot.is_file(), f"settings sync screenshot was not written: {screenshot}"
 
 
 @pytest.mark.asyncio

@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Project, ProjectInstance, ProjectSecretBinding, Session
+from app.db.models import Project, ProjectInstance, ProjectSecretBinding, Session, Task
 from app.services.project_setup import (
     RUN_STATUS_FAILED,
     RUN_STATUS_SUCCEEDED,
@@ -36,6 +36,7 @@ INSTANCE_STATUS_PREPARING = "preparing"
 INSTANCE_STATUS_READY = "ready"
 INSTANCE_STATUS_FAILED = "failed"
 INSTANCE_STATUS_DELETED = "deleted"
+ACTIVE_TASK_STATUSES = {"pending", "running"}
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,39 @@ class ProjectInstancePolicy:
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def project_instance_cleanup_summary(
+    instance: ProjectInstance,
+    *,
+    task_status: str | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    now = now or _utcnow()
+    expires_at = instance.expires_at
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    expired = bool(expires_at and expires_at <= now)
+    deleted = instance.status == INSTANCE_STATUS_DELETED or instance.deleted_at is not None
+    active_task = instance.owner_kind == "task" and task_status in ACTIVE_TASK_STATUSES
+    can_cleanup = not deleted and instance.owner_kind in {"manual", "task"} and not active_task
+    if deleted:
+        blocker = "Project instance is already cleaned up."
+    elif active_task:
+        blocker = "Task-owned Project instance is still attached to an active run."
+    elif instance.owner_kind == "session":
+        blocker = "Session-owned Project instances must be cleared from the owning session."
+    elif instance.owner_kind not in {"manual", "task"}:
+        blocker = "Project instance owner is not cleanup-managed."
+    else:
+        blocker = None
+    return {
+        "expired": expired,
+        "can_cleanup": can_cleanup,
+        "auto_cleanup_eligible": bool(can_cleanup and expired and instance.owner_kind == "task"),
+        "blocker": blocker,
+        "task_status": task_status,
+    }
 
 
 def task_project_instance_policy(execution_config: dict[str, Any] | None) -> ProjectInstancePolicy:
@@ -110,6 +144,13 @@ async def list_project_instances(
     )).scalars().all())
 
 
+async def project_instance_task_status(db: AsyncSession, instance: ProjectInstance) -> str | None:
+    if instance.owner_kind != "task" or instance.owner_id is None:
+        return None
+    task = await db.get(Task, instance.owner_id)
+    return task.status if task is not None else None
+
+
 async def cleanup_project_instance(
     db: AsyncSession,
     instance: ProjectInstance,
@@ -154,6 +195,50 @@ async def cleanup_project_instance(
     await db.commit()
     await db.refresh(instance)
     return instance
+
+
+async def cleanup_expired_task_project_instances(
+    db: AsyncSession,
+    *,
+    limit: int = 25,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Clean expired task-owned Project instances whose owning task is no longer active."""
+    now = now or _utcnow()
+    candidates = list((await db.execute(
+        select(ProjectInstance)
+        .where(
+            ProjectInstance.owner_kind == "task",
+            ProjectInstance.owner_id.is_not(None),
+            ProjectInstance.deleted_at.is_(None),
+            ProjectInstance.status != INSTANCE_STATUS_DELETED,
+            ProjectInstance.expires_at.is_not(None),
+            ProjectInstance.expires_at <= now,
+        )
+        .order_by(ProjectInstance.expires_at.asc())
+        .limit(limit)
+    )).scalars().all())
+    result: dict[str, Any] = {"checked": len(candidates), "cleaned": 0, "skipped": 0, "errors": []}
+    if not candidates:
+        return result
+
+    from app.services.project_coding_run_review import cleanup_project_coding_run_instance
+
+    for instance in candidates:
+        task = await db.get(Task, instance.owner_id) if instance.owner_id else None
+        if task is None or task.status in ACTIVE_TASK_STATUSES:
+            result["skipped"] += 1
+            continue
+        project = await db.get(Project, instance.project_id)
+        if project is None:
+            result["skipped"] += 1
+            continue
+        try:
+            await cleanup_project_coding_run_instance(db, project, task.id, actor={"kind": "system", "reason": "expired_project_instance"})
+            result["cleaned"] += 1
+        except Exception as exc:
+            result["errors"].append({"project_instance_id": str(instance.id), "error": redact(str(exc))})
+    return result
 
 
 def normalize_instance_root_path(root_path: str | None) -> bool:

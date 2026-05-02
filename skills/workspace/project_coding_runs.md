@@ -101,6 +101,11 @@ the user explicitly asked to launch a coding run.
 3. Use the returned `links.project_run_url` for the full review page. Summarize
    `receipt`, `review`, `evidence`, `activity`, and blockers in plain language
    instead of dumping raw JSON unless the operator asks for raw details.
+4. For failed, blocked, stale, or changes-requested runs, check
+   `review.recovery`. If `can_continue` is true, create follow-up work through
+   the Project coding-run continuation path with concrete feedback. If
+   `latest_continuation_id` is present, open or summarize that follow-up before
+   creating another one. Do not continue active or already reviewed runs.
 
 ## Review Sessions
 

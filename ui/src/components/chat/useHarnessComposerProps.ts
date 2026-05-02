@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import {
+  useSessionHarnessStatus,
   useSessionHarnessSettings,
   useSetSessionHarnessSettings,
 } from "../../api/hooks/useApprovals";
@@ -27,6 +28,7 @@ export function useHarnessComposerProps(
   const runtime = bot?.harness_runtime ?? null;
   const { data: caps } = useRuntimeCapabilities(runtime);
   const { data: settings } = useSessionHarnessSettings(sessionId ?? null, modeKey);
+  const { data: status } = useSessionHarnessStatus(sessionId ?? null, !!runtime && !!sessionId);
   const setHarnessSettings = useSetSessionHarnessSettings();
 
   return useMemo(() => {
@@ -44,10 +46,19 @@ export function useHarnessComposerProps(
         harnessModelMutating: false,
       };
     }
-    const defaultModel = caps?.model_options?.[0]?.id ?? caps?.available_models?.[0] ?? null;
+    const defaultModel =
+      status?.effective_model
+      ?? status?.default_model
+      ?? caps?.default_model
+      ?? caps?.model_options?.[0]?.id
+      ?? caps?.available_models?.[0]
+      ?? null;
     const selectedModel = settings?.model ?? defaultModel;
     const defaultEffort =
-      caps?.model_options?.find((m) => m.id === selectedModel)?.default_effort
+      status?.effective_effort
+      ?? status?.default_effort
+      ?? caps?.default_effort
+      ?? caps?.model_options?.find((m) => m.id === selectedModel)?.default_effort
       ?? caps?.model_options?.find((m) => m.id === defaultModel)?.default_effort
       ?? caps?.effort_values?.[0]
       ?? null;
@@ -72,5 +83,5 @@ export function useHarnessComposerProps(
       },
       harnessModelMutating: setHarnessSettings.isPending,
     };
-  }, [runtime, caps, settings, sessionId, setHarnessSettings]);
+  }, [runtime, caps, settings, status, sessionId, setHarnessSettings]);
 }

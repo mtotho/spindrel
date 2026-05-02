@@ -1121,6 +1121,10 @@ class HarnessStatusOut(BaseModel):
     harness_session_id: str | None = None
     model: str | None = None
     effort: str | None = None
+    default_model: str | None = None
+    default_effort: str | None = None
+    effective_model: str | None = None
+    effective_effort: str | None = None
     permission_mode: str | None = None
     session_plan_mode: str | None = None
     pending_hint_count: int = 0
@@ -1261,6 +1265,7 @@ async def get_harness_status(
         resolve_harness_paths,
     )
     from app.services.agent_harnesses import HARNESS_REGISTRY
+    from app.services.agent_harnesses.capabilities import resolve_runtime_effective_defaults
     from app.agent.bots import get_bot
 
     session = await db.get(Session, session_id)
@@ -1287,6 +1292,12 @@ async def get_harness_status(
     runtime = HARNESS_REGISTRY.get(runtime_name) if runtime_name else None
     usage = (harness_meta or {}).get("usage") if harness_meta else None
     caps = runtime.capabilities() if runtime and hasattr(runtime, "capabilities") else None
+    default_model = None
+    default_effort = None
+    if runtime is not None:
+        default_model, default_effort = await resolve_runtime_effective_defaults(runtime)
+    effective_model = settings.model or default_model
+    effective_effort = settings.effort or default_effort
     context_window_tokens = (
         context_window_from_usage(usage)
         or (getattr(caps, "context_window_tokens", None) if caps else None)
@@ -1364,6 +1375,10 @@ async def get_harness_status(
         harness_session_id=(harness_meta or {}).get("session_id") if harness_meta else None,
         model=settings.model,
         effort=settings.effort,
+        default_model=default_model,
+        default_effort=default_effort,
+        effective_model=effective_model,
+        effective_effort=effective_effort,
         permission_mode=mode,
         session_plan_mode=session_plan_mode,
         pending_hint_count=len(hints),

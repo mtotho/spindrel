@@ -53,6 +53,8 @@ class RuntimeCapabilitiesOut(BaseModel):
     # Live list from runtime.list_models(). Distinct from supported_models
     # (curated UI hint) — this is the authoritative set the picker shows.
     available_models: list[str]
+    default_model: str | None = None
+    default_effort: str | None = None
     model_is_freeform: bool
     effort_values: list[str]
     approval_modes: list[str]
@@ -94,6 +96,8 @@ async def get_runtime_capabilities(
         supported_models=list(caps.supported_models),
         model_options=model_options,
         available_models=list(surface.available_models),
+        default_model=surface.default_model,
+        default_effort=surface.default_effort,
         model_is_freeform=caps.model_is_freeform,
         effort_values=list(surface.effort_values),
         approval_modes=list(caps.approval_modes),

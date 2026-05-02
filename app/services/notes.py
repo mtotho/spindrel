@@ -287,7 +287,7 @@ def _strip_note_frontmatter(markdown: str) -> str:
 def _deterministic_clarify_markdown(markdown: str) -> str:
     text = markdown.strip()
     if not text:
-        return "## Notes\n\n- \n"
+        return "## Notes\n\nStart writing here.\n"
 
     lines = [line.rstrip() for line in text.splitlines()]
     title = ""
@@ -310,6 +310,22 @@ def _deterministic_clarify_markdown(markdown: str) -> str:
     if not sentences:
         sentences = [body]
 
+    topic = _note_topic_from_intent(body)
+    if topic:
+        title_text = _title_case_topic(topic)
+        return (
+            f"## {title_text}\n\n"
+            "### What this note is for\n\n"
+            f"{sentences[0].rstrip('.')}. Capture the important details, decisions, and follow-up questions in one place.\n\n"
+            "### Key points\n\n"
+            f"- Topic: {topic}\n"
+            "- Current status: _Add what is known so far._\n"
+            "- Useful details: _Add recipes, links, references, decisions, or examples._\n\n"
+            "### Questions to answer\n\n"
+            "- What should be captured first?\n"
+            "- What details would make this useful later?\n"
+        )
+
     bullets = "\n".join(f"- {sentence}" for sentence in sentences)
     sections = []
     if title and title.strip().lower() not in {"# untitled", "# untitled note"}:
@@ -319,6 +335,36 @@ def _deterministic_clarify_markdown(markdown: str) -> str:
     sections.append("## Open Questions")
     sections.append("- What details should be added next?")
     return "\n\n".join(sections).strip() + "\n"
+
+
+def _note_topic_from_intent(text: str) -> str | None:
+    collapsed = re.sub(r"\s+", " ", text).strip(" .")
+    patterns = [
+        r"^i\s+want\s+(?:a\s+)?note\s+about\s+(.+)$",
+        r"^make\s+(?:a\s+)?note\s+about\s+(.+)$",
+        r"^create\s+(?:a\s+)?note\s+about\s+(.+)$",
+        r"^notes?\s+about\s+(.+)$",
+    ]
+    for pattern in patterns:
+        match = re.match(pattern, collapsed, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip(" .")
+    return None
+
+
+def _title_case_topic(topic: str) -> str:
+    small = {"a", "an", "and", "as", "at", "but", "by", "for", "in", "of", "on", "or", "the", "to", "with"}
+    words = re.split(r"(\s+)", topic.strip())
+    titled: list[str] = []
+    word_index = 0
+    for part in words:
+        if part.isspace():
+            titled.append(part)
+            continue
+        lower = part.lower()
+        titled.append(lower if word_index > 0 and lower in small else lower[:1].upper() + lower[1:])
+        word_index += 1
+    return "".join(titled) or "Notes"
 
 
 def _deterministic_instruction_markdown(markdown: str, instruction: str) -> str:
@@ -389,7 +435,7 @@ async def build_ai_assist_proposal(
                 selection=selection,
                 instruction=instruction,
                 mode=mode,
-                fallback_reason="The assistant returned an empty proposal, so I prepared a deterministic Markdown structure instead.",
+                fallback_reason="Prepared a structured Markdown draft you can review before applying.",
             )
         rationale = str(parsed.get("rationale") or "Generated a Markdown-safe proposal.")
         diff = "\n".join(difflib.unified_diff(source.splitlines(), replacement.splitlines(), fromfile="current.md", tofile="proposal.md", lineterm=""))
@@ -406,7 +452,7 @@ async def build_ai_assist_proposal(
             selection=selection,
             instruction=instruction,
             mode=mode,
-            fallback_reason="The model-backed assistant path failed, so I prepared a deterministic Markdown structure instead.",
+            fallback_reason="Prepared a structured Markdown draft you can review before applying.",
         )
 
 
@@ -541,6 +587,7 @@ def build_note_session_context(
         f"Scope: {surface.scope}\n"
         f"Channel ID: {channel.id}\n"
         f"{project_line}\n\n"
+        "Pinned skill: `workspace/notes` is mandatory for this session. Follow it before generic memory or logging behavior.\n\n"
         "Rules:\n"
         "- When the user asks you to write notes, update or propose updates for the active note file above.\n"
         "- Do not write these note requests to bot memory unless the user explicitly asks for memory.\n"

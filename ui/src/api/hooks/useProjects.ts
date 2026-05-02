@@ -233,8 +233,10 @@ export function useContinueProjectCodingRun(projectId: string | undefined) {
         method: "POST",
         body: JSON.stringify({ feedback: data.feedback }),
       }),
-    onSuccess: () => {
+    onSuccess: (run, variables) => {
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", variables.taskId] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", run.task.id] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-batches"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-sessions"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
@@ -249,8 +251,10 @@ function useProjectCodingRunAction(projectId: string | undefined, action: "refre
       apiFetch<ProjectCodingRun>(`/api/v1/projects/${projectId}/coding-runs/${taskId}/${action}`, {
         method: "POST",
       }),
-    onSuccess: () => {
+    onSuccess: (run, taskId) => {
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", taskId] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", run.task.id] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-batches"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-sessions"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
@@ -316,6 +320,22 @@ export function useCreateProjectInstance(projectId: string | undefined) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects", projectId, "instances"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId] });
+    },
+  });
+}
+
+export function useCleanupProjectInstance(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (instanceId: string) =>
+      apiFetch<ProjectInstance>(`/api/v1/projects/${projectId}/instances/${instanceId}/cleanup`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "instances"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-batches"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
     },
   });
 }

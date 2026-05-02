@@ -126,6 +126,7 @@ export default function NoteWorkspacePage() {
   const channelName = channelQuery.data?.display_name || channelQuery.data?.name || "Channel";
   const botId = channelQuery.data?.bot_id;
   const targetLabel = selectedText ? `${selectedText.length} selected chars` : "Whole note";
+  const proposalOriginal = proposal?.target === "selection" && selectedText ? selectedText : bodyDraft;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
@@ -175,7 +176,7 @@ export default function NoteWorkspacePage() {
         <Link to={`/channels/${encodeURIComponent(channelId)}`} className="text-accent hover:underline">Channel</Link>
       </div>
 
-      <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 px-4 pb-4 sm:px-6 lg:px-8 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden px-4 pb-4 sm:px-6 lg:px-8 xl:grid-cols-[minmax(0,1fr)_360px]">
         <section className={`relative min-h-0 overflow-hidden rounded-md bg-surface-raised/45 ${aiFlash ? "note-ai-flash" : ""}`}>
           {preview ? (
             <div className="h-full overflow-auto bg-surface px-8 py-7">
@@ -189,6 +190,15 @@ export default function NoteWorkspacePage() {
               <Sparkles size={14} className="thinking-pulse" />
               Authoring a Markdown proposal...
             </div>
+          )}
+          {proposal && (
+            <InlineProposalReview
+              proposal={proposal}
+              originalMarkdown={proposalOriginal}
+              meaningful={proposalMeaningful}
+              onAccept={acceptProposal}
+              onReject={() => setProposal(null)}
+            />
           )}
         </section>
 
@@ -241,7 +251,7 @@ export default function NoteWorkspacePage() {
 
           <div className="min-h-0 flex-1 overflow-hidden">
             {proposal ? (
-              <ProposalReview
+              <ProposalSummary
                 proposal={proposal}
                 meaningful={proposalMeaningful}
                 onAccept={acceptProposal}
@@ -457,7 +467,80 @@ function MarkdownNoteEditor({
   );
 }
 
-function ProposalReview({
+function InlineProposalReview({
+  proposal,
+  originalMarkdown,
+  meaningful,
+  onAccept,
+  onReject,
+}: {
+  proposal: ChannelNoteAssistProposal;
+  originalMarkdown: string;
+  meaningful: boolean;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  const nextMarkdown = stripFrontmatter(proposal.replacement_markdown);
+  return (
+    <div className="absolute inset-x-4 bottom-4 z-10 rounded-lg border border-accent/30 bg-surface/95 shadow-2xl shadow-black/35 backdrop-blur-md sm:inset-x-6">
+      <div className="flex items-start gap-3 border-b border-surface-border/70 px-4 py-3">
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent/[0.14] text-accent">
+          <Sparkles size={16} className="thinking-pulse" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-[13px] font-semibold text-text">AI draft ready</div>
+            <span className="rounded-full bg-accent/[0.10] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-accent">
+              {proposal.target === "selection" ? "Selection" : "Whole note"}
+            </span>
+          </div>
+          <div className="mt-1 text-[12px] leading-relaxed text-text-muted">
+            {meaningful ? proposal.rationale : "The assistant did not find a meaningful rewrite for this text."}
+          </div>
+        </div>
+        <button type="button" onClick={onReject} className="rounded-md p-1.5 text-text-dim hover:bg-surface-overlay hover:text-text" aria-label="Close AI draft">
+          <X size={15} />
+        </button>
+      </div>
+
+      {meaningful ? (
+        <div className="grid max-h-[38vh] min-h-[180px] grid-cols-1 overflow-hidden md:grid-cols-2">
+          <div className="min-h-0 overflow-auto border-b border-surface-border/70 px-4 py-3 md:border-b-0 md:border-r">
+            <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.10em] text-text-dim">Original</div>
+            <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-text-muted">{originalMarkdown.trim()}</pre>
+          </div>
+          <div className="min-h-0 overflow-auto bg-accent/[0.035] px-4 py-3">
+            <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.10em] text-accent">
+              <Wand2 size={12} />
+              Proposed Markdown
+            </div>
+            <MarkdownViewer content={nextMarkdown} />
+          </div>
+        </div>
+      ) : null}
+
+      <div className="flex items-center justify-between gap-3 border-t border-surface-border/70 px-4 py-3">
+        <div className="text-[11px] text-text-dim">
+          Review before applying. Accept only changes the editor draft.
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <button type="button" onClick={onReject} className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px] text-text-muted hover:bg-surface-overlay">
+            <X size={13} />
+            {meaningful ? "Reject" : "Dismiss"}
+          </button>
+          {meaningful && (
+            <button type="button" onClick={onAccept} className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:bg-accent/90">
+              <Check size={13} />
+              Apply draft
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProposalSummary({
   proposal,
   meaningful,
   onAccept,
@@ -469,26 +552,21 @@ function ProposalReview({
   onReject: () => void;
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2">
-      <div className="rounded-md bg-accent/[0.08] px-3 py-2 text-[12px] leading-relaxed text-text-muted">
-        {meaningful ? proposal.rationale : "The assistant did not find a useful structural change. Your draft is unchanged."}
-      </div>
-      {meaningful && (
-        <div className="min-h-0 flex-1 overflow-auto rounded-md bg-input px-3 py-3">
-          <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-accent">
-            <Sparkles size={12} />
-            Pending AI draft
-          </div>
-          <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-text">
-            {stripFrontmatter(proposal.replacement_markdown)}
-          </pre>
+    <div className="flex h-full min-h-0 flex-col justify-between gap-3 rounded-md border border-accent/20 bg-accent/[0.055] p-3">
+      <div className="min-w-0">
+        <div className="mb-1 flex items-center gap-1.5 text-[12px] font-semibold text-accent">
+          <Sparkles size={13} />
+          AI draft is open in the editor
         </div>
-      )}
+        <div className="text-[12px] leading-relaxed text-text-muted">
+          {meaningful ? proposal.rationale : "No useful rewrite was found for this selection."}
+        </div>
+      </div>
       <div className="flex shrink-0 gap-2">
         {meaningful && (
           <button type="button" onClick={onAccept} className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px] text-accent hover:bg-surface-overlay">
             <Check size={13} />
-            Accept
+            Apply
           </button>
         )}
         <button type="button" onClick={onReject} className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px] text-text-muted hover:bg-surface-overlay">

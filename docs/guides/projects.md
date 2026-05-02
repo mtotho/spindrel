@@ -109,6 +109,14 @@ isolated Project session when two ad hoc sessions may edit, test, or restart
 the same repo in parallel. Formal coding runs already isolate files, branch,
 Dependency Stack, and dev target ports by default.
 
+Task-owned instances expire by policy but are not deleted while the owning task
+is still pending or running. The Project Instances tab exposes cleanup
+readiness, task status, expiry, and blockers; run cleanup destroys the
+task-scoped Dependency Stack before deleting the fresh Project root and records
+an `instance.cleanup` receipt. The background cleanup worker sweeps expired
+task-owned instances after their runs leave the active states. Manual instances
+and session-owned instances stay explicit operator/session actions.
+
 Agents and review surfaces should use the work-surface payload instead of
 guessing from cwd. `list_agent_capabilities().project.work_surface` reports the
 current channel/session/task root, and Project run rows expose the run's
@@ -207,6 +215,12 @@ repo, branch, and PR handoff while adding reviewer feedback, parent/root task
 lineage, and prior evidence context to the new task prompt. Follow-up agents
 should update the same branch/PR, rerun relevant tests or screenshots, and
 publish a new Project run receipt.
+
+The run detail page exposes the same recovery state used by agents: whether a
+run can be continued, why recovery is blocked, and the latest follow-up task
+when one already exists. Use that page for human review and
+`get_project_coding_run_details` when an agent needs to answer "what happened
+with the latest run?" in chat.
 
 Review sessions use the `workspace/project_coding_runs` runtime skill and should
 call `get_project_coding_run_review_context` before finalizing selected runs.

@@ -1,11 +1,12 @@
-import { AlertTriangle, CheckCircle2, ExternalLink, FileText, GitBranch, GitMerge, ListChecks, Monitor, ServerCog, TerminalSquare } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ExternalLink, FileText, GitBranch, GitMerge, ListChecks, MessageSquarePlus, Monitor, ServerCog, TerminalSquare } from "lucide-react";
 import type React from "react";
+import { useState } from "react";
 import { useParams } from "react-router-dom";
 
-import { useProject, useProjectCodingRun } from "@/src/api/hooks/useProjects";
+import { useContinueProjectCodingRun, useProject, useProjectCodingRun } from "@/src/api/hooks/useProjects";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { Section } from "@/src/components/shared/FormControls";
-import { EmptyState, SettingsControlRow, StatusBadge } from "@/src/components/shared/SettingsControls";
+import { ActionButton, EmptyState, SettingsControlRow, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { Spinner } from "@/src/components/shared/Spinner";
 import type { ProjectCodingRun } from "@/src/types/api";
 import { formatRunTime, RowLink, statusTone } from "../../ProjectRunControls";
@@ -125,10 +126,28 @@ function workSurfaceLine(run: ProjectCodingRun) {
   return surface.blocker || pieces.join(" · ") || "No work-surface details reported";
 }
 
+function recoveryTitle(run: ProjectCodingRun) {
+  if (run.review?.recovery?.can_continue || run.review?.actions?.can_continue) return "Follow-up run available";
+  if (run.review?.reviewed) return "Recovery closed";
+  if (run.review?.recovery?.blocker) return "Recovery blocked";
+  return "Recovery status";
+}
+
+function recoveryLine(run: ProjectCodingRun) {
+  const recovery = run.review?.recovery;
+  if (recovery?.blocker) return recovery.blocker;
+  if (run.latest_continuation?.task_id || recovery?.latest_continuation_id) return "A follow-up run has already been created from this run.";
+  if (run.review?.actions?.can_continue || recovery?.can_continue) return "Create a follow-up run with reviewer feedback, preserving the original branch/repo/runtime context.";
+  return "No recovery action is currently available for this run.";
+}
+
 export default function ProjectRunDetail() {
   const { projectId, taskId } = useParams<{ projectId: string; taskId: string }>();
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const { data: run, isLoading: runLoading, error } = useProjectCodingRun(projectId, taskId);
+  const continueRun = useContinueProjectCodingRun(projectId);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [createdFollowUp, setCreatedFollowUp] = useState<ProjectCodingRun | null>(null);
 
   if (projectLoading || runLoading) {
     return <div className="flex flex-1 items-center justify-center bg-surface"><Spinner /></div>;
@@ -153,6 +172,22 @@ export default function ProjectRunDetail() {
   const screenshots = receipt?.screenshots ?? [];
   const devTargets = run.dev_targets?.length ? run.dev_targets : receipt?.dev_targets ?? [];
   const dependencyInstance = run.dependency_stack?.instance;
+  const suggestedFeedback = run.review?.recovery?.suggested_feedback || run.continuation_feedback || "";
+  const followUpFeedback = feedback ?? suggestedFeedback;
+  const canContinue = Boolean(run.review?.actions?.can_continue || run.review?.recovery?.can_continue);
+  const recoveryIcon = canContinue ? <MessageSquarePlus size={14} /> : run.review?.reviewed ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />;
+  const submitFollowUp = () => {
+    if (!canContinue || continueRun.isPending) return;
+    continueRun.mutate(
+      { taskId: run.task.id, feedback: followUpFeedback.trim() },
+      {
+        onSuccess: (created) => {
+          setCreatedFollowUp(created);
+          setFeedback(null);
+        },
+      },
+    );
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-surface">
@@ -203,6 +238,44 @@ export default function ProjectRunDetail() {
                 description={workSurfaceLine(run)}
                 meta={<StatusBadge label={run.work_surface?.isolation || "unknown"} variant={run.work_surface?.active === false ? "warning" : statusTone(run.work_surface?.status || "ready")} />}
               />
+            </div>
+          </Section>
+
+          <Section title="Recovery" description="Start a follow-up implementation run when this run is blocked, failed, stale, or needs changes.">
+            <div className="flex flex-col gap-2">
+              <SettingsControlRow
+                leading={recoveryIcon}
+                title={recoveryTitle(run)}
+                description={recoveryLine(run)}
+                meta={<StatusBadge label={canContinue ? "can continue" : run.review?.reviewed ? "closed" : "blocked"} variant={canContinue ? "info" : "neutral"} />}
+                action={createdFollowUp ? <RowLink to={`/admin/projects/${project.id}/runs/${createdFollowUp.task.id}`}>Open follow-up</RowLink> : run.review?.recovery?.latest_continuation_id ? <RowLink to={`/admin/projects/${project.id}/runs/${run.review.recovery.latest_continuation_id}`}>Latest follow-up</RowLink> : undefined}
+              />
+              {canContinue ? (
+                <div className="rounded-md bg-surface-raised/40 px-3 py-3">
+                  <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">
+                    Follow-up feedback
+                  </label>
+                  <textarea
+                    value={followUpFeedback}
+                    onChange={(event) => setFeedback(event.target.value)}
+                    rows={3}
+                    className="min-h-[84px] w-full resize-y rounded-md border border-input-border bg-input px-3 py-2 text-[13px] text-text outline-none focus:border-accent"
+                    placeholder="Describe exactly what the follow-up agent should fix, verify, or explain..."
+                  />
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate text-[11px] text-text-dim">
+                      {createdFollowUp ? `Created follow-up ${createdFollowUp.task.id}` : "Uses the existing Project coding-run continuation path."}
+                    </span>
+                    <ActionButton
+                      label={continueRun.isPending ? "Starting" : "Start follow-up"}
+                      icon={<MessageSquarePlus size={13} />}
+                      size="small"
+                      disabled={continueRun.isPending}
+                      onPress={submitFollowUp}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
           </Section>
 

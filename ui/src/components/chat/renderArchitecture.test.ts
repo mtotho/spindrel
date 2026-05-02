@@ -447,6 +447,9 @@ test("MessageInput delegates draft files and submit decision policy", () => {
   assert.match(modelControl, /displayHarnessEffort = harnessCurrentEffort \?\? harnessDefaultEffort/);
   assert.match(modelControl, /runtime default/);
   assert.doesNotMatch(modelControl, /effort \{harnessCurrentEffort \?\? "default"\}/);
+  assert.match(readChatFile("useHarnessComposerProps.ts"), /useSessionHarnessStatus/);
+  assert.match(readChatFile("useHarnessComposerProps.ts"), /status\?\.effective_model/);
+  assert.match(readChatFile("useHarnessComposerProps.ts"), /status\?\.effective_effort/);
   assert.match(planControl, /getComposerPlanControlState/);
   assert.match(planControl, /data-testid="composer-plan-mode-control"/);
   assert.match(planControl, /createPortal/);

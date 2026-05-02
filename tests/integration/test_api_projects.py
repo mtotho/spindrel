@@ -332,6 +332,8 @@ class TestProjectsApi:
         assert detail_body["receipt"]["summary"] == "Screenshot diff is fixed and ready for review."
         assert detail_body["receipt"]["changed_files"][0] == "ui/app/(app)/admin/projects/[projectId]/ProjectRunsSection.tsx"
         assert detail_body["review"]["status"] == "ready_for_review"
+        assert detail_body["review"]["actions"]["can_continue"] is True
+        assert detail_body["review"]["recovery"]["can_continue"] is True
 
         from app.agent.context import current_bot_id, current_channel_id
         from app.tools.local.project_run_handoff import get_project_coding_run_details
@@ -368,6 +370,14 @@ class TestProjectsApi:
         assert "Tighten the Runs copy" in followup_task.prompt
         assert followup_task.execution_config["project_coding_run"]["prior_evidence"]["tests_count"] == 1
 
+        parent_after_continuation = await client.get(
+            f"/api/v1/projects/{project_id}/coding-runs/{launched_body['task']['id']}",
+            headers=AUTH_HEADERS,
+        )
+        assert parent_after_continuation.status_code == 200
+        parent_after_continuation_body = parent_after_continuation.json()
+        assert parent_after_continuation_body["review"]["recovery"]["latest_continuation_id"] == continuation_body["task"]["id"]
+
         listed_with_continuation = await client.get(f"/api/v1/projects/{project_id}/coding-runs", headers=AUTH_HEADERS)
         assert listed_with_continuation.status_code == 200
         rows_by_id = {row["id"]: row for row in listed_with_continuation.json()}
@@ -381,6 +391,8 @@ class TestProjectsApi:
         )
         assert reviewed.status_code == 200
         assert reviewed.json()["review"]["status"] == "reviewed"
+        assert reviewed.json()["review"]["actions"]["can_continue"] is False
+        assert reviewed.json()["review"]["recovery"]["blocker"] == "Run is already reviewed."
 
         instance = ProjectInstance(
             id=uuid.uuid4(),

@@ -66,6 +66,10 @@ async def stream_loop_pre_llm_iteration(
         )
         return
 
+    before_tool_names = {
+        (tool.get("function") or {}).get("name")
+        for tool in (tools_param or [])
+    }
     tools_param, tool_choice = merge_activated_tools_fn(
         activated_list,
         tools_param,
@@ -73,6 +77,34 @@ async def stream_loop_pre_llm_iteration(
         effective_allowed,
         iteration=iteration,
     )
+    after_tool_names = [
+        (tool.get("function") or {}).get("name")
+        for tool in (tools_param or [])
+        if (tool.get("function") or {}).get("name")
+    ]
+    activated_new_names = [
+        name for name in after_tool_names
+        if name not in before_tool_names
+    ]
+    if activated_new_names:
+        event = {
+            "type": "tool_surface_update",
+            "reason": "activated_tools",
+            "iteration": iteration + 1,
+            "added_tools": activated_new_names,
+            "tool_count": len(after_tool_names),
+            "tools": after_tool_names,
+        }
+        yield _event_with_compaction_tag(event, ctx.compaction)
+        if ctx.correlation_id is not None:
+            safe_create_task_fn(record_trace_event_fn(
+                correlation_id=ctx.correlation_id,
+                session_id=ctx.session_id,
+                bot_id=ctx.bot.id,
+                client_id=ctx.client_id,
+                event_type="tool_surface_update",
+                data={k: v for k, v in event.items() if k != "type"},
+            ))
 
     logger.debug("--- Iteration %d ---", iteration + 1)
     logger.debug("Calling LLM (%s) with %d messages", model, len(state.messages))

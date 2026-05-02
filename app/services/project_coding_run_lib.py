@@ -685,7 +685,14 @@ def _review_summary(
         and instance.status != "deleted"
         and instance.owner_kind == "task"
         and instance.owner_id == task.id
+        and task.status not in {"pending", "running"}
     )
+    can_continue = task.status not in {"pending", "running"} and not reviewed
+    recovery_blocker = None
+    if task.status in {"pending", "running"}:
+        recovery_blocker = "Run is still active."
+    elif reviewed:
+        recovery_blocker = "Run is already reviewed."
     return {
         "status": review_status,
         "blocker": blocker,
@@ -719,11 +726,18 @@ def _review_summary(
         },
         "evidence": evidence,
         "instance": instance_payload,
+        "recovery": {
+            "can_continue": can_continue,
+            "blocker": recovery_blocker,
+            "suggested_feedback": blocker or review_result.get("summary") or reviewed_result.get("summary") or "",
+            "latest_continuation_id": task.execution_config.get("latest_continuation_task_id") if isinstance(task.execution_config, dict) else None,
+        },
         "actions": {
             "can_refresh": True,
             "can_mark_reviewed": not reviewed and bool(pr_url or receipt is not None),
             "can_cleanup_instance": can_cleanup,
             "can_request_changes": bool(pr_url or receipt is not None),
+            "can_continue": can_continue,
         },
     }
 

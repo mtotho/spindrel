@@ -127,6 +127,32 @@ async def test_activated_tools_are_merged_and_allowed_before_llm_call():
 
 
 @pytest.mark.asyncio
+async def test_activated_tool_surface_update_is_traced():
+    trace_tasks = []
+    new_tool = {"type": "function", "function": {"name": "dynamic_lookup"}}
+
+    def _merge(active, tools, choice, effective_allowed, **kwargs):
+        return (tools or []) + active, "auto"
+
+    outputs, _ = await _collect(
+        ctx=_ctx(correlation_id=uuid4()),
+        tools_param=[{"type": "function", "function": {"name": "get_tool_info"}}],
+        tool_choice="auto",
+        activated_list=[new_tool],
+        effective_allowed={"get_tool_info"},
+        merge_activated_tools_fn=_merge,
+        safe_create_task_fn=trace_tasks.append,
+    )
+
+    update = outputs[0]
+    assert update["type"] == "tool_surface_update"
+    assert update["reason"] == "activated_tools"
+    assert update["added_tools"] == ["dynamic_lookup"]
+    assert update["tools"] == ["get_tool_info", "dynamic_lookup"]
+    assert trace_tasks[0]["event_type"] == "tool_surface_update"
+
+
+@pytest.mark.asyncio
 async def test_heartbeat_soft_budget_prunes_appends_prompt_and_continues_loop():
     trace_tasks = []
 

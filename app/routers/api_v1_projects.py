@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Channel, Project, ProjectBlueprint, ProjectInstance, ProjectRunReceipt, ProjectSecretBinding, ProjectSetupRun, SecretValue, SharedWorkspace, Task
 from app.dependencies import get_db, require_scopes
-from app.services.project_instances import create_project_instance, list_project_instances, project_directory_from_instance
+from app.services.project_instances import cleanup_project_instance, create_project_instance, list_project_instances, project_directory_from_instance, project_instance_cleanup_summary, project_instance_task_status
 from app.services.project_coding_runs import (
     ProjectCodingRunCreate,
     ProjectCodingRunContinue,
@@ -229,6 +229,7 @@ class ProjectInstanceOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     resolved: dict | None = None
+    cleanup: dict = Field(default_factory=dict)
 
     model_config = {"from_attributes": True}
 
@@ -687,9 +688,10 @@ def _setup_run_out(run: ProjectSetupRun) -> ProjectSetupRunOut:
     return ProjectSetupRunOut.model_validate(run)
 
 
-def _instance_out(instance: ProjectInstance) -> ProjectInstanceOut:
+def _instance_out(instance: ProjectInstance, *, cleanup: dict | None = None) -> ProjectInstanceOut:
     out = ProjectInstanceOut.model_validate(instance)
     out.resolved = project_directory_payload(project_directory_from_instance(instance))
+    out.cleanup = cleanup or project_instance_cleanup_summary(instance)
     return out
 
 
@@ -1230,7 +1232,11 @@ async def get_project_instances(
 ):
     if await db.get(Project, project_id) is None:
         raise HTTPException(status_code=404, detail="project not found")
-    return [_instance_out(instance) for instance in await list_project_instances(db, project_id)]
+    rows: list[ProjectInstanceOut] = []
+    for instance in await list_project_instances(db, project_id):
+        task_status = await project_instance_task_status(db, instance)
+        rows.append(_instance_out(instance, cleanup=project_instance_cleanup_summary(instance, task_status=task_status)))
+    return rows
 
 
 @router.post("/{project_id}/instances", response_model=ProjectInstanceOut, status_code=201)
@@ -1256,7 +1262,37 @@ async def create_fresh_project_instance(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return _instance_out(instance)
+    task_status = await project_instance_task_status(db, instance)
+    return _instance_out(instance, cleanup=project_instance_cleanup_summary(instance, task_status=task_status))
+
+
+@router.post("/{project_id}/instances/{instance_id}/cleanup", response_model=ProjectInstanceOut)
+async def cleanup_project_instance_endpoint(
+    project_id: uuid.UUID,
+    instance_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    instance = await db.get(ProjectInstance, instance_id)
+    if instance is None or instance.project_id != project.id:
+        raise HTTPException(status_code=404, detail="project instance not found")
+    try:
+        if instance.owner_kind == "task" and instance.owner_id is not None:
+            await cleanup_project_coding_run_instance(db, project, instance.owner_id)
+            instance = await db.get(ProjectInstance, instance_id)
+        elif instance.owner_kind == "manual":
+            instance = await cleanup_project_instance(db, instance)
+        else:
+            raise ValueError("Only manual and task-owned Project instances can be cleaned up from the Project Instances tab.")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if instance is None:
+        raise HTTPException(status_code=404, detail="project instance not found")
+    task_status = await project_instance_task_status(db, instance)
+    return _instance_out(instance, cleanup=project_instance_cleanup_summary(instance, task_status=task_status))
 
 
 @router.get("/{project_id}/run-receipts", response_model=list[ProjectRunReceiptOut])

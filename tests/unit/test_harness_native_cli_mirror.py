@@ -5,13 +5,17 @@ import uuid
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 
+from app.db.models import Message, Session
 from app.services.agent_harnesses.native_cli_mirror import (
+    _is_native_cli_settings_management_record,
     _claude_project_dir_name,
     _find_claude_transcript,
     _find_codex_transcript,
     _parse_claude_jsonl_record,
     _parse_codex_jsonl_record,
+    _persist_mirrored_record,
     _read_new_records,
     _sync_native_cli_settings,
     _native_cli_settings_patch,
@@ -19,7 +23,6 @@ from app.services.agent_harnesses.native_cli_mirror import (
     NativeCliMirrorRecord,
 )
 from app.services.agent_harnesses.settings import load_session_settings
-from app.db.models import Session
 from tests.factories import build_bot, build_channel
 
 
@@ -206,6 +209,22 @@ def test_native_cli_settings_patch_parses_model_effort_and_clear_commands():
     assert _native_cli_settings_patch("testing 123") == {}
 
 
+def test_native_cli_settings_management_detection():
+    assert _is_native_cli_settings_management_record(
+        NativeCliMirrorRecord(key="codex:model", role="user", content="/model gpt-5.4-mini")
+    )
+    assert _is_native_cli_settings_management_record(
+        NativeCliMirrorRecord(
+            key="codex:model-ack",
+            role="assistant",
+            content="Using `gpt-5.4-mini` for this turn.",
+        )
+    )
+    assert not _is_native_cli_settings_management_record(
+        NativeCliMirrorRecord(key="codex:normal", role="assistant", content="Done.")
+    )
+
+
 @pytest.mark.asyncio
 async def test_native_cli_model_and_effort_commands_sync_session_settings(db_session):
     bot = build_bot(id="native-cli-settings-bot", name="Harness", model="unused")
@@ -273,3 +292,76 @@ async def test_native_cli_model_default_command_clears_session_model(db_session)
     settings = await load_session_settings(db_session, session.id)
     assert settings.model is None
     assert settings.effort == "medium"
+
+
+@pytest.mark.asyncio
+async def test_persist_mirrored_record_skips_duplicate_record_keys(db_session, tmp_path: Path):
+    bot = build_bot(id="native-cli-dedupe-bot", name="Harness", model="unused")
+    channel = build_channel(bot_id=bot.id)
+    session = Session(
+        client_id="native-cli-dedupe-session",
+        bot_id=bot.id,
+        channel_id=channel.id,
+    )
+    db_session.add_all([bot, channel, session])
+    await db_session.commit()
+
+    record = NativeCliMirrorRecord(key="codex:record-1", role="assistant", content="First result")
+    for _ in range(2):
+        await _persist_mirrored_record(
+            spindrel_session_id=session.id,
+            bot_id=bot.id,
+            channel_id=channel.id,
+            runtime_name="codex",
+            native_session_id=None,
+            transcript_path=tmp_path / "rollout.jsonl",
+            record=record,
+        )
+
+    rows = (
+        await db_session.scalars(
+            select(Message).where(Message.session_id == session.id).order_by(Message.created_at)
+        )
+    ).all()
+    assert [row.content for row in rows] == ["First result"]
+
+
+@pytest.mark.asyncio
+async def test_persist_mirrored_record_syncs_settings_without_chat_noise(db_session, tmp_path: Path):
+    bot = build_bot(id="native-cli-settings-noise-bot", name="Harness", model="unused")
+    channel = build_channel(bot_id=bot.id)
+    session = Session(
+        client_id="native-cli-settings-noise-session",
+        bot_id=bot.id,
+        channel_id=channel.id,
+    )
+    db_session.add_all([bot, channel, session])
+    await db_session.commit()
+
+    await _persist_mirrored_record(
+        spindrel_session_id=session.id,
+        bot_id=bot.id,
+        channel_id=channel.id,
+        runtime_name="codex",
+        native_session_id=None,
+        transcript_path=tmp_path / "rollout.jsonl",
+        record=NativeCliMirrorRecord(key="codex:model", role="user", content="/model gpt-5.4-mini"),
+    )
+    await _persist_mirrored_record(
+        spindrel_session_id=session.id,
+        bot_id=bot.id,
+        channel_id=channel.id,
+        runtime_name="codex",
+        native_session_id=None,
+        transcript_path=tmp_path / "rollout.jsonl",
+        record=NativeCliMirrorRecord(
+            key="codex:model-ack",
+            role="assistant",
+            content="Using `gpt-5.4-mini` for this turn.",
+        ),
+    )
+
+    rows = (await db_session.scalars(select(Message).where(Message.session_id == session.id))).all()
+    settings = await load_session_settings(db_session, session.id)
+    assert rows == []
+    assert settings.model == "gpt-5.4-mini"
