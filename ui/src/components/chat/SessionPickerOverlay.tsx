@@ -378,7 +378,7 @@ export function SessionPickerOverlay({
             }}
             placeholder={
               pickerMode === "split"
-                ? "Search session to split..."
+                ? "Search a session to split..."
                 : "Search or pick a session..."
             }
             className="min-w-0 flex-1 bg-transparent text-[15px] text-text outline-none placeholder:text-text-dim"
@@ -395,7 +395,7 @@ export function SessionPickerOverlay({
         <div className="flex items-center justify-between gap-2 px-4 pb-2">
           <div className="min-w-0 text-[12px] text-text-dim">
             {pickerMode === "split"
-              ? `Add split${channelLabel ? ` in #${channelLabel}` : ""}`
+              ? `Pick a session to open as a split${channelLabel ? ` in #${channelLabel}` : ""}`
               : query.trim()
                 ? `Search results${channelLabel ? ` in #${channelLabel}` : ""}`
                 : `Showing recent sessions${channelLabel ? ` in #${channelLabel}` : ""}`}
@@ -412,7 +412,7 @@ export function SessionPickerOverlay({
                 className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
               >
                 <Columns2 size={13} />
-                {pickerMode === "split" ? "Switch mode" : "Add split"}
+                {pickerMode === "split" ? "Pick to switch" : "Pick to split"}
               </button>
             )}
             <button
@@ -665,8 +665,8 @@ export function SessionPickerOverlay({
           {entries[activeIndex] && (
             <div className="px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[11px] text-text-dim">
               {pickerMode === "split"
-                ? `Enter adds split · Esc closes · ${switchSessionsShortcut} toggles`
-                : `Enter switches · Cmd/Ctrl+Enter splits · ${switchSessionsShortcut} toggles`}
+                ? `Split mode: picking a session opens it beside this chat · Esc closes · ${switchSessionsShortcut} toggles`
+                : `Switch mode: picking a session replaces this chat · Cmd/Ctrl+Enter splits · ${switchSessionsShortcut} toggles`}
             </div>
           )}
           {deepSearchLoading && query.trim().length >= 2 && (

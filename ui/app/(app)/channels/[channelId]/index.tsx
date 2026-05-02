@@ -166,9 +166,11 @@ function PanelEdgeCollapseHandle({ onCollapse }: { onCollapse: () => void }) {
       aria-label="Collapse workbench panel"
       title="Collapse workbench"
       onClick={onCollapse}
-      className="absolute right-[-9px] top-3 z-[36] flex h-10 w-4 items-center justify-center rounded-full border border-surface-border/60 bg-surface-raised/95 text-text-dim shadow-lg shadow-black/20 transition-colors hover:bg-surface-overlay hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+      className="group absolute right-0 top-0 z-[36] flex h-full w-3 translate-x-1/2 items-start justify-center pt-3 text-text-dim/55 transition-colors hover:text-text focus-visible:outline-none"
     >
-      <ChevronLeft size={13} />
+      <span className="flex h-9 w-3 items-center justify-center rounded-r-md border border-l-0 border-surface-border/45 bg-surface/95 opacity-70 shadow-sm shadow-black/10 transition-colors group-hover:border-surface-border group-hover:bg-surface-raised group-hover:opacity-100 group-focus-visible:ring-2 group-focus-visible:ring-accent/60">
+        <ChevronLeft size={11} />
+      </span>
     </button>
   );
 }
@@ -458,8 +460,10 @@ export default function ChatScreen() {
     [threadSummaries, invertedData, channel?.bot_id],
   );
 
-  const scratchSessionState = useChatStore((s) =>
-    scratchUrlSessionId ? s.getChannel(scratchUrlSessionId) : null,
+  // Narrow read: only consume contextBudget so per-token text_deltas (which
+  // mutate `turns[*]` but not `contextBudget`) don't re-render the parent.
+  const scratchSessionContextBudget = useChatStore((s) =>
+    scratchUrlSessionId ? s.getChannel(scratchUrlSessionId).contextBudget : null,
   );
   // Narrow read: contextBudget changes episodically, NOT on text-deltas.
   // Reference equality on the budget object short-circuits per-token re-renders
@@ -491,7 +495,7 @@ export default function ChatScreen() {
 
   const effectiveContextBudget = (
     currentBudgetSessionId
-      ? scratchSessionState?.contextBudget
+      ? scratchSessionContextBudget
       : primaryContextBudget
   ) ?? (
     savedBudget?.utilization != null ? {
@@ -838,11 +842,13 @@ export default function ChatScreen() {
     channelHeaderChromeMode !== "canvas" ? channelId : undefined,
     headerBudgetSessionId,
   );
-  const headerPaneChatState = useChatStore((s) =>
-    headerBudgetSessionId ? s.getChannel(headerBudgetSessionId) : null,
+  // Narrow read: same reason as scratchSessionContextBudget above — avoid
+  // bubbling per-token text_deltas through to the parent.
+  const headerPaneContextBudget = useChatStore((s) =>
+    headerBudgetSessionId ? s.getChannel(headerBudgetSessionId).contextBudget : null,
   );
   const headerContextBudget = channelHeaderChromeMode !== "canvas"
-    ? (headerBudgetSessionId ? headerPaneChatState?.contextBudget : primaryContextBudget) ?? (
+    ? (headerBudgetSessionId ? headerPaneContextBudget : primaryContextBudget) ?? (
         headerSavedBudget?.utilization != null ? {
           utilization: headerSavedBudget.utilization,
           consumed: headerSavedBudget.consumed_tokens ?? 0,

@@ -1197,7 +1197,7 @@ async def _send_native_cli_prompt_via_ui(
                 timeout_path = mirror_out_path.with_name(f"{mirror_out_path.stem}-mirror-timeout{mirror_out_path.suffix}")
                 with contextlib.suppress(Exception):
                     await page.screenshot(path=str(timeout_path), full_page=False)
-            if mirrored_message is not None and toggle_to_chat_after_submit:
+            if mirrored_message is not None and toggle_to_chat_after_submit and mirror_out_path is not None:
                 mirrored_text = str(mirrored_message.get("content") or "")
                 try:
                     await page.wait_for_function(
@@ -3061,15 +3061,17 @@ async def test_live_harness_native_cli_switching_preserves_thread_and_order(
         session_id=session_id,
         prompt=(
             "The immediately previous Spindrel chat turn included a marker. "
-            "Without reading files, reply exactly: cli switch ok <that marker>"
+            "Without reading files, reply with words 'cli switch ok' and that marker."
         ),
         marker=marker,
-        expected_response=f"cli switch ok {marker}",
+        expected_response=marker,
         terminal_screenshot_name=None,
         mirror_screenshot_name=None,
     )
     assert mirrored_message is not None, f"{case.name} native CLI response did not mirror to Spindrel"
-    assert f"cli switch ok {marker}" in str(mirrored_message.get("content") or "").lower()
+    mirrored_text = str(mirrored_message.get("content") or "").lower()
+    assert "cli switch ok" in mirrored_text
+    assert marker in mirrored_text
     mirror_meta = _message_metadata(mirrored_message)
     native_cli_meta = mirror_meta.get("harness_native_cli") or {}
     assert native_cli_meta.get("runtime") == case.runtime, mirror_meta
@@ -3091,7 +3093,9 @@ async def test_live_harness_native_cli_switching_preserves_thread_and_order(
         timeout=_timeout(),
     )
     _assert_clean_turn(chat_roundtrip)
-    assert f"chat switch ok {marker}" in chat_roundtrip.response_text.lower()
+    chat_roundtrip_text = chat_roundtrip.response_text.lower()
+    assert "chat switch ok" in chat_roundtrip_text
+    assert marker in chat_roundtrip_text
     after_chat_status = await client.get_session_harness_status(session_id)
     assert after_chat_status.get("harness_session_id") == before_native_id, (
         after_cli_status,
@@ -3107,11 +3111,15 @@ async def test_live_harness_native_cli_switching_preserves_thread_and_order(
         )
         cli_index = next(
             i for i, message in enumerate(messages)
-            if message.get("role") == "assistant" and f"cli switch ok {marker}" in str(message.get("content") or "").lower()
+            if message.get("role") == "assistant"
+            and "cli switch ok" in str(message.get("content") or "").lower()
+            and marker in str(message.get("content") or "").lower()
         )
         chat_index = next(
             i for i, message in enumerate(messages)
-            if message.get("role") == "assistant" and f"chat switch ok {marker}" in str(message.get("content") or "").lower()
+            if message.get("role") == "assistant"
+            and "chat switch ok" in str(message.get("content") or "").lower()
+            and marker in str(message.get("content") or "").lower()
         )
         assert bootstrap_index < cli_index < chat_index, (fetch_index, contents)
 

@@ -365,6 +365,12 @@ async def load_or_create(
 
 def _format_passive_context(passive_msgs: list[dict]) -> str:
     """Format passive channel messages as a system context block."""
+    from app.security.prompt_sanitize import (
+        is_already_wrapped,
+        is_untrusted_source,
+        wrap_untrusted_content,
+    )
+
     lines = ["[Channel context — ambient messages not directed at the bot]"]
     for m in passive_msgs:
         meta = m.get("_metadata") or {}
@@ -374,6 +380,9 @@ def _format_passive_context(passive_msgs: list[dict]) -> str:
             content = " ".join(
                 p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"
             )
+        source = (meta.get("source") or "").strip().lower()
+        if isinstance(content, str) and content and is_untrusted_source(source) and not is_already_wrapped(content):
+            content = wrap_untrusted_content(content, source=source)
         lines.append(f"  {sender}: {content}")
     return "\n".join(lines)
 
@@ -1378,6 +1387,7 @@ def _strip_metadata_keys(messages: list[dict]) -> list[dict]:
     """
     from app.security.prompt_sanitize import (
         EXTERNAL_UNTRUSTED_SOURCES,
+        is_trusted_human_turn_metadata,
         wrap_untrusted_content,
         is_already_wrapped,
     )
@@ -1390,6 +1400,7 @@ def _strip_metadata_keys(messages: list[dict]) -> list[dict]:
             m.get("role") == "user"
             and source
             and source in EXTERNAL_UNTRUSTED_SOURCES
+            and not is_trusted_human_turn_metadata(meta)
         )
         if needs_wrap:
             content = m.get("content")

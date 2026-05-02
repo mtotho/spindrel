@@ -445,3 +445,33 @@ class TestRunWithFallbackChain:
                     [{"model": "fb"}],
                     make_attempt, make_no_tools, 0,
                 )
+
+    async def test_model_access_auth_error_uses_fallback_chain(self):
+        """Model-specific access denial is a model failure, not a bad-key failure."""
+        resp = MagicMock()
+        resp.status_code = 401
+        resp.headers = {}
+        auth_err = openai.AuthenticationError(
+            message="key not allowed to access model. code=key_model_access_denied",
+            response=resp,
+            body=None,
+        )
+        calls = []
+
+        def make_attempt(m, pid, mp):
+            calls.append(m)
+            if m == "primary":
+                return AsyncMock(side_effect=auth_err)
+            return AsyncMock(return_value=f"ok:{m}")
+
+        def make_no_tools(m, pid, mp):
+            return AsyncMock()
+
+        with self._patched():
+            result = await _run_with_fallback_chain(
+                "primary", None, None, False,
+                [{"model": "fb"}],
+                make_attempt, make_no_tools, 0,
+            )
+        assert result == "ok:fb"
+        assert calls == ["primary", "fb"]

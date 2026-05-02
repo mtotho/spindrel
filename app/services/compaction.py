@@ -262,6 +262,28 @@ def _get_memory_flush_model(bot: BotConfig, channel: Channel | None = None) -> s
     return bot.model
 
 
+def _resolve_provider_for_selected_model(
+    *,
+    model: str,
+    bot: BotConfig,
+    explicit_provider_id: str | None = None,
+) -> str | None:
+    """Resolve provider for an auxiliary model without inheriting blindly.
+
+    Compaction/memory-flush models often differ from the bot's chat model. If
+    the selected model differs, prefer the provider registry for that model and
+    only fall back to the bot provider for the bot's own model or unknown rows.
+    """
+    if explicit_provider_id:
+        return explicit_provider_id
+    from app.services.providers import resolve_provider_for_model
+
+    resolved = resolve_provider_for_model(model)
+    if resolved:
+        return resolved
+    return bot.model_provider_id
+
+
 def _compaction_bus_key(session: Session) -> uuid.UUID:
     return session.channel_id or session.id
 
@@ -574,9 +596,11 @@ async def _run_memory_flush(
         channel.memory_flush_model_provider_id
         or settings.MEMORY_FLUSH_MODEL_PROVIDER_ID
     )
-    if not provider_id:
-        from app.services.providers import resolve_provider_for_model
-        provider_id = resolve_provider_for_model(model) or bot.model_provider_id
+    provider_id = _resolve_provider_for_selected_model(
+        model=model,
+        bot=bot,
+        explicit_provider_id=provider_id,
+    )
 
     logger.info("Running memory flush for channel %s (session %s, model=%s)", channel.id, session_id, model)
 
@@ -677,15 +701,17 @@ def _get_compaction_model(bot: BotConfig, channel: Channel | None = None) -> str
 def _get_compaction_provider(bot: BotConfig, channel: Channel | None = None) -> str | None:
     """Read the stored provider_id for the compaction model.
 
-    Cascade: channel override → bot override → global setting → bot's own provider.
+    Cascade: explicit channel/bot/global provider → provider that owns the
+    selected compaction model → bot's own provider.
     """
+    model = _get_compaction_model(bot, channel)
     if channel and channel.compaction_model_provider_id:
         return channel.compaction_model_provider_id
     if bot.compaction_model_provider_id:
         return bot.compaction_model_provider_id
     if settings.COMPACTION_MODEL_PROVIDER_ID:
         return settings.COMPACTION_MODEL_PROVIDER_ID
-    return bot.model_provider_id
+    return _resolve_provider_for_selected_model(model=model, bot=bot)
 
 
 def _get_compaction_interval(bot: BotConfig, channel: Channel | None = None) -> int:

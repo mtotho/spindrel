@@ -56,14 +56,14 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
       <HistoryModeSection form={form} patch={patch} botHistoryMode={botHistoryMode} onOpenGuide={() => setGuideOpen(true)} />
 
       <Section
-        title="Native Context Policy"
-        description="Controls the prompt diet for normal Spindrel chat turns in this channel. Storage, archival, and harness settings are separate."
+        title="Model Replay Budget"
+        description="Controls how much recent raw chat normal Spindrel turns try to replay into the model. Replay is token-fit and model-scaled; harness agents and scheduled work use separate policies."
         noDivider
         action={<QuietPill label={`effective: ${activeContextPolicy}`} />}
       >
         <FormRow
-          label="Context policy"
-          description="This decides the token budget for raw chat replay. The controls below store archived history or override one specific preload component."
+          label="Replay budget preset"
+          description="Low, Medium, and High choose the token slice for raw conversation replay. This does not decide when older history is archived."
         >
           <SelectInput
             value={(form.native_context_policy ?? "default") as string}
@@ -102,7 +102,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
           </Row>
         )}
         <InfoBanner variant="info">
-          <strong className="text-text">How to read this page:</strong> Context policy controls prompt assembly. Archival settings control how history is saved into sections. Section Index controls the compact history index that can still be shown when raw replay is trimmed.
+          <strong className="text-text">Relationship:</strong> Replay budget answers "what raw recent chat can the model see now?" Archive cadence below answers "when do older messages get summarized into sections?" Section Index is the compact map of archived sections.
         </InfoBanner>
       </Section>
 
@@ -110,19 +110,19 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
       {isFileOrStructured ? (
         <>
         <Section
-          title="Archival Settings"
-          description="Interval is the normal archival cadence, Keep Turns is the recent verbatim floor, and token guards can archive earlier if live history gets too large for the prompt budget."
+          title="Archive / Compaction Cadence"
+          description="Controls when Spindrel writes older conversation into summaries or sections. These settings do not cap normal chat replay; replay is token-budgeted by Model Replay Budget above."
           noDivider
         >
           <div className="text-xs leading-relaxed text-text-dim">
             {effectiveMode === "structured"
-              ? "Structured mode is a legacy compatibility path that archives old turns into searchable sections and tries to retrieve relevant history automatically."
-              : "File mode archives old turns into titled sections the bot can browse on demand with read_conversation_history."}
+              ? "Structured mode is a legacy compatibility path that archives older turns into searchable sections and tries to retrieve relevant history automatically."
+              : "File mode archives older turns into titled sections. Normal chat still replays recent raw turns by token budget; archived sections remain searchable on demand with read_conversation_history."}
           </div>
 
           <Row stack={isMobile}>
             <Col minWidth={isMobile ? 0 : 200}>
-              <FormRow label="Interval (user turns)" description="Normal archival cadence. Lower values create smaller, more frequent sections.">
+              <FormRow label="Archive every (user turns)" description="Normal cadence for creating archived sections. Lower values create smaller, more frequent sections.">
                 <TextInput
                   value={form.compaction_interval?.toString() ?? ""}
                   onChangeText={(v) => { const n = parseInt(v); patch("compaction_interval", isNaN(n) ? undefined : n); }}
@@ -132,7 +132,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
               </FormRow>
             </Col>
             <Col minWidth={isMobile ? 0 : 200}>
-              <FormRow label="Keep Turns" description="Recent turns kept verbatim after each compaction run. Must stay below Interval.">
+              <FormRow label="Keep out of archive" description="Newest user turns excluded from each archive run so they remain raw recent history. Normal chat may replay more raw turns when token budget allows.">
                 <TextInput
                   value={form.compaction_keep_turns?.toString() ?? ""}
                   onChangeText={(v) => { const n = parseInt(v); patch("compaction_keep_turns", isNaN(n) ? undefined : n); }}
@@ -173,7 +173,8 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
               <LlmModelDropdown
                 label="Memory Flush Model"
                 value={form.memory_flush_model ?? ""}
-                onChange={(v) => patch("memory_flush_model", v || undefined)}
+                selectedProviderId={form.memory_flush_model_provider_id ?? undefined}
+                onChange={(v, pid) => { patch("memory_flush_model", v || undefined); patch("memory_flush_model_provider_id", pid ?? undefined); }}
                 placeholder="inherit (bot model)"
                 className="md:max-w-[560px]"
               />
@@ -223,7 +224,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
           )}
         </Section>
 
-        <Section title="Section Index" description="Overrides the section-index part of the native context policy. This is why a lean 4-turn policy can still remember older topics without replaying the chat.">
+        <Section title="Section Index" description="Overrides the section-index part of the replay budget policy. This is why lean replay can still preserve older topic recall without replaying the whole chat.">
           <SectionIndexSettings form={form} patch={patch} channelId={channelId} />
         </Section>
 
@@ -259,7 +260,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
         </Section>
         </>
       ) : (
-        <Section title="Compaction" description="Summary mode keeps a rolling summary plus recent live turns. Interval sets the normal cadence, Keep Turns holds the recent verbatim floor, and token guards can compact earlier when prompt pressure gets high." noDivider>
+        <Section title="Summary Compaction Cadence" description="Controls when summary-mode sessions roll older conversation into the running summary. These settings do not directly cap normal chat replay." noDivider>
           <Toggle
             value={form.context_compaction ?? true}
             onChange={(v) => patch("context_compaction", v)}
@@ -269,7 +270,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
             <>
               <Row stack={isMobile}>
                 <Col minWidth={isMobile ? 0 : 200}>
-                  <FormRow label="Interval (user turns)" description="Normal compaction cadence. Lower values compact sooner and keep live history smaller.">
+                  <FormRow label="Compact every (user turns)" description="Normal cadence for rolling older turns into the summary.">
                     <TextInput
                       value={form.compaction_interval?.toString() ?? ""}
                       onChangeText={(v) => { const n = parseInt(v); patch("compaction_interval", isNaN(n) ? undefined : n); }}
@@ -279,7 +280,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                   </FormRow>
                 </Col>
                 <Col minWidth={isMobile ? 0 : 200}>
-                  <FormRow label="Keep Turns" description="Recent turns kept verbatim after each compaction run. Higher values preserve more raw context but consume more budget.">
+                  <FormRow label="Keep out of summary" description="Newest user turns excluded from each summary pass. Higher values preserve more raw context before summary-mode compaction.">
                     <TextInput
                       value={form.compaction_keep_turns?.toString() ?? ""}
                       onChangeText={(v) => { const n = parseInt(v); patch("compaction_keep_turns", isNaN(n) ? undefined : n); }}
@@ -320,7 +321,8 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                   <LlmModelDropdown
                     label="Memory Flush Model"
                     value={form.memory_flush_model ?? ""}
-                    onChange={(v) => patch("memory_flush_model", v || undefined)}
+                    selectedProviderId={form.memory_flush_model_provider_id ?? undefined}
+                    onChange={(v, pid) => { patch("memory_flush_model", v || undefined); patch("memory_flush_model_provider_id", pid ?? undefined); }}
                     placeholder="inherit (bot model)"
                     className="md:max-w-[560px]"
                   />

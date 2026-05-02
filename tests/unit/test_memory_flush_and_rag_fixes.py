@@ -44,6 +44,7 @@ def _make_channel(**overrides):
     ch.name = overrides.get("name", "test-channel")
     ch.client_id = overrides.get("client_id", "test-client")
     ch.compaction_model = overrides.get("compaction_model", None)
+    ch.compaction_model_provider_id = overrides.get("compaction_model_provider_id", None)
     ch.compaction_interval = overrides.get("compaction_interval", None)
     ch.compaction_keep_turns = overrides.get("compaction_keep_turns", None)
     ch.context_compaction = overrides.get("context_compaction", True)
@@ -550,3 +551,37 @@ class TestRunMemoryFlushProviderId:
                 "When the resolver can't map the model, fall back to the bot's "
                 "native provider rather than passing None."
             )
+
+
+class TestCompactionProviderResolution:
+    def test_resolves_provider_from_selected_compaction_model(self):
+        from app.services import compaction
+
+        bot = _make_bot(
+            model="gpt-5.4",
+            model_provider_id="chatgpt-subscription",
+            compaction_model=None,
+            compaction_model_provider_id=None,
+        )
+        ch = _make_channel(compaction_model="gpt-5.3-codex-spark")
+
+        with patch("app.services.providers.resolve_provider_for_model", return_value="codex-provider") as mock_resolve:
+            provider = compaction._get_compaction_provider(bot, ch)
+
+        mock_resolve.assert_called_once_with("gpt-5.3-codex-spark")
+        assert provider == "codex-provider"
+
+    def test_explicit_compaction_provider_wins(self):
+        from app.services import compaction
+
+        bot = _make_bot(model_provider_id="chatgpt-subscription")
+        ch = _make_channel(
+            compaction_model="gpt-5.3-codex-spark",
+            compaction_model_provider_id="explicit-provider",
+        )
+
+        with patch("app.services.providers.resolve_provider_for_model") as mock_resolve:
+            provider = compaction._get_compaction_provider(bot, ch)
+
+        mock_resolve.assert_not_called()
+        assert provider == "explicit-provider"

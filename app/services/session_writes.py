@@ -186,7 +186,7 @@ def _metadata_for_row(
     if msg.get("_tools_used"):
         meta = {**meta, "tools_used": msg["_tools_used"]}
     if msg.get("_tool_envelopes"):
-        meta = {**meta, "tool_results": msg["_tool_envelopes"]}
+        meta = {**meta, "tool_results": _normalize_tool_result_envelope_ids(msg)}
     if msg.get("_thinking_content"):
         meta = {**meta, "thinking": msg["_thinking_content"]}
     assistant_turn_body = msg.get("_assistant_turn_body")
@@ -243,6 +243,71 @@ def _metadata_for_row(
     if msg.get("_hidden"):
         meta = {**meta, "hidden": True}
     return meta
+
+
+def _normalize_tool_result_envelope_ids(msg: dict) -> list:
+    """Keep result envelopes attached to persisted tool calls after redaction.
+
+    Secret redaction can false-positive on provider-generated tool call IDs,
+    especially Claude ``toolu_*`` IDs. Tool result envelopes are render
+    metadata, so their structural ``tool_call_id`` must match the assistant
+    row's raw ``tool_calls`` IDs when both are present.
+    """
+
+    envelopes = msg.get("_tool_envelopes")
+    if not isinstance(envelopes, list):
+        return envelopes
+
+    candidates: list[str] = []
+    for call in msg.get("tool_calls") or []:
+        if not isinstance(call, dict):
+            continue
+        call_id = call.get("id")
+        if not isinstance(call_id, str) or not call_id:
+            continue
+        if call_id.startswith("auto:"):
+            continue
+        fn = call.get("function") if isinstance(call.get("function"), dict) else {}
+        name = call.get("name") or fn.get("name")
+        if name == "auto-approved":
+            continue
+        candidates.append(call_id)
+
+    if not candidates:
+        return envelopes
+
+    candidate_set = set(candidates)
+    next_candidate_index = 0
+    normalized: list = []
+    changed = False
+
+    for envelope in envelopes:
+        if not isinstance(envelope, dict):
+            normalized.append(envelope)
+            continue
+
+        current_id = envelope.get("tool_call_id")
+        if isinstance(current_id, str) and current_id in candidate_set:
+            normalized.append(envelope)
+            if current_id in candidates[next_candidate_index:]:
+                next_candidate_index = candidates.index(current_id) + 1
+            continue
+
+        if "content_type" not in envelope:
+            normalized.append(envelope)
+            continue
+
+        if next_candidate_index >= len(candidates):
+            normalized.append(envelope)
+            continue
+
+        repaired = dict(envelope)
+        repaired["tool_call_id"] = candidates[next_candidate_index]
+        next_candidate_index += 1
+        normalized.append(repaired)
+        changed = True
+
+    return normalized if changed else envelopes
 
 
 def _extract_delegations(

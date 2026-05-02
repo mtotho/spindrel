@@ -36,6 +36,50 @@ _PROJECT_CONTEXT_MAX_INLINE_CHARS = 12_000
 _PROJECT_CONTEXT_PREVIEW_CHARS = 6_000
 
 
+def _normalize_harness_tool_envelope_ids(
+    tool_calls: list[dict[str, Any]],
+    envelopes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Repair result-envelope IDs from same-turn raw harness tool calls."""
+
+    candidates: list[str] = []
+    for call in tool_calls:
+        call_id = call.get("id") if isinstance(call, dict) else None
+        if not isinstance(call_id, str) or not call_id or call_id.startswith("auto:"):
+            continue
+        fn = call.get("function") if isinstance(call.get("function"), dict) else {}
+        name = call.get("name") or fn.get("name")
+        if name == "auto-approved":
+            continue
+        candidates.append(call_id)
+    if not candidates:
+        return envelopes
+
+    candidate_set = set(candidates)
+    next_candidate_index = 0
+    out: list[dict[str, Any]] = []
+    changed = False
+    for envelope in envelopes:
+        if not isinstance(envelope, dict):
+            out.append(envelope)
+            continue
+        current_id = envelope.get("tool_call_id")
+        if isinstance(current_id, str) and current_id in candidate_set:
+            out.append(envelope)
+            if current_id in candidates[next_candidate_index:]:
+                next_candidate_index = candidates.index(current_id) + 1
+            continue
+        if "content_type" not in envelope or next_candidate_index >= len(candidates):
+            out.append(envelope)
+            continue
+        repaired = dict(envelope)
+        repaired["tool_call_id"] = candidates[next_candidate_index]
+        next_candidate_index += 1
+        out.append(repaired)
+        changed = True
+    return out if changed else envelopes
+
+
 def format_turn_exception(exc: Exception) -> str:
     message = str(exc).strip()
     if not message:
@@ -611,7 +655,10 @@ async def run_harness_turn(
         if persisted_tool_calls:
             cancelled_assistant_msg["tool_calls"] = persisted_tool_calls
             if tool_envelopes:
-                cancelled_assistant_msg["_tool_envelopes"] = tool_envelopes
+                cancelled_assistant_msg["_tool_envelopes"] = _normalize_harness_tool_envelope_ids(
+                    persisted_tool_calls,
+                    tool_envelopes,
+                )
             cancelled_assistant_msg["_tools_used"] = [
                 call["function"]["name"] for call in persisted_tool_calls
             ]
@@ -671,7 +718,10 @@ async def run_harness_turn(
         if persisted_tool_calls:
             error_assistant_msg["tool_calls"] = persisted_tool_calls
             if tool_envelopes:
-                error_assistant_msg["_tool_envelopes"] = tool_envelopes
+                error_assistant_msg["_tool_envelopes"] = _normalize_harness_tool_envelope_ids(
+                    persisted_tool_calls,
+                    tool_envelopes,
+                )
             error_assistant_msg["_tools_used"] = [
                 call["function"]["name"] for call in persisted_tool_calls
             ]
@@ -745,7 +795,10 @@ async def run_harness_turn(
     if persisted_tool_calls:
         assistant_msg["tool_calls"] = persisted_tool_calls
         if tool_envelopes:
-            assistant_msg["_tool_envelopes"] = tool_envelopes
+            assistant_msg["_tool_envelopes"] = _normalize_harness_tool_envelope_ids(
+                persisted_tool_calls,
+                tool_envelopes,
+            )
         assistant_msg["_tools_used"] = [
             call["function"]["name"] for call in persisted_tool_calls
         ]

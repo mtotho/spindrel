@@ -174,6 +174,21 @@ class ChannelEventEmitter:
             return {key: self._redact_value(item) for key, item in value.items()}
         return value
 
+    def _redact_tool_result_envelope(self, envelope: dict | None) -> dict | None:
+        if not envelope:
+            return None
+        redacted = self._redact_value(envelope)
+        if not isinstance(redacted, dict):
+            return None
+        # Structural IDs are used by the UI to attach rich result envelopes to
+        # persisted tool calls. They are not secret payloads and must not be
+        # redacted independently from the matching tool_call entry.
+        for key in ("tool_call_id", "record_id"):
+            value = envelope.get(key)
+            if value is None or isinstance(value, str):
+                redacted[key] = value
+        return redacted
+
     def token(self, delta: str) -> None:
         if not delta:
             return
@@ -280,13 +295,13 @@ class ChannelEventEmitter:
         summary: dict | None = None,
     ) -> None:
         result_summary = self._redact_text(result_summary)
-        redacted_envelope = self._redact_value(envelope) if envelope else None
+        redacted_envelope = self._redact_tool_result_envelope(envelope)
         redacted_summary = self._redact_value(summary) if summary else None
-        if not isinstance(redacted_envelope, dict):
-            redacted_envelope = None
         if not isinstance(redacted_summary, dict):
             redacted_summary = None
         call_id = tool_call_id
+        if redacted_envelope is not None and call_id:
+            redacted_envelope["tool_call_id"] = call_id
         matched = False
         if call_id:
             for entry in reversed(self._tool_entries):

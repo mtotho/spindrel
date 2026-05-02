@@ -190,3 +190,21 @@ class TestHistoryReplayWrap:
         out = _strip_metadata_keys(msgs)
         assert "<untrusted-data" in out[0]["content"]
         assert 'source="slack"' in out[0]["content"]
+
+    def test_active_human_integration_turn_passes_through(self) -> None:
+        msgs = [{
+            "role": "user",
+            "content": "please run the smoke test",
+            "_metadata": {"source": "slack", "sender_type": "human"},
+        }]
+        out = _strip_metadata_keys(msgs)
+        assert out[0]["content"] == "please run the smoke test"
+
+    def test_passive_human_integration_turn_is_wrapped(self) -> None:
+        msgs = [{
+            "role": "user",
+            "content": "ambient channel chatter",
+            "_metadata": {"source": "slack", "sender_type": "human", "passive": True},
+        }]
+        out = _strip_metadata_keys(msgs)
+        assert "<untrusted-data" in out[0]["content"]

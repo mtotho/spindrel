@@ -176,6 +176,45 @@ def test_harness_emitter_persists_rich_tool_result_envelope():
     assert persisted["summary"]["kind"] == "diff"
 
 
+def test_harness_emitter_preserves_tool_result_envelope_structural_ids():
+    _enable_secret("1F9Ks7qZtZ9FXUbuFxotHoe")
+
+    with patch("app.services.agent_harnesses.base.publish_typed"):
+        emitter = ChannelEventEmitter(
+            channel_id=uuid.uuid4(),
+            turn_id=uuid.uuid4(),
+            bot_id="bot",
+            session_id=uuid.uuid4(),
+        )
+        emitter.tool_start(
+            tool_name="list_channels",
+            tool_call_id="toolu_01F9Ks7qZtZ9FXUbuFxotHoe",
+            arguments={},
+        )
+        emitter.tool_result(
+            tool_name="list_channels",
+            tool_call_id="toolu_01F9Ks7qZtZ9FXUbuFxotHoe",
+            result_summary="secret 1F9Ks7qZtZ9FXUbuFxotHoe",
+            envelope={
+                "content_type": "application/json",
+                "body": '{"token":"1F9Ks7qZtZ9FXUbuFxotHoe"}',
+                "plain_body": "1F9Ks7qZtZ9FXUbuFxotHoe",
+                "display": "badge",
+                "truncated": False,
+                "record_id": None,
+                "byte_size": 24,
+                "tool_name": "list_channels",
+                "tool_call_id": "toolu_0[REDACTED]",
+            },
+        )
+
+    envelope = emitter.tool_envelopes()[0]
+    assert envelope["tool_call_id"] == "toolu_01F9Ks7qZtZ9FXUbuFxotHoe"
+    assert envelope["record_id"] is None
+    assert envelope["body"] == '{"token":"[REDACTED]"}'
+    assert envelope["plain_body"] == "[REDACTED]"
+
+
 def test_harness_emitter_synthesizes_missing_tool_start_for_result_only_events():
     events = []
 

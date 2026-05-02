@@ -280,7 +280,6 @@ export function OmniPanel({
               active={activeTab === "notes"}
               onClick={() => setTab("notes")}
               priority="secondary"
-              tone="notes"
             />
           )}
           <WorkbenchNavButton
@@ -359,7 +358,6 @@ function WorkbenchNavButton({
   onClick,
   count,
   priority,
-  tone = "default",
 }: {
   label: string;
   icon?: React.ReactNode;
@@ -367,13 +365,8 @@ function WorkbenchNavButton({
   onClick: () => void;
   count?: number;
   priority: "primary" | "secondary";
-  tone?: "default" | "notes";
 }) {
   const isPrimary = priority === "primary";
-  const inactiveSecondary =
-    tone === "notes"
-      ? "text-emphasis/80 hover:bg-emphasis/[0.08] hover:text-emphasis"
-      : "text-text-dim hover:bg-surface-overlay/45 hover:text-text-muted";
   return (
     <button
       type="button"
@@ -383,10 +376,10 @@ function WorkbenchNavButton({
       className={[
         "relative inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border-0 bg-transparent text-[12px] font-semibold transition-colors",
         active
-          ? "bg-accent/[0.08] text-text before:absolute before:left-0 before:top-1/2 before:h-4 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-accent"
+          ? "bg-surface-overlay/80 text-text"
           : isPrimary
             ? "text-text-muted hover:bg-surface-overlay/60 hover:text-text"
-            : inactiveSecondary,
+            : "text-text-dim hover:bg-surface-overlay/45 hover:text-text-muted",
         isPrimary ? "min-w-[78px] px-2.5" : "min-w-8 px-2",
       ].join(" ")}
       aria-pressed={active}

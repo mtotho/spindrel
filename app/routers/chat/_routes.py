@@ -576,15 +576,18 @@ async def _enqueue_chat_turn(
     _apply_web_user_metadata(req, user)
     prepared = await _prepare_chat_input(req)
 
-    # Wrap third-party-controlled inbound message bodies (Slack/Discord/etc) in
-    # <untrusted-data> before they flow into LLM context. ``_apply_web_user_metadata``
-    # already stamped ``source = "web"`` for authenticated operator turns, so this
-    # check passes those through unwrapped. Effect: stored Message body for an
-    # external-source turn now carries the wrap marker (visible operator signal),
-    # but no content is dropped.
-    from app.security.prompt_sanitize import is_untrusted_source, wrap_untrusted_content
-    _src = (req.msg_metadata or {}).get("source")
-    if is_untrusted_source(_src) and prepared.message:
+    # Wrap passive/webhook/environment-sourced inbound bodies before they flow
+    # into LLM context. Active human integration turns (Slack/Discord/etc.)
+    # remain normal user turns; the integration source is transport metadata,
+    # not an instruction to demote the human's request to environment data.
+    from app.security.prompt_sanitize import (
+        is_trusted_human_turn_metadata,
+        is_untrusted_source,
+        wrap_untrusted_content,
+    )
+    _meta = req.msg_metadata or {}
+    _src = _meta.get("source")
+    if is_untrusted_source(_src) and prepared.message and not is_trusted_human_turn_metadata(_meta):
         prepared.message = wrap_untrusted_content(prepared.message, source=str(_src))
 
     sub_session_response = await _maybe_enqueue_sub_session_chat(

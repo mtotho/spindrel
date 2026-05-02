@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useMatch, useNavigate, useSearchParams } from "react-router-dom";
 import { FolderOpen, MessageCircle, Plus } from "lucide-react";
 import {
   useChannelSessionCatalog,
@@ -29,6 +29,10 @@ export function SessionsTabPanel({
   onActivateSurface,
 }: SessionsTabPanelProps) {
   const navigate = useNavigate();
+  const routeSessionMatch = useMatch("/channels/:channelId/session/:sessionId");
+  const routeSessionId = routeSessionMatch?.params.sessionId ?? null;
+  const [searchParams] = useSearchParams();
+  const routeIsScratch = searchParams.get("scratch") === "true";
   const { data: catalog, isLoading } = useChannelSessionCatalog(channelId);
   const resetScratch = useResetScratchSession();
   const { data: projectChannels } = useProjectChannels(project?.id);
@@ -81,28 +85,19 @@ export function SessionsTabPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
-      <div className="flex items-center gap-2 px-3 py-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <MessageCircle size={15} className="text-emphasis" />
-          <div className="min-w-0">
-            <div className="truncate text-[13px] font-medium text-text">Sessions</div>
-            <div className="truncate text-[11px] text-text-dim">
-              {channelLabel ? `In #${channelLabel}` : "Channel sessions"}
-            </div>
-          </div>
-        </div>
+      <div className="px-3 pb-2 pt-2">
         <button
           type="button"
           onClick={handleCreate}
           disabled={!botId || resetScratch.isPending}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[12px] text-accent hover:bg-surface-overlay disabled:opacity-40"
+          className="inline-flex h-8 w-full items-center justify-start gap-1.5 rounded-md bg-surface-raised/55 px-2.5 text-[12px] font-medium text-accent transition-colors hover:bg-surface-overlay disabled:opacity-40"
         >
           <Plus size={14} />
-          New
+          New session
         </button>
       </div>
 
-      <div className="scroll-subtle min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+      <div className="scroll-subtle min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-0.5">
         {project && (
           <section className="mb-4 flex flex-col gap-2">
             <div className="flex items-baseline gap-2 px-1">
@@ -144,6 +139,7 @@ export function SessionsTabPanel({
             <SessionRow
               row={primaryRow}
               isPrimary
+              isCurrent={!routeSessionId && primaryRow.is_current}
               label={channelLabel ?? "Main chat"}
               onClick={() => activate({ kind: "primary" })}
             />
@@ -152,6 +148,11 @@ export function SessionsTabPanel({
             <SessionRow
               key={row.session_id}
               row={row}
+              isCurrent={
+                routeSessionId
+                  ? row.session_id === routeSessionId && !routeIsScratch
+                  : row.is_current
+              }
               onClick={() =>
                 activate({ kind: "channel", sessionId: row.session_id })
               }
@@ -161,6 +162,11 @@ export function SessionsTabPanel({
             <SessionRow
               key={row.session_id}
               row={row}
+              isCurrent={
+                routeSessionId
+                  ? row.session_id === routeSessionId && routeIsScratch
+                  : row.is_current
+              }
               onClick={() =>
                 activate({ kind: "scratch", sessionId: row.session_id })
               }
@@ -193,37 +199,40 @@ export function SessionsTabPanel({
 function SessionRow({
   row,
   isPrimary = false,
+  isCurrent,
   label,
   onClick,
 }: {
   row: ChannelSessionCatalogItem;
   isPrimary?: boolean;
+  isCurrent: boolean;
   label?: string;
   onClick: () => void;
 }) {
   const title = label ?? ((row.label?.trim() || (isPrimary ? "Main chat" : "Untitled session")));
   const meta = getChannelSessionMeta(row);
+  const detailLine = row.preview ? `${meta} · ${row.preview}` : meta;
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`relative mx-1 rounded-md px-2.5 py-2 text-left transition-colors ${
-        row.is_current
+      className={`relative mx-1 rounded-md px-3 py-2.5 text-left transition-colors ${
+        isCurrent
           ? "bg-accent/[0.08] text-text before:absolute before:left-0 before:top-1/2 before:h-4 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-accent"
           : "bg-surface-raised/70 text-text hover:bg-surface-overlay/55"
       }`}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-start gap-2.5">
         <div
-          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
+          className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${
             isPrimary ? "bg-accent/[0.08] text-accent" : "bg-surface-overlay/65 text-text-dim"
           }`}
         >
-          <MessageCircle size={12} />
+          <MessageCircle size={13} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 truncate text-[13px] font-medium leading-5">
               {title}
             </span>
             {isPrimary && (
@@ -231,15 +240,10 @@ function SessionRow({
                 Primary
               </span>
             )}
-            <span className="max-w-[120px] shrink-0 truncate text-[10px] text-text-dim">
-              {meta}
-            </span>
           </div>
-          {row.preview && (
-            <div className="mt-0.5 truncate text-[11px] text-text-muted">
-              {row.preview}
-            </div>
-          )}
+          <div className="mt-0.5 truncate text-[11px] leading-4 text-text-muted">
+            {detailLine}
+          </div>
         </div>
       </div>
     </button>

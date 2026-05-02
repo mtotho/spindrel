@@ -211,3 +211,73 @@ async def test_persist_turn_matches_tool_envelopes_by_tool_call_id_before_positi
         "target_label": "Web search",
     }
     assert row.metadata_["tool_results"][0]["tool_call_id"] == "call_search"
+
+
+@pytest.mark.asyncio
+async def test_persist_turn_repairs_redacted_tool_result_ids_from_tool_calls(db_session, bot):
+    sid = uuid.uuid4()
+    db_session.add(Session(id=sid, client_id="c1", bot_id=bot.id))
+    await db_session.commit()
+
+    raw_id = "toolu_016dAm8mvA8hFZAbpDiNdMBk"
+    messages = [
+        {"role": "user", "content": "run the selected bridge tool"},
+        {
+            "role": "assistant",
+            "content": "Done.",
+            "tool_calls": [
+                {
+                    "id": raw_id,
+                    "type": "function",
+                    "function": {
+                        "name": "spindrel__manage_task",
+                        "arguments": "{\"action\":\"status\"}",
+                    },
+                },
+                {
+                    "id": f"auto:{raw_id}",
+                    "type": "function",
+                    "function": {
+                        "name": "auto-approved",
+                        "arguments": "{}",
+                    },
+                    "name": "auto-approved",
+                },
+            ],
+            "_tool_envelopes": [
+                {
+                    "tool_call_id": "toolu_0[REDACTED]6dAm8mvA8hFZAbpDiNdMBk",
+                    "content_type": "application/json",
+                    "body": "{\"ok\":true}",
+                    "plain_body": "Task status loaded",
+                    "display": "inline",
+                    "truncated": False,
+                    "record_id": None,
+                    "byte_size": 11,
+                },
+            ],
+        },
+    ]
+
+    with patch("app.services.sessions.get_bot", return_value=bot):
+        await persist_turn(
+            db_session,
+            session_id=sid,
+            bot=bot,
+            messages=messages,
+            from_index=0,
+        )
+
+    from sqlalchemy import select
+
+    row = (
+        await db_session.execute(
+            select(Message).where(
+                Message.session_id == sid,
+                Message.role == "assistant",
+            )
+        )
+    ).scalar_one()
+
+    assert row.tool_calls[0]["id"] == raw_id
+    assert row.metadata_["tool_results"][0]["tool_call_id"] == raw_id

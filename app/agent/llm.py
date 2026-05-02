@@ -626,6 +626,23 @@ _RETRYABLE_ERRORS = (
 _FALLBACK_TRIGGER_ERRORS = (*_RETRYABLE_ERRORS, openai.BadRequestError)
 
 
+def _is_model_access_denied_error(exc: Exception) -> bool:
+    """Return True for auth errors that mean "this key cannot use this model".
+
+    A bad API key should remain terminal. A provider key that is valid but not
+    allowed to access one model should enter the fallback chain, the same way a
+    model-specific BadRequest does.
+    """
+    if not isinstance(exc, openai.AuthenticationError):
+        return False
+    text = str(exc).lower()
+    return (
+        "key_model_access_denied" in text
+        or "key not allowed to access model" in text
+        or "does not have access to model" in text
+    )
+
+
 # ---------------------------------------------------------------------------
 # Shared retry engine
 # ---------------------------------------------------------------------------
@@ -879,7 +896,9 @@ async def _run_with_fallback_chain(
                 retry_without_tools_fn=make_no_tools_fn(model, provider_id, model_params),
                 retry_without_images_fn=_no_img,
             )
-        except _FALLBACK_TRIGGER_ERRORS as exc:
+        except Exception as exc:
+            if not isinstance(exc, _FALLBACK_TRIGGER_ERRORS) and not _is_model_access_denied_error(exc):
+                raise
             primary_exc = exc
 
     # --- Fallback chain ---
@@ -924,7 +943,9 @@ async def _run_with_fallback_chain(
             ))
             set_model_cooldown(model, fb_model, fb_provider)
             return result
-        except _FALLBACK_TRIGGER_ERRORS as fb_exc:
+        except Exception as fb_exc:
+            if not isinstance(fb_exc, _FALLBACK_TRIGGER_ERRORS) and not _is_model_access_denied_error(fb_exc):
+                raise
             last_exc = fb_exc
             continue
 

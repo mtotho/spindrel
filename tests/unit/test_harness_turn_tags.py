@@ -4,7 +4,10 @@ from types import SimpleNamespace
 import pytest
 
 from app.services.turn_worker import _parse_harness_explicit_tags, _run_harness_branch_if_needed
-from app.services.agent_harnesses.turn_host import _build_harness_input_manifest
+from app.services.agent_harnesses.turn_host import (
+    _build_harness_input_manifest,
+    _normalize_harness_tool_envelope_ids,
+)
 
 
 def test_parse_harness_explicit_tags_extracts_unique_tools_and_skills():
@@ -83,6 +86,34 @@ def test_harness_input_manifest_keeps_inline_and_workspace_images(monkeypatch, t
     assert manifest.attachments[1].source == "channel_workspace"
     assert manifest.attachments[1].path == str(upload)
     assert "AAA" not in str(manifest.metadata())
+
+
+def test_harness_tool_envelope_id_repair_uses_raw_provider_tool_call():
+    raw_id = "toolu_01RUqTSr9wgVBAyc2oZWrvbJ"
+
+    envelopes = _normalize_harness_tool_envelope_ids(
+        [
+            {
+                "id": raw_id,
+                "name": "mcp__spindrel__list_channels",
+                "function": {"name": "mcp__spindrel__list_channels"},
+            },
+            {
+                "id": f"auto:{raw_id}",
+                "name": "auto-approved",
+                "function": {"name": "auto-approved"},
+            },
+        ],
+        [
+            {
+                "tool_call_id": "toolu_0[REDACTED]RUqTSr9wgVBAyc2oZWrvbJ",
+                "content_type": "application/json",
+                "body": "{}",
+            }
+        ],
+    )
+
+    assert envelopes[0]["tool_call_id"] == raw_id
 
 
 @pytest.mark.asyncio

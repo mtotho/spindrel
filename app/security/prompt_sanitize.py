@@ -122,6 +122,26 @@ def is_untrusted_source(source: str | None) -> bool:
     return source.strip().lower() in EXTERNAL_UNTRUSTED_SOURCES
 
 
+def is_trusted_human_turn_metadata(metadata: dict | None) -> bool:
+    """Return True for active human-authored chat turns.
+
+    Slack/Discord/BlueBubbles/Wyoming etc. are transport sources, not trust
+    levels. A message from an authenticated human that actively triggers the
+    bot is user intent and must remain a normal user turn. Passive ambient
+    messages, bot relays, webhooks, and tool/RAG content still stay in the
+    untrusted-data boundary.
+    """
+    if not isinstance(metadata, dict):
+        return False
+    if metadata.get("passive"):
+        return False
+    if str(metadata.get("sender_type") or "").strip().lower() != "human":
+        return False
+    if str(metadata.get("llm_trust") or "").strip().lower() == "untrusted":
+        return False
+    return True
+
+
 def wrap_external_message_for_llm(content: str, source: str | None) -> str:
     """Wrap a message body with <untrusted-data> when its source is third-party.
 
