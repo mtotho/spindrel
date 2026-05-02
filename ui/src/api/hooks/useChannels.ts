@@ -514,6 +514,7 @@ export interface ChannelNoteSummary {
   slug: string;
   path: string;
   workspace_path?: string;
+  tool_path?: string;
   title: string;
   summary: string;
   excerpt: string;

@@ -103,6 +103,42 @@ export function SessionsTabPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        {project && (
+          <section className="mb-4 flex flex-col gap-2">
+            <div className="flex items-baseline gap-2 px-1">
+              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-text-dim">
+                In project
+              </h3>
+              <span className="truncate text-[10px] text-text-muted">
+                {project.name}
+              </span>
+            </div>
+            {siblings.length === 0 ? (
+              <div className="mx-1 rounded-md border border-dashed border-surface-border bg-surface-raised/40 px-3 py-4 text-center text-[11px] text-text-muted">
+                No other channels in this project yet.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {siblings.map((sibling) => (
+                  <button
+                    key={sibling.id}
+                    type="button"
+                    onClick={() =>
+                      navigate(`/channels/${encodeURIComponent(sibling.id)}`)
+                    }
+                    className="mx-1 flex items-center gap-2 rounded-md bg-surface-raised/70 px-3 py-2 text-left transition-colors hover:bg-surface-overlay/55"
+                  >
+                    <FolderOpen size={13} className="shrink-0 text-text-dim" />
+                    <span className="min-w-0 flex-1 truncate text-[12px] text-text">
+                      {sibling.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
         <div className="flex flex-col gap-1.5">
           {primaryRow && (
             <SessionRow
@@ -149,42 +185,6 @@ export function SessionsTabPanel({
               </div>
             )}
         </div>
-
-        {project && (
-          <section className="mt-5 flex flex-col gap-2">
-            <div className="flex items-baseline gap-2 px-1">
-              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-text-dim">
-                In project
-              </h3>
-              <span className="truncate text-[10px] text-text-muted">
-                {project.name}
-              </span>
-            </div>
-            {siblings.length === 0 ? (
-              <div className="mx-1 rounded-md border border-dashed border-surface-border bg-surface-raised/40 px-3 py-4 text-center text-[11px] text-text-muted">
-                No other channels in this project yet.
-              </div>
-            ) : (
-              <div className="flex flex-col gap-1">
-                {siblings.map((sibling) => (
-                  <button
-                    key={sibling.id}
-                    type="button"
-                    onClick={() =>
-                      navigate(`/channels/${encodeURIComponent(sibling.id)}`)
-                    }
-                    className="mx-1 flex items-center gap-2 rounded-md bg-surface-raised/70 px-3 py-2 text-left transition-colors hover:bg-surface-overlay/55"
-                  >
-                    <FolderOpen size={13} className="shrink-0 text-text-dim" />
-                    <span className="min-w-0 flex-1 truncate text-[12px] text-text">
-                      {sibling.name}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
       </div>
     </div>
   );

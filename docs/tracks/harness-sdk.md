@@ -139,7 +139,6 @@ Open verification:
 - Exercise a mutating bridged tool in ask mode and verify the existing Spindrel approval card flow resolves back into the harness tool result.
 - Decide whether scheduled harness turns should target only the primary session forever or fan out to recently active scratch/split sessions when a channel has no obvious primary human context.
 - Keep improving native context telemetry. Claude Code now has a best-effort context-window estimate and native compact event visibility, but runtime-provided pressure data would be better than deriving remaining percent from the latest usage payload.
-- Smoke test Claude `AskUserQuestion` with the installed SDK and confirm `PermissionResultAllow(updated_input=...)` is accepted by the runtime version in the harness image.
 - SDK parity debugging rule: inspect the installed runtime SDK objects/options from the repo venv or live app container before changing adapter behavior. For Claude Code, `agent-server/.venv/bin/python` exposes the actual `claude_agent_sdk` dataclasses/options; do not infer message fields only from memory or stale docs.
 
 Native compaction cleanup handoff (2026-04-28):
@@ -377,6 +376,13 @@ Approval mapping intent (final values from schema):
   docs require Sonnet 4+ / Opus 4+ for that surface, captures
   `docs/images/harness-claude-toolsearch-discovery.png`, and is now part of the
   local `sdk`/`deep` presets.
+- 2026-05-02 Claude AskUserQuestion live parity: added
+  `test_live_claude_ask_user_question_card_round_trip`, which forces the
+  native SDK `AskUserQuestion` tool, answers through Spindrel's
+  `/harness-interactions/{id}/answer` API, verifies the persisted
+  `core/harness_question` card is submitted with the selected option/text, and
+  proves the SDK turn resumes with `updated_input`. Screenshot proof:
+  `docs/images/questions/harness-claude-ask-user-question-card-dark.png`.
 - 2026-05-01 screenshot follow-up: local harness parity now runs from an
   agent-owned native API on `E2E_PORT` and the shell runners resolve
   `SPINDREL_AGENT_E2E_STATE_DIR` before loading `native-api.env` and

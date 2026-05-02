@@ -36,11 +36,21 @@ class NotesSurface:
     root: str
     kb_rel: str
     scope: str
+    channel_id: str | None = None
     project_id: str | None = None
 
     @property
     def notes_root(self) -> str:
         return os.path.join(self.root, self.kb_rel, NOTES_DIR)
+
+    def workspace_path_for(self, rel_path: str) -> str:
+        return f"{self.kb_rel}/{rel_path}"
+
+    def tool_path_for(self, rel_path: str) -> str:
+        workspace_path = self.workspace_path_for(rel_path)
+        if self.scope == "channel" and self.channel_id:
+            return f"/workspace/channels/{self.channel_id}/{workspace_path}"
+        return workspace_path
 
 
 def slugify_note_title(title: str) -> str:
@@ -157,12 +167,18 @@ async def resolve_notes_surface(db: AsyncSession, channel: Channel, bot: Any) ->
                 root=root,
                 kb_rel=PROJECT_KB_PATH,
                 scope="project",
+                channel_id=str(channel.id),
                 project_id=str(getattr(channel, "project_id", "") or "") or None,
             )
     except Exception:
         if getattr(channel, "project_id", None):
             raise HTTPException(status_code=409, detail="Project work surface could not be resolved")
-    return NotesSurface(root=os.path.realpath(get_channel_workspace_root(str(channel.id), bot)), kb_rel="knowledge-base", scope="channel")
+    return NotesSurface(
+        root=os.path.realpath(get_channel_workspace_root(str(channel.id), bot)),
+        kb_rel="knowledge-base",
+        scope="channel",
+        channel_id=str(channel.id),
+    )
 
 
 def ensure_notes_dir(surface: NotesSurface) -> str:
@@ -190,7 +206,8 @@ def serialize_note(surface: NotesSurface, abs_path: str) -> dict[str, Any]:
     return {
         "slug": Path(abs_path).stem,
         "path": rel,
-        "workspace_path": f"{surface.kb_rel}/{rel}",
+        "workspace_path": surface.workspace_path_for(rel),
+        "tool_path": surface.tool_path_for(rel),
         "title": title,
         "summary": meta.get("summary") or "",
         "excerpt": _excerpt(body),
@@ -570,7 +587,8 @@ async def get_or_create_note_session(
     title: str,
     content: str,
 ) -> Session:
-    workspace_note_path = f"{surface.kb_rel}/{note_path}"
+    workspace_note_path = surface.workspace_path_for(note_path)
+    tool_note_path = surface.tool_path_for(note_path)
 
     async def upsert_note_context(session: Session) -> None:
         context_text = build_note_session_context(
@@ -578,6 +596,7 @@ async def get_or_create_note_session(
             surface=surface,
             note_path=note_path,
             workspace_note_path=workspace_note_path,
+            tool_note_path=tool_note_path,
             title=title,
             content=content,
         )
@@ -596,6 +615,7 @@ async def get_or_create_note_session(
             "note_session_kind": NOTE_SESSION_KIND,
             "note_path": note_path,
             "workspace_note_path": workspace_note_path,
+            "tool_note_path": tool_note_path,
             "surface_scope": surface.scope,
             "notes_directory": f"{surface.kb_rel}/{NOTES_DIR}",
             "title": title,
@@ -619,6 +639,7 @@ async def get_or_create_note_session(
             "kind": NOTE_SESSION_KIND,
             "note_path": note_path,
             "workspace_note_path": workspace_note_path,
+            "tool_note_path": tool_note_path,
             "surface_scope": surface.scope,
             "channel_id": str(channel.id),
             "project_id": surface.project_id,
@@ -650,9 +671,10 @@ async def get_or_create_note_session(
             "kind": NOTE_SESSION_KIND,
             "note_path": note_path,
             "workspace_note_path": workspace_note_path,
+            "tool_note_path": tool_note_path,
             "surface_scope": surface.scope,
             "notes_directory": f"{surface.kb_rel}/{NOTES_DIR}",
-            "instruction": f"Pinned notes mode. When the user asks you to write or update notes, edit `{workspace_note_path}` with workspace file tools. Do not use bot memory.",
+            "instruction": f"Pinned notes mode. When the user asks you to write or update notes, edit `{tool_note_path}` with workspace file tools. Do not use bot memory.",
         },
     }
     session = await spawn_ephemeral_session(db, bot_id=bot.id, parent_channel_id=channel.id, context=context)
@@ -666,6 +688,7 @@ def build_note_session_context(
     surface: NotesSurface,
     note_path: str,
     workspace_note_path: str,
+    tool_note_path: str,
     title: str,
     content: str,
 ) -> str:
@@ -677,7 +700,8 @@ def build_note_session_context(
         "# Pinned Notes Mode\n\n"
         "You are assisting inside Spindrel's active Markdown note editor. This session is pinned to one note file.\n\n"
         f"Active note title: {title}\n"
-        f"Active note file path for workspace tools: `{workspace_note_path}`\n"
+        f"Active note file path for workspace tools: `{tool_note_path}`\n"
+        f"Workspace-relative note path: `{workspace_note_path}`\n"
         f"Internal note path: `{note_path}`\n"
         f"Knowledge base notes directory: `{surface.kb_rel}/{NOTES_DIR}`\n"
         f"Scope: {surface.scope}\n"
@@ -685,9 +709,9 @@ def build_note_session_context(
         f"{project_line}\n\n"
         "Pinned skill: `workspace/notes` is mandatory for this session. Follow it before generic memory or logging behavior.\n\n"
         "Rules:\n"
-        f"- When the user asks you to write notes, update or propose updates for `{workspace_note_path}`.\n"
+        f"- When the user asks you to write notes, update or propose updates for `{tool_note_path}`.\n"
         "- If you use the `file` tool, pass the active note file path exactly as shown above.\n"
-        f"- Do not edit `{note_path}` unless it is identical to the active note file path.\n"
+        f"- Do not edit `{workspace_note_path}` or `{note_path}` unless one is identical to the active note file path.\n"
         "- Do not write these note requests to bot memory unless the user explicitly asks for memory.\n"
         "- Preserve user-written Markdown. Prefer additive edits or clearly reviewable replacements.\n"
         "- Keep the document Markdown-formatted with useful headings and lists.\n"

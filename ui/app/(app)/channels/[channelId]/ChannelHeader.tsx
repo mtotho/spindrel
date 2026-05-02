@@ -11,6 +11,7 @@ import {
   Cog,
   NotebookText,
   PanelRight,
+  Search,
   Sparkles,
   StickyNote,
   X as CloseIcon,
@@ -180,6 +181,7 @@ export function ChannelHeader({
   // + widgets + files all reachable from a single tap.
   const setMobileDrawerOpen = useUIStore((s) => s.setMobileDrawerOpen);
   const setChannelPanelTab = useUIStore((s) => s.setChannelPanelTab);
+  const openPalette = useUIStore((s) => s.openPalette);
   // Mobile-only: the top-right widget button toggles the same drawer but
   // force-pins it to the Widgets tab. Hamburger still opens wherever the
   // user last explicitly navigated (persisted `omniPanelTab`), so the two
@@ -515,6 +517,16 @@ export function ChannelHeader({
           label: "Notes",
           icon: NotebookText,
           onClick: onOpenMobileNotes,
+          active: false,
+          danger: false,
+        }
+      : null,
+    isMobile
+      ? {
+          key: "jump",
+          label: "Jump to…",
+          icon: Search,
+          onClick: () => openPalette(),
           active: false,
           danger: false,
         }

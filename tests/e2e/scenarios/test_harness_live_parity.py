@@ -820,6 +820,63 @@ async def _capture_session_marker_screenshot(
     return out_path
 
 
+async def _capture_harness_question_screenshot(
+    client: E2EClient,
+    *,
+    channel_id: str,
+    session_id: str,
+    marker: str,
+    screenshot_name: str,
+) -> Path:
+    pytest.importorskip("playwright.async_api")
+    from playwright.async_api import async_playwright
+    from scripts.screenshots.playwright_runtime import launch_async_browser
+
+    ui_url = _browser_ui_url(client)
+    api_url = _browser_api_url(client)
+    route = f"{ui_url}/channels/{channel_id}/session/{session_id}?surface=channel"
+    out_path = _artifact_root() / "questions" / f"{Path(screenshot_name).stem}.png"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    async with async_playwright() as pw:
+        browser = await launch_async_browser(pw)
+        try:
+            context = await browser.new_context(
+                viewport={"width": 1440, "height": 900},
+                color_scheme="dark",
+            )
+            await context.add_init_script(
+                _browser_auth_init_script(api_url=api_url, api_key=client.config.api_key)
+            )
+            page = await context.new_page()
+            await page.goto(route, wait_until="domcontentloaded", timeout=60_000)
+            await page.wait_for_function(
+                "(marker) => document.body.innerText.includes(marker)",
+                arg=marker,
+                timeout=60_000,
+            )
+            await page.wait_for_function(
+                "() => document.body.innerText.includes('Answered')",
+                timeout=60_000,
+            )
+            await page.reload(wait_until="domcontentloaded", timeout=60_000)
+            await page.wait_for_function(
+                "(marker) => document.body.innerText.includes(marker)",
+                arg=marker,
+                timeout=60_000,
+            )
+            await page.wait_for_function(
+                "() => document.body.innerText.includes('Answered')",
+                timeout=60_000,
+            )
+            await _assert_no_horizontal_overflow(page, "harness-question")
+            await page.screenshot(path=str(out_path), full_page=False)
+            await context.close()
+        finally:
+            await browser.close()
+    return out_path
+
+
 async def _send_native_cli_prompt_via_ui(
     client: E2EClient,
     *,
@@ -2933,6 +2990,70 @@ async def test_live_harness_plan_mode_round_trip(
     assert after_status["session_plan_mode"] == "planning"
     assert after_status["runtime"] == case.runtime
     _assert_bridge_baseline(after_status)
+
+
+@pytest.mark.asyncio
+async def test_live_claude_ask_user_question_card_round_trip(
+    client: E2EClient,
+) -> None:
+    _requires_tier("plan")
+    case = next(harness for harness in HARNESSES if harness.name == "claude")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    await client.set_session_approval_mode(session_id, "bypassPermissions")
+    marker = f"ask-user-question-{uuid.uuid4().hex[:8]}"
+    selected = f"Focused {marker}"
+    answer_text = f"Answer details {marker}"
+
+    result = await client.chat_session_stream(
+        (
+            "Claude SDK AskUserQuestion parity test. Use the native AskUserQuestion tool exactly once. "
+            f"Ask one required question with id `scope`, question text `Which scope for {marker}?`, "
+            f"and option label `{selected}`. After the user answers, do not call any other tools. "
+            f"Reply exactly: ask user question ok {marker} {selected} {answer_text}"
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_plan_timeout(),
+        harness_question_answer={
+            "answer": answer_text,
+            "selected_options": [selected],
+            "notes": f"Question-card e2e answer {marker}",
+        },
+    )
+    _assert_clean_turn(result)
+    expected = f"ask user question ok {marker} {selected} {answer_text}"
+    assert expected in result.response_text
+
+    messages = await client.get_session_messages(session_id, limit=30)
+    question_messages = [
+        message
+        for message in messages
+        if (_message_metadata(message).get("kind") == "harness_question")
+    ]
+    assert question_messages, "Claude AskUserQuestion did not persist a harness question card"
+    question_meta = _message_metadata(question_messages[-1])
+    interaction = question_meta.get("harness_interaction") or {}
+    assert interaction.get("runtime") == "claude-code"
+    assert interaction.get("status") == "submitted", interaction
+    assert marker in json.dumps(interaction)
+    assert selected in json.dumps(interaction)
+    assert answer_text in json.dumps(interaction)
+    assert any(
+        expected in str(message.get("content") or "")
+        for message in _assistant_messages(messages)
+    ), "Claude AskUserQuestion final answer was not persisted"
+
+    if _should_capture_screenshots("harness-claude-ask-user-question"):
+        screenshot = await _capture_harness_question_screenshot(
+            client,
+            channel_id=channel_id,
+            session_id=session_id,
+            marker=marker,
+            screenshot_name="harness-claude-ask-user-question-card-dark",
+        )
+        assert screenshot.is_file(), f"Claude AskUserQuestion screenshot was not written: {screenshot}"
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)

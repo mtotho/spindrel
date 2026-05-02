@@ -60,6 +60,7 @@ from app.services.project_dependency_stacks import (
 )
 from app.services.project_setup import list_project_setup_runs, load_project_setup_plan, run_project_setup
 from app.services.project_runtime import load_project_runtime_environment
+from app.services.project_factory_state import get_project_factory_state
 from app.services.projects import (
     materialize_project_blueprint,
     normalize_project_path,
@@ -456,6 +457,20 @@ class ProjectFactoryReviewInboxOut(BaseModel):
     summary: dict = Field(default_factory=dict)
     items: list[dict] = Field(default_factory=list)
     projects: list[dict] = Field(default_factory=list)
+
+
+class ProjectFactoryStateOut(BaseModel):
+    project: dict
+    current_stage: str
+    blueprint: dict
+    runtime_env: dict
+    dependency_stack: dict
+    intake: dict
+    run_packs: dict
+    runs: dict
+    planning: dict
+    recent_receipts: list[dict] = Field(default_factory=list)
+    suggested_next_action: dict
 
 
 class ProjectCodingRunReviewSessionLedgerOut(BaseModel):
@@ -1086,6 +1101,18 @@ async def get_project_factory_review_inbox(
     _auth=Depends(require_scopes("admin")),
 ):
     return await list_project_factory_review_inbox(db, limit=limit)
+
+
+@router.get("/{project_id}/factory-state", response_model=ProjectFactoryStateOut)
+async def get_project_factory_state_endpoint(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return await get_project_factory_state(db, project)
 
 
 @router.get("/{project_id}", response_model=ProjectOut)

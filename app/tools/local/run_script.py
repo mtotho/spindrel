@@ -57,7 +57,8 @@ logger = logging.getLogger(__name__)
                         "use `tools.tool_name(**kwargs)` to dispatch. Print the distilled "
                         "result you want returned. Raises ToolError on policy deny / "
                         "approval-required / network errors — `try/except` if you want "
-                        "to handle gracefully."
+                        "to handle gracefully. Leave this empty when using stored-script "
+                        "mode with skill_name and script_name."
                     ),
                 },
                 "description": {
@@ -72,7 +73,8 @@ logger = logging.getLogger(__name__)
                     "description": (
                         "Skill whose attached named script should be executed. Use a bot-authored "
                         "slug, full bots/{bot_id}/... ID, or trusted catalog/integration skill ID "
-                        "when running file-managed scripts."
+                        "when running file-managed scripts. When this is set with script_name, "
+                        "stored-script mode is used and inline script text is ignored."
                     ),
                 },
                 "script_name": {
@@ -119,16 +121,17 @@ async def run_script(
     effective_description = description.strip()
 
     if script_name or skill_name:
-        if script and script.strip():
-            return json.dumps({
-                "error": "provide_either_inline_script_or_stored_script_reference",
-                "exit_code": -1,
-            }, ensure_ascii=False)
         if not skill_name or not script_name:
             return json.dumps({
                 "error": "skill_name_and_script_name_required_for_stored_script_mode",
                 "exit_code": -1,
             }, ensure_ascii=False)
+        if script and script.strip():
+            logger.info(
+                "run_script stored-script mode ignoring inline script text for skill=%s script=%s",
+                skill_name,
+                script_name,
+            )
         resolved, resolve_error = await _resolve_stored_script(bot_id, skill_name, script_name)
         if resolve_error:
             return json.dumps({"error": resolve_error, "exit_code": -1}, ensure_ascii=False)

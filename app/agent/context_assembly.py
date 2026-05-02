@@ -749,14 +749,12 @@ async def _load_skill_enrollments(
 
 def _inject_api_access_tools(
     *,
-    messages: list[dict],
     bot: BotConfig,
 ) -> tuple[BotConfig, dict[str, Any] | None]:
     """If the bot has scoped API permissions, inject the two API-access tools
-    (`list_api_endpoints`, `call_api`) into both `local_tools` and
-    `pinned_tools`, append a system message describing the available scopes,
-    and return the replaced bot plus a progress event. Otherwise return the
-    bot unchanged and `None` for the event.
+    into both `local_tools` and `pinned_tools`, and return the replaced bot plus
+    a progress event. Otherwise return the bot unchanged and `None` for the
+    event.
     """
     if not bot.api_permissions:
         return bot, None
@@ -771,14 +769,36 @@ def _inject_api_access_tools(
         if _t not in _new_pinned:
             _new_pinned.append(_t)
     bot = _dc_replace(bot, local_tools=_new_local, pinned_tools=_new_pinned)
+    return bot, {"type": "api_access_tools", "scopes": bot.api_permissions}
+
+
+def _inject_api_access_prompt_if_exposed(
+    *,
+    messages: list[dict],
+    bot: BotConfig,
+    authorized_names: set[str] | None,
+) -> dict[str, Any] | None:
+    """Append API access guidance only when API tools are actually exposed."""
+    if not bot.api_permissions or not authorized_names:
+        return None
+    from app.tools.registry import get_local_tool_names_by_metadata
+
+    api_tools = set(get_local_tool_names_by_metadata(auto_inject="api_access"))
+    exposed_api_tools = sorted(api_tools & set(authorized_names))
+    if not exposed_api_tools:
+        return None
     messages.append({
         "role": "system",
         "content": (
             f"You have API access to the agent server (scopes: {', '.join(bot.api_permissions)}). "
-            "Use list_api_endpoints() to see available endpoints and call_api(method, path, body) to execute them."
+            "Use the exposed API access tools only when the user request requires server API inspection or mutation."
         ),
     })
-    return bot, {"type": "api_access_tools", "scopes": bot.api_permissions}
+    return {
+        "type": "api_access_prompt",
+        "scopes": bot.api_permissions,
+        "tools": exposed_api_tools,
+    }
 
 
 def _inject_agent_self_inspection_prompt(messages: list[dict]) -> None:
@@ -2840,7 +2860,7 @@ async def assemble_context(
         yield _evt
 
     # --- API access tools (for bots with scoped API keys) ---
-    bot, _api_event = _inject_api_access_tools(messages=messages, bot=bot)
+    bot, _api_event = _inject_api_access_tools(bot=bot)
     if _api_event:
         yield _api_event
 
@@ -2961,6 +2981,14 @@ async def assemble_context(
     )
     pre_selected_tools = stage_state.pre_selected_tools
     _authorized_names = stage_state.authorized_names
+
+    _api_prompt_event = _inject_api_access_prompt_if_exposed(
+        messages=messages,
+        bot=bot,
+        authorized_names=_authorized_names,
+    )
+    if _api_prompt_event:
+        yield _api_prompt_event
 
     result.pre_selected_tools = pre_selected_tools
     result.authorized_tool_names = _authorized_names

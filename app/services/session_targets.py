@@ -52,6 +52,19 @@ def normalize_session_target(value: Any) -> dict[str, Any]:
     return {"mode": SESSION_TARGET_EXISTING, "session_id": session_id}
 
 
+def _default_session_target_for_task(task: Task) -> dict[str, Any]:
+    """Return the implicit session target when a task did not configure one.
+
+    Channel automation defaults to the current primary session so scheduled and
+    manual channel tasks follow the live conversation. API message tasks are
+    different: the caller already posted a user message into a concrete session,
+    so the agent response must stay in that same session.
+    """
+    if task.task_type == "api" and task.session_id is not None:
+        return {"mode": SESSION_TARGET_EXISTING, "session_id": str(task.session_id)}
+    return {"mode": SESSION_TARGET_PRIMARY}
+
+
 def set_session_target_in_config(
     config: dict[str, Any] | None,
     value: Any,
@@ -142,7 +155,11 @@ async def resolve_task_session_target(
     if channel is None:
         return task.session_id, None
 
-    target = normalize_session_target((task.execution_config or {}).get(SESSION_TARGET_KEY))
+    execution_config = task.execution_config or {}
+    if SESSION_TARGET_KEY in execution_config:
+        target = normalize_session_target(execution_config.get(SESSION_TARGET_KEY))
+    else:
+        target = _default_session_target_for_task(task)
     if target["mode"] == SESSION_TARGET_PRIMARY:
         from app.services.channels import ensure_active_session
 

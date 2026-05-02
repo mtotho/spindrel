@@ -56,6 +56,7 @@ AGENT_REPAIR_REQUEST_VERSION = "agent-repair-request.v1"
 PROJECT_CODING_RUN_TOOLS = (
     "file",
     "exec_command",
+    "get_project_factory_state",
     "get_project_dependency_stack",
     "manage_project_dependency_stack",
     "prepare_project_run_handoff",

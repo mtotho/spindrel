@@ -183,6 +183,8 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 
 ![Claude Code native question card in terminal mode](../images/harness-question-terminal-dark.png)
 
+![Claude Code AskUserQuestion answered card and resumed turn](../images/questions/harness-claude-ask-user-question-card-dark.png)
+
 ![Harness SDK usage rows in the admin usage log](../images/harness-usage-logs-dark.png)
 
 ![Harness SDK usage rows in light mode](../images/harness-usage-logs-light.png)
@@ -253,7 +255,7 @@ Harness turns persist an `input_manifest` summary in assistant metadata. It reco
 | Native runtime tools | Supported | Claude Code owns Bash, file edits, native web/MCP, and plan-mode tools. Spindrel approval modes can gate SDK permission prompts, but execution stays native. |
 | Model + effort picker | Supported | Runtime capability endpoint exposes model-scoped effort choices; selection is stored per Spindrel session. Bare `/model` and `/effort` render picker cards, while `/model <id>` and `/effort <level>` set values directly. |
 | Approval modes | Supported | Per-session `bypassPermissions`, `acceptEdits`, `default`, and `plan`; ask paths render Spindrel approval cards. |
-| Runtime questions | Supported | Claude `AskUserQuestion` renders a persisted `core/harness_question` card in default and terminal chat modes. |
+| Runtime questions | Supported | Claude `AskUserQuestion` renders a persisted `core/harness_question` card in default and terminal chat modes, answers resolve back into the SDK as `updated_input`, and the answered card survives refresh. Codex app-server user-input requests share the same durable card service when emitted. |
 | Plan mode | Supported | Spindrel plan mode remains the session source of truth. Codex sessions receive native `collaborationMode: plan` plus read-only sandbox policy while Spindrel is `planning`; Claude receives native plan permission mode. Harnesses also receive bridged Spindrel plan tools: `ask_plan_questions`/`publish_plan` while drafting and `record_plan_progress`/`request_plan_replan` while executing. Codex native plan items may be mirrored as planning evidence, but the canonical plan artifact still comes from Spindrel plan tools. |
 | Claude native orchestration tools | Supported | Claude bypass-mode sessions allow the SDK-native `Agent`, `Task`, `Skill`, `TodoWrite`, and `ToolSearch` tools so the harness can use the same orchestration, skills, progress, and discovery surfaces as Claude Code. `AskUserQuestion` intentionally stays out of the allowlist so Spindrel can render durable question cards. Restricted/default modes keep mutating and orchestration tools behind the SDK permission bridge. |
 | Codex collaboration/subagents | Partial | Codex app-server `collabToolCall` items render as native harness activity rows and persist session/thread ids plus prompt preview. Spindrel does not spawn or schedule Codex subagents itself yet; it only renders the runtime-owned collaboration events that the app-server emits. |

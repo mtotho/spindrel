@@ -65,7 +65,7 @@ Notes are Markdown documents stored under the active knowledge base:
 - Channel notes: `knowledge-base/notes/`
 - Project notes: `.spindrel/knowledge-base/notes/`
 
-If you use filesystem tools, use the active note file path from pinned context. It should include the knowledge-base prefix, such as `knowledge-base/notes/example.md` or `.spindrel/knowledge-base/notes/example.md`. Do not shorten it to `notes/example.md`. Keep edits inside the active knowledge-base notes directory unless the user clearly asks otherwise.
+If you use filesystem tools, use the active note file path from pinned context. For channel notes it may be an explicit channel path like `/workspace/channels/<channel_id>/knowledge-base/notes/example.md`; use that full value exactly. For project notes it may look like `.spindrel/knowledge-base/notes/example.md`. Do not shorten either form to `notes/example.md` or `knowledge-base/notes/example.md`. Keep edits inside the active knowledge-base notes directory unless the user clearly asks otherwise.
 
 ## Interaction Style
 

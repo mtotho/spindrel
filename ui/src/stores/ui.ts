@@ -286,7 +286,18 @@ export const useUIStore = create<UIState>()(
         set((s) => {
           const current = normalizeChannelPanelPrefs(s.channelPanelPrefs[channelId]);
           const patchValue = typeof patch === "function" ? patch(current) : patch;
+          // Mirror left-panel intent (open + tab) up to the global store so it
+          // persists across channels — users expect "I had Sessions open" to
+          // survive jumping to a sibling channel.
+          const globalPatch: Partial<UIState> = {};
+          if (typeof patchValue.leftOpen === "boolean") {
+            globalPatch.fileExplorerOpen = patchValue.leftOpen;
+          }
+          if (patchValue.leftTab) {
+            globalPatch.omniPanelTab = patchValue.leftTab;
+          }
           return {
+            ...globalPatch,
             channelPanelPrefs: {
               ...s.channelPanelPrefs,
               [channelId]: normalizeChannelPanelPrefs({ ...current, ...patchValue }),
@@ -297,6 +308,7 @@ export const useUIStore = create<UIState>()(
         set((s) => {
           const current = normalizeChannelPanelPrefs(s.channelPanelPrefs[channelId]);
           return {
+            omniPanelTab: tab,
             channelPanelPrefs: {
               ...s.channelPanelPrefs,
               [channelId]: { ...current, leftTab: tab },

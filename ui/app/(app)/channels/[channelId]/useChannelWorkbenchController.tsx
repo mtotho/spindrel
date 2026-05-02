@@ -152,7 +152,20 @@ export function useChannelWorkbenchController({
     ensureChannelPanelPrefs(channelId, channelPanelDefaults);
   }, [channelId, channelPanelDefaults, ensureChannelPanelPrefs]);
 
-  const panelPrefs = channelPanelPrefs ?? channelPanelDefaults;
+  // The OmniPanel's open-state and active tab are user-level intent, not
+  // per-channel detail. Overlay the global `fileExplorerOpen`/`omniPanelTab`
+  // on top of the channel's stored prefs so jumping between channels
+  // preserves "I had Sessions open" instead of resetting to whatever each
+  // channel happened to remember.
+  const basePrefs = channelPanelPrefs ?? channelPanelDefaults;
+  const panelPrefs = useMemo(
+    () => ({
+      ...basePrefs,
+      leftOpen: legacyExplorerOpen,
+      leftTab: legacyOmniPanelTab,
+    }),
+    [basePrefs, legacyExplorerOpen, legacyOmniPanelTab],
+  );
 
   const { rail: railPins } = useChannelChatZones(channelId ?? "");
   const headerChipPins = useMemo(() => [], []);

@@ -80,6 +80,79 @@ async def test_resolve_new_each_run_creates_visible_channel_session(db_session):
     assert session.metadata_["created_by"] == "task_session_target"
 
 
+@pytest.mark.asyncio
+async def test_resolve_api_task_keeps_explicit_session_by_default(db_session):
+    channel = build_channel(client_id="channel:api-existing")
+    active_session = Session(
+        id=uuid.uuid4(),
+        client_id=channel.client_id,
+        bot_id=channel.bot_id,
+        channel_id=channel.id,
+        session_type="channel",
+    )
+    detached_session = Session(
+        id=uuid.uuid4(),
+        client_id=channel.client_id,
+        bot_id=channel.bot_id,
+        channel_id=channel.id,
+        session_type="channel",
+    )
+    channel.active_session_id = active_session.id
+    task = build_task(
+        bot_id=channel.bot_id,
+        channel_id=channel.id,
+        client_id=channel.client_id,
+        session_id=detached_session.id,
+        task_type="api",
+        execution_config={"pre_user_msg_id": str(uuid.uuid4())},
+    )
+    db_session.add_all([channel, active_session, detached_session, task])
+    await db_session.commit()
+
+    session_id, resolved_channel = await resolve_task_session_target(db_session, task)
+    await db_session.commit()
+
+    assert resolved_channel.id == channel.id
+    assert session_id == detached_session.id
+    assert task.session_id == detached_session.id
+
+
+@pytest.mark.asyncio
+async def test_resolve_non_api_channel_task_defaults_to_primary(db_session):
+    channel = build_channel(client_id="channel:primary-default")
+    active_session = Session(
+        id=uuid.uuid4(),
+        client_id=channel.client_id,
+        bot_id=channel.bot_id,
+        channel_id=channel.id,
+        session_type="channel",
+    )
+    older_session = Session(
+        id=uuid.uuid4(),
+        client_id=channel.client_id,
+        bot_id=channel.bot_id,
+        channel_id=channel.id,
+        session_type="channel",
+    )
+    channel.active_session_id = active_session.id
+    task = build_task(
+        bot_id=channel.bot_id,
+        channel_id=channel.id,
+        client_id=channel.client_id,
+        session_id=older_session.id,
+        task_type="agent",
+        execution_config={},
+    )
+    db_session.add_all([channel, active_session, older_session, task])
+    await db_session.commit()
+
+    session_id, _ = await resolve_task_session_target(db_session, task)
+    await db_session.commit()
+
+    assert session_id == active_session.id
+    assert task.session_id == active_session.id
+
+
 def test_normalize_session_target_defaults_to_primary():
     assert normalize_session_target(None) == {"mode": "primary"}
 

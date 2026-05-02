@@ -3,7 +3,7 @@ title: Track - Projects
 summary: First-class Project roots inside the singleton Workspace plus the Project Factory Vision — Blueprints, fresh instances, dev targets, dependency stacks, coding runs, review sessions, and the canonical execution context Module.
 tags: [spindrel, track, projects]
 status: active
-updated: 2026-05-01 (runtime/project-local skill boundary)
+updated: 2026-05-02 (cohesion pass plan queued)
 ---
 
 # Track - Projects
@@ -112,8 +112,25 @@ Locked next-phase ladder:
 - [x] **Phase 4AW - Issue Intake discoverability** — Closed the gap between bot-published raw issue notes and coding-run review. Home's Project Factory pulse now includes raw Issue Intake and active Work Packs, Project Overview exposes an Issue intake entry beside Review queue, and both link to Mission Control Issue Intake (`/hub/attention?mode=issues`) where operators can review notes, trigger triage/grouping runs, inspect receipts, edit/dismiss/needs-info Work Packs, choose Project/channel launch targets, and launch packs into Project coding runs.
 - [x] **Phase 4AX - Symphony scavenging pass** — Adopted the lightweight Symphony ideas that fit Spindrel's primitives without adding a new hidden tracker/orchestrator: the repo-owned policy file is now named Project Runbook with `.spindrel/project-runbook.md` as the preferred path, Project docs define Spindrel records as coordination state around external trackers, the Project overview labels its scan point as Factory Status, and run detail pages foreground the actual problem statement/source work pack before evidence and recovery controls.
 
+## Cohesion Pass (queued)
+
+Backend, UI, and tools have outpaced the runtime-skill surface. Agents in Project-bound channels can't tell what stage of the lifecycle they're in, the project skills live under the wrong namespace (`workspace/`), the canonical launchable unit is still called Work Pack instead of Run Pack, and there is no Symphony-equivalent observability for run phase, stalls, or concurrency. Full plan in [`docs/plans/project-factory-cohesion.md`](../plans/project-factory-cohesion.md).
+
+Six phases, ordered (revised after Codex review - factory-state ships first, renames last):
+
+- **Phase 4AZ - Stage-aware factory-state primitive** *(ships first; load-bearing for 4BA)*. New `GET /api/v1/projects/{id}/factory-state` + `get_project_factory_state` tool returning `current_stage` (one of `unconfigured | needs_review | runs_in_flight | shaping_packs | planning | ready_no_work | reviewed_idle`, evaluated in that precedence order), counts by intake/pack/queue-state, and a `suggested_next_action` with the skill ID to load. Backed by new `app/services/project_factory_state.py` composing existing services. UI Project detail page consumes the same payload (one canonical state shape for agents and humans).
+- **Phase 4BA - Skill decomposition with stage routing**. Final layout under `skills/project/`: `index.md` (routes by `current_stage`), `setup/{init,blueprint}.md`, `plan/{prd,run_packs}.md`, `intake.md` (reshape around recognition not capture-on-explicit-ask), `runs/{implement,review,scheduled,loop}.md`. Every skill's first action calls `list_agent_capabilities` and uses `project.work_surface.root_path` (cwd may be a multi-project workspace root). `runs/review.md` lists the 8 queue states with what-to-do-next; `plan/run_packs.md` includes `triage_receipt` schema and size norm; `plan/prd.md` adds discovery-first step. Skill bodies single-purpose and scannable (no hard line cap).
+- **Phase 4BB - Symphony-equivalent observability** *(parallelizable with 4AZ/4BA)*. Add `phase` enum (`preparing | branching | editing | testing | handoff | review_ready | reviewed | failed | stalled`) on every run, persisted from receipt+activity stream. Add `stall_timeout_seconds`/`turn_timeout_seconds`/`max_concurrent_runs` Blueprint fields with background sweep transitioning idle runs to `phase=stalled` AND queue state `blocked` - both fields stay distinct (stalled = no recent activity / recoverable; blocked = needs operator). Stalled badge in Project Runs UI.
+- **Phase 4AY-a - Skill namespace + product copy**. Move `skills/workspace/project_*` + `issue_intake.md` to `skills/project/`. Update `STARTER_SKILL_IDS`, `agent_capabilities` routing, `skills/index.md` cluster list. Old skill IDs aliased in skill resolver so persisted enrollments still load. Product copy in UI/docs/help text says "Run Pack" - internal class/table names unchanged in this phase.
+- **Phase 4AY-b - Internal RunPack rename**. After dogfood validates new UX. Migration `issue_work_packs` -> `issue_run_packs`; FK columns `*_work_pack_id` -> `*_run_pack_id`. Python `IssueWorkPack` -> `RunPack`. Tool IDs `create_issue_work_packs` -> `create_run_packs` with one-release alias. API field renames with deprecation field. Existing dogfood data survives via migration alias support.
+- **Phase 4BC - Canonical orchestration policy view**. New `GET /api/v1/projects/{id}/orchestration-policy` + `get_project_orchestration_policy` tool returning merged Blueprint+Runbook+preset view. Optional `.spindrel/project-orchestration.yml` repo mirror.
+
+**Dogfood acceptance:** brand-new Project-bound channel, "I want to build X" -> Blueprint + PRD + 3 proposed Run Packs in <=6 messages, none launched without explicit go. Day later, "the Y page is slow" recognized as intake, piled, then "triage" groups into Run Packs. Both flows work without the user naming a skill.
+
 ## Queued Follow-Ups
 
 - Blueprint setup observability: split clone/command run phases into clearer progress events and add rerun controls after deployed E2E validates setup-command history.
 - Agent coding runs: add rerun controls for failed review steps and optional GitHub status webhooks/polling beyond explicit refresh.
 - Project factory: add schedule-run filters once recurring review usage settles.
+- Source adapters (post-cohesion): GitHub issues -> intake, Linear -> intake. Slack mirroring already exists; intake recognition in any Slack-mirrored channel falls out of Phase 4BA.
+- Auto retry-with-backoff for transient run failures (Symphony parity, deferred from cohesion pass).

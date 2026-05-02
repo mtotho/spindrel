@@ -16,7 +16,7 @@ from app.services.notes import (
 
 
 def _surface(tmp_path: Path) -> NotesSurface:
-    return NotesSurface(root=str(tmp_path), kb_rel="knowledge-base", scope="channel")
+    return NotesSurface(root=str(tmp_path), kb_rel="knowledge-base", scope="channel", channel_id="00000000-0000-0000-0000-000000000123")
 
 
 def test_create_note_writes_markdown_frontmatter_and_lists_rich_metadata(tmp_path: Path):
@@ -27,6 +27,8 @@ def test_create_note_writes_markdown_frontmatter_and_lists_rich_metadata(tmp_pat
     path = tmp_path / "knowledge-base" / note["path"]
     assert path.is_file()
     assert note["path"] == "notes/magic-note.md"
+    assert note["workspace_path"] == "knowledge-base/notes/magic-note.md"
+    assert note["tool_path"] == "/workspace/channels/00000000-0000-0000-0000-000000000123/knowledge-base/notes/magic-note.md"
     assert note["title"] == "Magic Note"
     assert note["scope"] == "channel"
 
