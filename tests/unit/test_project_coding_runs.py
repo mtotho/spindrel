@@ -23,6 +23,7 @@ from app.services.project_coding_runs import (
     list_project_coding_run_review_sessions,
     list_project_coding_runs,
     list_project_coding_run_schedules,
+    project_coding_run_lifecycle_summary,
     project_coding_run_defaults,
     project_coding_run_review_next_action,
     project_coding_run_review_queue_state,
@@ -119,6 +120,17 @@ def test_project_coding_run_review_queue_state_uses_existing_run_signals():
     assert project_coding_run_review_queue_state(missing) == "missing_evidence"
     assert project_coding_run_review_queue_state(follow_up) == "follow_up_running"
     assert "follow-up" in project_coding_run_review_next_action("changes_requested")
+    ready_lifecycle = project_coding_run_lifecycle_summary(ready)
+    assert ready_lifecycle["phase"] == "needs_review"
+    assert ready_lifecycle["headline"] == "Run is ready for review"
+    assert ready_lifecycle["evidence"] == {"tests": 1, "screenshots": 1, "files": 2, "dev_targets": 1}
+    blocked_lifecycle = project_coding_run_lifecycle_summary({
+        **ready,
+        "readiness": {"blockers": ["Missing required runtime secret: GITHUB_TOKEN"]},
+        "work_surface": {"blocker": "Fresh Project instance unavailable"},
+    })
+    assert blocked_lifecycle["phase"] == "setup_blocked"
+    assert blocked_lifecycle["blocker"] == "Fresh Project instance unavailable"
 
 
 @pytest.mark.asyncio

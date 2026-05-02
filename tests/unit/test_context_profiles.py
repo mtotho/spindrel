@@ -138,7 +138,7 @@ def test_profile_policy_matrix_for_restricted_origins():
         "chat_rich": (8, False, True, True),
         "planning": (2, True, True, False),
         "executing": (4, True, True, True),
-        "task_recent": (None, True, True, False),
+        "task_recent": (4, True, True, False),
         "task_none": (0, False, False, False),
         "heartbeat": (0, False, False, False),
     }

@@ -13,12 +13,15 @@ import { Link } from "react-router-dom";
 import {
   ChevronLeft,
   Layers,
+  MessageCircle,
   NotebookText,
   Plus,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { FilesTabPanel } from "./FilesTabPanel";
 import { NotesTabPanel } from "./NotesTabPanel";
+import { SessionsTabPanel } from "./SessionsTabPanel";
+import type { ChannelSessionSurface } from "@/src/lib/channelSessionSurfaces";
 import { WidgetRailSection } from "./WidgetRailSection";
 import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
@@ -29,6 +32,7 @@ import { resolveChrome, resolvePreset } from "@/src/lib/dashboardGrid";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import type {
   GridLayoutItem,
+  ProjectSummary,
   ToolResultEnvelope,
   WidgetDashboardPin,
 } from "@/src/types/api";
@@ -55,6 +59,12 @@ interface OmniPanelProps {
   activeTab?: OmniPanelTab;
   onTabChange?: (tab: OmniPanelTab) => void;
   onCollapse?: () => void;
+  /** When the channel belongs to a Project, the Sessions tab also surfaces
+   *  sibling channels as quick links. */
+  project?: ProjectSummary | null;
+  /** Activate a session surface from the Sessions tab. When omitted the
+   *  panel falls back to direct route navigation. */
+  onActivateSessionSurface?: (surface: ChannelSessionSurface) => void;
 }
 
 /** Top-to-bottom, then left-to-right — matches the dashboard scan order so
@@ -96,10 +106,12 @@ export function OmniPanel({
   onClose: _onClose,
   width = 300,
   fullWidth = false,
-  mobileTabs: _mobileTabs = false,
+  mobileTabs = false,
   activeTab: controlledTab,
   onTabChange,
   onCollapse,
+  project = null,
+  onActivateSessionSurface,
 }: OmniPanelProps) {
   const t = useThemeTokens();
 
@@ -220,9 +232,16 @@ export function OmniPanel({
   );
   useEffect(() => {
     if (!hasWorkspace && selectedTab === "files") setTab("widgets");
-  }, [hasWorkspace, selectedTab, setTab]);
+    if (mobileTabs && selectedTab === "notes") setTab("sessions");
+  }, [hasWorkspace, mobileTabs, selectedTab, setTab]);
 
-  const activeTab = hasWorkspace ? selectedTab : selectedTab === "files" ? "widgets" : selectedTab;
+  const activeTab: OmniPanelTab = hasWorkspace
+    ? mobileTabs && selectedTab === "notes"
+      ? "sessions"
+      : selectedTab
+    : selectedTab === "files" || selectedTab === "notes"
+      ? "widgets"
+      : selectedTab;
 
   return (
     <div
@@ -233,7 +252,15 @@ export function OmniPanel({
           border. The floating pill buttons provide their own active-state
           contrast. */}
       <div className="flex items-center gap-0.5 px-1.5 pt-1.5 pb-1.5">
-        {hasWorkspace && (
+        <TabButton
+          label="Sessions"
+          icon={<MessageCircle size={11} />}
+          active={activeTab === "sessions"}
+          onClick={() => setTab("sessions")}
+          compact
+          t={t}
+        />
+        {hasWorkspace && !mobileTabs && (
           <TabButton
             label="Notes"
             icon={<NotebookText size={11} />}
@@ -289,7 +316,17 @@ export function OmniPanel({
         </button>
       </div>
 
-      {activeTab === "notes" && hasWorkspace ? (
+      {activeTab === "sessions" ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <SessionsTabPanel
+            channelId={channelId}
+            botId={botId}
+            channelLabel={channelDisplayName ?? null}
+            project={project}
+            onActivateSurface={onActivateSessionSurface}
+          />
+        </div>
+      ) : activeTab === "notes" && hasWorkspace ? (
         <div className="flex-1 min-h-0 overflow-hidden">
           <NotesTabPanel channelId={channelId} botId={botId} onSelectFile={onSelectFile} />
         </div>

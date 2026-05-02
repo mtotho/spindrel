@@ -16,11 +16,16 @@ from integrations.codex import schema
 from integrations.codex.harness import (
     CodexRuntime,
     _DEFAULT_MODEL_SETTINGS_CACHE,
+    build_exec_resume_command_args,
     build_native_cli_command,
     _codex_thread_name_from_prompt,
     _build_turn_input,
     _build_thread_start_params,
     _build_turn_start_params,
+    _codex_exec_event_text,
+    _should_use_codex_exec_resume,
+    _translate_codex_exec_json_event,
+    _run_codex_exec_resume_turn,
     _parse_model_options,
 )
 from integrations.sdk import HarnessContextHint, HarnessModelOption, TurnContext
@@ -144,6 +149,194 @@ def test_codex_native_cli_command_resumes_thread_in_cwd():
     )
 
     assert command == "codex resume thread-123 --no-alt-screen --model gpt-5.5 -c 'model_reasoning_effort=\"high\"' --cd '/workspace/my repo'"
+
+
+def test_codex_exec_resume_command_uses_native_resume_surface():
+    args = build_exec_resume_command_args(
+        native_session_id="thread-123",
+        prompt="continue this thread",
+        model="gpt-5.5",
+        effort="high",
+        permission_mode="bypassPermissions",
+    )
+
+    assert args == [
+        "exec",
+        "resume",
+        "--json",
+        "--model",
+        "gpt-5.5",
+        "-c",
+        'model_reasoning_effort="high"',
+        "--dangerously-bypass-approvals-and-sandbox",
+        "thread-123",
+        "continue this thread",
+    ]
+
+
+def test_codex_exec_resume_only_selected_for_native_cli_origin():
+    ctx = _ctx()
+    assert _should_use_codex_exec_resume(ctx) is False
+
+    cli_ctx = TurnContext(
+        **{
+            **ctx.__dict__,
+            "harness_metadata": {
+                "runtime": "codex",
+                "session_id": "thread-old",
+                "source": "harness_native_cli",
+            },
+        }
+    )
+    assert _should_use_codex_exec_resume(cli_ctx) is True
+
+
+class _Emitter:
+    def __init__(self) -> None:
+        self.tokens: list[str] = []
+        self.thinking_parts: list[str] = []
+
+    def token(self, text: str) -> None:
+        self.tokens.append(text)
+
+    def thinking(self, text: str) -> None:
+        self.thinking_parts.append(text)
+
+    def tool_start(self, **kwargs):
+        pass
+
+    def tool_result(self, **kwargs):
+        pass
+
+
+def test_codex_exec_json_translator_accepts_exec_and_app_server_shapes():
+    emit = _Emitter()
+    parts: list[str] = []
+    meta: dict = {}
+
+    _translate_codex_exec_json_event(
+        {"type": "agent_message_delta", "delta": "hello "},
+        emit=emit,
+        tool_name_by_id={},
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    _translate_codex_exec_json_event(
+        {"method": "item/agentMessage/delta", "params": {"delta": "world"}},
+        emit=emit,
+        tool_name_by_id={},
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    _translate_codex_exec_json_event(
+        {"type": "result", "result": {"final_answer": "hello world", "usage": {"input_tokens": 1}}},
+        emit=emit,
+        tool_name_by_id={},
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert emit.tokens == ["hello ", "world"]
+    assert parts == ["hello ", "world"]
+    assert meta["final_text"] == "hello world"
+    assert meta["usage"] == {"input_tokens": 1}
+
+
+def test_codex_exec_json_translator_reads_completed_agent_message_items():
+    emit = _Emitter()
+    parts: list[str] = []
+
+    _translate_codex_exec_json_event(
+        {
+            "type": "item.completed",
+            "item": {
+                "id": "item_0",
+                "type": "agent_message",
+                "text": "native exec final text",
+            },
+        },
+        emit=emit,
+        tool_name_by_id={},
+        final_text_parts=parts,
+        result_meta={},
+    )
+
+    assert emit.tokens == ["native exec final text"]
+    assert parts == ["native exec final text"]
+
+
+def test_codex_exec_event_text_reads_common_result_fields():
+    assert _codex_exec_event_text({"final_answer": "done"}) == "done"
+    assert _codex_exec_event_text({"item": {"message": "nested"}}) == "nested"
+
+
+@pytest.mark.asyncio
+async def test_codex_exec_resume_turn_runs_native_cli_resume(monkeypatch):
+    class Stream:
+        def __init__(self, lines: list[bytes] = None, body: bytes = b"") -> None:
+            self.lines = list(lines or [])
+            self.body = body
+
+        async def readline(self) -> bytes:
+            return self.lines.pop(0) if self.lines else b""
+
+        async def read(self) -> bytes:
+            return self.body
+
+    class Proc:
+        def __init__(self) -> None:
+            self.stdout = Stream([
+                b'{"type":"agent_message_delta","delta":"ok"}\n',
+                b'{"type":"result","result":{"final_answer":"ok","usage":{"input_tokens":2}}}\n',
+            ])
+            self.stderr = Stream(body=b"")
+            self.killed = False
+
+        async def wait(self) -> int:
+            return 0
+
+        def kill(self) -> None:
+            self.killed = True
+
+    calls: list[tuple[tuple[str, ...], dict]] = []
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        calls.append((tuple(args), kwargs))
+        return Proc()
+
+    monkeypatch.setattr("integrations.codex.harness._resolve_binary", lambda: "/bin/codex")
+    monkeypatch.setattr("integrations.codex.harness.asyncio.create_subprocess_exec", fake_create_subprocess_exec)
+
+    ctx = TurnContext(
+        **{
+            **_ctx().__dict__,
+            "harness_session_id": "thread-from-cli",
+            "harness_metadata": {"source": "harness_native_cli", "session_id": "thread-from-cli"},
+        }
+    )
+    emit = _Emitter()
+
+    result = await _run_codex_exec_resume_turn(ctx=ctx, prompt="continue", emit=emit)
+
+    assert result.session_id == "thread-from-cli"
+    assert result.final_text == "ok"
+    assert result.usage == {"input_tokens": 2}
+    assert result.metadata["codex_resume_surface"] == "exec_resume"
+    assert emit.tokens == ["ok"]
+    assert calls[0][0] == (
+        "/bin/codex",
+        "exec",
+        "resume",
+        "--json",
+        "--model",
+        "gpt-5.5",
+        "-c",
+        'model_reasoning_effort="high"',
+        "--dangerously-bypass-approvals-and-sandbox",
+        "thread-from-cli",
+        "continue",
+    )
+    assert calls[0][1]["cwd"] == "/workspace"
 
 
 def test_codex_thread_name_from_prompt_ignores_spindrel_wrappers():

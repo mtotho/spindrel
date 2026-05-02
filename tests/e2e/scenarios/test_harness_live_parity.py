@@ -2745,7 +2745,7 @@ async def test_live_codex_native_cli_first_turn_promotes_thread_id(
 ) -> None:
     _requires_tier("terminal")
     case = next(harness for harness in HARNESSES if harness.name == "codex")
-    channel_id, session_id, _bot_id = await _fresh_session(client, case)
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
     marker = f"native-cli-first-{uuid.uuid4().hex[:8]}"
 
     _terminal_screenshot, _mirror_screenshot, mirrored_message = await _send_native_cli_prompt_via_ui(
@@ -2764,6 +2764,25 @@ async def test_live_codex_native_cli_first_turn_promotes_thread_id(
     assert status.get("harness_session_id"), status
     native_meta = ((mirrored_message.get("metadata") or {}).get("harness_native_cli") or {})
     assert native_meta.get("native_session_id") == status["harness_session_id"]
+
+    roundtrip = await _assert_spindrel_chat_resumes_after_native_cli(
+        client,
+        case=case,
+        channel_id=channel_id,
+        session_id=session_id,
+        bot_id=bot_id,
+        marker=marker,
+    )
+    assert f"spindrel roundtrip ok {marker}" in roundtrip.response_text.lower()
+    if _should_capture_screenshots("harness-codex-native-cli-first-roundtrip"):
+        screenshot = await _capture_session_marker_screenshot(
+            client,
+            channel_id=channel_id,
+            session_id=session_id,
+            marker=f"spindrel roundtrip ok {marker}",
+            screenshot_name="harness-codex-native-cli-first-roundtrip-dark",
+        )
+        assert screenshot.is_file(), f"CLI-first roundtrip screenshot was not written: {screenshot}"
 
 
 @pytest.mark.asyncio

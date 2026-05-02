@@ -99,6 +99,46 @@ def _task_run_control_policy(ecfg: dict) -> dict | None:
     return policy or None
 
 
+def _task_context_profile_name(task: Task, channel: Channel | None) -> str:
+    from app.agent.context_profiles import resolve_native_chat_profile
+    from app.services.task_run_policy import resolve_task_run_policy
+
+    task_policy = resolve_task_run_policy(task.task_type)
+    if task_policy.context_profile:
+        return task_policy.context_profile
+    if task.task_type == "api":
+        return resolve_native_chat_profile(channel=channel).name
+    return "task_recent"
+
+
+def _history_turns_for_task(task: Task, profile_name: str, deps: TaskRunHostDeps) -> int:
+    from app.agent.context_profiles import get_context_profile
+
+    ecfg_hist = task.execution_config or {}
+    hist_mode = ecfg_hist.get("history_mode")
+    if hist_mode == "none":
+        return 0
+    if hist_mode == "recent":
+        try:
+            return int(ecfg_hist.get("history_recent_count") or 10)
+        except (TypeError, ValueError):
+            return 10
+    if hist_mode == "full":
+        return -1
+    profile = get_context_profile(profile_name)
+    if profile.live_history_turns is not None:
+        return profile.live_history_turns
+    return deps.settings.HEARTBEAT_MAX_HISTORY_TURNS
+
+
+def _metadata_context_visibility(task_type: str | None, *, is_scheduled: bool = False) -> str:
+    if task_type in {"heartbeat", "memory_hygiene", "skill_review"}:
+        return "background"
+    if is_scheduled:
+        return "background"
+    return "chat"
+
+
 async def _resolve_task_bot(bot_id: str, deps: TaskRunHostDeps) -> BotConfig:
     """Resolve a bot for a task run, refreshing the runtime registry once.
 
@@ -188,12 +228,8 @@ async def _prepare_task_run(
             initial_profile = (
                 "task_none"
                 if (task.execution_config or {}).get("history_mode") == "none"
-                else "task_recent"
+                else _task_context_profile_name(task, task_channel)
             )
-            from app.services.task_run_policy import resolve_task_run_policy
-            task_policy = resolve_task_run_policy(task.task_type)
-            if task_policy.context_profile:
-                initial_profile = task_policy.context_profile
             session_id, messages = await load_or_create(
                 db,
                 task.session_id,
@@ -206,25 +242,12 @@ async def _prepare_task_run(
             )
 
     from app.services.heartbeat import _trim_history_for_task
-    ecfg_hist = task.execution_config or {}
-    hist_mode = ecfg_hist.get("history_mode")
-    if hist_mode == "none":
-        hist_turns = 0
-    elif hist_mode == "recent":
-        try:
-            hist_turns = int(ecfg_hist.get("history_recent_count") or 10)
-        except (TypeError, ValueError):
-            hist_turns = 10
-    elif hist_mode == "full":
-        hist_turns = -1
-    else:
-        hist_turns = deps.settings.HEARTBEAT_MAX_HISTORY_TURNS
+    context_profile_name = _task_context_profile_name(task, task_channel)
+    hist_turns = _history_turns_for_task(task, context_profile_name, deps)
     messages = _trim_history_for_task(messages, hist_turns)
-    context_profile_name = "task_none" if hist_turns == 0 else "task_recent"
     from app.services.task_run_policy import resolve_task_run_policy
-    task_policy = resolve_task_run_policy(task.task_type)
-    if task_policy.context_profile:
-        context_profile_name = task_policy.context_profile
+    if hist_turns == 0 and not resolve_task_run_policy(task.task_type).context_profile:
+        context_profile_name = "task_none"
 
     correlation_id = uuid.uuid4()
     task.correlation_id = correlation_id
@@ -387,6 +410,10 @@ async def _run_harness_task_if_needed(
             "task_id": str(task.id),
             "task_type": task.task_type,
             "is_heartbeat": task.task_type == "heartbeat",
+            "context_visibility": _metadata_context_visibility(
+                task.task_type,
+                is_scheduled=prepared.is_scheduled,
+            ),
             **({"trigger": "heartbeat", "dispatched": _heartbeat_should_post(task, deps)} if task.task_type == "heartbeat" else {}),
         },
         pre_user_msg_id=pre_user_msg_id,
@@ -472,6 +499,8 @@ async def _run_harness_task_if_needed(
 def _task_run_origin(task: Task) -> str:
     from app.services.task_run_policy import resolve_task_run_policy
 
+    if task.task_type == "api":
+        return "chat"
     return resolve_task_run_policy(task.task_type).origin
 
 
@@ -612,13 +641,20 @@ async def _run_normal_agent_task(
         task_meta = {
             "trigger": "heartbeat",
             "task_id": str(task.id),
+            "task_type": task.task_type,
             "heartbeat_id": hb_meta.get("heartbeat_id"),
             "heartbeat_run_id": hb_meta.get("heartbeat_run_id"),
             "is_heartbeat": True,
             "dispatched": dispatched,
+            "context_visibility": "background",
         }
     elif prepared.is_scheduled:
-        task_meta = {"trigger": "scheduled_task", "task_id": str(task.id)}
+        task_meta = {
+            "trigger": "scheduled_task",
+            "task_id": str(task.id),
+            "task_type": task.task_type,
+            "context_visibility": "background",
+        }
         if task.title:
             task_meta["task_title"] = task.title
         if prepared.recurrence:
@@ -629,6 +665,8 @@ async def _run_normal_agent_task(
         task_meta = {
             "trigger": "callback",
             "task_id": str(task.id),
+            "task_type": task.task_type,
+            "context_visibility": _metadata_context_visibility(task.task_type),
             "sender_type": "bot",
             "sender_display_name": bot.name,
         }
@@ -659,6 +697,8 @@ async def _run_normal_agent_task(
             "sender_display_name": pipeline_title,
             "pipeline_task_id": pipeline_task_id,
             "pipeline_step_index": (task.callback_config or {}).get("pipeline_step_index"),
+            "task_type": task.task_type,
+            "context_visibility": "background",
         }
 
     pre_user_msg_id_str = (task.execution_config or {}).get("pre_user_msg_id")

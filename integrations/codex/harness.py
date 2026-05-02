@@ -8,6 +8,7 @@ Codex-native thread id for resume across Spindrel turns.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
@@ -342,6 +343,9 @@ class CodexRuntime:
         prompt: str,
         emit: ChannelEventEmitter,
     ) -> TurnResult:
+        if _should_use_codex_exec_resume(ctx):
+            return await _run_codex_exec_resume_turn(ctx=ctx, prompt=prompt, emit=emit)
+
         started_at = time.perf_counter()
         timings: dict[str, int] = {}
 
@@ -1080,6 +1084,131 @@ def build_native_cli_command(
     return " ".join(shlex.quote(part) for part in parts)
 
 
+def build_exec_resume_command_args(
+    *,
+    native_session_id: str,
+    prompt: str,
+    model: str | None = None,
+    effort: str | None = None,
+    permission_mode: str | None = None,
+) -> list[str]:
+    """Return argv for Codex's non-interactive native resume path."""
+
+    args = ["exec", "resume", "--json"]
+    if model:
+        args.extend(["--model", model])
+    if effort:
+        args.extend(["-c", f"model_reasoning_effort={json.dumps(effort)}"])
+    if permission_mode == "bypassPermissions":
+        args.append("--dangerously-bypass-approvals-and-sandbox")
+    args.extend([native_session_id, prompt])
+    return args
+
+
+def _should_use_codex_exec_resume(ctx: TurnContext) -> bool:
+    """Use CLI exec resume for threads that originated in the native CLI.
+
+    App-server-created threads remain on app-server because that path exposes
+    richer streaming/tool/approval events. CLI-created threads are native CLI
+    transcript records first; installed Codex exposes ``codex exec resume`` as
+    the matching non-interactive continuation surface.
+    """
+
+    if not ctx.harness_session_id:
+        return False
+    metadata = ctx.harness_metadata or {}
+    return (
+        metadata.get("source") == "harness_native_cli"
+        or metadata.get("codex_resume_surface") == "exec_resume"
+    )
+
+
+async def _run_codex_exec_resume_turn(
+    *,
+    ctx: TurnContext,
+    prompt: str,
+    emit: ChannelEventEmitter,
+) -> TurnResult:
+    started_at = time.perf_counter()
+    if not ctx.harness_session_id:
+        raise RuntimeError("Codex exec resume requires a native session id")
+    binary = _resolve_binary()
+    rendered_prompt = _prompt_with_context_hints_after_user(prompt, ctx)
+    args = build_exec_resume_command_args(
+        native_session_id=ctx.harness_session_id,
+        prompt=rendered_prompt,
+        model=ctx.model,
+        effort=ctx.effort,
+        permission_mode=ctx.permission_mode,
+    )
+    cmd = [binary, *args]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        cwd=ctx.workdir,
+        env={**os.environ, **dict(ctx.env)},
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    assert proc.stdout is not None
+    final_text_parts: list[str] = []
+    result_meta: dict[str, Any] = {}
+    tool_name_by_id: dict[str, str] = {}
+    stderr_task = asyncio.create_task(proc.stderr.read() if proc.stderr is not None else _empty_bytes())
+    try:
+        while True:
+            raw = await proc.stdout.readline()
+            if not raw:
+                break
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                logger.debug("codex exec resume non-json stdout: %s", line)
+                continue
+            _translate_codex_exec_json_event(
+                payload,
+                emit=emit,
+                tool_name_by_id=tool_name_by_id,
+                final_text_parts=final_text_parts,
+                result_meta=result_meta,
+            )
+        exit_code = await proc.wait()
+        stderr = (await stderr_task).decode("utf-8", errors="replace").strip()
+    except BaseException:
+        proc.kill()
+        with contextlib.suppress(Exception):
+            await proc.wait()
+        stderr_task.cancel()
+        raise
+
+    if exit_code != 0:
+        raise RuntimeError(
+            "Codex exec resume failed"
+            + (f" with exit {exit_code}" if exit_code is not None else "")
+            + (f": {stderr}" if stderr else "")
+        )
+    final_text = str(result_meta.get("final_text") or "".join(final_text_parts) or "").strip()
+    if final_text and not final_text_parts:
+        emit.token(final_text)
+    return TurnResult(
+        session_id=ctx.harness_session_id,
+        final_text=final_text,
+        cost_usd=result_meta.get("total_cost_usd"),
+        usage=result_meta.get("usage"),
+        metadata={
+            "codex_resume_surface": "exec_resume",
+            "codex_exec_resume_command": _redacted_command_display(cmd),
+            "codex_latency_ms": {
+                "exec_resume_completed_ms": int((time.perf_counter() - started_at) * 1000)
+            },
+            "input_manifest": ctx.input_manifest.metadata(runtime_items=()),
+            **_native_plan_metadata(result_meta),
+        },
+    )
+
+
 async def _try_set_codex_thread_name(
     client: CodexAppServer,
     thread_id: str,
@@ -1104,6 +1233,137 @@ def _codex_thread_name_from_prompt(prompt: str) -> str:
     if not text:
         return ""
     return text[:80].rstrip()
+
+
+async def _empty_bytes() -> bytes:
+    return b""
+
+
+def _prompt_with_context_hints_after_user(prompt: str, ctx: TurnContext) -> str:
+    hint_text = render_context_hints_for_prompt("", ctx.context_hints).strip()
+    if not hint_text:
+        return prompt
+    return f"{prompt}\n\n{hint_text}"
+
+
+def _translate_codex_exec_json_event(
+    payload: dict[str, Any],
+    *,
+    emit: ChannelEventEmitter,
+    tool_name_by_id: dict[str, str],
+    final_text_parts: list[str],
+    result_meta: dict[str, Any],
+) -> None:
+    """Translate Codex ``exec --json`` JSONL events into harness state.
+
+    Codex exec has changed event spellings across releases. Prefer app-server
+    notification translation when the line already looks like a protocol
+    notification, then handle common exec-specific message/result envelopes.
+    """
+
+    method = payload.get("method")
+    if isinstance(method, str):
+        translate_notification(
+            Notification(method=method, params=payload.get("params") or {}),
+            emit=emit,
+            tool_name_by_id=tool_name_by_id,
+            final_text_parts=final_text_parts,
+            result_meta=result_meta,
+        )
+        return
+
+    typ = str(payload.get("type") or "")
+    mapped = _codex_exec_event_method(typ)
+    if mapped:
+        text = _codex_exec_completed_agent_text(payload) if mapped == schema.ITEM_COMPLETED else ""
+        if text:
+            emit.token(text)
+            final_text_parts.append(text)
+        params = payload.get("params")
+        if not isinstance(params, dict):
+            params = {k: v for k, v in payload.items() if k != "type"}
+        translate_notification(
+            Notification(method=mapped, params=params),
+            emit=emit,
+            tool_name_by_id=tool_name_by_id,
+            final_text_parts=final_text_parts,
+            result_meta=result_meta,
+        )
+        return
+
+    text = _codex_exec_event_text(payload)
+    if text:
+        emit.token(text)
+        final_text_parts.append(text)
+        return
+
+    result = payload.get("result")
+    if isinstance(result, dict):
+        text = _codex_exec_event_text(result)
+        if text:
+            result_meta["final_text"] = text
+        usage = result.get("usage")
+        if isinstance(usage, dict):
+            result_meta["usage"] = usage
+        return
+    if isinstance(result, str) and result.strip():
+        result_meta["final_text"] = result.strip()
+
+
+def _codex_exec_completed_agent_text(payload: dict[str, Any]) -> str:
+    item = payload.get("item")
+    if not isinstance(item, dict):
+        return ""
+    kind = str(item.get("kind") or item.get("type") or "")
+    if kind not in {"agent_message", "agentMessage"}:
+        return ""
+    return _codex_exec_event_text(item)
+
+
+def _codex_exec_event_method(event_type: str) -> str | None:
+    normalized = event_type.replace(".", "/")
+    aliases = {
+        "item/agent_message/delta": schema.ITEM_AGENT_MESSAGE_DELTA,
+        "item/agentMessage/delta": schema.ITEM_AGENT_MESSAGE_DELTA,
+        "agent_message_delta": schema.ITEM_AGENT_MESSAGE_DELTA,
+        "agentMessageDelta": schema.ITEM_AGENT_MESSAGE_DELTA,
+        "item/reasoning/text_delta": schema.ITEM_REASONING_TEXT_DELTA,
+        "item/reasoning/textDelta": schema.ITEM_REASONING_TEXT_DELTA,
+        "reasoning_text_delta": schema.ITEM_REASONING_TEXT_DELTA,
+        "item/started": schema.ITEM_STARTED,
+        "item/completed": schema.ITEM_COMPLETED,
+        "turn/completed": schema.NOTIFICATION_TURN_COMPLETED,
+        "turn_completed": schema.NOTIFICATION_TURN_COMPLETED,
+        "error": schema.NOTIFICATION_ERROR,
+    }
+    if normalized in {
+        schema.ITEM_AGENT_MESSAGE_DELTA,
+        schema.ITEM_REASONING_TEXT_DELTA,
+        schema.ITEM_STARTED,
+        schema.ITEM_COMPLETED,
+        schema.ITEM_COMMAND_OUTPUT_DELTA,
+        schema.ITEM_FILE_CHANGE_OUTPUT_DELTA,
+        schema.ITEM_PLAN_DELTA,
+        schema.NOTIFICATION_TURN_COMPLETED,
+        schema.NOTIFICATION_ERROR,
+    }:
+        return normalized
+    return aliases.get(event_type) or aliases.get(normalized)
+
+
+def _codex_exec_event_text(payload: dict[str, Any]) -> str:
+    for key in ("delta", "text", "message", "content", "last_message", "final_answer"):
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            return value
+    item = payload.get("item")
+    if isinstance(item, dict):
+        return _codex_exec_event_text(item)
+    return ""
+
+
+def _redacted_command_display(cmd: list[str]) -> str:
+    return " ".join(shlex.quote(part) for part in cmd)
 
 
 async def _resolve_codex_native_input_items(

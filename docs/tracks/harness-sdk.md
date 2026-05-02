@@ -629,6 +629,19 @@ Approval mapping intent (final values from schema):
   lets Spindrel learn a CLI-started native session as soon as the user's CLI
   input reaches the transcript, instead of waiting for a final assistant row
   that may be delayed, interrupted, or still streaming.
+- 2026-05-02 Codex CLI-first continuation: Codex sessions whose latest harness
+  metadata comes from the native CLI mirror now continue through Codex's native
+  non-interactive `codex exec resume <session> --json` surface instead of
+  app-server `thread/resume`. App-server-created threads still use app-server
+  for richer tool/approval streaming; this fallback is only for CLI-originated
+  native threads where live testing showed app-server resume could attach to
+  the id without recalling the CLI-created leaf.
+- 2026-05-02 Codex exec-resume parser/dedupe: live `codex exec resume --json`
+  emits final text as `item.completed` with `item.type=agent_message`; the
+  adapter now extracts that shape and the native transcript mirror suppresses
+  chat-originated `exec resume` echoes so the persisted feed shows one user row
+  and one assistant row in arrival order. Proof:
+  `docs/images/native-cli/harness-codex-native-cli-first-roundtrip-dark.png`.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

@@ -107,6 +107,10 @@ function handoffProgressSummary(run: ProjectCodingRun) {
 }
 
 function evidenceSummary(run: ProjectCodingRun) {
+  const lifecycleEvidence = run.lifecycle?.evidence;
+  if (lifecycleEvidence) {
+    return `${lifecycleEvidence.tests ?? 0} tests · ${lifecycleEvidence.screenshots ?? 0} screenshots · ${lifecycleEvidence.files ?? 0} files · ${lifecycleEvidence.dev_targets ?? 0} dev targets`;
+  }
   const evidence = run.review?.evidence;
   if (evidence) {
     return `${evidence.tests_count ?? 0} tests · ${evidence.screenshots_count ?? 0} screenshots · ${evidence.changed_files_count ?? 0} files · ${evidence.dev_targets_count ?? 0} dev targets`;
@@ -137,7 +141,7 @@ function isHumanReviewQueueRun(run: ProjectCodingRun) {
 }
 
 function reviewQueueDescription(run: ProjectCodingRun) {
-  return run.review_next_action || reviewLine(run) || evidenceSummary(run);
+  return run.lifecycle?.next_action || run.review_next_action || reviewLine(run) || evidenceSummary(run);
 }
 
 function reviewAgentTaskId(run: ProjectCodingRun) {
@@ -159,6 +163,7 @@ function reviewAgentLine(run: ProjectCodingRun) {
 }
 
 function reviewLine(run: ProjectCodingRun) {
+  if (run.lifecycle?.headline) return run.lifecycle.headline;
   const review = run.review;
   if (!review) return null;
   const pieces = [
@@ -265,8 +270,8 @@ function batchSourceLine(batch: ProjectCodingRunReviewBatch) {
 function RunActionLinks({ run }: { run: ProjectCodingRun }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
-      <RowLink to={`/admin/projects/${run.project_id}/runs/${run.task.id}`}>Open run</RowLink>
-      {(run.review?.handoff_url || run.receipt?.handoff_url) && <RowLink href={run.review?.handoff_url || run.receipt?.handoff_url || undefined}>Open PR</RowLink>}
+      <RowLink to={`/admin/projects/${run.project_id}/runs/${run.task.id}`}>Open review page</RowLink>
+      {(run.review?.handoff_url || run.receipt?.handoff_url) && <RowLink href={run.review?.handoff_url || run.receipt?.handoff_url || undefined}>PR / handoff</RowLink>}
       <RowLink to={`/admin/tasks/${run.task.id}`}>Agent log</RowLink>
     </div>
   );
@@ -298,7 +303,7 @@ function RunReviewActions({
       />
       {run.review?.actions?.can_mark_reviewed && (
         <ActionButton
-          label="Reviewed"
+          label="Close on our side"
           icon={<Check size={13} />}
           size="small"
           variant="secondary"
@@ -341,6 +346,29 @@ function RunReviewActions({
   );
 }
 
+function EmptyRunsAnchor({
+  hasBlueprintSnapshot,
+  onNewRun,
+}: {
+  hasBlueprintSnapshot: boolean;
+  onNewRun: () => void;
+}) {
+  return (
+    <Section
+      title="Project work"
+      description="No runs need review and no agents are currently working."
+      action={<ActionButton label="New run" icon={<Play size={14} />} size="small" onPress={onNewRun} />}
+    >
+      <SettingsControlRow
+        leading={<CheckCircle2 size={14} />}
+        title="Nothing waiting"
+        description="Start a new agent coding run when you have a ready story, bug, or follow-up."
+        meta={hasBlueprintSnapshot ? <StatusBadge label="ready" variant="success" /> : <StatusBadge label="setup needed" variant="warning" />}
+      />
+    </Section>
+  );
+}
+
 export function ProjectRunsSection({
   project,
   channels,
@@ -370,6 +398,7 @@ export function ProjectRunsSection({
   const [changeRunId, setChangeRunId] = useState<string | null>(null);
   const [changeFeedback, setChangeFeedback] = useState("");
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
+  const [batchMode, setBatchMode] = useState(false);
   const [reviewPrompt, setReviewPrompt] = useState("Review the selected PRs. Merge only accepted work to development, then mark those runs reviewed with links and blockers.");
   const [reviewMachineTargetGrant, setReviewMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
   const [reviewTaskId, setReviewTaskId] = useState<string | null>(null);
@@ -566,102 +595,10 @@ export function ProjectRunsSection({
 
   return (
     <div data-testid="project-workspace-runs" className="mx-auto flex w-full max-w-[1120px] flex-col gap-7 px-5 py-5 md:px-6">
-      {(activeRuns.length > 0 || activeReviewSessions.length > 0) && (
-        <Section
-          title="Active Work"
-          description="Live implementation and review agents. Open the run or agent log to watch, guide, or recover the work."
-        >
-          <div className="flex flex-col gap-2">
-            {activeRuns.map((run) => (
-              <SettingsControlRow
-                key={run.id}
-                leading={<Play size={14} />}
-                title={runTitle(run)}
-                description={
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="truncate text-[11px] text-text-dim">{activeRunLine(run)}</span>
-                    <span className="truncate text-[11px] text-text-dim">
-                      Started {formatRunTime(run.created_at)} · {run.task.bot_id}
-                    </span>
-                    {loopLine(run) && <span className="truncate text-[11px] text-text-dim">{loopLine(run)}</span>}
-                  </span>
-                }
-                meta={<StatusBadge label={run.task.status || run.status} variant={statusTone(run.task.status || run.status)} />}
-                action={<RunActionLinks run={run} />}
-              />
-            ))}
-            {activeReviewSessions.map((session) => (
-              <SettingsControlRow
-                key={session.id}
-                leading={<GitMerge size={14} />}
-                title={session.title || "Agent review running"}
-                description={
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="truncate text-[11px] text-text-dim">
-                      Review agent · {session.run_count} run{session.run_count === 1 ? "" : "s"} · latest {formatRunTime(session.latest_activity_at || session.created_at)}
-                    </span>
-                    {session.latest_summary && <span className="truncate text-[11px] text-text-dim">{session.latest_summary}</span>}
-                    {(session.selected_run_ids?.length ?? 0) > 0 && (
-                      <span className="truncate text-[11px] text-text-dim">Selected runs: {session.selected_run_ids?.map((id) => id.slice(0, 8)).join(", ")}</span>
-                    )}
-                  </span>
-                }
-                meta={<StatusBadge label={session.task_status || session.status} variant={statusTone(session.task_status || session.status)} />}
-                action={
-                  <div className="flex flex-wrap items-center justify-end gap-1">
-                    <ActionButton
-                      label="Select reviewed runs"
-                      size="small"
-                      variant="ghost"
-                      disabled={batchBusy || !(session.selected_run_ids?.length)}
-                      onPress={() => setSelectedRunIds(session.selected_run_ids ?? [])}
-                    />
-                    <RowLink to={`/admin/tasks/${session.task_id}`}>Open agent review</RowLink>
-                  </div>
-                }
-              />
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {reviewTaskId && (
-        <Section
-          title="Review Agent Launched"
-          description="A normal task was created for the selected review. Open it to watch or steer the agent."
-        >
-          <SettingsControlRow
-            leading={<GitMerge size={14} />}
-            title="Agent review task created"
-            description={
-              <span className="flex min-w-0 flex-col gap-0.5">
-                <span className="truncate font-mono text-[11px] text-text-dim">{reviewTaskId}</span>
-                <span className="truncate text-[11px] text-text-dim">
-                  {launchedReviewRuns.length} selected run{launchedReviewRuns.length === 1 ? "" : "s"}
-                  {selectedChannel ? ` · ${selectedChannel.name}` : ""}
-                </span>
-                {launchedReviewRuns[0] && (
-                  <span className="truncate text-[11px] text-text-dim">First run: {runTitle(launchedReviewRuns[0])}</span>
-                )}
-              </span>
-            }
-            meta={<StatusBadge label="launched" variant="info" />}
-            action={
-              <div className="flex flex-wrap items-center justify-end gap-1">
-                {launchedReviewRuns[0] && <RowLink to={`/admin/projects/${project.id}/runs/${launchedReviewRuns[0].task.id}`}>Open selected run</RowLink>}
-                <RowLink to={`/admin/tasks/${reviewTaskId}`}>Open agent review</RowLink>
-              </div>
-            }
-          />
-        </Section>
-      )}
-
-      <Section title="Needs Human Review" description="Runs waiting for your decision. Agent review is explicit: launching one creates a visible review task you can open and follow.">
+      {reviewQueueRuns.length > 0 ? (
+      <Section title="Needs your review" description="Open the review page first. Ask an agent to review only when you want a separate visible review task.">
         <div className="flex flex-col gap-2">
-          {reviewQueueRuns.length === 0 ? (
-            <EmptyState message="No Project coding runs are waiting for operator review." />
-          ) : (
-            reviewQueueRuns.map((run) => (
+          {reviewQueueRuns.map((run) => (
               <SettingsControlRow
                 key={run.id}
                 leading={<GitMerge size={14} />}
@@ -692,11 +629,12 @@ export function ProjectRunsSection({
                 meta={<StatusBadge label={reviewQueueLabel(reviewQueueState(run))} variant={statusTone(reviewQueueState(run))} />}
                 action={
                   <div className="flex flex-wrap justify-end gap-1">
+                    <RowLink to={`/admin/projects/${run.project_id}/runs/${run.task.id}`}>Open review page</RowLink>
                     {isAgentReviewRunning(run) && reviewAgentTaskId(run) ? (
-                      <RowLink to={`/admin/tasks/${reviewAgentTaskId(run)}`}>Open agent review</RowLink>
+                      <RowLink to={`/admin/tasks/${reviewAgentTaskId(run)}`}>Review agent log</RowLink>
                     ) : (
                       <ActionButton
-                        label={createReviewSession.isPending ? "Launching" : "Launch agent review"}
+                        label={createReviewSession.isPending ? "Starting" : "Ask agent to review"}
                         icon={<GitMerge size={13} />}
                         size="small"
                         variant="secondary"
@@ -704,22 +642,15 @@ export function ProjectRunsSection({
                         onPress={() => launchReviewForRuns([run], `Review Project coding run ${run.task.id}. Preserve receipt, screenshot, PR, and follow-up provenance.`)}
                       />
                     )}
-                    <ActionButton
-                      label="Select for batch"
-                      size="small"
-                      variant="ghost"
-                      disabled={batchBusy}
-                      onPress={() => setSelectedRunIds([run.id])}
-                    />
-                    <RunActionLinks run={run} />
+                    {(run.review?.handoff_url || run.receipt?.handoff_url) && <RowLink href={run.review?.handoff_url || run.receipt?.handoff_url || undefined}>PR / handoff</RowLink>}
+                    <RowLink to={`/admin/tasks/${run.task.id}`}>Agent log</RowLink>
                   </div>
                 }
               />
-            ))
-          )}
+            ))}
           {reviewBatches.length > 0 && (
             <div className="mt-2 flex flex-col gap-2">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">Launch batch context</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">Batch review shortcuts</div>
               {reviewBatches.slice(0, 4).map((batch) => (
                 <SettingsControlRow
                   key={batch.id}
@@ -752,17 +683,17 @@ export function ProjectRunsSection({
                   action={
                     <div className="flex flex-wrap justify-end gap-1">
                       <ActionButton
-                        label="Select runs"
+                        label="Select batch"
                         size="small"
                         variant="ghost"
                         disabled={batchBusy}
                         onPress={() => setSelectedRunIds(batch.run_ids ?? [])}
                       />
                       {batch.active_review_task?.task_id ? (
-                        <RowLink to={`/admin/tasks/${batch.active_review_task.task_id}`}>Open agent review</RowLink>
+                        <RowLink to={`/admin/tasks/${batch.active_review_task.task_id}`}>Review agent log</RowLink>
                       ) : (
                         <ActionButton
-                          label={createReviewSession.isPending ? "Launching" : "Launch batch review agent"}
+                          label={createReviewSession.isPending ? "Starting" : "Ask agent to review batch"}
                           icon={<GitMerge size={13} />}
                           size="small"
                           variant="secondary"
@@ -778,13 +709,109 @@ export function ProjectRunsSection({
           )}
         </div>
       </Section>
+      ) : activeRuns.length === 0 && activeReviewSessions.length === 0 ? (
+        <EmptyRunsAnchor
+          hasBlueprintSnapshot={hasBlueprintSnapshot}
+          onNewRun={() => setShowRunLauncher(true)}
+        />
+      ) : null}
+
+      {(activeRuns.length > 0 || activeReviewSessions.length > 0) && (
+        <Section
+          title="Running now"
+          description="Live implementation and review agents. Open the run page for context, or the agent log for the raw session."
+        >
+          <div className="flex flex-col gap-2">
+            {activeRuns.map((run) => (
+              <SettingsControlRow
+                key={run.id}
+                leading={<Play size={14} />}
+                title={runTitle(run)}
+                description={
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="truncate text-[11px] text-text-dim">{activeRunLine(run)}</span>
+                    <span className="truncate text-[11px] text-text-dim">
+                      Started {formatRunTime(run.created_at)} · {run.task.bot_id}
+                    </span>
+                    {loopLine(run) && <span className="truncate text-[11px] text-text-dim">{loopLine(run)}</span>}
+                  </span>
+                }
+                meta={<StatusBadge label={run.task.status || run.status} variant={statusTone(run.task.status || run.status)} />}
+                action={<RunActionLinks run={run} />}
+              />
+            ))}
+            {activeReviewSessions.map((session) => (
+              <SettingsControlRow
+                key={session.id}
+                leading={<GitMerge size={14} />}
+                title={session.title || "Review agent running"}
+                description={
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="truncate text-[11px] text-text-dim">
+                      Review agent · {session.run_count} run{session.run_count === 1 ? "" : "s"} · latest {formatRunTime(session.latest_activity_at || session.created_at)}
+                    </span>
+                    {session.latest_summary && <span className="truncate text-[11px] text-text-dim">{session.latest_summary}</span>}
+                    {(session.selected_run_ids?.length ?? 0) > 0 && (
+                      <span className="truncate text-[11px] text-text-dim">Selected runs: {session.selected_run_ids?.map((id) => id.slice(0, 8)).join(", ")}</span>
+                    )}
+                  </span>
+                }
+                meta={<StatusBadge label={session.task_status || session.status} variant={statusTone(session.task_status || session.status)} />}
+                action={
+                  <div className="flex flex-wrap items-center justify-end gap-1">
+                    <ActionButton
+                      label="Select reviewed runs"
+                      size="small"
+                      variant="ghost"
+                      disabled={batchBusy || !(session.selected_run_ids?.length)}
+                      onPress={() => setSelectedRunIds(session.selected_run_ids ?? [])}
+                    />
+                    <RowLink to={`/admin/tasks/${session.task_id}`}>Review agent log</RowLink>
+                  </div>
+                }
+              />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {reviewTaskId && (
+        <Section
+          title="Review agent started"
+          description="A normal task was created for the selected review. Open it to watch or steer the agent."
+        >
+          <SettingsControlRow
+            leading={<GitMerge size={14} />}
+            title="Review agent task created"
+            description={
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="truncate font-mono text-[11px] text-text-dim">{reviewTaskId}</span>
+                <span className="truncate text-[11px] text-text-dim">
+                  {launchedReviewRuns.length} selected run{launchedReviewRuns.length === 1 ? "" : "s"}
+                  {selectedChannel ? ` · ${selectedChannel.name}` : ""}
+                </span>
+                {launchedReviewRuns[0] && (
+                  <span className="truncate text-[11px] text-text-dim">First run: {runTitle(launchedReviewRuns[0])}</span>
+                )}
+              </span>
+            }
+            meta={<StatusBadge label="started" variant="info" />}
+            action={
+              <div className="flex flex-wrap items-center justify-end gap-1">
+                {launchedReviewRuns[0] && <RowLink to={`/admin/projects/${project.id}/runs/${launchedReviewRuns[0].task.id}`}>Open review page</RowLink>}
+                <RowLink to={`/admin/tasks/${reviewTaskId}`}>Review agent log</RowLink>
+              </div>
+            }
+          />
+        </Section>
+      )}
 
       <Section
-        title="Agent Coding Run"
+        title="Start new work"
         description="Launch a new implementation agent only when you are ready to start more work."
         action={
           <ActionButton
-            label={!showRunLauncher ? "New run" : createRun.isPending ? "Starting" : "Start Run"}
+            label={!showRunLauncher ? "New run" : createRun.isPending ? "Starting" : "Start run"}
             icon={<Play size={14} />}
             disabled={showRunLauncher && (!selectedChannel || !hasBlueprintSnapshot || createRun.isPending)}
             onPress={() => {
@@ -950,8 +977,25 @@ export function ProjectRunsSection({
 
       <ProjectScheduledReviewsSection project={project} channels={channels} selectedChannelId={selectedChannelId} />
 
-      <Section title="All Project Runs" description="Audit trail for active, completed, reviewed, and blocked Project coding runs. Select rows only when you want a batch action.">
-        {selectedRunIds.length > 0 && (
+      <Section
+        title="Run history"
+        description="Audit trail for every Project coding run. Batch controls stay hidden until you need them."
+        action={
+          runs.length > 0 ? (
+            <ActionButton
+              label={batchMode ? "Done selecting" : "Batch tools"}
+              icon={<GitMerge size={13} />}
+              size="small"
+              variant="secondary"
+              onPress={() => {
+                setBatchMode((current) => !current);
+                if (batchMode) setSelectedRunIds([]);
+              }}
+            />
+          ) : undefined
+        }
+      >
+        {batchMode && (
           <div className="mb-3 grid gap-3 rounded-md bg-surface-raised/30 p-3 md:grid-cols-[minmax(0,1fr)_auto]">
             <div className="flex min-w-0 flex-col gap-2">
               <label className="inline-flex items-center gap-2 text-[12px] font-semibold text-text">
@@ -964,21 +1008,25 @@ export function ProjectRunsSection({
                   }}
                   onChange={(event) => setSelectedRunIds(event.target.checked ? runs.map((run) => run.id) : [])}
                 />
-                {selectedRunIds.length === 0 ? "Select coding runs" : `${selectedRunIds.length} selected`}
+                {selectedRunIds.length === 0 ? "Select runs to review together" : `${selectedRunIds.length} selected`}
               </label>
-              <PromptEditor
-                value={reviewPrompt}
-                onChange={setReviewPrompt}
-                label="Review session prompt"
-                rows={3}
-                fieldType="task_prompt"
-                generateContext={`Project: ${project.name}. Selected runs: ${selectedRunIds.length}`}
-              />
-              <ExecutionAccessControl
-                value={reviewMachineTargetGrant}
-                onChange={setReviewMachineTargetGrant}
-                testId="project-review-execution-access"
-              />
+              {selectedRunIds.length > 0 && (
+                <>
+                  <PromptEditor
+                    value={reviewPrompt}
+                    onChange={setReviewPrompt}
+                    label="Agent review prompt"
+                    rows={3}
+                    fieldType="task_prompt"
+                    generateContext={`Project: ${project.name}. Selected runs: ${selectedRunIds.length}`}
+                  />
+                  <ExecutionAccessControl
+                    value={reviewMachineTargetGrant}
+                    onChange={setReviewMachineTargetGrant}
+                    testId="project-review-execution-access"
+                  />
+                </>
+              )}
               {launchBatchGroups.length > 0 && (
                 <div className="flex flex-col gap-1 pt-1">
                   <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">Launch batches</span>
@@ -996,7 +1044,7 @@ export function ProjectRunsSection({
                           onPress={() => setSelectedRunIds(group.runs.map((run) => run.id))}
                         />
                         <ActionButton
-                          label={createReviewSession.isPending ? "Launching" : "Launch batch review agent"}
+                          label={createReviewSession.isPending ? "Starting" : "Ask agent to review batch"}
                           icon={<GitMerge size={13} />}
                           size="small"
                           variant="secondary"
@@ -1011,7 +1059,7 @@ export function ProjectRunsSection({
             </div>
             <div className="flex items-start justify-end gap-1">
               <ActionButton
-                label="Mark reviewed"
+                label="Close on our side"
                 icon={<Check size={13} />}
                 size="small"
                 variant="secondary"
@@ -1019,18 +1067,13 @@ export function ProjectRunsSection({
                 onPress={markSelectedReviewed}
               />
               <ActionButton
-                label={createReviewSession.isPending ? "Launching" : "Launch agent review"}
+                label={createReviewSession.isPending ? "Starting" : "Ask agent to review"}
                 icon={<GitMerge size={13} />}
                 size="small"
                 disabled={!selectedChannel || selectedTaskIds.length === 0 || batchBusy}
                 onPress={launchReviewSession}
               />
             </div>
-          </div>
-        )}
-        {runs.length > 0 && selectedRunIds.length === 0 && (
-          <div className="mb-3 text-[12px] text-text-muted">
-            Select runs from this audit list only when you need a batch agent review or a bulk reviewed mark.
           </div>
         )}
         <div className="flex flex-col gap-2">
@@ -1042,13 +1085,15 @@ export function ProjectRunsSection({
                 <SettingsControlRow
                   leading={
                     <span className="inline-flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-input-border bg-input"
-                        checked={selectedRunIds.includes(run.id)}
-                        onChange={() => toggleRun(run.id)}
-                        aria-label={`Select ${run.request || run.task.title || "Project coding run"}`}
-                      />
+                      {batchMode && (
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-input-border bg-input"
+                          checked={selectedRunIds.includes(run.id)}
+                          onChange={() => toggleRun(run.id)}
+                          aria-label={`Select ${run.request || run.task.title || "Project coding run"}`}
+                        />
+                      )}
                       <GitBranch size={14} />
                     </span>
                   }
@@ -1099,10 +1144,16 @@ export function ProjectRunsSection({
                     </span>
                   }
                   meta={<StatusBadge label={reviewStatusLabel(run)} variant={statusTone(reviewStatusLabel(run))} />}
-                  action={<RunReviewActions projectId={project.id} run={run} onRequestChanges={() => {
-                    setChangeRunId(run.id);
-                    setChangeFeedback(run.continuation_feedback || "");
-                  }} />}
+                  action={
+                    batchMode ? (
+                      <RunActionLinks run={run} />
+                    ) : (
+                      <RunReviewActions projectId={project.id} run={run} onRequestChanges={() => {
+                        setChangeRunId(run.id);
+                        setChangeFeedback(run.continuation_feedback || "");
+                      }} />
+                    )
+                  }
                 />
                 {changeRunId === run.id && (
                   <div className="rounded-md bg-surface-raised/40 px-3 py-3">
@@ -1168,8 +1219,8 @@ export function ProjectRunsSection({
                 meta={<StatusBadge label={receipt.status} variant={statusTone(receipt.status)} />}
                 action={
                   <div className="flex flex-wrap items-center justify-end gap-1">
-                    {receipt.task_id && <RowLink to={`/admin/projects/${receipt.project_id}/runs/${receipt.task_id}`}>Open run</RowLink>}
-                    {receipt.handoff_url && <RowLink href={receipt.handoff_url}>Open PR</RowLink>}
+                    {receipt.task_id && <RowLink to={`/admin/projects/${receipt.project_id}/runs/${receipt.task_id}`}>Open review page</RowLink>}
+                    {receipt.handoff_url && <RowLink href={receipt.handoff_url}>PR / handoff</RowLink>}
                   </div>
                 }
               />

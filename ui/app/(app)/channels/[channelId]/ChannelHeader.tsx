@@ -9,6 +9,7 @@ import {
   Lock,
   LayoutDashboard,
   Cog,
+  NotebookText,
   PanelRight,
   Sparkles,
   StickyNote,
@@ -106,6 +107,8 @@ export interface ChannelHeaderProps {
   scratchOpen?: boolean;
   /** Open the unified channel session picker. */
   onOpenSessions?: () => void;
+  /** Open the mobile-only notes sheet. */
+  onOpenMobileNotes?: () => void;
   scratchSessionId?: string | null;
   onOpenMainChat?: () => void;
   /** Optional explicit dashboard target. Scratch full-page uses this to
@@ -150,6 +153,7 @@ export function ChannelHeader({
   findingsCount = 0,
   scratchOpen,
   onOpenSessions,
+  onOpenMobileNotes,
   scratchSessionId,
   onOpenMainChat,
   dashboardHref,
@@ -175,6 +179,7 @@ export function ChannelHeader({
   // content inline, so channel-route mobile users get one surface with nav
   // + widgets + files all reachable from a single tap.
   const setMobileDrawerOpen = useUIStore((s) => s.setMobileDrawerOpen);
+  const setChannelPanelTab = useUIStore((s) => s.setChannelPanelTab);
   // Mobile-only: the top-right widget button toggles the same drawer but
   // force-pins it to the Widgets tab. Hamburger still opens wherever the
   // user last explicitly navigated (persisted `omniPanelTab`), so the two
@@ -491,13 +496,26 @@ export function ChannelHeader({
           danger: false,
         }
       : null,
-    isMobile && channelId && onOpenSessions
+    isMobile && channelId
       ? {
           key: "sessions",
           label: sessionButtonLabel,
           icon: StickyNote,
-          onClick: onOpenSessions,
+          onClick: () => {
+            setChannelPanelTab(channelId, "sessions");
+            setMobileDrawerOpen(channelId, true);
+          },
           active: !!scratchOpen,
+          danger: false,
+        }
+      : null,
+    isMobile && onOpenMobileNotes
+      ? {
+          key: "notes",
+          label: "Notes",
+          icon: NotebookText,
+          onClick: onOpenMobileNotes,
+          active: false,
           danger: false,
         }
       : null,

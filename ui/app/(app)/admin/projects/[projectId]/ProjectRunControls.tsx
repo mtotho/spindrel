@@ -66,7 +66,7 @@ export function scheduledAtForPicker(value: string | null | undefined): string {
 
 export function statusTone(status: string): "success" | "warning" | "danger" | "neutral" {
   if (status === "completed" || status === "complete" || status === "reported" || status === "ready_for_review" || status === "reviewed") return "success";
-  if (status === "pending" || status === "running" || status === "needs_review" || status === "needs_review" || status === "pending_evidence" || status === "missing_evidence" || status === "follow_up_running" || status === "follow_up_created" || status === "reviewing") return "warning";
+  if (status === "pending" || status === "running" || status === "needs_review" || status === "pending_evidence" || status === "missing_evidence" || status === "follow_up_running" || status === "follow_up_created" || status === "reviewing") return "warning";
   if (status === "failed" || status === "blocked" || status === "setup_blocked" || status === "changes_requested") return "danger";
   return "neutral";
 }

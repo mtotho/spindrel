@@ -13,6 +13,7 @@ from app.services.agent_harnesses.native_cli_mirror import (
     _claude_project_dir_name,
     _find_claude_transcript,
     _find_codex_transcript,
+    _has_host_persisted_duplicate,
     _parse_claude_jsonl_record,
     _parse_codex_jsonl_record,
     _persist_mirrored_record,
@@ -348,6 +349,82 @@ async def test_persist_mirrored_record_skips_duplicate_record_keys(db_session, t
         )
     ).all()
     assert [row.content for row in rows] == ["First result"]
+
+
+@pytest.mark.asyncio
+async def test_host_persisted_duplicate_detects_exec_resume_echoes(db_session):
+    bot = build_bot(id="native-cli-host-dedupe-bot", name="Harness", model="unused")
+    channel = build_channel(bot_id=bot.id)
+    session = Session(
+        client_id="native-cli-host-dedupe-session",
+        bot_id=bot.id,
+        channel_id=channel.id,
+    )
+    db_session.add_all([bot, channel, session])
+    await db_session.commit()
+
+    db_session.add(
+        Message(
+            session_id=session.id,
+            channel_id=channel.id,
+            role="assistant",
+            content="spindrel roundtrip ok marker",
+            metadata_={
+                "harness": {
+                    "runtime": "codex",
+                    "session_id": "codex-thread",
+                    "codex_resume_surface": "exec_resume",
+                }
+            },
+        )
+    )
+    db_session.add(
+        Message(
+            session_id=session.id,
+            channel_id=channel.id,
+            role="user",
+            content="continue from chat",
+            metadata_={"source": "e2e-test"},
+        )
+    )
+    db_session.add(
+        Message(
+            session_id=session.id,
+            channel_id=channel.id,
+            role="assistant",
+            content="repeatable native cli text",
+            metadata_={"source": "harness_native_cli"},
+        )
+    )
+    await db_session.commit()
+
+    assert await _has_host_persisted_duplicate(
+        db_session,
+        spindrel_session_id=session.id,
+        record=NativeCliMirrorRecord(
+            key="codex:assistant-echo",
+            role="assistant",
+            content="spindrel roundtrip ok marker",
+        ),
+    )
+    assert await _has_host_persisted_duplicate(
+        db_session,
+        spindrel_session_id=session.id,
+        record=NativeCliMirrorRecord(
+            key="codex:user-echo",
+            role="user",
+            content="continue from chat",
+        ),
+    )
+    assert not await _has_host_persisted_duplicate(
+        db_session,
+        spindrel_session_id=session.id,
+        record=NativeCliMirrorRecord(
+            key="codex:real-repeat",
+            role="assistant",
+            content="repeatable native cli text",
+        ),
+    )
 
 
 @pytest.mark.asyncio

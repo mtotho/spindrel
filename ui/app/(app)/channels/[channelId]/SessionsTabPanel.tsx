@@ -1,0 +1,241 @@
+import { useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+import { FolderOpen, MessageCircle, Plus, StickyNote } from "lucide-react";
+import {
+  useChannelSessionCatalog,
+  useResetScratchSession,
+} from "@/src/api/hooks/useChannelSessions";
+import { useProjectChannels } from "@/src/api/hooks/useProjects";
+import {
+  getChannelSessionMeta,
+  type ChannelSessionCatalogItem,
+  type ChannelSessionSurface,
+} from "@/src/lib/channelSessionSurfaces";
+import type { ProjectSummary } from "@/src/types/api";
+
+interface SessionsTabPanelProps {
+  channelId: string;
+  botId?: string;
+  channelLabel?: string | null;
+  project?: ProjectSummary | null;
+  onActivateSurface?: (surface: ChannelSessionSurface) => void;
+}
+
+export function SessionsTabPanel({
+  channelId,
+  botId,
+  channelLabel,
+  project,
+  onActivateSurface,
+}: SessionsTabPanelProps) {
+  const navigate = useNavigate();
+  const { data: catalog, isLoading } = useChannelSessionCatalog(channelId);
+  const resetScratch = useResetScratchSession();
+  const { data: projectChannels } = useProjectChannels(project?.id);
+
+  const { primaryRow, channelRows, scratchRows } = useMemo(() => {
+    const items = catalog ?? [];
+    const primary = items.find(
+      (s) => s.surface_kind === "channel" && s.is_active,
+    );
+    return {
+      primaryRow: primary ?? null,
+      channelRows: items.filter(
+        (s) => s.surface_kind === "channel" && s !== primary,
+      ),
+      scratchRows: items.filter((s) => s.surface_kind === "scratch"),
+    };
+  }, [catalog]);
+
+  const activate = useCallback(
+    (surface: ChannelSessionSurface) => {
+      if (onActivateSurface) {
+        onActivateSurface(surface);
+        return;
+      }
+      if (surface.kind === "primary") {
+        navigate(`/channels/${encodeURIComponent(channelId)}`);
+      } else {
+        navigate(
+          `/channels/${encodeURIComponent(channelId)}/session/${encodeURIComponent(surface.sessionId)}` +
+            (surface.kind === "scratch" ? "?scratch=true" : ""),
+        );
+      }
+    },
+    [channelId, navigate, onActivateSurface],
+  );
+
+  const handleCreate = useCallback(async () => {
+    if (!botId) return;
+    const next = await resetScratch.mutateAsync({
+      parent_channel_id: channelId,
+      bot_id: botId,
+    });
+    activate({ kind: "scratch", sessionId: next.session_id });
+  }, [activate, botId, channelId, resetScratch]);
+
+  const siblings = useMemo(
+    () => (projectChannels ?? []).filter((row) => row.id !== channelId),
+    [projectChannels, channelId],
+  );
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-surface">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <MessageCircle size={15} className="text-emphasis" />
+          <div className="min-w-0">
+            <div className="truncate text-[13px] font-medium text-text">Sessions</div>
+            <div className="truncate text-[11px] text-text-dim">
+              {channelLabel ? `In #${channelLabel}` : "Channel sessions"}
+            </div>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleCreate}
+          disabled={!botId || resetScratch.isPending}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[12px] text-accent hover:bg-surface-overlay disabled:opacity-40"
+        >
+          <Plus size={14} />
+          New
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        <div className="flex flex-col gap-1.5">
+          {primaryRow && (
+            <SessionRow
+              row={primaryRow}
+              isPrimary
+              label={channelLabel ?? "Main chat"}
+              onClick={() => activate({ kind: "primary" })}
+            />
+          )}
+          {channelRows.map((row) => (
+            <SessionRow
+              key={row.session_id}
+              row={row}
+              onClick={() =>
+                activate({ kind: "channel", sessionId: row.session_id })
+              }
+            />
+          ))}
+          {scratchRows.map((row) => (
+            <SessionRow
+              key={row.session_id}
+              row={row}
+              onClick={() =>
+                activate({ kind: "scratch", sessionId: row.session_id })
+              }
+            />
+          ))}
+          {!isLoading &&
+            !primaryRow &&
+            channelRows.length === 0 &&
+            scratchRows.length === 0 && (
+              <div className="mx-1 rounded-md border border-dashed border-surface-border bg-surface-raised/40 px-4 py-8 text-center">
+                <StickyNote size={18} className="mx-auto mb-2 text-text-dim/70" />
+                <div className="text-[12px] text-text-muted">No sessions yet</div>
+                <button
+                  type="button"
+                  onClick={handleCreate}
+                  disabled={!botId || resetScratch.isPending}
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] text-accent hover:bg-surface-overlay disabled:opacity-40"
+                >
+                  <Plus size={13} />
+                  Start a new session
+                </button>
+              </div>
+            )}
+        </div>
+
+        {project && (
+          <section className="mt-5 flex flex-col gap-2">
+            <div className="flex items-baseline gap-2 px-1">
+              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-text-dim">
+                In project
+              </h3>
+              <span className="truncate text-[10px] text-text-muted">
+                {project.name}
+              </span>
+            </div>
+            {siblings.length === 0 ? (
+              <div className="mx-1 rounded-md border border-dashed border-surface-border bg-surface-raised/40 px-3 py-4 text-center text-[11px] text-text-muted">
+                No other channels in this project yet.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {siblings.map((sibling) => (
+                  <button
+                    key={sibling.id}
+                    type="button"
+                    onClick={() =>
+                      navigate(`/channels/${encodeURIComponent(sibling.id)}`)
+                    }
+                    className="mx-1 flex items-center gap-2 rounded-md bg-surface-raised/70 px-3 py-2 text-left transition-colors hover:bg-surface-overlay/55"
+                  >
+                    <FolderOpen size={13} className="shrink-0 text-text-dim" />
+                    <span className="min-w-0 flex-1 truncate text-[12px] text-text">
+                      {sibling.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SessionRow({
+  row,
+  isPrimary = false,
+  label,
+  onClick,
+}: {
+  row: ChannelSessionCatalogItem;
+  isPrimary?: boolean;
+  label?: string;
+  onClick: () => void;
+}) {
+  const title = label ?? ((row.label?.trim() || (isPrimary ? "Main chat" : "Untitled session")));
+  const meta = getChannelSessionMeta(row);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`mx-1 rounded-md px-3 py-2.5 text-left transition-colors ${
+        row.is_current
+          ? "bg-accent/[0.08] text-text"
+          : "bg-surface-raised/70 text-text hover:bg-surface-overlay/55"
+      }`}
+    >
+      <div className="flex items-start gap-2">
+        <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emphasis/10 text-emphasis">
+          {isPrimary ? <MessageCircle size={13} /> : <StickyNote size={13} />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+              {title}
+            </span>
+            {isPrimary && (
+              <span className="shrink-0 rounded-full bg-surface-overlay px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-text-dim">
+                Primary
+              </span>
+            )}
+          </div>
+          {row.preview && (
+            <div className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-text-muted">
+              {row.preview}
+            </div>
+          )}
+          <div className="mt-1 text-[10px] text-text-dim">{meta}</div>
+        </div>
+      </div>
+    </button>
+  );
+}

@@ -769,6 +769,31 @@ class TestStageTurnMessagesMalformedDelegations:
         assert staged.records[0].metadata_["turn_cancelled"] is True
         db.add.assert_called_once()
 
+    def test_heartbeat_marks_all_rows_as_background_context(self):
+        from app.services.session_writes import stage_turn_messages
+
+        db = MagicMock()
+        ctx = self._ctx(
+            is_heartbeat=True,
+            msg_metadata={"task_type": "heartbeat", "context_visibility": "background"},
+        )
+        staged = stage_turn_messages(
+            db,
+            ctx,
+            [
+                {"role": "user", "content": "heartbeat prompt"},
+                {"role": "assistant", "content": "heartbeat result"},
+                {"role": "tool", "content": "tool result", "tool_call_id": "tc-1"},
+            ],
+        )
+
+        assert [r.metadata_["context_visibility"] for r in staged.records] == [
+            "background",
+            "background",
+            "background",
+        ]
+        assert all(r.metadata_["source_task_type"] == "heartbeat" for r in staged.records)
+
     def test_partial_failure_preserves_other_delegations(self, caplog):
         """One malformed call in a list does not erase the well-formed sibling."""
         import json as _json

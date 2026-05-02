@@ -47,6 +47,7 @@ Everything a bot does with files, containers, and knowledge lives under `workspa
 
 - **`file` tool** for every content op on workspace files. Reach for `batch` when you have three or more ops to group atomically.
 - Runtime skill IDs use the historical `workspace/` namespace because Project, file, channel, and dependency work all happen on a work surface. In user-facing language, call these Project skills.
+- Project lifecycle entry points are `workspace/project_lifecycle`, `workspace/project_prd`, and `workspace/project_stories`; mention them directly, for example `@skill:workspace/project_prd`.
 - For ad hoc Project-bound repo work, use normal shell/file tools and explicit composer context (`@file:<path>`, `@project:dependencies`, skill mentions such as `@skill:workspace/project_prd`) instead of a broad runtime Project-development skill.
 - **`workspace/memory/`** for durable structured notes. **Knowledge base folders** (`workspace/knowledge-base/`) for retrievable facts.
 - **Attachments** are channel-scoped uploads; use `list_attachments` / `get_attachment` to surface them.

@@ -505,6 +505,13 @@ async def _persist_mirrored_record(
         if _is_native_cli_settings_management_record(record):
             await db.commit()
             return
+        if await _has_host_persisted_duplicate(
+            db,
+            spindrel_session_id=spindrel_session_id,
+            record=record,
+        ):
+            await db.commit()
+            return
         await store_passive_message(
             db,
             spindrel_session_id,
@@ -523,6 +530,40 @@ async def _has_mirrored_record(db, *, spindrel_session_id: uuid.UUID, record_key
         .limit(1)
     )
     return existing is not None
+
+
+async def _has_host_persisted_duplicate(
+    db,
+    *,
+    spindrel_session_id: uuid.UUID,
+    record: NativeCliMirrorRecord,
+) -> bool:
+    """Skip mirror echo for native CLI records that came from Spindrel chat.
+
+    Native non-interactive surfaces such as ``codex exec resume`` append to the
+    same CLI transcript files the embedded terminal mirror watches. The chat
+    turn already persisted those user/assistant rows, so the mirror should not
+    echo them back a second time.
+    """
+
+    rows = (
+        await db.scalars(
+            select(Message)
+            .where(Message.session_id == spindrel_session_id)
+            .where(Message.role == record.role)
+            .where(Message.content == record.content)
+            .order_by(Message.created_at.desc())
+            .limit(10)
+        )
+    ).all()
+    for row in rows:
+        metadata = row.metadata_ or {}
+        if metadata.get("source") != "harness_native_cli":
+            return True
+        harness = metadata.get("harness")
+        if isinstance(harness, dict) and harness.get("codex_resume_surface") == "exec_resume":
+            return True
+    return False
 
 
 def _is_native_cli_settings_management_record(record: NativeCliMirrorRecord) -> bool:

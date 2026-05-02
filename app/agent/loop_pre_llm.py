@@ -147,6 +147,7 @@ async def stream_loop_pre_llm_iteration(
         ctx=ctx,
         state=state,
         iteration=iteration,
+        context_profile_name=context_profile_name,
         record_trace_event_fn=record_trace_event_fn,
         safe_create_task_fn=safe_create_task_fn,
         message_prompt_chars_fn=message_prompt_chars_fn,
@@ -390,6 +391,7 @@ def _emit_context_breakdown_trace(
     ctx: LoopRunContext,
     state: LoopRunState,
     iteration: int,
+    context_profile_name: str | None,
     record_trace_event_fn: Any,
     safe_create_task_fn: Any,
     message_prompt_chars_fn: Any | None,
@@ -415,6 +417,7 @@ def _emit_context_breakdown_trace(
         breakdown[key]["count"] += 1
         breakdown[key]["chars"] += chars
 
+    total_chars = sum(v["chars"] for v in breakdown.values())
     safe_create_task_fn(record_trace_event_fn(
         correlation_id=ctx.correlation_id,
         session_id=ctx.session_id,
@@ -424,7 +427,21 @@ def _emit_context_breakdown_trace(
         data={
             "breakdown": breakdown,
             "total_messages": len(state.messages),
-            "total_chars": sum(v["chars"] for v in breakdown.values()),
+            "total_chars": total_chars,
+            "iteration": iteration + 1,
+        },
+    ))
+    safe_create_task_fn(record_trace_event_fn(
+        correlation_id=ctx.correlation_id,
+        session_id=ctx.session_id,
+        bot_id=ctx.bot.id,
+        client_id=ctx.client_id,
+        event_type="context_admission",
+        data={
+            "context_profile": context_profile_name or "chat",
+            "total_messages": len(state.messages),
+            "total_chars": total_chars,
+            "breakdown": breakdown,
             "iteration": iteration + 1,
         },
     ))

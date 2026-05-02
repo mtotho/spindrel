@@ -53,6 +53,13 @@ repair the applied Blueprint, sanitize repo declarations, enroll the needed
 Project workflow skills, configure a Dependency Stack from a Project-local
 compose file when the repo needs backing services, and report readiness.
 
+For planning, users should not need to remember a command name. Mention or load
+the Project lifecycle skill (`@skill:workspace/project_lifecycle` or
+`get_skill("workspace/project_lifecycle")`) when a conversation is becoming a
+feature track, PRD, story list, issue-intake sweep, coding run, review, or
+follow-up. The `workspace/` prefix is only the runtime skill namespace; the
+user-facing concept is Project lifecycle, Project PRD, and Project stories.
+
 ## Blueprints
 
 ![Project Blueprint library](../images/project-workspace-blueprints.png)
@@ -276,12 +283,13 @@ more proposed work packs from the current conversation and automatically creates
 backing issue-intake source records when the agent does not provide existing
 source item ids. `report_issue_work_packs` stays reserved for scheduled
 issue-intake triage tasks.
-Agent Capabilities recommends the `workspace/issue_intake` runtime skill during
-Project-bound planning sessions so ordinary Codex/Claude agents can use the LLM
-to group a plan or rough issue list into proposed packs without a separate
-triage bot. The work-pack launch prompt should carry enough verification
-expectations for a later coding run: repo-local tests, screenshots when
-relevant, handoff/PR intent, and receipt evidence.
+Agent Capabilities recommends `workspace/project_lifecycle`,
+`workspace/project_stories`, and `workspace/issue_intake` during Project-bound
+planning sessions so ordinary Codex/Claude agents can use the LLM to turn a PRD,
+plan, or rough issue list into proposed packs without a separate triage bot. The
+work-pack launch prompt should carry enough verification expectations for a
+later coding run: repo-local tests, screenshots when relevant, handoff/PR
+intent, and receipt evidence.
 Each grouping pass should also publish a triage receipt. Conversational
 `create_issue_work_packs` calls and scheduled `report_issue_work_packs` calls
 store `triage_receipt_id` / `triage_receipt` on the created packs and mirror the
@@ -314,7 +322,7 @@ agent accepts a run, finalization marks the run reviewed and appends a
 `reviewed` action back to the source Work Pack metadata with the review
 task/session ids, outcome, summary, merge method, and `launch_batch_id`.
 
-Project Runs also exposes a Needs Human Review queue above the individual run
+Project Runs exposes a Needs your review queue above running work and run history
 list. The queue is a derived read model, not a new state machine: each coding
 run is classified into the operator queue states `ready_for_review`,
 `changes_requested`, `missing_evidence`, `follow_up_running`,
@@ -384,7 +392,7 @@ artifacts, not ad hoc local captures:
 | [Project Run detail](../images/project-workspace-run-detail.png) | Canonical review page for one coding run, including problem statement, implementation/review agent visibility, receipt, review decision, changed files, tests, screenshots, dev targets, dependency stack, activity, and raw metadata. |
 | [Project Run follow-up](../images/project-workspace-run-follow-up.png) | Recovery flow for a changes-requested run: suggested feedback, Start follow-up, and the created follow-up task link. |
 | [Project Review Ledger](../images/project-workspace-review-ledger.png) | Review-session audit rows with selected runs, source Work Packs, outcome counts, merge settings, summaries, evidence, and active/finalized review links. |
-| [Project Runs cockpit](../images/project-workspace-runs.png) | Coding-run launch, Needs Human Review queue, launch-batch context, explicit agent-review launch/open actions, branch/PR progress, continuation action, PR links, and receipt evidence. |
+| [Project Runs cockpit](../images/project-workspace-runs.png) | Human-first review queue, running agent visibility, explicit Ask agent to review actions, batch tools, branch/PR progress, continuation action, PR links, and receipt evidence. |
 | [Coding-run execution access](../images/project-workspace-execution-access.png) | Launching a coding run can grant one existing e2e/machine target with explicit inspect/exec and agent-tool controls. |
 | [Review session launched](../images/project-workspace-review-launched.png) | Launching an agent review on a selected run returns a review task and surfaces the task link in the cockpit. |
 | [Review execution access](../images/project-workspace-review-execution-access.png) | Launching a review session can carry the same task-scoped e2e/machine grant for tests, screenshots, and merge verification. |

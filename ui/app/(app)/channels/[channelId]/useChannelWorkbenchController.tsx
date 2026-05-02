@@ -337,6 +337,12 @@ export function useChannelWorkbenchController({
 
   const leftSpineActions = useMemo<PanelSpineAction[]>(() => {
     const actions: PanelSpineAction[] = [
+      {
+        id: "sessions",
+        label: "Sessions",
+        icon: <MessageCircle size={15} />,
+        onSelect: () => openLeftPanelTab("sessions"),
+      },
       ...(fileWorkspaceId ? [{
         id: "notes",
         label: "Notes",

@@ -107,6 +107,9 @@ SKILL_OPPORTUNITY_SKILL_LABELS: dict[str, str] = {
     "diagnostics/traces": "Trace diagnostics",
     "workspace": "Workspace operations",
     "workspace/files": "Workspace files",
+    "workspace/project_lifecycle": "Project lifecycle",
+    "workspace/project_prd": "Project PRD",
+    "workspace/project_stories": "Project stories",
     "workspace/project_coding_runs": "Project coding runs",
     "workspace/issue_intake": "Issue intake",
     "workspace/member": "Workspace member",
@@ -178,12 +181,14 @@ RUNTIME_SKILL_COVERAGE_AUDIT: dict[str, dict[str, Any]] = {
     "project_work_pack_creation": {
         "coverage_status": "covered",
         "nearest_existing_skill_ids": [
+            "workspace/project_lifecycle",
+            "workspace/project_stories",
             "workspace/issue_intake",
             "planning/native_session",
             "workspace/project_coding_runs",
         ],
-        "why_skill_shaped": "Conversational work-pack creation is an LLM grouping workflow over an existing planning conversation and the create_issue_work_packs tool.",
-        "small_model_reason": "Smaller models need explicit rules to group discrete work, mark vague ideas as needs-info or non-code, and avoid launching coding runs.",
+        "why_skill_shaped": "Project planning is an LLM-led lifecycle workflow over existing conversations, PRDs, stories, issue intake, and the create_issue_work_packs tool.",
+        "small_model_reason": "Smaller models need the lifecycle map before grouping discrete work, marking vague ideas as needs-info or non-code, and avoiding premature coding-run launches.",
         "suggested_owner": "existing_runtime_skill",
     },
     "context_pressure": {
@@ -1999,10 +2004,10 @@ def _skill_opportunity_payload(manifest: dict[str, Any]) -> dict[str, Any]:
     if planning.get("active") and project.get("attached"):
         recommendations.append(_skill_recommendation(
             feature_id="project_work_pack_creation",
-            feature_label="Project work-pack creation",
-            skill_ids=["workspace/issue_intake"],
-            reason="A Project-bound planning session can be converted into proposed Issue Work Packs with the existing conversational work-pack tool.",
-            when_to_load="Before turning a planning conversation, rough issue list, or multi-part track into proposed Project work packs.",
+            feature_label="Project lifecycle planning",
+            skill_ids=["workspace/project_lifecycle", "workspace/project_stories", "workspace/issue_intake"],
+            reason="A Project-bound planning session should follow the Project lifecycle before publishing stories or proposed Work Packs.",
+            when_to_load="Before turning a planning conversation, PRD, rough issue list, or multi-part track into Project stories or proposed Work Packs.",
             enrolled=enrolled,
         ))
 

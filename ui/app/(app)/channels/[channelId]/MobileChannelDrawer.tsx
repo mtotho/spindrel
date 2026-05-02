@@ -19,7 +19,7 @@
  */
 import { useCallback, useEffect, useMemo } from "react";
 import ReactDOM from "react-dom";
-import { Layers, Files, X, LayoutDashboard, Maximize2, NotebookText } from "lucide-react";
+import { Layers, Files, X, LayoutDashboard, Maximize2, MessageCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
@@ -29,12 +29,14 @@ import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { channelSlug } from "@/src/stores/dashboards";
 import { FilesTabPanel } from "./FilesTabPanel";
-import { NotesTabPanel } from "./NotesTabPanel";
+import { SessionsTabPanel } from "./SessionsTabPanel";
 import { PinnedToolWidget } from "./PinnedToolWidget";
 import { widgetPinHref } from "@/src/lib/hubRoutes";
+import type { ChannelSessionSurface } from "@/src/lib/channelSessionSurfaces";
 import type {
   GridLayoutItem,
   PinnedWidget,
+  ProjectSummary,
   ToolResultEnvelope,
   WidgetDashboardPin,
 } from "@/src/types/api";
@@ -56,6 +58,8 @@ interface MobileChannelDrawerProps {
   onTabChange?: (tab: OmniPanelTab) => void;
   expandedWidgetId?: string | null;
   onExpandedWidgetChange?: (widgetId: string | null) => void;
+  project?: ProjectSummary | null;
+  onActivateSessionSurface?: (surface: ChannelSessionSurface) => void;
 }
 
 function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
@@ -113,6 +117,8 @@ export function MobileChannelDrawer({
   onTabChange,
   expandedWidgetId,
   onExpandedWidgetChange,
+  project = null,
+  onActivateSessionSurface,
 }: MobileChannelDrawerProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
@@ -188,14 +194,24 @@ export function MobileChannelDrawer({
   // If the user lost workspace-tab access, bounce them to widgets.
   useEffect(() => {
     if (!hasWorkspace && (tab === "files" || tab === "notes")) setTab("widgets");
+    // Mobile drawer hides the Notes tab — Notes lives in the channel header
+    // 3-dot menu instead. Bounce stale "notes" prefs to Sessions.
+    if (tab === "notes") setTab("sessions");
   }, [hasWorkspace, tab, setTab]);
 
   if (!open || typeof document === "undefined") return null;
 
-  const activeTabWithoutWorkspace = hasWorkspace ? tab : (tab === "files" || tab === "notes") ? "widgets" : tab;
-  const activeTab = activeTabWithoutWorkspace === "widgets" && totalWidgets === 0
-    ? (hasWorkspace ? "notes" : "widgets")
-    : activeTabWithoutWorkspace;
+  const activeTabWithoutWorkspace: OmniPanelTab = hasWorkspace
+    ? tab === "notes"
+      ? "sessions"
+      : tab
+    : tab === "files" || tab === "notes"
+      ? "widgets"
+      : tab;
+  const activeTab: OmniPanelTab =
+    activeTabWithoutWorkspace === "widgets" && totalWidgets === 0
+      ? "sessions"
+      : activeTabWithoutWorkspace;
 
   return ReactDOM.createPortal(
     <div
@@ -214,15 +230,13 @@ export function MobileChannelDrawer({
         className="flex items-center gap-1 px-2 py-1.5"
         style={{ backgroundColor: t.surfaceRaised }}
       >
-        {hasWorkspace && (
-          <DrawerTab
-            label="Notes"
-            icon={<NotebookText size={13} />}
-            active={activeTab === "notes"}
-            onClick={() => setTab("notes")}
-            t={t}
-          />
-        )}
+        <DrawerTab
+          label="Sessions"
+          icon={<MessageCircle size={13} />}
+          active={activeTab === "sessions"}
+          onClick={() => setTab("sessions")}
+          t={t}
+        />
         <DrawerTab
           label="Widgets"
           icon={<Layers size={13} />}
@@ -252,8 +266,17 @@ export function MobileChannelDrawer({
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        {activeTab === "notes" && hasWorkspace && (
-          <NotesTabPanel channelId={channelId} botId={botId} onSelectFile={handleSelectFile} />
+        {activeTab === "sessions" && (
+          <SessionsTabPanel
+            channelId={channelId}
+            botId={botId}
+            channelLabel={channelDisplayName ?? null}
+            project={project}
+            onActivateSurface={(surface) => {
+              onActivateSessionSurface?.(surface);
+              onClose();
+            }}
+          />
         )}
         {activeTab === "widgets" && (
           <WidgetsTab

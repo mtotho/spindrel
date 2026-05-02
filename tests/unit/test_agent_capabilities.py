@@ -283,11 +283,13 @@ def test_skill_opportunities_recommend_issue_intake_for_project_planning():
     assert payload["creation_candidates"] == []
     by_feature = {entry["feature_id"]: entry for entry in payload["recommended_now"]}
     work_pack = by_feature["project_work_pack_creation"]
-    assert work_pack["skill_ids"] == ["workspace/issue_intake"]
-    assert work_pack["first_action"] == 'get_skill("workspace/issue_intake")'
+    assert work_pack["skill_ids"] == ["workspace/project_lifecycle", "workspace/project_stories", "workspace/issue_intake"]
+    assert work_pack["first_action"] == 'get_skill("workspace/project_lifecycle")'
     assert work_pack["coverage_status"] == "covered"
     assert work_pack["suggested_owner"] == "existing_runtime_skill"
-    assert work_pack["missing_skill_ids"] == ["workspace/issue_intake"]
+    assert work_pack["missing_skill_ids"] == ["workspace/project_lifecycle", "workspace/project_stories", "workspace/issue_intake"]
+    assert work_pack["labels"]["workspace/project_lifecycle"] == "Project lifecycle"
+    assert work_pack["labels"]["workspace/project_stories"] == "Project stories"
     assert work_pack["model_support"] == "recommended_for_small_models"
 
 

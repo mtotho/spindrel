@@ -226,7 +226,16 @@ def _metadata_for_row(
         meta = {**meta, "delegations": delegations}
 
     if ctx.is_heartbeat:
-        meta = {**meta, "is_heartbeat": True}
+        meta = {**meta, "is_heartbeat": True, "context_visibility": "background"}
+    if ctx.msg_metadata:
+        visibility = ctx.msg_metadata.get("context_visibility")
+        if visibility:
+            meta = {**meta, "context_visibility": str(visibility)}
+        source_task_type = ctx.msg_metadata.get("task_type")
+        if source_task_type:
+            meta = {**meta, "source_task_type": str(source_task_type)}
+        if ctx.correlation_id is not None:
+            meta = {**meta, "source_correlation_id": str(ctx.correlation_id)}
     # Pipeline agent-step children: persist for session-history context but tag
     # so the web UI filter drops them (see useChannelChat.ts).
     if ctx.hide_messages:

@@ -84,11 +84,19 @@ function EvidenceList({
 }
 
 function reviewStatus(run: ProjectCodingRun) {
-  return run.review?.status || run.status;
+  return run.lifecycle?.phase || run.review?.status || run.status;
 }
 
 function problemTitle(run: ProjectCodingRun) {
   return run.source_work_pack?.title || run.task.title || run.request || "Project coding run";
+}
+
+function lifecycleHeadline(run: ProjectCodingRun) {
+  return run.lifecycle?.headline || problemTitle(run);
+}
+
+function lifecycleNextAction(run: ProjectCodingRun) {
+  return run.lifecycle?.next_action || run.review_next_action || "Review evidence, merge or request changes, then close the run.";
 }
 
 function problemSummary(run: ProjectCodingRun) {
@@ -274,14 +282,14 @@ export default function ProjectRunDetail() {
       <PageHeader
         variant="detail"
         chrome="flow"
-        title={problemTitle(run)}
+        title={lifecycleHeadline(run)}
         subtitle={`${project.name} · ${formatRunTime(run.updated_at || run.created_at)} · ${reviewStatus(run).replaceAll("_", " ")}`}
         backTo={`/admin/projects/${project.id}#runs`}
         right={
           <div className="flex flex-wrap items-center justify-end gap-1.5">
             <RowLink to={`/admin/projects/${project.id}#runs`}>Runs</RowLink>
-            {handoffUrl && <RowLink href={handoffUrl}>Open PR</RowLink>}
-            {reviewAgentTaskId(run) && <RowLink to={`/admin/tasks/${reviewAgentTaskId(run)}`}>Review agent</RowLink>}
+            {handoffUrl && <RowLink href={handoffUrl}>PR / handoff</RowLink>}
+            {reviewAgentTaskId(run) && <RowLink to={`/admin/tasks/${reviewAgentTaskId(run)}`}>Review agent log</RowLink>}
             <RowLink to={`/admin/tasks/${run.task.id}`}>Agent log</RowLink>
           </div>
         }
@@ -291,6 +299,12 @@ export default function ProjectRunDetail() {
         <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-7 px-5 py-5 md:px-6">
           <Section title="Problem Statement" description="The source issue, requested work, and current close-out state for this run.">
             <div className="flex flex-col gap-3">
+              <SettingsControlRow
+                leading={<CheckCircle2 size={14} />}
+                title="Next action"
+                description={run.lifecycle?.blocker || lifecycleNextAction(run)}
+                meta={<StatusBadge label={reviewStatus(run)} variant={statusTone(reviewStatus(run))} />}
+              />
               <div className="rounded-md bg-surface-overlay/35 px-4 py-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge label={reviewStatus(run)} variant={statusTone(reviewStatus(run))} />
@@ -319,12 +333,12 @@ export default function ProjectRunDetail() {
                     ? `Closed on our side${run.review?.reviewed_at ? ` · ${formatRunTime(run.review.reviewed_at)}` : ""}${run.review?.review_summary ? ` · ${run.review.review_summary}` : ""}`
                     : prMerged
                       ? "PR is merged. Mark this run reviewed to close it on our side."
-                    : run.review_next_action || "Review evidence, merge or request changes, then close the run."}
+                    : lifecycleNextAction(run)}
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-1.5">
                   {!terminalReviewed && run.review?.actions?.can_mark_reviewed && (
                     <ActionButton
-                      label={markReviewed.isPending ? "Closing" : "Mark reviewed"}
+                      label={markReviewed.isPending ? "Closing" : "Close on our side"}
                       icon={<CheckCircle2 size={13} />}
                       size="small"
                       disabled={markReviewed.isPending}
@@ -364,7 +378,7 @@ export default function ProjectRunDetail() {
                 <SettingsControlRow
                   leading={<GitMerge size={14} />}
                   title="No review agent linked"
-                  description="Launch an agent review from the Project Runs page when you want another agent to inspect or merge this work."
+                  description="Ask an agent to review from the Project Runs page when you want another visible agent session to inspect or merge this work."
                   meta={<StatusBadge label="none" variant="neutral" />}
                   action={<RowLink to={`/admin/projects/${project.id}#runs`}>Open runs</RowLink>}
                 />

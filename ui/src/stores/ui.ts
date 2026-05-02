@@ -34,7 +34,7 @@ export interface RecentPage {
   version?: number;
 }
 
-export type OmniPanelTab = "notes" | "widgets" | "files";
+export type OmniPanelTab = "sessions" | "notes" | "widgets" | "files";
 
 export type { ChannelSessionPanel };
 export type { ChannelChatPaneLayout };
@@ -77,7 +77,7 @@ export function defaultChannelPanelPrefs(): ChannelPanelPrefs {
     rightPinned: false,
     leftWidth: CHANNEL_PANEL_DEFAULT_WIDTH,
     rightWidth: CHANNEL_PANEL_DEFAULT_WIDTH,
-    leftTab: "notes",
+    leftTab: "sessions",
     mobileDrawerOpen: false,
     mobileExpandedWidgetId: null,
     focusModePrior: null,
@@ -236,7 +236,7 @@ export const useUIStore = create<UIState>()(
       fileExplorerOpen: false,
       fileExplorerSplit: false,
       rightDockHidden: false,
-      omniPanelTab: "notes",
+      omniPanelTab: "sessions",
       channelPanelPrefs: {},
       filesFocusTick: 0,
       recentPages: [],
@@ -409,7 +409,7 @@ export const useUIStore = create<UIState>()(
         fileExplorerOpen: state.fileExplorerOpen,
         fileExplorerSplit: state.fileExplorerSplit,
         rightDockHidden: state.rightDockHidden,
-        omniPanelTab: normalizeOmniPanelTab(state.omniPanelTab) ?? "notes",
+        omniPanelTab: normalizeOmniPanelTab(state.omniPanelTab) ?? "sessions",
         channelPanelPrefs: state.channelPanelPrefs,
         recentPages: state.recentPages,
       }),
@@ -432,7 +432,7 @@ export const useUIStore = create<UIState>()(
 );
 
 function normalizeOmniPanelTab(value: unknown): OmniPanelTab | null {
-  if (value === "notes" || value === "widgets" || value === "files") return value;
-  if (value === "jump") return "notes";
+  if (value === "sessions" || value === "notes" || value === "widgets" || value === "files") return value;
+  if (value === "jump") return "sessions";
   return null;
 }

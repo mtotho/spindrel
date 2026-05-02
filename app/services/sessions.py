@@ -422,6 +422,11 @@ async def _load_messages(
         active = [m for m in msgs if not (m.get("_metadata") or {}).get("passive")]
         return passive, active
 
+    def _filter_profile_history(msgs: list[dict]) -> list[dict]:
+        if not context_profile.name.startswith("chat"):
+            return msgs
+        return [m for m in msgs if not _is_background_context_message(m)]
+
     def _inject_channel_context(messages: list[dict], passive: list[dict]) -> list[dict]:
         if passive:
             messages.append({"role": "system", "content": _format_passive_context(passive)})
@@ -478,6 +483,8 @@ async def _load_messages(
             recent = _convert_msgs(recent_orm)
             passive, active = _split_passive_active(recent)
             passive = [m for m in passive if not _is_internal_history_message(m)]
+            passive = _filter_profile_history(passive)
+            active = _filter_profile_history(active)
             active = _rewrite_active_history_for_model(_filter_old_heartbeats(active))
             messages = _base_messages()
 
@@ -515,6 +522,8 @@ async def _load_messages(
             non_system = [m for m in all_msgs if m["role"] != "system"]
             passive, active = _split_passive_active(non_system)
             passive = [m for m in passive if not _is_internal_history_message(m)]
+            passive = _filter_profile_history(passive)
+            active = _filter_profile_history(active)
             active = _rewrite_active_history_for_model(_filter_old_heartbeats(active))
             messages = _base_messages()
             if context_profile.include_compaction_summary and (_history_mode != "file" or not session.channel_id):
@@ -541,6 +550,8 @@ async def _load_messages(
     non_system_msgs = [m for m in all_msgs if m["role"] != "system"]
     passive, active = _split_passive_active(non_system_msgs)
     passive = [m for m in passive if not _is_internal_history_message(m)]
+    passive = _filter_profile_history(passive)
+    active = _filter_profile_history(active)
     active = _rewrite_active_history_for_model(_filter_old_heartbeats(active))
     active = trim_messages_to_recent_turns(active, context_profile.live_history_turns)
     messages = _base_messages()
@@ -1200,6 +1211,19 @@ def _is_internal_history_message(msg: dict) -> bool:
         or meta.get("pipeline_step")
         or meta.get("kind") == "compaction_run"
     )
+
+
+def _is_background_context_message(msg: dict) -> bool:
+    meta = msg.get("_metadata") or {}
+    if meta.get("context_visibility") == "background":
+        return True
+    if meta.get("is_heartbeat"):
+        return True
+    if meta.get("trigger") in {"heartbeat", "scheduled_task"}:
+        return True
+    if meta.get("source_task_type") in {"heartbeat", "memory_hygiene", "skill_review"}:
+        return True
+    return False
 
 
 def _compact_assistant_turn_body_text(msg: dict) -> str | None:

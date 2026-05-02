@@ -217,7 +217,7 @@ _PROFILES: dict[str, ContextProfile] = {
     ),
     "task_recent": ContextProfile(
         name="task_recent",
-        live_history_turns=None,
+        live_history_turns=4,
         include_compaction_summary=True,
         allow_plan_artifact=False,
         allow_conversation_sections=True,
@@ -233,6 +233,10 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_skill_index=True,
         mandatory_static_injections=("conversation_sections", "section_index"),
         optional_static_injections=("context_profile_note", "tool_index"),
+        keep_iterations_override=2,
+        in_loop_pruning_mode="always",
+        tool_result_hard_cap=12000,
+        tool_turn_aggregate_cap_chars=30000,
     ),
     "task_none": ContextProfile(
         name="task_none",

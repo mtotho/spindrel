@@ -75,6 +75,7 @@ from app.services.project_coding_run_lib import (  # noqa: F401
     list_project_coding_run_review_batches,
     list_project_coding_run_review_sessions,
     list_project_coding_runs,
+    project_coding_run_lifecycle_summary,
     project_coding_run_review_next_action,
     project_coding_run_review_queue_state,
     project_coding_run_defaults,

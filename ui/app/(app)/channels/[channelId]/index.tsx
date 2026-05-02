@@ -7,6 +7,7 @@ import { ChevronUp, ChevronDown } from "lucide-react";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { OmniPanel } from "./OmniPanel";
 import { MobileChannelDrawer } from "./MobileChannelDrawer";
+import { MobileNotesSheet } from "./MobileNotesSheet";
 import { ChannelFileViewer } from "./ChannelFileViewer";
 import { MobileFileViewerSlide } from "./MobileFileViewerSlide";
 import { ResizeHandle } from "@/src/components/workspace/ResizeHandle";
@@ -215,6 +216,7 @@ export default function ChatScreen() {
   const [findingsPanelOpen, setFindingsPanelOpen] = useState(false);
   const [botInfoBotId, setBotInfoBotId] = useState<string | null>(null);
   const [keyboardShortcutsOpen, setKeyboardShortcutsOpen] = useState(false);
+  const [mobileNotesOpen, setMobileNotesOpen] = useState(false);
   const isSystemChannel = channel?.client_id === "orchestrator:home";
 
   // Phase 5: launchpad + Findings visibility follows subscription state,
@@ -1224,6 +1226,7 @@ export default function ChatScreen() {
           onOpenMainChat={routeSessionSurface ? handleExitSessionRoute : undefined}
           dashboardHref={channelDashboardHref}
           onOpenSessions={openSessionsOverlay}
+          onOpenMobileNotes={() => setMobileNotesOpen(true)}
           scratchFullpageMode={routeSessionSurface ? {} : undefined}
         />
         {!isMobile && channelId && !isSystemChannel && !dashboardOnly && (
@@ -1301,6 +1304,10 @@ export default function ChatScreen() {
               onTabChange={(tab) => setChannelPanelTab(channelId, tab)}
               expandedWidgetId={panelPrefs.mobileExpandedWidgetId}
               onExpandedWidgetChange={(widgetId) => setMobileExpandedWidget(channelId, widgetId)}
+              project={channel?.project ?? null}
+              onActivateSessionSurface={(surface) =>
+                handleOverlayActivateSessionSurface(surface, "switch")
+              }
             />
           )}
           {/* Mobile file viewer — slides in over the chat, chat stays mounted. */}
@@ -1314,6 +1321,19 @@ export default function ChatScreen() {
             onBack={handleMobileBack}
             onDirtyChange={handleDirtyChange}
           />
+          {channelId && (
+            <MobileNotesSheet
+              open={mobileNotesOpen}
+              channelId={channelId}
+              botId={channel?.bot_id}
+              channelLabel={channel?.display_name || channel?.name || null}
+              onClose={() => setMobileNotesOpen(false)}
+              onSelectFile={(path) => {
+                setMobileNotesOpen(false);
+                handleSelectFile(path);
+              }}
+            />
+          )}
         </div>
       ) : (
         /* ---- Desktop/tablet: full-width header + side-by-side row ----
@@ -1383,6 +1403,10 @@ export default function ChatScreen() {
                   activeTab={panelPrefs.leftTab}
                   onTabChange={(tab) => setChannelPanelTab(channelId, tab)}
                   onCollapse={() => patchChannelPanelPrefs(channelId, { leftOpen: false })}
+                  project={channel?.project ?? null}
+                  onActivateSessionSurface={(surface) =>
+                    handleOverlayActivateSessionSurface(surface, "switch")
+                  }
                 />
               )}
             </div>
