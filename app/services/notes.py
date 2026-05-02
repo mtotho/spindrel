@@ -386,6 +386,8 @@ async def build_ai_assist_proposal(
     selection: dict[str, Any] | None,
     instruction: str | None,
     mode: str,
+    model_override: str | None = None,
+    model_provider_id_override: str | None = None,
 ) -> dict[str, Any]:
     """Ask the channel bot model for a Markdown-safe note proposal."""
     target = "selection" if selection and selection.get("text") else "document"
@@ -395,10 +397,10 @@ async def build_ai_assist_proposal(
     try:
         from app.services.providers import get_llm_client, resolve_effective_provider
 
-        model = getattr(channel, "model_override", None) or bot.model
+        model = model_override or getattr(channel, "model_override", None) or bot.model
         provider_id = resolve_effective_provider(
-            getattr(channel, "model_override", None),
-            None,
+            model_override or getattr(channel, "model_override", None),
+            model_provider_id_override,
             getattr(bot, "model_provider_id", None),
         )
         client = get_llm_client(provider_id)

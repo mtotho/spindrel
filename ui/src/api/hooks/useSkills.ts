@@ -30,6 +30,8 @@ export interface SkillItem {
   has_children: boolean;
   scripts?: SkillScriptSummary[];
   script_count: number;
+  signature_state?: "signed" | "unsigned" | "tampered";
+  last_signed_at?: string | null;
 }
 
 export function useSkills(opts?: {

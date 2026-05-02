@@ -78,3 +78,17 @@ def test_assist_fallback_produces_structured_markdown_for_minimal_selection():
     assert "## Notes" in proposal["replacement_markdown"]
     assert "- whats up" in proposal["replacement_markdown"]
     assert proposal["diff"]
+
+
+def test_assist_fallback_turns_note_intent_into_starter_scaffold():
+    proposal = build_assist_proposal(
+        "# Untitled\n\nI want a note about sour dough\n",
+        selection={"start": 13, "end": 43, "text": "I want a note about sour dough"},
+        instruction=None,
+        mode="clarify_structure",
+        fallback_reason="fallback",
+    )
+
+    assert "## Sour Dough" in proposal["replacement_markdown"]
+    assert "### What this note is for" in proposal["replacement_markdown"]
+    assert "- Topic: sour dough" in proposal["replacement_markdown"]

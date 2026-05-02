@@ -17,6 +17,7 @@ export interface WidgetPackageListItem {
   group_ref?: string | null;
   version: number;
   updated_at: string;
+  signature_state?: "signed" | "unsigned" | "tampered";
 }
 
 export interface WidgetPackage extends WidgetPackageListItem {
@@ -27,6 +28,7 @@ export interface WidgetPackage extends WidgetPackageListItem {
   source_file: string | null;
   created_by: string | null;
   created_at: string;
+  last_signed_at?: string | null;
 }
 
 export interface WidgetPackageCreateBody {

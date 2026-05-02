@@ -204,6 +204,18 @@ def translate_notification(
         _emit_mcp_progress_notification(params, emit=emit, result_meta=result_meta)
         return
 
+    if method == schema.NOTIFICATION_MCP_SERVER_STARTUP_STATUS_UPDATED:
+        _emit_mcp_server_startup_status(params, emit=emit, result_meta=result_meta)
+        return
+
+    if method == schema.NOTIFICATION_ACCOUNT_RATE_LIMITS_UPDATED:
+        _emit_account_rate_limits_updated(params, emit=emit, result_meta=result_meta)
+        return
+
+    if method == schema.NOTIFICATION_MODEL_REROUTED:
+        _emit_model_rerouted(params, emit=emit, result_meta=result_meta)
+        return
+
     if method in {
         schema.NOTIFICATION_ITEM_GUARDIAN_REVIEW_STARTED,
         schema.NOTIFICATION_ITEM_GUARDIAN_REVIEW_COMPLETED,
@@ -589,6 +601,177 @@ def _emit_mcp_progress_notification(
         surface="rich_result",
         summary=summary,
     )
+
+
+def _emit_mcp_server_startup_status(
+    params: dict[str, Any],
+    *,
+    emit: ChannelEventEmitter,
+    result_meta: dict[str, Any],
+) -> None:
+    name = str(params.get("name") or params.get("server") or "MCP server")
+    status = str(params.get("status") or "unknown")
+    error = params.get("error")
+    error_text = str(error).strip() if error not in (None, "") else ""
+    label = f"{name}: {status}"
+    body = f"MCP server {name} is {status}"
+    if error_text:
+        body = f"{body}\n{error_text}"
+    events = result_meta.setdefault("codex_mcp_startup_status", [])
+    if isinstance(events, list):
+        events.append(
+            {
+                "name": name,
+                "status": status,
+                **({"error": error_text} if error_text else {}),
+            }
+        )
+    call_id = f"codex-mcp-startup:{name}:{len(events) if isinstance(events, list) else 1}"
+    envelope, summary = build_text_tool_result(
+        tool_name="MCP server",
+        tool_call_id=call_id,
+        body=body,
+        label=label,
+        summary_kind="status",
+        subject_type="integration",
+        preview_text=body,
+    )
+    summary["target_label"] = name
+    emit.tool_result(
+        tool_name="MCP server",
+        tool_call_id=call_id,
+        result_summary=envelope["plain_body"],
+        is_error=status == "failed" or bool(error_text),
+        envelope=envelope,
+        surface="rich_result",
+        summary=summary,
+    )
+
+
+def _emit_account_rate_limits_updated(
+    params: dict[str, Any],
+    *,
+    emit: ChannelEventEmitter,
+    result_meta: dict[str, Any],
+) -> None:
+    rate_limits = params.get("rateLimits") if isinstance(params.get("rateLimits"), dict) else {}
+    result_meta["codex_rate_limits"] = rate_limits
+    if not isinstance(rate_limits, dict):
+        return
+
+    primary = rate_limits.get("primary") if isinstance(rate_limits.get("primary"), dict) else {}
+    secondary = rate_limits.get("secondary") if isinstance(rate_limits.get("secondary"), dict) else {}
+    reached_type = rate_limits.get("rateLimitReachedType")
+    highest_used = max(
+        _int_or_zero(primary.get("usedPercent") if isinstance(primary, dict) else None),
+        _int_or_zero(secondary.get("usedPercent") if isinstance(secondary, dict) else None),
+    )
+    if not reached_type and highest_used < 90:
+        return
+
+    label = "Codex rate limits updated"
+    if reached_type:
+        label = f"Codex rate limit reached: {reached_type}"
+    body = _format_rate_limit_snapshot(rate_limits)
+    call_id = f"codex-rate-limits:{len(result_meta.setdefault('codex_rate_limit_events', [])) + 1}"
+    events = result_meta.setdefault("codex_rate_limit_events", [])
+    if isinstance(events, list):
+        events.append(rate_limits)
+    envelope, summary = build_text_tool_result(
+        tool_name="Codex account",
+        tool_call_id=call_id,
+        body=body,
+        label=label,
+        summary_kind="status",
+        subject_type="account",
+        preview_text=body,
+    )
+    emit.tool_result(
+        tool_name="Codex account",
+        tool_call_id=call_id,
+        result_summary=envelope["plain_body"],
+        is_error=bool(reached_type),
+        envelope=envelope,
+        surface="rich_result",
+        summary=summary,
+    )
+
+
+def _emit_model_rerouted(
+    params: dict[str, Any],
+    *,
+    emit: ChannelEventEmitter,
+    result_meta: dict[str, Any],
+) -> None:
+    from_model = str(params.get("fromModel") or params.get("from_model") or "unknown")
+    to_model = str(params.get("toModel") or params.get("to_model") or "unknown")
+    reason = str(params.get("reason") or "model reroute")
+    thread_id = str(params.get("threadId") or params.get("thread_id") or "")
+    turn_id = str(params.get("turnId") or params.get("turn_id") or "")
+    events = result_meta.setdefault("codex_model_reroutes", [])
+    if isinstance(events, list):
+        events.append(
+            {
+                "from_model": from_model,
+                "to_model": to_model,
+                "reason": reason,
+                **({"thread_id": thread_id} if thread_id else {}),
+                **({"turn_id": turn_id} if turn_id else {}),
+            }
+        )
+    label = f"Codex model rerouted: {from_model} -> {to_model}"
+    body = f"{label}\nreason: {reason}"
+    call_id = f"codex-model-rerouted:{turn_id or len(events) if isinstance(events, list) else 1}"
+    envelope, summary = build_text_tool_result(
+        tool_name="Codex model",
+        tool_call_id=call_id,
+        body=body,
+        label=label,
+        summary_kind="status",
+        subject_type="runtime",
+        preview_text=body,
+    )
+    summary["target_label"] = to_model
+    emit.tool_result(
+        tool_name="Codex model",
+        tool_call_id=call_id,
+        result_summary=envelope["plain_body"],
+        is_error=False,
+        envelope=envelope,
+        surface="rich_result",
+        summary=summary,
+    )
+
+
+def _int_or_zero(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _format_rate_limit_snapshot(rate_limits: dict[str, Any]) -> str:
+    parts: list[str] = []
+    plan_type = rate_limits.get("planType")
+    if plan_type:
+        parts.append(f"plan: {plan_type}")
+    limit_name = rate_limits.get("limitName") or rate_limits.get("limitId")
+    if limit_name:
+        parts.append(f"limit: {limit_name}")
+    for label, key in (("primary", "primary"), ("weekly", "secondary")):
+        window = rate_limits.get(key)
+        if isinstance(window, dict) and window.get("usedPercent") is not None:
+            parts.append(f"{label}: {window['usedPercent']}% used")
+    credits = rate_limits.get("credits")
+    if isinstance(credits, dict):
+        if credits.get("unlimited"):
+            parts.append("credits: unlimited")
+        elif credits.get("balance") is not None:
+            parts.append(f"credits: {credits['balance']}")
+    reached_type = rate_limits.get("rateLimitReachedType")
+    if reached_type:
+        parts.append(f"reached: {reached_type}")
+    return "\n".join(parts) or "Codex rate limits updated"
 
 
 def _emit_guardian_review_notification(

@@ -389,9 +389,31 @@ async def load_widget_templates_from_db() -> None:
             )
         ).scalars().all()
 
+        from app.services.manifest_signing import verify_widget_row
+
         loaded = 0
         fell_back = 0
+        refused = 0
         for row in actives:
+            if not verify_widget_row(row):
+                # Tampered widget — persisted signature no longer matches
+                # the body. Treat the same as a load failure: flag invalid,
+                # fall back to the last clean seed for this tool_name.
+                logger.warning(
+                    "manifest_signature_mismatch: widget '%s' refused load "
+                    "(signature does not match body). Falling back to seed.",
+                    row.tool_name,
+                )
+                row.is_invalid = True
+                row.invalid_reason = "manifest_signature_mismatch — run trust-current-state after review"
+                fallback = await _pick_fallback_seed(db, row.tool_name, skip_id=row.id)
+                if fallback is not None and verify_widget_row(fallback):
+                    fb_entry = _build_entry_from_package(fallback)
+                    if fb_entry is not None:
+                        _widget_templates[row.tool_name] = fb_entry
+                        fell_back += 1
+                refused += 1
+                continue
             entry = _build_entry_from_package(row)
             if entry is None:
                 row.is_invalid = True
@@ -409,8 +431,8 @@ async def load_widget_templates_from_db() -> None:
         await db.commit()
 
     logger.info(
-        "Loaded %d widget templates from DB (%d fell back to seed)",
-        loaded, fell_back,
+        "Loaded %d widget templates from DB (%d fell back to seed, %d refused for signature mismatch)",
+        loaded, fell_back, refused,
     )
 
 
@@ -447,6 +469,24 @@ async def reload_tool(tool_name: str) -> None:
         ).scalars().first()
 
         if active is None:
+            _widget_templates.pop(tool_name, None)
+            return
+
+        from app.services.manifest_signing import verify_widget_row
+        if not verify_widget_row(active):
+            logger.warning(
+                "manifest_signature_mismatch: widget '%s' refused reload "
+                "(signature does not match body).", tool_name,
+            )
+            active.is_invalid = True
+            active.invalid_reason = "manifest_signature_mismatch — run trust-current-state after review"
+            fallback = await _pick_fallback_seed(db, tool_name, skip_id=active.id)
+            await db.commit()
+            if fallback is not None and verify_widget_row(fallback):
+                fb_entry = _build_entry_from_package(fallback)
+                if fb_entry is not None:
+                    _widget_templates[tool_name] = fb_entry
+                    return
             _widget_templates.pop(tool_name, None)
             return
 

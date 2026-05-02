@@ -355,6 +355,9 @@ def test_codex_native_command_method_constants_are_current():
     assert schema.NOTIFICATION_GUARDIAN_WARNING == "guardianWarning"
     assert schema.NOTIFICATION_FS_CHANGED == "fs/changed"
     assert schema.NOTIFICATION_MCP_TOOL_CALL_PROGRESS == "item/mcpToolCall/progress"
+    assert schema.NOTIFICATION_MCP_SERVER_STARTUP_STATUS_UPDATED == "mcpServer/startupStatus/updated"
+    assert schema.NOTIFICATION_ACCOUNT_RATE_LIMITS_UPDATED == "account/rateLimits/updated"
+    assert schema.NOTIFICATION_MODEL_REROUTED == "model/rerouted"
 
 
 def test_summarize_native_command_result_counts_common_list_fields():

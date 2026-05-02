@@ -45,7 +45,11 @@ __all__ = [
     "compute_content_hash",
     "compute_signature",
     "get_manifest_signing_key",
+    "sign_skill_payload",
+    "sign_widget_payload",
     "verify_signature",
+    "verify_skill_row",
+    "verify_widget_row",
 ]
 
 
@@ -139,6 +143,73 @@ def verify_signature(payload: bytes, signature: str, *, key: str | None = None) 
         return False
     expected = compute_signature(payload, key=key)
     return hmac.compare_digest(expected, signature)
+
+
+def sign_skill_payload(content: str, scripts: list[dict] | None) -> str | None:
+    """Compute the HMAC signature over a Skill's canonical payload.
+
+    Canonical payload covers ``content`` (markdown body) and the scripts'
+    name/description/timeout_s/allowed_tools/body — everything that affects
+    runtime behavior. ``content_hash`` (the existing column) stays
+    ``sha256(content)`` for backward compat with the Phase 1 drift detector
+    and live row data; the signature is the Phase 2 defense.
+
+    Returns ``None`` when no signing key is configured (e.g. seed paths in
+    dev) — callers persist NULL and the audit surfaces it as Phase-1-unsigned.
+    """
+    payload = canonical_skill_payload(content, scripts)
+    try:
+        return compute_signature(payload)
+    except ValueError:
+        return None
+
+
+def sign_widget_payload(yaml_template: str, python_code: str | None) -> str | None:
+    """Compute the HMAC signature over a WidgetTemplatePackage's canonical
+    payload — covers ``yaml_template`` AND ``python_code`` so a code-only
+    edit cannot ride past the signature."""
+    payload = canonical_widget_payload(yaml_template, python_code)
+    try:
+        return compute_signature(payload)
+    except ValueError:
+        return None
+
+
+def verify_skill_row(row: Any) -> bool:
+    """Return True iff ``row.signature`` matches the row's canonical body.
+
+    Returns True for rows with a NULL signature (treated as Phase-1
+    unsigned — drift-only). False only when a signature is present and
+    fails HMAC verification.
+    """
+    sig = getattr(row, "signature", None)
+    if not sig:
+        return True
+    payload = canonical_skill_payload(
+        getattr(row, "content", "") or "",
+        getattr(row, "scripts", None) or [],
+    )
+    try:
+        return verify_signature(payload, sig)
+    except ValueError:
+        # Key is no longer configured. Treat as un-verifiable rather than
+        # tampered — operator must restore the key or run trust-current-state.
+        return True
+
+
+def verify_widget_row(row: Any) -> bool:
+    """Return True iff ``row.signature`` matches the row's canonical body."""
+    sig = getattr(row, "signature", None)
+    if not sig:
+        return True
+    payload = canonical_widget_payload(
+        getattr(row, "yaml_template", "") or "",
+        getattr(row, "python_code", None),
+    )
+    try:
+        return verify_signature(payload, sig)
+    except ValueError:
+        return True
 
 
 @dataclass(frozen=True)

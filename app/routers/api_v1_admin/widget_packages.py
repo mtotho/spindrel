@@ -78,6 +78,8 @@ class WidgetPackageOut(BaseModel):
     created_by: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    signature_state: str = "unsigned"
+    last_signed_at: Optional[datetime] = None
 
 
 class WidgetPackageListOut(BaseModel):
@@ -96,6 +98,7 @@ class WidgetPackageListOut(BaseModel):
     group_ref: Optional[str] = None
     version: int
     updated_at: datetime
+    signature_state: str = "unsigned"
 
 
 class WidgetPackageCreate(BaseModel):
@@ -210,6 +213,14 @@ def _hash_body(yaml_text: str, python_code: str | None) -> str:
     return hashlib.sha256(combined.encode("utf-8")).hexdigest()
 
 
+def _widget_signature_state(row: WidgetTemplatePackage) -> str:
+    """Return ``signed`` / ``unsigned`` / ``tampered`` for a widget row."""
+    from app.services.manifest_signing import verify_widget_row
+    if not getattr(row, "signature", None):
+        return "unsigned"
+    return "signed" if verify_widget_row(row) else "tampered"
+
+
 def _extract_grouping(yaml_template: str | None) -> tuple[str | None, str | None]:
     if not yaml_template or not yaml_template.strip():
         return (None, None)
@@ -253,6 +264,8 @@ def _to_out(row: WidgetTemplatePackage, *, include_bodies: bool = True) -> Widge
         created_by=row.created_by,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        signature_state=_widget_signature_state(row),
+        last_signed_at=row.updated_at if row.signature else None,
     )
 
 
@@ -274,6 +287,7 @@ def _to_list_out(row: WidgetTemplatePackage) -> WidgetPackageListOut:
         group_ref=group_ref,
         version=row.version,
         updated_at=row.updated_at,
+        signature_state=_widget_signature_state(row),
     )
 
 
@@ -351,6 +365,7 @@ async def create_widget_package(
             },
         )
 
+    from app.services.manifest_signing import sign_widget_payload
     row = WidgetTemplatePackage(
         tool_name=body.tool_name,
         name=body.name,
@@ -362,6 +377,7 @@ async def create_widget_package(
         is_active=False,
         is_orphaned=False,
         content_hash=_hash_body(body.yaml_template, body.python_code),
+        signature=sign_widget_payload(body.yaml_template, body.python_code),
         sample_payload=body.sample_payload,
         version=1,
     )
@@ -415,9 +431,11 @@ async def update_widget_package(
     if body.sample_payload is not None:
         row.sample_payload = body.sample_payload
     if body_changed:
+        from app.services.manifest_signing import sign_widget_payload
         row.yaml_template = new_yaml
         row.python_code = new_python
         row.content_hash = _hash_body(new_yaml, new_python)
+        row.signature = sign_widget_payload(new_yaml, new_python)
         row.version = (row.version or 1) + 1
         row.is_invalid = False
         row.invalid_reason = None
@@ -457,6 +475,7 @@ async def fork_widget_package(
         is_active=False,
         is_orphaned=False,
         content_hash=src.content_hash,
+        signature=src.signature,
         sample_payload=copy.deepcopy(src.sample_payload) if src.sample_payload else None,
         version=1,
     )

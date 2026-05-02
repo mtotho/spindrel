@@ -22,7 +22,11 @@ from app.services.manifest_signing import (
     detect_skill_drift,
     detect_widget_drift,
     get_manifest_signing_key,
+    sign_skill_payload,
+    sign_widget_payload,
     verify_signature,
+    verify_skill_row,
+    verify_widget_row,
 )
 
 
@@ -224,3 +228,80 @@ def test_widget_drift_uses_yaml_only_for_phase_one_match():
     Phase 2 will switch to the canonical payload that covers code too."""
     row = _widget_row("w1", "yaml: 1", python_code="anything")
     assert detect_widget_drift([row]) == []
+
+
+# -- Phase 2: sign_*_payload helpers + verify_*_row -----------------------
+
+
+def test_sign_skill_payload_returns_signature_when_key_present(monkeypatch):
+    monkeypatch.setattr("app.services.manifest_signing.settings.ENCRYPTION_KEY", "k")
+    sig = sign_skill_payload("body", [])
+    assert sig
+    # Signature is HMAC over canonical payload, NOT sha256(content).
+    assert sig != hashlib.sha256(b"body").hexdigest()
+
+
+def test_sign_skill_payload_returns_none_when_no_key(monkeypatch):
+    """Seed paths run before key configuration in dev — they must
+    persist NULL rather than raising. Audit surfaces it as unsigned."""
+    monkeypatch.setattr("app.services.manifest_signing.settings.MANIFEST_SIGNING_KEY", "")
+    monkeypatch.setattr("app.services.manifest_signing.settings.ENCRYPTION_KEY", "")
+    assert sign_skill_payload("body", []) is None
+
+
+def test_sign_widget_payload_covers_python_code(monkeypatch):
+    """A widget python_code edit must move the signature, even if YAML
+    is unchanged — Phase 1 hashed yaml only, so this is a Phase 2 win."""
+    monkeypatch.setattr("app.services.manifest_signing.settings.ENCRYPTION_KEY", "k")
+    sig_a = sign_widget_payload("yaml: 1", "print('a')")
+    sig_b = sign_widget_payload("yaml: 1", "print('b')")
+    assert sig_a != sig_b
+
+
+def test_verify_skill_row_passes_when_signature_matches(monkeypatch):
+    monkeypatch.setattr("app.services.manifest_signing.settings.ENCRYPTION_KEY", "k")
+    row = SimpleNamespace(
+        content="body",
+        scripts=[],
+        signature=sign_skill_payload("body", []),
+    )
+    assert verify_skill_row(row) is True
+
+
+def test_verify_skill_row_passes_when_signature_is_null():
+    """NULL signature = Phase-1 unsigned. Drift-only surface, not
+    fail-closed — verify_skill_row returns True."""
+    row = SimpleNamespace(content="body", scripts=[], signature=None)
+    assert verify_skill_row(row) is True
+
+
+def test_verify_skill_row_fails_when_content_tampered(monkeypatch):
+    """Persisted signature stays put while content gets edited under
+    the writer — verify_skill_row catches the mismatch."""
+    monkeypatch.setattr("app.services.manifest_signing.settings.ENCRYPTION_KEY", "k")
+    sig = sign_skill_payload("original", [])
+    row = SimpleNamespace(content="tampered", scripts=[], signature=sig)
+    assert verify_skill_row(row) is False
+
+
+def test_verify_widget_row_fails_when_python_code_tampered(monkeypatch):
+    monkeypatch.setattr("app.services.manifest_signing.settings.ENCRYPTION_KEY", "k")
+    sig = sign_widget_payload("yaml: 1", "print('safe')")
+    row = SimpleNamespace(
+        yaml_template="yaml: 1",
+        python_code="print('exfil')",
+        signature=sig,
+    )
+    assert verify_widget_row(row) is False
+
+
+def test_verify_skill_row_treats_missing_key_as_unverifiable(monkeypatch):
+    """If MANIFEST_SIGNING_KEY rotates and is no longer configured,
+    verify_*_row returns True (un-verifiable rather than tampered) —
+    operator must restore the key or run trust-current-state."""
+    monkeypatch.setattr("app.services.manifest_signing.settings.ENCRYPTION_KEY", "k")
+    sig = sign_skill_payload("body", [])
+    monkeypatch.setattr("app.services.manifest_signing.settings.MANIFEST_SIGNING_KEY", "")
+    monkeypatch.setattr("app.services.manifest_signing.settings.ENCRYPTION_KEY", "")
+    row = SimpleNamespace(content="body", scripts=[], signature=sig)
+    assert verify_skill_row(row) is True

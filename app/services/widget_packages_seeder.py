@@ -136,11 +136,13 @@ async def seed_widget_packages() -> None:
     inserted = 0
     updated = 0
 
+    from app.services.manifest_signing import sign_widget_payload
     async with async_session() as db:
         for tool_name, widget_def, source_file, source_integration in sources:
             stripped_def, sample_payload = _extract_sample_payload(widget_def)
             yaml_body = _dump_yaml(stripped_def)
             content_hash = _hash_yaml(yaml_body)
+            signature = sign_widget_payload(yaml_body, None)
             key = (tool_name, source_file, source_integration)
             seen_keys.add(key)
 
@@ -176,6 +178,7 @@ async def seed_widget_packages() -> None:
                     source_file=source_file,
                     source_integration=source_integration,
                     content_hash=content_hash,
+                    signature=signature,
                     version=1,
                 )
                 db.add(row)
@@ -190,6 +193,7 @@ async def seed_widget_packages() -> None:
                 if existing.content_hash != content_hash:
                     existing.yaml_template = yaml_body
                     existing.content_hash = content_hash
+                    existing.signature = signature
                     existing.version = (existing.version or 1) + 1
                     existing.is_invalid = False
                     existing.invalid_reason = None

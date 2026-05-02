@@ -3121,6 +3121,59 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
           headers: { "Content-Type": "application/json" }
         });
       }
+      const continueMatch = url.pathname.match(/\\/api\\/v1\\/projects\\/([^/]+)\\/coding-runs\\/([^/]+)\\/continue$/);
+      if (continueMatch) {
+        window.__PROJECT_FOLLOW_UP_CREATED__ = true;
+        const projectId = continueMatch[1];
+        const parentTaskId = continueMatch[2];
+        const followUpTaskId = "screenshot-project-coding-run-follow-up-task";
+        return new Response(JSON.stringify({
+          id: followUpTaskId,
+          project_id: projectId,
+          status: "pending",
+          request: "Follow up on Project run review feedback.",
+          branch: "screenshot/project-coding-run",
+          base_branch: "development",
+          repo: { name: "spindrel", path: "spindrel", url: "https://github.com/mtotho/spindrel.git" },
+          parent_task_id: parentTaskId,
+          root_task_id: parentTaskId,
+          continuation_index: 1,
+          continuation_feedback: "Tighten the receipt copy and recapture the Project Runs screenshot.",
+          continuation_count: 0,
+          latest_continuation: null,
+          continuations: [],
+          task: {
+            id: followUpTaskId,
+            status: "pending",
+            title: "Project coding run follow-up 1",
+            bot_id: "screenshot-projects",
+            channel_id: "channel-1",
+            session_id: null,
+            project_instance_id: "screenshot-project-instance",
+            correlation_id: "screenshot-follow-up-correlation",
+            created_at: "2026-04-30T15:40:00Z",
+            scheduled_at: null,
+            run_at: null,
+            completed_at: null,
+            error: null
+          },
+          receipt: null,
+          activity: [],
+          review: {
+            status: "pending",
+            blocker: null,
+            reviewed: false,
+            reviewed_at: null,
+            recovery: { can_continue: false, blocker: "Run is still active.", suggested_feedback: "", latest_continuation_id: null },
+            actions: { can_refresh: true, can_mark_reviewed: false, can_cleanup_instance: false, can_request_changes: false, can_continue: false }
+          },
+          created_at: "2026-04-30T15:40:00Z",
+          updated_at: "2026-04-30T15:40:00Z"
+        }), {
+          status: 201,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
     }
     if (raw && method === "GET") {
       const url = new URL(raw, window.location.origin);
@@ -3319,11 +3372,84 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
       if (detailMatch) {
         const projectId = detailMatch[1];
         const taskId = detailMatch[2];
+        const followUpProof = taskId === "screenshot-project-coding-run-needs-follow-up-task";
+        const followUpTaskId = "screenshot-project-coding-run-follow-up-task";
+        const followUpCreated = window.__PROJECT_FOLLOW_UP_CREATED__ === true;
+        const latestFollowUp = followUpProof && followUpCreated ? {
+          id: "screenshot-project-coding-run-follow-up",
+          task_id: followUpTaskId,
+          status: "pending",
+          review_status: "pending",
+          continuation_index: 1,
+          feedback: "Tighten the receipt copy and recapture the Project Runs screenshot."
+        } : null;
+        const reviewPayload = followUpProof ? {
+          status: "changes_requested",
+          blocker: "Receipt copy is too vague and the Project Runs screenshot was not recaptured.",
+          reviewed: false,
+          reviewed_at: null,
+          reviewed_by: null,
+          review_task_id: "screenshot-review-task",
+          review_session_id: "screenshot-review-session",
+          review_summary: "Needs a targeted follow-up before acceptance.",
+          review_details: { outcome: "rejected", notes: "Tighten the receipt copy and recapture the Project Runs screenshot." },
+          merge_method: null,
+          merged_at: null,
+          merge_commit_sha: null,
+          handoff_url: "https://example.invalid/spindrel/project-run",
+          pr: { url: "https://example.invalid/spindrel/project-run", state: "OPEN", draft: true, checks_status: "passed" },
+          steps: {
+            branch: { status: "succeeded", summary: "Branch ready." },
+            pr: { status: "succeeded", summary: "Pull request ready." },
+            status: { status: "succeeded", summary: "Repository state inspected." },
+            review: { status: "needs_review", summary: "Reviewer requested a follow-up." }
+          },
+          evidence: { changed_files_count: 2, tests_count: 2, screenshots_count: 1, dev_targets_count: 2, has_tests: true, has_screenshots: true, has_dev_targets: true },
+          instance: { id: "screenshot-project-instance", status: "ready", root_path: "common/project-instances/screenshot/project-run" },
+          recovery: {
+            can_continue: true,
+            blocker: null,
+            suggested_feedback: "Tighten the receipt copy and recapture the Project Runs screenshot.",
+            latest_continuation_id: followUpCreated ? followUpTaskId : null
+          },
+          actions: { can_refresh: true, can_mark_reviewed: true, can_cleanup_instance: true, can_request_changes: true, can_continue: true }
+        } : {
+          status: "reviewed",
+          blocker: null,
+          reviewed: true,
+          reviewed_at: "2026-04-30T15:30:00Z",
+          reviewed_by: "agent",
+          review_task_id: "screenshot-review-task",
+          review_session_id: "screenshot-review-session",
+          review_summary: "Accepted after reviewing tests, screenshots, and PR handoff evidence.",
+          review_details: { outcome: "accepted", checks: "passed", screenshots: "reviewed", notes: "Stored evidence is sufficient for the screenshot scenario." },
+          merge_method: "squash",
+          merged_at: "2026-04-30T15:32:00Z",
+          merge_commit_sha: "abc1234def5678",
+          handoff_url: "https://example.invalid/spindrel/project-run",
+          pr: { url: "https://example.invalid/spindrel/project-run", state: "MERGED", draft: false, checks_status: "passed" },
+          steps: {
+            branch: { status: "succeeded", summary: "Branch ready." },
+            pr: { status: "succeeded", summary: "Pull request ready." },
+            status: { status: "succeeded", summary: "Repository state inspected." },
+            merge: { status: "succeeded", summary: "Merged with squash." },
+            review: { status: "succeeded", summary: "Finalized accepted review." }
+          },
+          evidence: { changed_files_count: 2, tests_count: 2, screenshots_count: 2, dev_targets_count: 2, has_tests: true, has_screenshots: true, has_dev_targets: true },
+          instance: { id: "screenshot-project-instance", status: "ready", root_path: "common/project-instances/screenshot/project-run" },
+          recovery: {
+            can_continue: false,
+            blocker: "Run is already reviewed.",
+            suggested_feedback: "Accepted after reviewing tests, screenshots, and PR handoff evidence.",
+            latest_continuation_id: "screenshot-project-coding-run-follow-up-task"
+          },
+          actions: { can_refresh: true, can_mark_reviewed: false, can_cleanup_instance: true, can_request_changes: false, can_continue: false }
+        };
         return new Response(JSON.stringify({
           id: taskId,
           project_id: projectId,
           status: "completed",
-          request: "Prepare the Project workspace screenshot receipt and handoff evidence.",
+          request: followUpProof ? "Follow up on Project run review feedback." : "Prepare the Project workspace screenshot receipt and handoff evidence.",
           branch: "screenshot/project-coding-run",
           base_branch: "development",
           repo: { name: "spindrel", path: "spindrel", url: "https://github.com/mtotho/spindrel.git" },
@@ -3363,9 +3489,9 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
           root_task_id: taskId,
           continuation_index: 0,
           continuation_feedback: null,
-          continuation_count: 1,
-          latest_continuation: null,
-          continuations: [],
+          continuation_count: latestFollowUp ? 1 : 0,
+          latest_continuation: latestFollowUp,
+          continuations: latestFollowUp ? [latestFollowUp] : [],
           task: {
             id: taskId,
             status: "complete",
@@ -3425,38 +3551,7 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
             { id: "screenshot-project-coding-run-progress-pr", kind: "execution_receipt", status: "succeeded", summary: "Screenshot Project run draft PR ready.", source: { scope: "project_coding_run", action_type: "handoff.open_pr", result: { pr_url: "https://example.invalid/spindrel/project-run" } }, created_at: "2026-04-30T15:27:00Z" },
             { id: "screenshot-project-coding-run-activity", kind: "project_receipt", status: "succeeded", summary: "Published screenshot handoff receipt", created_at: "2026-04-30T15:28:00Z" }
           ],
-          review: {
-            status: "reviewed",
-            blocker: null,
-            reviewed: true,
-            reviewed_at: "2026-04-30T15:30:00Z",
-            reviewed_by: "agent",
-            review_task_id: "screenshot-review-task",
-            review_session_id: "screenshot-review-session",
-            review_summary: "Accepted after reviewing tests, screenshots, and PR handoff evidence.",
-            review_details: { outcome: "accepted", checks: "passed", screenshots: "reviewed", notes: "Stored evidence is sufficient for the screenshot scenario." },
-            merge_method: "squash",
-            merged_at: "2026-04-30T15:32:00Z",
-            merge_commit_sha: "abc1234def5678",
-            handoff_url: "https://example.invalid/spindrel/project-run",
-            pr: { url: "https://example.invalid/spindrel/project-run", state: "MERGED", draft: false, checks_status: "passed" },
-            steps: {
-              branch: { status: "succeeded", summary: "Branch ready." },
-              pr: { status: "succeeded", summary: "Pull request ready." },
-              status: { status: "succeeded", summary: "Repository state inspected." },
-              merge: { status: "succeeded", summary: "Merged with squash." },
-              review: { status: "succeeded", summary: "Finalized accepted review." }
-            },
-            evidence: { changed_files_count: 2, tests_count: 2, screenshots_count: 2, dev_targets_count: 2, has_tests: true, has_screenshots: true, has_dev_targets: true },
-            instance: { id: "screenshot-project-instance", status: "ready", root_path: "common/project-instances/screenshot/project-run" },
-            recovery: {
-              can_continue: false,
-              blocker: "Run is already reviewed.",
-              suggested_feedback: "Accepted after reviewing tests, screenshots, and PR handoff evidence.",
-              latest_continuation_id: "screenshot-project-coding-run-follow-up-task"
-            },
-            actions: { can_refresh: true, can_mark_reviewed: false, can_cleanup_instance: true, can_request_changes: false, can_continue: false }
-          },
+          review: reviewPayload,
           created_at: "2026-04-30T15:20:00Z",
           updated_at: "2026-04-30T15:32:00Z"
         }), {
@@ -4081,6 +4176,40 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "&& text.includes('Dependency stack running') "
             "&& text.includes('Published screenshot handoff receipt'), "
             "detail: 'Project Run detail page did not expose receipt, review, evidence, dependency, and activity data' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-run-follow-up",
+        route="/admin/projects/{project_workspace_project}/runs/screenshot-project-coding-run-needs-follow-up-task",
+        viewport={"width": 1440, "height": 1000},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-run-detail\"]') "
+            "&& document.body.innerText.includes('Follow-up run available') "
+            "&& document.body.innerText.includes('Start follow-up')"
+        ),
+        output="project-workspace-run-follow-up.png",
+        color_scheme="dark",
+        full_page=True,
+        extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
+        pre_capture_js=(
+            "const recovery = [...document.querySelectorAll('*')].find((el) => /^Recovery$/.test((el.textContent || '').trim()));"
+            "if (recovery) recovery.scrollIntoView({ block: 'start' });"
+            "await new Promise((resolve) => setTimeout(resolve, 120));"
+            "const button = [...document.querySelectorAll('button')].find((item) => /Start follow-up/.test(item.textContent || ''));"
+            "if (button) button.click();"
+            "await new Promise((resolve) => setTimeout(resolve, 350));"
+        ),
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('Follow-up run created') "
+            "&& text.includes('Open follow-up') "
+            "&& text.includes('A follow-up run has already been created from this run.') "
+            "&& text.includes('CHANGES_REQUESTED') "
+            "&& text.includes('Needs a targeted follow-up before acceptance') "
+            "&& !text.includes('Start follow-up') "
+            "&& !text.includes('Uses the existing Project coding-run continuation path.'), "
+            "detail: 'Project Run detail page did not create a follow-up run from recovery controls' };"
         ),
     ),
     ScreenshotSpec(

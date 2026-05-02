@@ -602,16 +602,22 @@ export function useAssistChannelNote(channelId: string) {
       instruction,
       selection,
       base_hash,
+      content,
+      model_override,
+      model_provider_id_override,
     }: {
       slug: string;
       mode: string;
       instruction?: string;
       selection?: { start: number; end: number; text: string } | null;
       base_hash?: string | null;
+      content?: string;
+      model_override?: string;
+      model_provider_id_override?: string | null;
     }) =>
       apiFetch<ChannelNoteAssistProposal>(`/api/v1/channels/${channelId}/notes/${encodeURIComponent(slug)}/assist`, {
         method: "POST",
-        body: JSON.stringify({ mode, instruction, selection, base_hash }),
+        body: JSON.stringify({ mode, instruction, selection, base_hash, content, model_override, model_provider_id_override }),
       }),
   });
 }

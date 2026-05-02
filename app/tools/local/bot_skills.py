@@ -469,6 +469,8 @@ async def _handle_create_skill(
 
     full_content = _build_content(title, content, triggers, category)
     content_hash = hashlib.sha256(full_content.encode()).hexdigest()
+    from app.services.manifest_signing import sign_skill_payload
+    signature = sign_skill_payload(full_content, normalized_scripts)
     async with ctx.async_session() as db:
         existing = await db.get(ctx.skill_row_model, skill_id)
         if existing:
@@ -484,6 +486,7 @@ async def _handle_create_skill(
             scripts=normalized_scripts,
             content=full_content,
             content_hash=content_hash,
+            signature=signature,
             source_type="tool",
             created_at=now,
             updated_at=now,
@@ -554,6 +557,11 @@ async def _handle_update_skill(
             row.description = content[:200].strip()
         if normalized_scripts is not None:
             row.scripts = normalized_scripts
+        from app.services.manifest_signing import sign_skill_payload
+        row.signature = sign_skill_payload(
+            full_content,
+            normalized_scripts if normalized_scripts is not None else (row.scripts or []),
+        )
         row.updated_at = datetime.now(timezone.utc)
         await db.commit()
 

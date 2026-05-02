@@ -175,6 +175,8 @@ async def seed_skills_from_files(skills_dir: Path = SKILLS_DIR) -> None:
             skill_id = path.stem
             raw = path.read_text()
             content_hash = hashlib.sha256(raw.encode()).hexdigest()
+            from app.services.manifest_signing import sign_skill_payload
+            signature = sign_skill_payload(raw, [])
             meta, _ = _parse_frontmatter(raw)
             display_name = meta.get("name", skill_id.replace("_", " ").title())
 
@@ -183,6 +185,7 @@ async def seed_skills_from_files(skills_dir: Path = SKILLS_DIR) -> None:
                 name=display_name,
                 content=raw,
                 content_hash=content_hash,
+                signature=signature,
             ).on_conflict_do_nothing(index_elements=["id"])
             await db.execute(stmt)
         await db.commit()
@@ -200,10 +203,28 @@ async def load_skills(skills_dir: Path = SKILLS_DIR) -> None:
 
     logger.info("Checking %d skill(s) from DB", len(skill_rows))
     loaded = 0
+    refused = 0
+
+    from app.services.manifest_signing import verify_skill_row
 
     for row in skill_rows:
         skill_id = row.id
         content_hash = row.content_hash
+
+        if not verify_skill_row(row):
+            # Persisted signature exists but no longer matches the row body.
+            # Refuse to re-embed — the running app keeps stale-but-clean
+            # chunks, isolating the tampered content from runtime retrieval.
+            # Operator runs `POST /api/v1/admin/manifest/trust-current-state`
+            # to recover after manual review.
+            logger.warning(
+                "manifest_signature_mismatch: skill '%s' refused re-embed "
+                "(signature does not match body). Run trust-current-state "
+                "after review.",
+                skill_id,
+            )
+            refused += 1
+            continue
 
         # Check if embedding is up to date (content hash + chunking version)
         async with async_session() as db:
@@ -231,7 +252,10 @@ async def load_skills(skills_dir: Path = SKILLS_DIR) -> None:
         await _embed_skill_row(skill_id, row.content, content_hash)
         loaded += 1
 
-    logger.info("Skill loading complete (%d new/updated, %d total)", loaded, len(_loaded_skills))
+    logger.info(
+        "Skill loading complete (%d new/updated, %d total, %d refused for signature mismatch)",
+        loaded, len(_loaded_skills), refused,
+    )
 
     # Warm contextual retrieval cache from existing skill embeddings
     if settings.CONTEXTUAL_RETRIEVAL_ENABLED:
@@ -256,5 +280,13 @@ async def re_embed_skill(skill_id: str) -> None:
         if not row:
             logger.warning("re_embed_skill: skill '%s' not found in DB", skill_id)
             return
+
+    from app.services.manifest_signing import verify_skill_row
+    if not verify_skill_row(row):
+        logger.warning(
+            "manifest_signature_mismatch: skill '%s' refused re-embed "
+            "(signature does not match body).", skill_id,
+        )
+        return
 
     await _embed_skill_row(skill_id, row.content, row.content_hash)

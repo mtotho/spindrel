@@ -857,6 +857,118 @@ def test_fs_and_mcp_progress_notifications_emit_rich_rows():
     assert mcp_result["envelope"]["body"] == "Reading resource"
 
 
+def test_mcp_server_startup_status_notifications_emit_rich_rows():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.NOTIFICATION_MCP_SERVER_STARTUP_STATUS_UPDATED,
+            params={"name": "browser", "status": "failed", "error": "missing token"},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert meta["codex_mcp_startup_status"] == [
+        {"name": "browser", "status": "failed", "error": "missing token"}
+    ]
+    result = emitter.calls[0][1]
+    assert result["tool_name"] == "MCP server"
+    assert result["is_error"] is True
+    assert result["surface"] == "rich_result"
+    assert result["summary"]["kind"] == "status"
+    assert result["summary"]["target_label"] == "browser"
+    assert result["envelope"]["body"] == "MCP server browser is failed\nmissing token"
+
+
+def test_account_rate_limit_updates_record_metadata_and_emit_high_usage_rows():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.NOTIFICATION_ACCOUNT_RATE_LIMITS_UPDATED,
+            params={
+                "rateLimits": {
+                    "planType": "pro",
+                    "primary": {"usedPercent": 12},
+                    "secondary": {"usedPercent": 97},
+                    "credits": {"balance": "0", "unlimited": False},
+                }
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert meta["codex_rate_limits"]["secondary"]["usedPercent"] == 97
+    assert meta["codex_rate_limit_events"] == [meta["codex_rate_limits"]]
+    result = emitter.calls[0][1]
+    assert result["tool_name"] == "Codex account"
+    assert result["is_error"] is False
+    assert result["summary"]["kind"] == "status"
+    assert result["envelope"]["body"] == "plan: pro\nprimary: 12% used\nweekly: 97% used\ncredits: 0"
+
+
+def test_account_rate_limit_updates_below_warning_threshold_are_metadata_only():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.NOTIFICATION_ACCOUNT_RATE_LIMITS_UPDATED,
+            params={"rateLimits": {"primary": {"usedPercent": 10}}},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert meta["codex_rate_limits"] == {"primary": {"usedPercent": 10}}
+    assert emitter.calls == []
+
+
+def test_model_rerouted_notifications_emit_rich_rows():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.NOTIFICATION_MODEL_REROUTED,
+            params={
+                "fromModel": "gpt-5.5",
+                "toModel": "gpt-5.3-codex-spark",
+                "reason": "highRiskCyberActivity",
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert meta["codex_model_reroutes"] == [
+        {
+            "from_model": "gpt-5.5",
+            "to_model": "gpt-5.3-codex-spark",
+            "reason": "highRiskCyberActivity",
+            "thread_id": "thread-1",
+            "turn_id": "turn-1",
+        }
+    ]
+    result = emitter.calls[0][1]
+    assert result["tool_name"] == "Codex model"
+    assert result["summary"]["target_label"] == "gpt-5.3-codex-spark"
+    assert result["envelope"]["body"] == (
+        "Codex model rerouted: gpt-5.5 -> gpt-5.3-codex-spark\n"
+        "reason: highRiskCyberActivity"
+    )
+
+
 def test_file_change_completed_uses_buffered_file_change_delta_diff():
     emitter, ids, parts, meta = _harness()
     ids["fc2"] = "fileChange"

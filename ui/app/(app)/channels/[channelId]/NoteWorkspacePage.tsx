@@ -7,7 +7,6 @@ import {
   FileText,
   MessageSquare,
   PenLine,
-  Save,
   Sparkles,
   Wand2,
   X,
@@ -22,8 +21,10 @@ import {
 } from "@/src/api/hooks/useChannels";
 import { MarkdownViewer } from "@/src/components/workspace/MarkdownViewer";
 import { ChatSession } from "@/src/components/chat/ChatSession";
+import { useModelGroups } from "@/src/api/hooks/useModels";
 
 type SelectionState = { start: number; end: number; text: string };
+type AutoSaveState = "idle" | "pending" | "saving" | "saved" | "error";
 
 export default function NoteWorkspacePage() {
   const { channelId, slug } = useParams<{ channelId: string; slug: string }>();
@@ -34,6 +35,7 @@ export default function NoteWorkspacePage() {
   const assistNote = useAssistChannelNote(channelId ?? "");
   const note = noteQuery.data ?? null;
   const versionsQuery = useChannelWorkspaceFileVersions(channelId, note?.path ?? null, !!note);
+  const modelGroupsQuery = useModelGroups();
 
   const [bodyDraft, setBodyDraft] = useState("");
   const [frontmatter, setFrontmatter] = useState("");
@@ -45,6 +47,14 @@ export default function NoteWorkspacePage() {
   const [customInstruction, setCustomInstruction] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
   const [aiFlash, setAiFlash] = useState(false);
+  const [assistModel, setAssistModel] = useState("");
+  const [assistProviderId, setAssistProviderId] = useState<string | null>(null);
+  const [appliedNotice, setAppliedNotice] = useState<string | null>(null);
+  const [autoSaveState, setAutoSaveState] = useState<AutoSaveState>("idle");
+  const [autoSaveError, setAutoSaveError] = useState<string | null>(null);
+  const savedContentRef = useRef("");
+  const saveInFlightRef = useRef(false);
+  const latestDraftRef = useRef("");
 
   useEffect(() => {
     if (!note) return;
@@ -53,6 +63,9 @@ export default function NoteWorkspacePage() {
     setBodyDraft(split.body);
     setTitleDraft(note.title);
     setBaseHash(note.content_hash);
+    savedContentRef.current = note.content;
+    setAutoSaveState("saved");
+    setAutoSaveError(null);
     setProposal(null);
     setSelection({ start: 0, end: 0, text: "" });
   }, [note]);
@@ -61,33 +74,98 @@ export default function NoteWorkspacePage() {
     () => `${setFrontmatterField(frontmatter, "title", titleDraft.trim() || "Untitled")}${bodyDraft}`,
     [bodyDraft, frontmatter, titleDraft],
   );
-  const dirty = Boolean(note && fullDraft !== note.content);
+  useEffect(() => {
+    latestDraftRef.current = fullDraft;
+  }, [fullDraft]);
+  const dirty = Boolean(note && fullDraft !== savedContentRef.current);
   const selectedText = selection.text.trim();
   const proposalMeaningful = proposal ? normalizeMd(proposal.replacement_markdown) !== normalizeMd(proposal.target === "selection" && selectedText ? selectedText : bodyDraft) : false;
+  const modelOptions = useMemo(() => {
+    return (modelGroupsQuery.data ?? []).flatMap((group) =>
+      group.models.map((model) => ({
+        modelId: model.id,
+        providerId: group.provider_id ?? null,
+        label: model.display && model.display !== model.id ? `${model.display} (${model.id})` : model.id,
+        providerName: group.provider_name,
+      })),
+    );
+  }, [modelGroupsQuery.data]);
 
-  const handleSave = useCallback(async () => {
+  const saveDraft = useCallback(async (content: string, hash: string | null) => {
     if (!channelId || !slug) return;
-    const saved = await writeNote.mutateAsync({ slug, content: fullDraft, base_hash: baseHash });
-    const split = splitFrontmatter(saved.content);
-    setFrontmatter(split.frontmatter);
-    setBodyDraft(split.body);
-    setBaseHash(saved.content_hash);
-    setProposal(null);
-  }, [baseHash, channelId, fullDraft, slug, writeNote]);
+    saveInFlightRef.current = true;
+    setAutoSaveState("saving");
+    setAutoSaveError(null);
+    try {
+      const saved = await writeNote.mutateAsync({ slug, content, base_hash: hash });
+      const split = splitFrontmatter(saved.content);
+      setBaseHash(saved.content_hash);
+      savedContentRef.current = saved.content;
+      if (latestDraftRef.current === content) {
+        setFrontmatter(split.frontmatter);
+        setBodyDraft(split.body);
+      }
+      setAutoSaveState("saved");
+      setProposal(null);
+    } finally {
+      saveInFlightRef.current = false;
+    }
+  }, [channelId, slug, writeNote]);
+
+  useEffect(() => {
+    if (!note || !channelId || !slug) return;
+    if (fullDraft === savedContentRef.current) {
+      setAutoSaveState("saved");
+      return;
+    }
+    if (saveInFlightRef.current) {
+      setAutoSaveState("pending");
+      return;
+    }
+    setAutoSaveState("pending");
+    setAutoSaveError(null);
+    const timer = window.setTimeout(() => {
+      void saveDraft(fullDraft, baseHash).catch((error) => {
+        setAutoSaveState("error");
+        setAutoSaveError(error instanceof Error ? error.message : "Autosave failed");
+      });
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [baseHash, channelId, fullDraft, note, saveDraft, slug]);
 
   const handleAssist = useCallback(async (mode: string) => {
     if (!slug) return;
+    const activeSelection = selectedText ? selection : null;
     const next = await assistNote.mutateAsync({
       slug,
       mode,
       instruction: mode === "custom" ? customInstruction : undefined,
-      selection: selectedText ? selection : null,
+      selection: activeSelection,
       base_hash: baseHash,
+      content: fullDraft,
+      model_override: assistModel || undefined,
+      model_provider_id_override: assistModel ? assistProviderId : null,
     });
-    setProposal(next);
+    const original = next.target === "selection" && activeSelection?.text ? activeSelection.text : bodyDraft;
+    const meaningful = normalizeMd(next.replacement_markdown) !== normalizeMd(original);
+    if (!meaningful) {
+      setProposal(null);
+      setAppliedNotice("No useful note change found.");
+      window.setTimeout(() => setAppliedNotice(null), 2200);
+      return;
+    }
+    if (next.target === "selection" && activeSelection?.text) {
+      setBodyDraft((current) => current.slice(0, activeSelection.start) + next.replacement_markdown + current.slice(activeSelection.end));
+    } else {
+      setBodyDraft(stripFrontmatter(next.replacement_markdown));
+    }
+    setProposal(null);
+    setAppliedNotice(next.rationale || "Updated the note draft.");
+    setCustomInstruction("");
     setAiFlash(true);
     window.setTimeout(() => setAiFlash(false), 900);
-  }, [assistNote, baseHash, customInstruction, selectedText, selection, slug]);
+    window.setTimeout(() => setAppliedNotice(null), 2600);
+  }, [assistModel, assistNote, assistProviderId, baseHash, bodyDraft, customInstruction, fullDraft, selectedText, selection, slug]);
 
   const acceptProposal = useCallback(() => {
     if (!proposal) return;
@@ -157,15 +235,30 @@ export default function NoteWorkspacePage() {
           {preview ? <PenLine size={14} /> : <Eye size={14} />}
           {preview ? "Edit" : "Preview"}
         </button>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={!dirty || writeNote.isPending}
-          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-accent hover:bg-surface-overlay disabled:opacity-40"
+        <AutoSaveIndicator state={autoSaveState} dirty={dirty} error={autoSaveError} />
+        <select
+          value={assistModel ? `${assistProviderId ?? ""}::${assistModel}` : ""}
+          onChange={(event) => {
+            const value = event.target.value;
+            if (!value) {
+              setAssistModel("");
+              setAssistProviderId(null);
+              return;
+            }
+            const [provider, model] = value.split("::");
+            setAssistModel(model);
+            setAssistProviderId(provider || null);
+          }}
+          className="max-w-[190px] rounded-md bg-transparent px-2 py-1.5 text-[11px] text-text-dim outline-none hover:bg-surface-overlay"
+          title="Magic edit model"
         >
-          <Save size={14} />
-          Save
-        </button>
+          <option value="">model default</option>
+          {modelOptions.map((option) => (
+            <option key={`${option.providerId ?? ""}::${option.modelId}`} value={`${option.providerId ?? ""}::${option.modelId}`}>
+              {option.modelId}
+            </option>
+          ))}
+        </select>
       </header>
 
       <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pb-2 text-[11px] text-text-dim sm:px-6 lg:px-8">
@@ -188,17 +281,14 @@ export default function NoteWorkspacePage() {
           {assistNote.isPending && (
             <div className="pointer-events-none absolute inset-x-6 top-6 flex items-center gap-2 rounded-md bg-accent/[0.10] px-3 py-2 text-[12px] text-accent">
               <Sparkles size={14} className="thinking-pulse" />
-              Authoring a Markdown proposal...
+              Updating the note draft...
             </div>
           )}
-          {proposal && (
-            <InlineProposalReview
-              proposal={proposal}
-              originalMarkdown={proposalOriginal}
-              meaningful={proposalMeaningful}
-              onAccept={acceptProposal}
-              onReject={() => setProposal(null)}
-            />
+          {appliedNotice && (
+            <div className="pointer-events-none absolute inset-x-6 bottom-6 flex items-center gap-2 rounded-md border border-accent/20 bg-surface/90 px-3 py-2 text-[12px] text-text-muted shadow-lg shadow-black/20 backdrop-blur">
+              <Sparkles size={14} className="text-accent" />
+              {appliedNotice}
+            </div>
           )}
         </section>
 
@@ -464,6 +554,42 @@ function MarkdownNoteEditor({
       placeholder="Start writing..."
       className="h-full min-h-[calc(100vh-168px)] w-full resize-none border-0 bg-transparent px-8 py-7 font-sans text-[18px] leading-8 text-text outline-none selection:bg-accent/25 placeholder:text-text-dim/70"
     />
+  );
+}
+
+function AutoSaveIndicator({
+  state,
+  dirty,
+  error,
+}: {
+  state: AutoSaveState;
+  dirty: boolean;
+  error: string | null;
+}) {
+  const label =
+    state === "saving" ? "Saving..."
+      : state === "pending" ? "Autosave pending"
+        : state === "error" ? "Autosave failed"
+          : dirty ? "Unsaved"
+            : "Autosaved";
+  const tone =
+    state === "error" ? "text-red-400"
+      : state === "saving" || state === "pending" ? "text-accent"
+        : "text-emerald-400";
+  return (
+    <div
+      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] ${tone}`}
+      title={error ?? label}
+    >
+      {state === "saving" || state === "pending" ? (
+        <Sparkles size={13} className={state === "saving" ? "thinking-pulse" : ""} />
+      ) : state === "error" ? (
+        <X size={13} />
+      ) : (
+        <Check size={13} />
+      )}
+      <span className="hidden sm:inline">{label}</span>
+    </div>
   );
 }
 

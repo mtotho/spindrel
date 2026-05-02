@@ -127,6 +127,7 @@ function workSurfaceLine(run: ProjectCodingRun) {
 }
 
 function recoveryTitle(run: ProjectCodingRun) {
+  if (run.latest_continuation?.task_id || run.review?.recovery?.latest_continuation_id) return "Follow-up run created";
   if (run.review?.recovery?.can_continue || run.review?.actions?.can_continue) return "Follow-up run available";
   if (run.review?.reviewed) return "Recovery closed";
   if (run.review?.recovery?.blocker) return "Recovery blocked";
@@ -174,8 +175,11 @@ export default function ProjectRunDetail() {
   const dependencyInstance = run.dependency_stack?.instance;
   const suggestedFeedback = run.review?.recovery?.suggested_feedback || run.continuation_feedback || "";
   const followUpFeedback = feedback ?? suggestedFeedback;
-  const canContinue = Boolean(run.review?.actions?.can_continue || run.review?.recovery?.can_continue);
-  const recoveryIcon = canContinue ? <MessageSquarePlus size={14} /> : run.review?.reviewed ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />;
+  const latestFollowUpId = createdFollowUp?.task.id || run.review?.recovery?.latest_continuation_id || run.latest_continuation?.task_id;
+  const canContinue = Boolean(run.review?.actions?.can_continue || run.review?.recovery?.can_continue) && !latestFollowUpId;
+  const recoveryIcon = canContinue || latestFollowUpId ? <MessageSquarePlus size={14} /> : run.review?.reviewed ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />;
+  const recoveryMeta = canContinue ? "can continue" : latestFollowUpId ? "follow-up" : run.review?.reviewed ? "closed" : "blocked";
+  const recoveryNeedsAttention = !run.review?.reviewed && (canContinue || Boolean(latestFollowUpId) || ["blocked", "changes_requested"].includes(String(reviewStatus(run))));
   const submitFollowUp = () => {
     if (!canContinue || continueRun.isPending) return;
     continueRun.mutate(
@@ -188,6 +192,45 @@ export default function ProjectRunDetail() {
       },
     );
   };
+  const recoverySection = (
+    <Section title="Recovery" description="Start a follow-up implementation run when this run is blocked, failed, stale, or needs changes.">
+      <div className="flex flex-col gap-2">
+        <SettingsControlRow
+          leading={recoveryIcon}
+          title={recoveryTitle(run)}
+          description={recoveryLine(run)}
+          meta={<StatusBadge label={recoveryMeta} variant={canContinue || latestFollowUpId ? "info" : "neutral"} />}
+          action={latestFollowUpId ? <RowLink to={`/admin/projects/${project.id}/runs/${latestFollowUpId}`}>{createdFollowUp ? "Open follow-up" : "Latest follow-up"}</RowLink> : undefined}
+        />
+        {canContinue ? (
+          <div className="rounded-md bg-surface-raised/40 px-3 py-3">
+            <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">
+              Follow-up feedback
+            </label>
+            <textarea
+              value={followUpFeedback}
+              onChange={(event) => setFeedback(event.target.value)}
+              rows={3}
+              className="min-h-[84px] w-full resize-y rounded-md border border-input-border bg-input px-3 py-2 text-[13px] text-text outline-none focus:border-accent"
+              placeholder="Describe exactly what the follow-up agent should fix, verify, or explain..."
+            />
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate text-[11px] text-text-dim">
+                {createdFollowUp ? `Created follow-up ${createdFollowUp.task.id}` : "Uses the existing Project coding-run continuation path."}
+              </span>
+              <ActionButton
+                label={continueRun.isPending ? "Starting" : "Start follow-up"}
+                icon={<MessageSquarePlus size={13} />}
+                size="small"
+                disabled={continueRun.isPending}
+                onPress={submitFollowUp}
+              />
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </Section>
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-surface">
@@ -207,6 +250,8 @@ export default function ProjectRunDetail() {
 
       <div data-testid="project-run-detail" className="min-h-0 flex-1 overflow-auto">
         <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-7 px-5 py-5 md:px-6">
+          {recoveryNeedsAttention ? recoverySection : null}
+
           <Section title="Run Summary" description="Current status, source branch, review state, and handoff links.">
             <div className="grid gap-2 md:grid-cols-2">
               <SettingsControlRow
@@ -241,43 +286,7 @@ export default function ProjectRunDetail() {
             </div>
           </Section>
 
-          <Section title="Recovery" description="Start a follow-up implementation run when this run is blocked, failed, stale, or needs changes.">
-            <div className="flex flex-col gap-2">
-              <SettingsControlRow
-                leading={recoveryIcon}
-                title={recoveryTitle(run)}
-                description={recoveryLine(run)}
-                meta={<StatusBadge label={canContinue ? "can continue" : run.review?.reviewed ? "closed" : "blocked"} variant={canContinue ? "info" : "neutral"} />}
-                action={createdFollowUp ? <RowLink to={`/admin/projects/${project.id}/runs/${createdFollowUp.task.id}`}>Open follow-up</RowLink> : run.review?.recovery?.latest_continuation_id ? <RowLink to={`/admin/projects/${project.id}/runs/${run.review.recovery.latest_continuation_id}`}>Latest follow-up</RowLink> : undefined}
-              />
-              {canContinue ? (
-                <div className="rounded-md bg-surface-raised/40 px-3 py-3">
-                  <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">
-                    Follow-up feedback
-                  </label>
-                  <textarea
-                    value={followUpFeedback}
-                    onChange={(event) => setFeedback(event.target.value)}
-                    rows={3}
-                    className="min-h-[84px] w-full resize-y rounded-md border border-input-border bg-input px-3 py-2 text-[13px] text-text outline-none focus:border-accent"
-                    placeholder="Describe exactly what the follow-up agent should fix, verify, or explain..."
-                  />
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <span className="min-w-0 truncate text-[11px] text-text-dim">
-                      {createdFollowUp ? `Created follow-up ${createdFollowUp.task.id}` : "Uses the existing Project coding-run continuation path."}
-                    </span>
-                    <ActionButton
-                      label={continueRun.isPending ? "Starting" : "Start follow-up"}
-                      icon={<MessageSquarePlus size={13} />}
-                      size="small"
-                      disabled={continueRun.isPending}
-                      onPress={submitFollowUp}
-                    />
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </Section>
+          {recoveryNeedsAttention ? null : recoverySection}
 
           <Section title="Review Decision" description="Reviewer outcome, merge metadata, blockers, and detailed review notes.">
             <div className="flex flex-col gap-2">

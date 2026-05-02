@@ -49,6 +49,8 @@ class SkillOut(BaseModel):
     has_children: bool = False
     scripts: list[SkillScriptSummary] = Field(default_factory=list)
     script_count: int = 0
+    signature_state: str = "unsigned"  # "signed" | "unsigned" | "tampered"
+    last_signed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
@@ -79,6 +81,20 @@ def _skill_layout_fields(skill_id: str, *, has_children: bool = False) -> dict[s
         "folder_root_id": root_id,
         "parent_skill_id": parent_id,
     }
+
+
+def _skill_signature_state(row) -> str:
+    """Return ``signed`` / ``unsigned`` / ``tampered`` for a Skill row.
+
+    ``unsigned`` means signature is NULL (Phase 1 backward-compat).
+    ``tampered`` means a signature is persisted but does not verify
+    against the row's current canonical body — i.e. someone edited
+    ``content`` or ``scripts`` outside the writer.
+    """
+    from app.services.manifest_signing import verify_skill_row
+    if not getattr(row, "signature", None):
+        return "unsigned"
+    return "signed" if verify_skill_row(row) else "tampered"
 
 
 def _summarize_skill_scripts(raw_scripts: object) -> list[SkillScriptSummary]:
@@ -221,6 +237,8 @@ async def admin_list_skills(
             has_children=has_children,
             scripts=scripts,
             script_count=len(scripts),
+            signature_state=_skill_signature_state(s),
+            last_signed_at=s.updated_at if s.signature else None,
             **_skill_layout_fields(s.id, has_children=has_children),
         ))
 
@@ -262,6 +280,8 @@ async def admin_get_skill(
         has_children=has_children,
         scripts=scripts,
         script_count=len(scripts),
+        signature_state=_skill_signature_state(row),
+        last_signed_at=row.updated_at if row.signature else None,
         **_skill_layout_fields(row.id, has_children=has_children),
     )
 
@@ -281,10 +301,13 @@ async def admin_create_skill(
         raise HTTPException(status_code=409, detail=f"Skill '{skill_id}' already exists")
 
     content_hash = hashlib.sha256(body.content.encode()).hexdigest()
+    from app.services.manifest_signing import sign_skill_payload
+    signature = sign_skill_payload(body.content, [])
     now = datetime.now(timezone.utc)
     row = SkillRow(
         id=skill_id, name=body.name.strip(), content=body.content,
-        content_hash=content_hash, created_at=now, updated_at=now,
+        content_hash=content_hash, signature=signature,
+        created_at=now, updated_at=now,
     )
     db.add(row)
     await db.commit()
@@ -299,6 +322,8 @@ async def admin_create_skill(
         chunk_count=0, created_at=row.created_at, updated_at=row.updated_at,
         scripts=[],
         script_count=0,
+        signature_state=_skill_signature_state(row),
+        last_signed_at=row.updated_at if row.signature else None,
         **_skill_layout_fields(row.id),
     )
 
@@ -321,6 +346,8 @@ async def admin_update_skill(
     if body.content is not None:
         row.content = body.content
         row.content_hash = hashlib.sha256(body.content.encode()).hexdigest()
+        from app.services.manifest_signing import sign_skill_payload
+        row.signature = sign_skill_payload(body.content, row.scripts or [])
     row.updated_at = datetime.now(timezone.utc)
     await db.commit()
 
@@ -340,6 +367,8 @@ async def admin_update_skill(
         has_children=False,
         scripts=scripts,
         script_count=len(scripts),
+        signature_state=_skill_signature_state(row),
+        last_signed_at=row.updated_at if row.signature else None,
         **_skill_layout_fields(row.id),
     )
 

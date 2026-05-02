@@ -46,6 +46,9 @@ class NoteAssistBody(BaseModel):
     instruction: str | None = None
     selection: NoteSelection | None = None
     base_hash: str | None = None
+    content: str | None = None
+    model_override: str | None = None
+    model_provider_id_override: str | None = None
 
 
 async def _require_channel(channel_id: uuid.UUID, db: AsyncSession) -> tuple[Channel, object]:
@@ -142,9 +145,11 @@ async def assist_channel_note(
     proposal = await build_ai_assist_proposal(
         bot=bot,
         channel=channel,
-        content=note["content"],
+        content=body.content if body.content is not None else note["content"],
         selection=body.selection.model_dump() if body.selection else None,
         instruction=body.instruction,
         mode=body.mode,
+        model_override=body.model_override,
+        model_provider_id_override=body.model_provider_id_override,
     )
     return proposal
