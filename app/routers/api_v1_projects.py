@@ -45,6 +45,7 @@ from app.services.project_coding_runs import (
     update_project_coding_run_schedule,
 )
 from app.services.project_run_receipts import create_project_run_receipt, list_project_run_receipts, serialize_project_run_receipt
+from app.services.project_coding_run_loops import disable_project_coding_run_loop
 from app.services.project_dependency_stacks import (
     destroy_project_dependency_stack,
     ensure_project_dependency_stack_instance,
@@ -292,12 +293,20 @@ class ProjectMachineTargetGrantIn(BaseModel):
     expires_at: str | None = None
 
 
+class ProjectRunLoopPolicyIn(BaseModel):
+    enabled: bool = False
+    max_iterations: int = 3
+    stop_condition: str = ""
+    continuation_prompt: str = ""
+
+
 class ProjectCodingRunWrite(BaseModel):
     channel_id: uuid.UUID
     request: str = ""
     repo_path: str | None = None
     machine_target_grant: ProjectMachineTargetGrantIn | None = None
     source_work_pack_id: uuid.UUID | None = None
+    loop_policy: ProjectRunLoopPolicyIn | None = None
 
 
 class ProjectCodingRunContinueWrite(BaseModel):
@@ -335,6 +344,7 @@ class ProjectCodingRunScheduleWrite(BaseModel):
     scheduled_at: datetime | None = None
     recurrence: str = "+1w"
     machine_target_grant: ProjectMachineTargetGrantIn | None = None
+    loop_policy: ProjectRunLoopPolicyIn | None = None
 
 
 class ProjectCodingRunSchedulePatch(BaseModel):
@@ -346,6 +356,7 @@ class ProjectCodingRunSchedulePatch(BaseModel):
     recurrence: str | None = None
     enabled: bool | None = None
     machine_target_grant: ProjectMachineTargetGrantIn | None = None
+    loop_policy: ProjectRunLoopPolicyIn | None = None
 
 
 class ProjectCodingRunScheduleOut(BaseModel):
@@ -407,6 +418,7 @@ class ProjectCodingRunOut(BaseModel):
     continuation_count: int = 0
     latest_continuation: dict | None = None
     continuations: list[dict] = Field(default_factory=list)
+    loop: dict = Field(default_factory=dict)
     review_queue_state: str | None = None
     review_queue_priority: int | None = None
     review_next_action: str | None = None
@@ -1429,6 +1441,7 @@ async def create_project_coding_run_endpoint(
                 machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
                 granted_by_user_id=_auth_user_id(_auth),
                 source_work_pack_id=body.source_work_pack_id,
+                loop_policy=body.loop_policy.model_dump() if body.loop_policy else None,
             ),
         )
     except ValueError as exc:
@@ -1476,6 +1489,7 @@ async def create_project_coding_run_schedule_endpoint(
                 recurrence=body.recurrence,
                 machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
                 granted_by_user_id=_auth_user_id(_auth),
+                loop_policy=body.loop_policy.model_dump() if body.loop_policy else None,
             ),
         )
     except ValueError as exc:
@@ -1513,6 +1527,7 @@ async def update_project_coding_run_schedule_endpoint(
                 enabled=body.enabled,
                 machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
                 granted_by_user_id=_auth_user_id(_auth),
+                loop_policy=body.loop_policy.model_dump() if body.loop_policy else None,
             ),
         )
     except ValueError as exc:
@@ -1743,6 +1758,26 @@ async def continue_project_coding_run_endpoint(
             task_id,
             ProjectCodingRunContinue(feedback=body.feedback),
         )
+        return await get_project_coding_run(db, project, task.id)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "coding run not found":
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=422, detail=message) from exc
+
+
+@router.post("/{project_id}/coding-runs/{task_id}/loop-disable", response_model=ProjectCodingRunOut)
+async def disable_project_coding_run_loop_endpoint(
+    project_id: uuid.UUID,
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        task = await disable_project_coding_run_loop(db, project, task_id)
         return await get_project_coding_run(db, project, task.id)
     except ValueError as exc:
         message = str(exc)

@@ -1529,6 +1529,35 @@ export interface ProjectRunReceipt {
   created_at: string;
 }
 
+export interface ProjectRunLoopSummary {
+  enabled?: boolean;
+  state?: string;
+  iteration?: number;
+  max_iterations?: number;
+  stop_condition?: string | null;
+  continuation_prompt?: string | null;
+  latest_decision?: "done" | "continue" | "blocked" | "needs_review" | string | null;
+  latest_reason?: string | null;
+  remaining_work?: string | null;
+  latest_receipt_id?: string | null;
+  latest_continuation_task_id?: string | null;
+  stop_reason?: string | null;
+  updated_at?: string | null;
+  iterations?: Array<{
+    id?: string;
+    task_id?: string;
+    status?: string;
+    task_status?: string;
+    continuation_index?: number;
+    decision?: string | null;
+    reason?: string | null;
+    remaining_work?: string | null;
+    receipt_id?: string | null;
+    created_at?: string | null;
+    updated_at?: string | null;
+  }>;
+}
+
 export interface ProjectCodingRunTask {
   id: string;
   status: string;
@@ -1616,6 +1645,7 @@ export interface ProjectCodingRun {
   continuation_count?: number;
   latest_continuation?: Record<string, any> | null;
   continuations?: Array<Record<string, any>>;
+  loop?: ProjectRunLoopSummary;
   review_queue_state?: ProjectFactoryReviewQueueState | string | null;
   review_queue_priority?: number | null;
   review_next_action?: string | null;

@@ -54,6 +54,85 @@ PROJECT_REVIEW_QUEUE_PRIORITY = {
     "reviewing": 70,
     "reviewed": 90,
 }
+VALID_PROJECT_RUN_LOOP_DECISIONS = ("done", "continue", "blocked", "needs_review")
+DEFAULT_PROJECT_RUN_LOOP_MAX_ITERATIONS = 3
+MAX_PROJECT_RUN_LOOP_ITERATIONS = 8
+DEFAULT_PROJECT_RUN_LOOP_STOP_CONDITION = (
+    "Stop when the requested work is implemented, verified, and ready for human review."
+)
+
+
+def normalize_project_run_loop_policy(raw: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Normalize the optional bounded loop policy stored in task execution_config."""
+    if not isinstance(raw, dict) or not raw.get("enabled"):
+        return None
+    try:
+        max_iterations = int(raw.get("max_iterations") or DEFAULT_PROJECT_RUN_LOOP_MAX_ITERATIONS)
+    except (TypeError, ValueError):
+        max_iterations = DEFAULT_PROJECT_RUN_LOOP_MAX_ITERATIONS
+    max_iterations = max(1, min(max_iterations, MAX_PROJECT_RUN_LOOP_ITERATIONS))
+    stop_condition = str(raw.get("stop_condition") or "").strip() or DEFAULT_PROJECT_RUN_LOOP_STOP_CONDITION
+    continuation_prompt = str(raw.get("continuation_prompt") or "").strip()
+    return {
+        "enabled": True,
+        "max_iterations": max_iterations,
+        "stop_condition": stop_condition,
+        "continuation_prompt": continuation_prompt,
+    }
+
+
+def initial_project_run_loop_state(policy: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "enabled": bool(policy),
+        "state": "waiting" if policy else "disabled",
+        "iteration": 1,
+        "max_iterations": int((policy or {}).get("max_iterations") or 1),
+        "latest_decision": None,
+        "latest_receipt_id": None,
+        "latest_continuation_task_id": None,
+        "stop_reason": None,
+        "updated_at": None,
+    }
+
+
+def project_run_receipt_loop_metadata(receipt: ProjectRunReceipt | None) -> dict[str, Any]:
+    metadata = receipt.metadata_ if receipt is not None and isinstance(receipt.metadata_, dict) else {}
+    loop = metadata.get("loop") if isinstance(metadata.get("loop"), dict) else {}
+    decision = str(loop.get("decision") or "").strip().lower() or None
+    if decision not in VALID_PROJECT_RUN_LOOP_DECISIONS:
+        decision = None
+    return {
+        "decision": decision,
+        "reason": str(loop.get("reason") or "").strip() or None,
+        "remaining_work": str(loop.get("remaining_work") or "").strip() or None,
+    }
+
+
+def project_run_loop_summary(task: Task, cfg: dict[str, Any], receipt: ProjectRunReceipt | None) -> dict[str, Any]:
+    policy = normalize_project_run_loop_policy(cfg.get("loop_policy") if isinstance(cfg.get("loop_policy"), dict) else None)
+    state = cfg.get("loop_state") if isinstance(cfg.get("loop_state"), dict) else {}
+    receipt_loop = project_run_receipt_loop_metadata(receipt)
+    try:
+        iteration = int(cfg.get("continuation_index") or 0) + 1
+    except (TypeError, ValueError):
+        iteration = 1
+    max_iterations = int((policy or {}).get("max_iterations") or state.get("max_iterations") or 1)
+    return {
+        "enabled": bool(policy),
+        "state": str(state.get("state") or ("waiting" if policy else "disabled")),
+        "iteration": iteration,
+        "max_iterations": max_iterations,
+        "stop_condition": (policy or {}).get("stop_condition"),
+        "continuation_prompt": (policy or {}).get("continuation_prompt"),
+        "latest_decision": receipt_loop.get("decision") or state.get("latest_decision"),
+        "latest_reason": receipt_loop.get("reason") or state.get("latest_reason"),
+        "remaining_work": receipt_loop.get("remaining_work") or state.get("remaining_work"),
+        "latest_receipt_id": str(receipt.id) if receipt is not None else state.get("latest_receipt_id"),
+        "latest_continuation_task_id": cfg.get("latest_continuation_task_id") or state.get("latest_continuation_task_id"),
+        "stop_reason": state.get("stop_reason"),
+        "updated_at": state.get("updated_at"),
+        "iterations": [],
+    }
 
 
 @dataclass(frozen=True)
@@ -75,6 +154,7 @@ class ProjectCodingRunCreate:
     source_work_pack_id: uuid.UUID | None = None
     schedule_task_id: uuid.UUID | None = None
     schedule_run_number: int | None = None
+    loop_policy: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -87,6 +167,7 @@ class ProjectCodingRunScheduleCreate:
     recurrence: str = "+1w"
     machine_target_grant: ProjectMachineTargetGrant | None = None
     granted_by_user_id: uuid.UUID | None = None
+    loop_policy: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -100,6 +181,7 @@ class ProjectCodingRunScheduleUpdate:
     channel_id: uuid.UUID | None = None
     machine_target_grant: ProjectMachineTargetGrant | None = None
     granted_by_user_id: uuid.UUID | None = None
+    loop_policy: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -849,6 +931,7 @@ async def _coding_run_row(
         "continuation_index": ctx.lineage.continuation_index,
         "continuation_feedback": ctx.lineage.continuation_feedback,
         "continuations": [],
+        "loop": project_run_loop_summary(task, cfg, receipt),
         "task": _task_summary(task, machine_target_grant=machine_target_grant),
         "receipt": _receipt_summary(receipt),
         "activity": activity,
@@ -856,6 +939,58 @@ async def _coding_run_row(
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "updated_at": updated_at,
     }
+
+
+async def _project_run_loop_iterations(
+    db: AsyncSession,
+    project: Project,
+    root_task_id: str,
+) -> list[dict[str, Any]]:
+    channel_ids = list((await db.execute(
+        select(Channel.id).where(Channel.project_id == project.id)
+    )).scalars().all())
+    if not channel_ids:
+        return []
+    tasks = list((await db.execute(
+        select(Task)
+        .where(Task.channel_id.in_(channel_ids))
+        .order_by(Task.created_at.asc())
+    )).scalars().all())
+    chain: list[Task] = []
+    for task in tasks:
+        cfg = _task_run_config(task)
+        if not cfg:
+            continue
+        lineage = _lineage_config(task, cfg)
+        if lineage["root_task_id"] == root_task_id:
+            chain.append(task)
+    if not chain:
+        return []
+    receipts = await _latest_run_receipts_by_task(db, project.id, [task.id for task in chain])
+    rows: list[dict[str, Any]] = []
+    for task in sorted(chain, key=lambda item: int(_lineage_config(item, _task_run_config(item))["continuation_index"] or 0)):
+        cfg = _task_run_config(task)
+        lineage = _lineage_config(task, cfg)
+        receipt = receipts.get(task.id)
+        loop = project_run_receipt_loop_metadata(receipt)
+        rows.append({
+            "id": str(task.id),
+            "task_id": str(task.id),
+            "status": _run_status(task, receipt),
+            "task_status": task.status,
+            "continuation_index": lineage["continuation_index"],
+            "decision": loop.get("decision"),
+            "reason": loop.get("reason"),
+            "remaining_work": loop.get("remaining_work"),
+            "receipt_id": str(receipt.id) if receipt is not None else None,
+            "created_at": task.created_at.isoformat() if task.created_at else None,
+            "updated_at": (
+                receipt.created_at.isoformat()
+                if receipt is not None and receipt.created_at is not None
+                else task.completed_at.isoformat() if task.completed_at else None
+            ),
+        })
+    return rows
 
 
 def project_coding_run_review_queue_state(row: dict[str, Any]) -> str:
@@ -931,7 +1066,26 @@ async def _load_project_coding_task(db: AsyncSession, project: Project, task_id:
 async def get_project_coding_run(db: AsyncSession, project: Project, task_id: uuid.UUID) -> dict[str, Any]:
     task = await _load_project_coding_task(db, project, task_id)
     receipt = (await _latest_run_receipts_by_task(db, project.id, [task.id])).get(task.id)
-    return apply_project_coding_run_review_queue(await _coding_run_row(db, project, task, receipt))
+    row = await _coding_run_row(db, project, task, receipt)
+    root_task_id = str(row.get("root_task_id") or row["id"])
+    iterations = await _project_run_loop_iterations(db, project, root_task_id)
+    row["continuations"] = [
+        {
+            "id": item["id"],
+            "task_id": item["task_id"],
+            "status": item["status"],
+            "continuation_index": item["continuation_index"],
+            "created_at": item["created_at"],
+            "updated_at": item["updated_at"],
+        }
+        for item in iterations
+        if int(item.get("continuation_index") or 0) > 0
+    ]
+    row["continuation_count"] = len(row["continuations"])
+    row["latest_continuation"] = row["continuations"][-1] if row["continuations"] else None
+    if isinstance(row.get("loop"), dict):
+        row["loop"]["iterations"] = iterations
+    return apply_project_coding_run_review_queue(row)
 
 
 async def refresh_project_coding_run_status(db: AsyncSession, project: Project, task_id: uuid.UUID) -> dict[str, Any]:
@@ -984,6 +1138,7 @@ async def list_project_coding_runs(
                 "review_status": row.get("review", {}).get("status"),
                 "continuation_index": row.get("continuation_index") or 0,
                 "feedback": row.get("continuation_feedback"),
+                "loop": row.get("loop"),
                 "created_at": row.get("created_at"),
                 "updated_at": row.get("updated_at"),
             })
@@ -997,6 +1152,36 @@ async def list_project_coding_runs(
         row["continuation_count"] = len(continuations)
         latest = continuations[-1] if continuations else None
         row["latest_continuation"] = latest
+        if isinstance(row.get("loop"), dict):
+            row["loop"]["iterations"] = [
+                {
+                    "id": row["id"],
+                    "task_id": row["task"]["id"],
+                    "status": row["status"],
+                    "continuation_index": row.get("continuation_index") or 0,
+                    "decision": row["loop"].get("latest_decision"),
+                    "reason": row["loop"].get("latest_reason"),
+                    "remaining_work": row["loop"].get("remaining_work"),
+                    "receipt_id": row["loop"].get("latest_receipt_id"),
+                    "created_at": row.get("created_at"),
+                    "updated_at": row.get("updated_at"),
+                },
+                *[
+                    {
+                        "id": child["id"],
+                        "task_id": child["task_id"],
+                        "status": child["status"],
+                        "continuation_index": child.get("continuation_index") or 0,
+                        "decision": (child.get("loop") or {}).get("latest_decision") if isinstance(child.get("loop"), dict) else None,
+                        "reason": (child.get("loop") or {}).get("latest_reason") if isinstance(child.get("loop"), dict) else None,
+                        "remaining_work": (child.get("loop") or {}).get("remaining_work") if isinstance(child.get("loop"), dict) else None,
+                        "receipt_id": (child.get("loop") or {}).get("latest_receipt_id") if isinstance(child.get("loop"), dict) else None,
+                        "created_at": child.get("created_at"),
+                        "updated_at": child.get("updated_at"),
+                    }
+                    for child in continuations
+                ],
+            ]
         apply_project_coding_run_review_queue(row)
     return rows
 

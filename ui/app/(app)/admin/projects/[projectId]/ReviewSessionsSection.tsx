@@ -84,8 +84,8 @@ export function ReviewSessionsSection({
 }) {
   return (
     <Section
-      title="Review Sessions"
-      description="Review tasks linked to selected runs, source Work Packs, final decisions, merge settings, and evidence."
+      title="Agent Review Sessions"
+      description="Review agents that were launched from this Project. Open the active task to watch or guide the review."
     >
       <div data-testid="project-workspace-review-ledger" className="flex flex-col gap-2">
         {sessions.length === 0 ? (
@@ -115,7 +115,7 @@ export function ReviewSessionsSection({
               action={
                 <div className="flex flex-wrap justify-end gap-1">
                   <ActionButton
-                    label="Select runs"
+                    label="Select reviewed runs"
                     size="small"
                     variant="ghost"
                     disabled={disabled || !(session.selected_run_ids?.length)}

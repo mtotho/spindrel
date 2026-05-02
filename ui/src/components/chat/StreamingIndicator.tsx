@@ -10,7 +10,11 @@ import { OrderedTranscript } from "./OrderedTranscript";
 import { buildAssistantTurnBodyItems } from "./toolTranscriptModel";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
-const STREAMING_RENDER_THROTTLE_CHARS = 8_000;
+// Always throttle streaming markdown re-render. The previous 8KB gate let
+// typical-length answers (1–4KB) re-parse on every text delta — at 50
+// deltas/sec on a content-heavy answer this was the dominant main-thread
+// cost. 100ms cadence is imperceptible to users and cuts re-parse rate ~5×.
+const STREAMING_RENDER_THROTTLE_CHARS = 0;
 const STREAMING_RENDER_THROTTLE_MS = 100;
 
 export function shouldThrottleStreamingRenderSize(charCount: number): boolean {

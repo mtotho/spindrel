@@ -669,6 +669,41 @@ export default function ChatScreen() {
     }
   }, [bot?.harness_runtime, currentPlanSessionId, harnessStatus?.permission_mode, sessionPlan.mode, setApprovalMode]);
 
+  // Cache per-message turn computations keyed by `invertedData` identity.
+  // Without this, every text-delta-driven re-render of ChatMessageArea calls
+  // getTurnMessages/getTurnText for every message — each walks the array and
+  // returns fresh references, defeating MessageBubble's React.memo and
+  // re-parsing all visible markdown. invertedData is stable between deltas
+  // (deltas mutate chatStore.turns, not the messages list), so caching is safe.
+  const turnHeaderForIndex = useMemo(() => {
+    const cache = new Array<number>(invertedData.length);
+    for (let i = 0; i < invertedData.length; i++) {
+      let headerIdx = i;
+      while (
+        headerIdx < invertedData.length - 1
+        && shouldGroup(invertedData[headerIdx], invertedData[headerIdx + 1])
+      ) {
+        headerIdx++;
+      }
+      cache[i] = headerIdx;
+    }
+    return cache;
+  }, [invertedData]);
+
+  const turnDataForHeader = useMemo(() => {
+    const cache = new Map<number, { messages: Message[] | undefined; text: string | undefined }>();
+    return (headerIdx: number) => {
+      let entry = cache.get(headerIdx);
+      if (!entry) {
+        const messages = getTurnMessages(invertedData, headerIdx);
+        const text = getTurnText(invertedData, headerIdx);
+        entry = { messages, text };
+        cache.set(headerIdx, entry);
+      }
+      return entry;
+    };
+  }, [invertedData]);
+
   const renderMessage = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
       const prevMsg = invertedData[index + 1];
@@ -685,19 +720,14 @@ export default function ChatScreen() {
         return <>{dateSep}{card}</>;
       }
       const isGrouped = showDateSep ? false : grouped;
-      // Find turn header index (walk toward older messages to find the non-grouped start)
-      let headerIdx = index;
-      while (headerIdx < invertedData.length - 1 && shouldGroup(invertedData[headerIdx], invertedData[headerIdx + 1])) {
-        headerIdx++;
-      }
-      const fullTurnMessages = getTurnMessages(invertedData, headerIdx);
-      const fullTurnText = getTurnText(invertedData, headerIdx);
+      const headerIdx = turnHeaderForIndex[index] ?? index;
+      const turnData = turnDataForHeader(headerIdx);
       const isLatestBotMessage = item.role === "assistant" && index === 0;
       const threadSummary = threadSummaries?.[item.id] ?? null;
-      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={fullTurnText} fullTurnMessages={fullTurnMessages} channelId={channelId} isLatestBotMessage={isLatestBotMessage} isMobile={columns === "single"} threadSummary={threadSummary} onReplyInThread={handleReplyInThread} canReplyInThread={true} chatMode={chatMode} />;
+      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={turnData.text} fullTurnMessages={turnData.messages} channelId={channelId} isLatestBotMessage={isLatestBotMessage} isMobile={columns === "single"} threadSummary={threadSummary} onReplyInThread={handleReplyInThread} canReplyInThread={true} chatMode={chatMode} />;
       return <>{dateSep}{bubble}</>;
     },
-    [invertedData, bot?.name, handleBotClick, channelId, latestAnchorByGroup, columns, threadSummaries, handleReplyInThread, chatMode]
+    [invertedData, bot?.name, handleBotClick, channelId, latestAnchorByGroup, columns, threadSummaries, handleReplyInThread, chatMode, turnHeaderForIndex, turnDataForHeader]
   );
 
   const {

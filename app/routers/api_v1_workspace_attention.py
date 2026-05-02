@@ -129,6 +129,7 @@ class IssueWorkPackCreateRequest(BaseModel):
 class IssueWorkPackLaunchRequest(BaseModel):
     project_id: uuid.UUID
     channel_id: uuid.UUID
+    loop_policy: dict | None = None
 
 
 class IssueWorkPackBatchLaunchRequest(BaseModel):
@@ -136,6 +137,7 @@ class IssueWorkPackBatchLaunchRequest(BaseModel):
     project_id: uuid.UUID
     channel_id: uuid.UUID
     note: str | None = None
+    loop_policy: dict | None = None
 
 
 class IssueWorkPackUpdateRequest(BaseModel):
@@ -444,6 +446,7 @@ async def launch_issue_work_pack_route(
             project_id=body.project_id,
             channel_id=body.channel_id,
             actor=actor_label(auth),
+            loop_policy=body.loop_policy,
         )
     except NotFoundError as e:
         raise HTTPException(404, str(e)) from e
@@ -465,6 +468,7 @@ async def batch_launch_issue_work_packs_route(
             channel_id=body.channel_id,
             actor=actor_label(auth),
             note=body.note,
+            loop_policy=body.loop_policy,
         )
     except NotFoundError as e:
         raise HTTPException(404, str(e)) from e

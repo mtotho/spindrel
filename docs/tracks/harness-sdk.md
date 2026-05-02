@@ -568,6 +568,36 @@ Approval mapping intent (final values from schema):
   against the harness cwd. This remains runtime-owned plugin loading, not
   Spindrel plugin registry sync. Unit coverage guards relative/absolute path
   mapping, explicit override preservation, and unsupported plugin-entry skips.
+- 2026-05-02 Claude SDK programmatic-agent parity: the Agent SDK exposes
+  `agents` as an option-level mapping of names to `AgentDefinition` objects.
+  The adapter now maps explicit per-session runtime settings (`claude_agents`,
+  or `agents` within the Claude adapter) into those native SDK definitions,
+  preserving explicit overrides and adding only the configured agent names to
+  restricted-mode `Agent(...)` allowance. This is not Spindrel subagent
+  scheduling; Claude still owns invocation, execution, and result shape.
+  Unit coverage guards definition validation, generic-key mapping, override
+  preservation, and restricted/bypass permission behavior. The local SDK
+  parity preset includes a live programmatic-agent invocation slice with
+  screenshots disabled because it is backend SDK parity, not a new UI surface.
+- 2026-05-02 Claude SDK programmatic-MCP parity: the Agent SDK exposes
+  `mcp_servers` as an option-level mapping or config-file path and recommends
+  explicit MCP tool allow rules such as `mcp__server__*`. The adapter now maps
+  explicit per-session runtime settings (`claude_mcp_servers`, `mcp_servers`,
+  or `mcpServers` within the Claude adapter) into native SDK MCP server
+  configuration. Relative config-file paths resolve against the harness cwd,
+  and configured server names add focused `mcp__<server>__*` allow entries
+  outside bypass mode. This complements project `.mcp.json` loading through
+  `setting_sources`; it does not create a Spindrel MCP registry.
+- 2026-05-02 Claude SDK hook observability: the Agent SDK documents callback
+  hooks for `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Notification`,
+  `SubagentStart`, `SubagentStop`, `PreCompact`, and `Stop`. The adapter now
+  registers SDK `HookMatcher` callbacks for those events and records sanitized
+  lifecycle facts in `claude_hook_events` harness metadata while returning the
+  documented `{"decision": "continue"}` result so Claude still owns execution.
+  The existing streaming permission hook was moved to the same `HookMatcher`
+  shape. Unit coverage guards hook registration and sanitization, and a local
+  live Claude slice proves native `Read` emits persisted Pre/Post tool hook
+  metadata.
 
 The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 

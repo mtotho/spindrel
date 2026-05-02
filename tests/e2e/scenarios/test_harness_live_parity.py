@@ -2019,13 +2019,165 @@ async def test_live_harness_claude_sdk_local_plugin_skill_invocation(
         with contextlib.suppress(Exception):
             await client._client.post(
                 f"/api/v1/sessions/{session_id}/harness-settings",
-                json={"runtime_settings": original_harness_settings.get("runtime_settings") or {}},
+                json={
+                    "runtime_settings": original_harness_settings.get("runtime_settings") or {}
+                },
             )
         await client.patch_channel_settings(
             channel_id,
             {
                 "project_workspace_id": original_channel_settings.get("project_workspace_id"),
                 "project_path": original_channel_settings.get("project_path"),
+            },
+        )
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_claude_sdk_programmatic_agent_invocation(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("skills")
+    if case.name != "claude":
+        pytest.skip("Claude SDK owns programmatic agent definitions")
+
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    await client.set_session_approval_mode(session_id, "default")
+    original_harness_settings = await client.get_session_harness_settings(session_id)
+    marker = uuid.uuid4().hex[:12]
+    agent_name = f"harness-marker-{marker}"
+    expected_phrase = f"NATIVE_PROGRAMMATIC_AGENT_LOADED_{marker}"
+
+    try:
+        settings_resp = await client._client.post(
+            f"/api/v1/sessions/{session_id}/harness-settings",
+            json={
+                "runtime_settings": {
+                    "claude_agents": {
+                        agent_name: {
+                            "description": (
+                                "Use this agent when asked to return the harness "
+                                f"programmatic-agent marker {marker}."
+                            ),
+                            "prompt": (
+                                "Reply exactly with this text and nothing else: "
+                                f"{expected_phrase}"
+                            ),
+                            "tools": [],
+                        }
+                    }
+                }
+            },
+        )
+        settings_resp.raise_for_status()
+
+        result = await client.chat_session_stream(
+            (
+                f"Use the {agent_name} agent exactly once to return the harness "
+                "programmatic-agent marker. After it responds, reply exactly with "
+                f"the same marker text: {expected_phrase}"
+            ),
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_project_timeout(),
+        )
+        _assert_clean_turn(result)
+        assert expected_phrase in result.response_text
+        assert any(
+            event.type == "tool_start" and event.data.get("tool") in {"Task", "Agent"}
+            for event in result.events
+        ), "Claude SDK programmatic agent invocation did not emit an Agent/Task tool_start"
+
+        messages = await client.get_session_messages(session_id, limit=20)
+        assistants = _assistant_messages(messages)
+        assert any(
+            expected_phrase in str(message.get("content") or "")
+            for message in assistants
+        ), "Claude SDK programmatic agent result did not persist in assistant transcript"
+        assert any(
+            _message_mentions_any_tool(message, ("Task", "Agent"))
+            for message in assistants
+        ), "Claude SDK programmatic agent tool event did not persist in assistant transcript"
+    finally:
+        with contextlib.suppress(Exception):
+            await client._client.post(
+                f"/api/v1/sessions/{session_id}/harness-settings",
+                json={"runtime_settings": original_harness_settings.get("runtime_settings") or {}},
+            )
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_claude_sdk_hook_observability_records_tool_lifecycle(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("skills")
+    if case.name != "claude":
+        pytest.skip("Claude SDK owns hook callbacks")
+
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    await client.set_session_approval_mode(session_id, "default")
+    original_settings = await client.get_channel_settings(channel_id)
+    expected_project_path = _project_path()
+    marker = uuid.uuid4().hex[:12]
+    file_path = f"{expected_project_path}/hook-observability-{marker}.txt"
+    workspace_id: str | None = None
+
+    try:
+        await client.patch_channel_settings(channel_id, {"project_path": expected_project_path})
+        status = await _assert_harness_project_cwd(
+            client,
+            channel_id=channel_id,
+            session_id=session_id,
+            expected_project_path=expected_project_path,
+        )
+        project_dir = status.get("project_dir") or {}
+        workspace_id = str(project_dir.get("workspace_id") or "")
+        assert workspace_id, status
+        await client.write_workspace_file(
+            workspace_id,
+            file_path,
+            f"hook observability fixture {marker}\n",
+        )
+
+        result = await client.chat_session_stream(
+            (
+                "Use the native Read tool exactly once to read "
+                f"`hook-observability-{marker}.txt`, then reply exactly: "
+                f"hook observability ok {marker}"
+            ),
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_project_timeout(),
+        )
+        _assert_clean_turn(result)
+        assert f"hook observability ok {marker}" in result.response_text.lower()
+        assert any(
+            event.type == "tool_start" and event.data.get("tool") == "Read"
+            for event in result.events
+        ), "Claude did not emit a native Read tool_start"
+
+        messages = await client.get_session_messages(session_id, limit=20)
+        metadata_blob = json.dumps([_message_metadata(message) for message in messages])
+        assert "claude_hook_events" in metadata_blob
+        assert "PreToolUse" in metadata_blob
+        assert "PostToolUse" in metadata_blob
+        assert "Read" in metadata_blob
+    finally:
+        if workspace_id:
+            with contextlib.suppress(Exception):
+                await client.delete_workspace_path(workspace_id, file_path)
+        await client.patch_channel_settings(
+            channel_id,
+            {
+                "project_workspace_id": original_settings.get("project_workspace_id"),
+                "project_path": original_settings.get("project_path"),
             },
         )
 

@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { AlertTriangle, Check, CheckCircle2, FileText, GitBranch, GitMerge, MessageSquarePlus, Play, RefreshCcw, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, FileText, GitBranch, GitMerge, MessageSquarePlus, Play, RefreshCcw, Repeat2, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -7,6 +7,7 @@ import {
   useCreateProjectBlueprintFromCurrent,
   useContinueProjectCodingRun,
   useCreateProjectCodingRun,
+  useDisableProjectCodingRunLoop,
   useProjectCodingRunReviewBatches,
   useProjectCodingRunReviewSessions,
   useCreateProjectCodingRunReviewSession,
@@ -121,8 +122,35 @@ function reviewQueueLabel(state?: string | null) {
   return String(state || "needs_review").replaceAll("_", " ");
 }
 
+function isHumanReviewQueueRun(run: ProjectCodingRun) {
+  const state = String(reviewQueueState(run) || "").toLowerCase();
+  if (state === "reviewed") return false;
+  if (isActiveCodingRun(run) && !["reviewing", "follow_up_running", "changes_requested", "blocked"].includes(state)) {
+    return false;
+  }
+  return true;
+}
+
 function reviewQueueDescription(run: ProjectCodingRun) {
   return run.review_next_action || reviewLine(run) || evidenceSummary(run);
+}
+
+function reviewAgentTaskId(run: ProjectCodingRun) {
+  return run.review?.review_task_id || null;
+}
+
+function isAgentReviewRunning(run: ProjectCodingRun) {
+  const state = String(reviewQueueState(run) || "").toLowerCase();
+  return state === "reviewing" || state === "follow_up_running";
+}
+
+function reviewAgentLine(run: ProjectCodingRun) {
+  const taskId = reviewAgentTaskId(run);
+  if (isAgentReviewRunning(run)) {
+    return `Agent review running${taskId ? ` · task ${String(taskId).slice(0, 8)}` : ""}`;
+  }
+  if (taskId) return `Latest agent review task ${String(taskId).slice(0, 8)}`;
+  return null;
 }
 
 function reviewLine(run: ProjectCodingRun) {
@@ -149,6 +177,18 @@ function lineageLine(run: ProjectCodingRun) {
     parts.push(`latest ${run.latest_continuation.review_status || run.latest_continuation.status}`);
   }
   return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function loopLine(run: ProjectCodingRun) {
+  const loop = run.loop;
+  if (!loop?.enabled) return null;
+  const pieces = [
+    `Loop ${loop.state || "waiting"}`,
+    `iteration ${loop.iteration || 1}/${loop.max_iterations || 1}`,
+    loop.latest_decision ? `decision ${loop.latest_decision}` : null,
+    loop.stop_reason ? `stop ${loop.stop_reason.replaceAll("_", " ")}` : null,
+  ].filter(Boolean);
+  return pieces.join(" · ");
 }
 
 function dependencyStackLine(run: ProjectCodingRun) {
@@ -220,9 +260,9 @@ function batchSourceLine(batch: ProjectCodingRunReviewBatch) {
 function RunActionLinks({ run }: { run: ProjectCodingRun }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
-      <RowLink to={`/admin/projects/${run.project_id}/runs/${run.task.id}`}>Details</RowLink>
-      {(run.review?.handoff_url || run.receipt?.handoff_url) && <RowLink href={run.review?.handoff_url || run.receipt?.handoff_url || undefined}>Handoff</RowLink>}
-      <RowLink to={`/admin/tasks/${run.task.id}`}>Task</RowLink>
+      <RowLink to={`/admin/projects/${run.project_id}/runs/${run.task.id}`}>Open run</RowLink>
+      {(run.review?.handoff_url || run.receipt?.handoff_url) && <RowLink href={run.review?.handoff_url || run.receipt?.handoff_url || undefined}>Open PR</RowLink>}
+      <RowLink to={`/admin/tasks/${run.task.id}`}>Agent log</RowLink>
     </div>
   );
 }
@@ -239,7 +279,8 @@ function RunReviewActions({
   const refreshRun = useRefreshProjectCodingRun(projectId);
   const markReviewed = useMarkProjectCodingRunReviewed(projectId);
   const cleanupRun = useCleanupProjectCodingRun(projectId);
-  const busy = refreshRun.isPending || markReviewed.isPending || cleanupRun.isPending;
+  const disableLoop = useDisableProjectCodingRunLoop(projectId);
+  const busy = refreshRun.isPending || markReviewed.isPending || cleanupRun.isPending || disableLoop.isPending;
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
       <ActionButton
@@ -280,6 +321,16 @@ function RunReviewActions({
           onPress={() => cleanupRun.mutate(run.task.id)}
         />
       )}
+      {run.loop?.enabled && (
+        <ActionButton
+          label="Stop loop"
+          icon={<Repeat2 size={13} />}
+          size="small"
+          variant="secondary"
+          disabled={busy}
+          onPress={() => disableLoop.mutate(run.task.id)}
+        />
+      )}
       <RunActionLinks run={run} />
     </div>
   );
@@ -307,6 +358,9 @@ export function ProjectRunsSection({
   const [request, setRequest] = useState("");
   const [createdRunId, setCreatedRunId] = useState<string | null>(null);
   const [runMachineTargetGrant, setRunMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
+  const [loopEnabled, setLoopEnabled] = useState(false);
+  const [loopMaxIterations, setLoopMaxIterations] = useState(3);
+  const [loopStopCondition, setLoopStopCondition] = useState("Stop when the requested work is implemented, verified, and ready for human review.");
   const [changeRunId, setChangeRunId] = useState<string | null>(null);
   const [changeFeedback, setChangeFeedback] = useState("");
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
@@ -346,7 +400,7 @@ export function ProjectRunsSection({
   const selectedTaskIds = selectedRuns.map((run) => run.task.id);
   const reviewQueueRuns = useMemo(() => {
     return runs
-      .filter((run) => reviewQueueState(run) !== "reviewed")
+      .filter(isHumanReviewQueueRun)
       .sort((a, b) => {
         const left = a.review_queue_priority ?? 99;
         const right = b.review_queue_priority ?? 99;
@@ -383,6 +437,13 @@ export function ProjectRunsSection({
         request: request.trim(),
         repo_path: selectedRepoPath || null,
         machine_target_grant: runMachineTargetGrant,
+        loop_policy: loopEnabled
+          ? {
+            enabled: true,
+            max_iterations: loopMaxIterations,
+            stop_condition: loopStopCondition.trim(),
+          }
+          : null,
       },
       {
         onSuccess: (run) => {
@@ -513,6 +574,7 @@ export function ProjectRunsSection({
                     <span className="truncate text-[11px] text-text-dim">
                       Started {formatRunTime(run.created_at)} · {run.task.bot_id}
                     </span>
+                    {loopLine(run) && <span className="truncate text-[11px] text-text-dim">{loopLine(run)}</span>}
                   </span>
                 }
                 meta={<StatusBadge label={run.task.status || run.status} variant={statusTone(run.task.status || run.status)} />}
@@ -578,6 +640,36 @@ export function ProjectRunsSection({
             testId="project-run-execution-access"
           />
         </div>
+        <div className="mt-3 rounded-md bg-surface-raised/30 p-3">
+          <label className="flex items-center gap-2 text-[12px] font-semibold text-text">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-input-border bg-input"
+              checked={loopEnabled}
+              onChange={(event) => setLoopEnabled(event.target.checked)}
+            />
+            Bounded loop
+          </label>
+          {loopEnabled && (
+            <div className="mt-3 grid gap-3 md:grid-cols-[160px_minmax(0,1fr)]">
+              <FormRow label="Max iterations">
+                <SelectInput
+                  value={String(loopMaxIterations)}
+                  onChange={(value) => setLoopMaxIterations(Number(value))}
+                  options={[2, 3, 4, 5, 6, 7, 8].map((value) => ({ label: String(value), value: String(value) }))}
+                />
+              </FormRow>
+              <FormRow label="Stop condition">
+                <textarea
+                  value={loopStopCondition}
+                  onChange={(event) => setLoopStopCondition(event.target.value)}
+                  rows={2}
+                  className="min-h-[58px] w-full resize-y rounded-md border border-input-border bg-input px-3 py-2 text-[13px] text-text outline-none focus:border-accent"
+                />
+              </FormRow>
+            </div>
+          )}
+        </div>
         {!hasBlueprintSnapshot && (
           <div className="mt-3">
             <SettingsControlRow
@@ -628,9 +720,17 @@ export function ProjectRunsSection({
         )}
       </Section>
 
+      {reviewSessions.length > 0 && (
+        <ReviewSessionsSection
+          sessions={reviewSessions}
+          disabled={batchBusy}
+          onSelectRuns={(runIds) => setSelectedRunIds(runIds)}
+        />
+      )}
+
       <ProjectScheduledReviewsSection project={project} channels={channels} selectedChannelId={selectedChannelId} />
 
-      <Section title="Review Inbox" description="Operator queue for runs needing acceptance, evidence, or follow-up. Launch batches stay visible as provenance, not a separate review system.">
+      <Section title="Needs Human Review" description="Runs waiting for your decision. Agent review is explicit: launching one creates a visible review task you can open and follow.">
         <div className="flex flex-col gap-2">
           {reviewQueueRuns.length === 0 ? (
             <EmptyState message="No Project coding runs are waiting for operator review." />
@@ -655,25 +755,35 @@ export function ProjectRunsSection({
                     {lineageLine(run) && (
                       <span className="truncate text-[11px] text-text-dim">Continuation: {lineageLine(run)}</span>
                     )}
+                    {loopLine(run) && (
+                      <span className="truncate text-[11px] text-text-dim">{loopLine(run)}</span>
+                    )}
+                    {reviewAgentLine(run) && (
+                      <span className="truncate text-[11px] font-semibold text-text-muted">{reviewAgentLine(run)}</span>
+                    )}
                   </span>
                 }
                 meta={<StatusBadge label={reviewQueueLabel(reviewQueueState(run))} variant={statusTone(reviewQueueState(run))} />}
                 action={
                   <div className="flex flex-wrap justify-end gap-1">
+                    {isAgentReviewRunning(run) && reviewAgentTaskId(run) ? (
+                      <RowLink to={`/admin/tasks/${reviewAgentTaskId(run)}`}>Open agent review</RowLink>
+                    ) : (
+                      <ActionButton
+                        label={createReviewSession.isPending ? "Launching" : "Launch agent review"}
+                        icon={<GitMerge size={13} />}
+                        size="small"
+                        variant="secondary"
+                        disabled={!selectedChannel || batchBusy || isAgentReviewRunning(run)}
+                        onPress={() => launchReviewForRuns([run], `Review Project coding run ${run.task.id}. Preserve receipt, screenshot, PR, and follow-up provenance.`)}
+                      />
+                    )}
                     <ActionButton
-                      label="Select"
+                      label="Select for batch"
                       size="small"
                       variant="ghost"
                       disabled={batchBusy}
                       onPress={() => setSelectedRunIds([run.id])}
-                    />
-                    <ActionButton
-                      label={createReviewSession.isPending ? "Starting" : "Start review"}
-                      icon={<GitMerge size={13} />}
-                      size="small"
-                      variant="secondary"
-                      disabled={!selectedChannel || batchBusy || reviewQueueState(run) === "follow_up_running"}
-                      onPress={() => launchReviewForRuns([run], `Review Project coding run ${run.task.id}. Preserve receipt, screenshot, PR, and follow-up provenance.`)}
                     />
                     <RunActionLinks run={run} />
                   </div>
@@ -723,10 +833,10 @@ export function ProjectRunsSection({
                         onPress={() => setSelectedRunIds(batch.run_ids ?? [])}
                       />
                       {batch.active_review_task?.task_id ? (
-                        <RowLink to={`/admin/tasks/${batch.active_review_task.task_id}`}>Open review</RowLink>
+                        <RowLink to={`/admin/tasks/${batch.active_review_task.task_id}`}>Open agent review</RowLink>
                       ) : (
                         <ActionButton
-                          label={createReviewSession.isPending ? "Starting" : "Review batch"}
+                          label={createReviewSession.isPending ? "Launching" : "Launch batch review agent"}
                           icon={<GitMerge size={13} />}
                           size="small"
                           variant="secondary"
@@ -743,14 +853,8 @@ export function ProjectRunsSection({
         </div>
       </Section>
 
-      <ReviewSessionsSection
-        sessions={reviewSessions}
-        disabled={batchBusy}
-        onSelectRuns={(runIds) => setSelectedRunIds(runIds)}
-      />
-
-      <Section title="Coding Runs" description="Review state, branch/PR handoff, evidence, and workspace cleanup for API-launched Project work.">
-        {runs.length > 0 && (
+      <Section title="All Project Runs" description="Audit trail for active, completed, reviewed, and blocked Project coding runs. Select rows only when you want a batch action.">
+        {selectedRunIds.length > 0 && (
           <div className="mb-3 grid gap-3 rounded-md bg-surface-raised/30 p-3 md:grid-cols-[minmax(0,1fr)_auto]">
             <div className="flex min-w-0 flex-col gap-2">
               <label className="inline-flex items-center gap-2 text-[12px] font-semibold text-text">
@@ -800,7 +904,7 @@ export function ProjectRunsSection({
                           onPress={() => setSelectedRunIds(group.runs.map((run) => run.id))}
                         />
                         <ActionButton
-                          label={createReviewSession.isPending ? "Starting" : "Review batch"}
+                          label={createReviewSession.isPending ? "Launching" : "Launch batch review agent"}
                           icon={<GitMerge size={13} />}
                           size="small"
                           variant="secondary"
@@ -823,13 +927,18 @@ export function ProjectRunsSection({
                 onPress={markSelectedReviewed}
               />
               <ActionButton
-                label={createReviewSession.isPending ? "Starting" : "Start review"}
+                label={createReviewSession.isPending ? "Launching" : "Launch agent review"}
                 icon={<GitMerge size={13} />}
                 size="small"
                 disabled={!selectedChannel || selectedTaskIds.length === 0 || batchBusy}
                 onPress={launchReviewSession}
               />
             </div>
+          </div>
+        )}
+        {runs.length > 0 && selectedRunIds.length === 0 && (
+          <div className="mb-3 text-[12px] text-text-muted">
+            Select runs from this audit list only when you need a batch agent review or a bulk reviewed mark.
           </div>
         )}
         <div className="flex flex-col gap-2">
@@ -868,6 +977,9 @@ export function ProjectRunsSection({
                       )}
                       {lineageLine(run) && (
                         <span className="truncate text-[11px] text-text-dim">Continuation: {lineageLine(run)}</span>
+                      )}
+                      {loopLine(run) && (
+                        <span className="truncate text-[11px] text-text-dim">{loopLine(run)}</span>
                       )}
                       {reviewLine(run) && (
                         <span className="truncate text-[11px] text-text-dim">{reviewLine(run)}</span>
@@ -964,8 +1076,8 @@ export function ProjectRunsSection({
                 meta={<StatusBadge label={receipt.status} variant={statusTone(receipt.status)} />}
                 action={
                   <div className="flex flex-wrap items-center justify-end gap-1">
-                    {receipt.task_id && <RowLink to={`/admin/projects/${receipt.project_id}/runs/${receipt.task_id}`}>Details</RowLink>}
-                    {receipt.handoff_url && <RowLink href={receipt.handoff_url}>Handoff</RowLink>}
+                    {receipt.task_id && <RowLink to={`/admin/projects/${receipt.project_id}/runs/${receipt.task_id}`}>Open run</RowLink>}
+                    {receipt.handoff_url && <RowLink href={receipt.handoff_url}>Open PR</RowLink>}
                   </div>
                 }
               />

@@ -8,8 +8,8 @@ const SOURCE = readFileSync(
   "utf8",
 );
 
-test("streaming indicator throttles large active render payloads", () => {
-  assert.match(SOURCE, /const STREAMING_RENDER_THROTTLE_CHARS = 8_000/);
+test("streaming indicator throttles markdown re-render during streaming", () => {
+  assert.match(SOURCE, /const STREAMING_RENDER_THROTTLE_CHARS = 0/);
   assert.match(SOURCE, /const STREAMING_RENDER_THROTTLE_MS = 100/);
   assert.match(SOURCE, /useThrottledStreamingValue/);
   assert.match(SOURCE, /assistantTurnBodyTextLength/);

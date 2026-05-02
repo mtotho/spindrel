@@ -2150,6 +2150,7 @@ async def launch_issue_work_pack_project_run(
     project_id: uuid.UUID,
     channel_id: uuid.UUID,
     actor: str | None = None,
+    loop_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     pack = await get_issue_work_pack(db, pack_id)
     project, channel = await _validate_issue_work_pack_launch_target(
@@ -2163,12 +2164,13 @@ async def launch_issue_work_pack_project_run(
     task = await create_project_coding_run(
         db,
         project,
-        ProjectCodingRunCreate(
-            channel_id=channel.id,
-            request=_issue_work_pack_launch_request(pack),
-            source_work_pack_id=pack.id,
-        ),
-    )
+            ProjectCodingRunCreate(
+                channel_id=channel.id,
+                request=_issue_work_pack_launch_request(pack),
+                source_work_pack_id=pack.id,
+                loop_policy=loop_policy,
+            ),
+        )
     _mark_issue_work_pack_launched(
         pack,
         project_id=project.id,
@@ -2265,6 +2267,7 @@ async def launch_issue_work_packs_project_runs(
     channel_id: uuid.UUID,
     actor: str | None = None,
     note: str | None = None,
+    loop_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not pack_ids:
         raise ValidationError("At least one work pack is required.")
@@ -2300,6 +2303,7 @@ async def launch_issue_work_packs_project_runs(
                 channel_id=channel.id,
                 request=_issue_work_pack_launch_request(pack),
                 source_work_pack_id=pack.id,
+                loop_policy=loop_policy,
             ),
             commit=False,
         )

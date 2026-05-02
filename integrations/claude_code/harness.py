@@ -520,9 +520,13 @@ class ClaudeCodeRuntime:
         _set_effort_kwarg(ClaudeAgentOptions, options_kwargs, ctx.effort)
         _set_env_kwarg(ClaudeAgentOptions, options_kwargs, ctx.env)
         _set_partial_message_streaming_kwarg(ClaudeAgentOptions, options_kwargs)
+        result_meta: dict[str, Any] = {"claude_spindrel_tool_results": {}}
         _set_streaming_permission_hooks(ClaudeAgentOptions, options_kwargs)
+        _set_claude_observability_hooks(ClaudeAgentOptions, options_kwargs, result_meta)
         _set_native_filesystem_feature_kwargs(ClaudeAgentOptions, options_kwargs)
         _set_claude_plugin_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
+        _set_claude_agent_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
+        _set_claude_mcp_server_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
         native_slash_passthrough = _is_native_slash_passthrough_prompt(prompt)
         instruction_hints_in_system = False
         if not native_slash_passthrough:
@@ -532,8 +536,6 @@ class ClaudeCodeRuntime:
                 ctx,
             )
         # ctx.runtime_settings is reserved for runtime-specific SDK knobs.
-
-        result_meta: dict[str, Any] = {"claude_spindrel_tool_results": {}}
 
         async def _attach(specs: tuple[HarnessToolSpec, ...]) -> list[str]:
             return _attach_claude_mcp_bridge(
@@ -602,6 +604,7 @@ class ClaudeCodeRuntime:
                 "claude_native_slash_commands": (
                     result_meta.get("claude_native_slash_commands") or []
                 ),
+                "claude_hook_events": result_meta.get("claude_hook_events") or [],
                 "input_manifest": ctx.input_manifest.metadata(
                     runtime_items=runtime_input_items,
                     warnings=input_warnings,
@@ -651,6 +654,8 @@ class ClaudeCodeRuntime:
         _set_streaming_permission_hooks(ClaudeAgentOptions, options_kwargs)
         _set_native_filesystem_feature_kwargs(ClaudeAgentOptions, options_kwargs)
         _set_claude_plugin_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
+        _set_claude_agent_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
+        _set_claude_mcp_server_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
         opts = ClaudeAgentOptions(**options_kwargs)
 
         result_meta: dict[str, Any] = {}
@@ -734,6 +739,8 @@ class ClaudeCodeRuntime:
         _set_streaming_permission_hooks(ClaudeAgentOptions, options_kwargs)
         _set_native_filesystem_feature_kwargs(ClaudeAgentOptions, options_kwargs)
         _set_claude_plugin_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
+        _set_claude_agent_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
+        _set_claude_mcp_server_kwargs(ClaudeAgentOptions, options_kwargs, ctx)
 
         text_parts: list[str] = []
         usage: Any = None
@@ -1151,12 +1158,102 @@ def _set_streaming_permission_hooks(
             "can_use_tool may not fire reliably in streaming mode"
         )
         return
+    try:
+        from claude_agent_sdk import HookMatcher  # type: ignore
+    except Exception:
+        logger.warning(
+            "claude-code: SDK exposes no HookMatcher; can_use_tool may not fire "
+            "reliably in streaming mode"
+        )
+        return
     hooks = dict(options_kwargs.get("hooks") or {})
     pre_tool_hooks = list(hooks.get("PreToolUse") or [])
-    if _pre_tool_use_continue_hook not in pre_tool_hooks:
-        pre_tool_hooks.append(_pre_tool_use_continue_hook)
+    marker = "__spindrel_pre_tool_continue_hook__"
+    setattr(_pre_tool_use_continue_hook, marker, True)
+    if not any(_hook_matcher_has_marker(matcher, marker) for matcher in pre_tool_hooks):
+        pre_tool_hooks.append(HookMatcher(hooks=[_pre_tool_use_continue_hook]))
     hooks["PreToolUse"] = pre_tool_hooks
     options_kwargs["hooks"] = hooks
+
+
+_CLAUDE_OBSERVABILITY_HOOK_EVENTS = (
+    "PreToolUse",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "Notification",
+    "SubagentStart",
+    "SubagentStop",
+    "PreCompact",
+    "Stop",
+)
+
+
+def _set_claude_observability_hooks(
+    options_cls: Any,
+    options_kwargs: dict[str, Any],
+    result_meta: dict[str, Any],
+) -> None:
+    """Record Claude SDK hook lifecycle events in turn metadata."""
+    try:
+        sig = inspect.signature(options_cls)
+    except (TypeError, ValueError):
+        return
+    has_var_kwargs = any(
+        param.kind is inspect.Parameter.VAR_KEYWORD
+        for param in sig.parameters.values()
+    )
+    if "hooks" not in sig.parameters and not has_var_kwargs:
+        return
+    try:
+        from claude_agent_sdk import HookMatcher  # type: ignore
+    except Exception:
+        logger.warning("claude-code: SDK exposes no HookMatcher; hook observability disabled")
+        return
+
+    hooks = dict(options_kwargs.get("hooks") or {})
+
+    async def _observe(input_data: Any, *_args: Any, **_kwargs: Any) -> dict[str, str]:
+        _record_claude_hook_event(result_meta, input_data)
+        return {"decision": "continue"}
+
+    marker = "__spindrel_observability_hook__"
+    setattr(_observe, marker, True)
+    for event_name in _CLAUDE_OBSERVABILITY_HOOK_EVENTS:
+        matchers = list(hooks.get(event_name) or [])
+        if not any(_hook_matcher_has_marker(matcher, marker) for matcher in matchers):
+            matchers.append(HookMatcher(hooks=[_observe]))
+        hooks[event_name] = matchers
+    options_kwargs["hooks"] = hooks
+
+
+def _hook_matcher_has_marker(matcher: Any, marker: str) -> bool:
+    callbacks = getattr(matcher, "hooks", None)
+    if not isinstance(callbacks, list):
+        return False
+    return any(getattr(callback, marker, False) for callback in callbacks)
+
+
+def _record_claude_hook_event(result_meta: dict[str, Any], input_data: Any) -> None:
+    if not isinstance(input_data, Mapping):
+        return
+    event_name = str(input_data.get("hook_event_name") or "").strip()
+    if not event_name:
+        return
+    event: dict[str, Any] = {"event": event_name}
+    for key in ("tool_name", "tool_use_id", "agent_type", "agent_id", "notification_type"):
+        value = input_data.get(key)
+        if isinstance(value, str) and value:
+            event[key] = value
+    message = input_data.get("message")
+    if isinstance(message, str) and message:
+        event["message"] = message[:500]
+    tool_input = input_data.get("tool_input")
+    if isinstance(tool_input, Mapping):
+        event["tool_input_keys"] = sorted(str(key) for key in tool_input.keys())[:30]
+    events = result_meta.setdefault("claude_hook_events", [])
+    if isinstance(events, list):
+        events.append(event)
+        del events[100:]
 
 
 def _set_effort_kwarg(
@@ -1288,6 +1385,173 @@ def _set_claude_plugin_kwargs(
     plugin_configs = _normalize_claude_plugin_configs(raw_plugins, cwd=ctx.workdir)
     if plugin_configs:
         options_kwargs["plugins"] = plugin_configs
+
+
+def _set_claude_agent_kwargs(
+    options_cls: Any,
+    options_kwargs: dict[str, Any],
+    ctx: TurnContext,
+) -> None:
+    """Thread explicit Claude SDK programmatic agents into this session."""
+    if "agents" in options_kwargs:
+        return
+    try:
+        sig = inspect.signature(options_cls)
+        names = set(sig.parameters)
+    except Exception:
+        names = set(getattr(options_cls, "__annotations__", {}) or {})
+    if "agents" not in names:
+        return
+
+    raw_agents = _runtime_setting_first(ctx.runtime_settings, "claude_agents", "agents")
+    agent_definitions = _normalize_claude_agent_definitions(raw_agents)
+    if not agent_definitions:
+        return
+    options_kwargs["agents"] = agent_definitions
+    if ctx.permission_mode != "bypassPermissions":
+        _allow_configured_claude_agents(options_kwargs, agent_definitions.keys())
+
+
+def _allow_configured_claude_agents(
+    options_kwargs: dict[str, Any],
+    agent_names: Any,
+) -> None:
+    cleaned = sorted(
+        name for name in (str(raw).strip() for raw in agent_names) if name
+    )
+    if not cleaned:
+        return
+    allowed = list(options_kwargs.get("allowed_tools") or [])
+    if "Agent" in allowed or "Task" in allowed:
+        return
+    spec = f"Agent({', '.join(cleaned)})"
+    if spec not in allowed:
+        allowed.append(spec)
+    options_kwargs["allowed_tools"] = allowed
+
+
+def _normalize_claude_agent_definitions(raw: Any) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, Mapping):
+        logger.warning(
+            "claude-code: ignoring runtime_settings.claude_agents with invalid type %s",
+            type(raw).__name__,
+        )
+        return {}
+    try:
+        from claude_agent_sdk import AgentDefinition  # type: ignore
+    except Exception:
+        logger.warning(
+            "claude-code: installed Claude Agent SDK exposes no AgentDefinition; "
+            "runtime_settings.claude_agents ignored"
+        )
+        return {}
+
+    allowed_keys = set(getattr(AgentDefinition, "__annotations__", {}) or {})
+    definitions: dict[str, Any] = {}
+    for raw_name, raw_definition in raw.items():
+        name = str(raw_name or "").strip()
+        if not name:
+            continue
+        if not isinstance(raw_definition, Mapping):
+            logger.warning(
+                "claude-code: ignoring Claude agent %r without object definition",
+                name,
+            )
+            continue
+        definition = dict(raw_definition)
+        description = definition.get("description")
+        prompt = definition.get("prompt")
+        if not isinstance(description, str) or not description.strip():
+            logger.warning("claude-code: ignoring Claude agent %r without description", name)
+            continue
+        if not isinstance(prompt, str) or not prompt.strip():
+            logger.warning("claude-code: ignoring Claude agent %r without prompt", name)
+            continue
+        kwargs = {
+            key: value
+            for key, value in definition.items()
+            if key in allowed_keys
+        }
+        try:
+            definitions[name] = AgentDefinition(**kwargs)
+        except TypeError:
+            logger.exception("claude-code: ignoring invalid Claude agent definition %r", name)
+    return definitions
+
+
+def _set_claude_mcp_server_kwargs(
+    options_cls: Any,
+    options_kwargs: dict[str, Any],
+    ctx: TurnContext,
+) -> None:
+    """Thread explicit Claude SDK MCP server configs into this session."""
+    if "mcp_servers" in options_kwargs:
+        return
+    try:
+        sig = inspect.signature(options_cls)
+        names = set(sig.parameters)
+    except Exception:
+        names = set(getattr(options_cls, "__annotations__", {}) or {})
+    if "mcp_servers" not in names:
+        return
+
+    raw_servers = _runtime_setting_first(
+        ctx.runtime_settings,
+        "claude_mcp_servers",
+        "mcp_servers",
+        "mcpServers",
+    )
+    servers = _normalize_claude_mcp_servers(raw_servers, cwd=ctx.workdir)
+    if not servers:
+        return
+    options_kwargs["mcp_servers"] = servers
+    if ctx.permission_mode != "bypassPermissions" and isinstance(servers, Mapping):
+        _allow_configured_claude_mcp_servers(options_kwargs, servers.keys())
+
+
+def _normalize_claude_mcp_servers(raw: Any, *, cwd: str) -> Any:
+    if raw is None:
+        return None
+    if isinstance(raw, (str, os.PathLike)):
+        path = os.fspath(raw).strip()
+        if not path:
+            return None
+        return path if os.path.isabs(path) else os.path.realpath(os.path.join(cwd, path))
+    if not isinstance(raw, Mapping):
+        logger.warning(
+            "claude-code: ignoring runtime_settings.claude_mcp_servers with invalid type %s",
+            type(raw).__name__,
+        )
+        return None
+    servers: dict[str, Any] = {}
+    for raw_name, raw_config in raw.items():
+        name = str(raw_name or "").strip()
+        if not name:
+            continue
+        if isinstance(raw_config, Mapping):
+            servers[name] = dict(raw_config)
+        else:
+            logger.warning("claude-code: ignoring MCP server %r without object config", name)
+    return servers or None
+
+
+def _allow_configured_claude_mcp_servers(
+    options_kwargs: dict[str, Any],
+    server_names: Any,
+) -> None:
+    cleaned = sorted(
+        name for name in (str(raw).strip() for raw in server_names) if name
+    )
+    if not cleaned:
+        return
+    allowed = list(options_kwargs.get("allowed_tools") or [])
+    for name in cleaned:
+        spec = f"mcp__{name}__*"
+        if spec not in allowed:
+            allowed.append(spec)
+    options_kwargs["allowed_tools"] = allowed
 
 
 def _runtime_setting_first(settings: Mapping[str, Any], *keys: str) -> Any:

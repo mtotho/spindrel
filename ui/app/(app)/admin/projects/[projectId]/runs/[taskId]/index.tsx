@@ -1,9 +1,9 @@
-import { AlertTriangle, CheckCircle2, ExternalLink, FileText, GitBranch, GitMerge, ListChecks, MessageSquarePlus, Monitor, ServerCog, TerminalSquare } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ExternalLink, FileText, GitBranch, GitMerge, ListChecks, MessageSquarePlus, Monitor, Repeat2, ServerCog, TerminalSquare } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { useContinueProjectCodingRun, useMarkProjectCodingRunReviewed, useProject, useProjectCodingRun } from "@/src/api/hooks/useProjects";
+import { useContinueProjectCodingRun, useDisableProjectCodingRunLoop, useMarkProjectCodingRunReviewed, useProject, useProjectCodingRun } from "@/src/api/hooks/useProjects";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { Section } from "@/src/components/shared/FormControls";
 import { ActionButton, EmptyState, SettingsControlRow, StatusBadge } from "@/src/components/shared/SettingsControls";
@@ -160,6 +160,17 @@ function recoveryLine(run: ProjectCodingRun) {
   return "No recovery action is currently available for this run.";
 }
 
+function loopLine(run: ProjectCodingRun) {
+  const loop = run.loop;
+  if (!loop?.enabled) return "Loop not enabled for this run.";
+  return [
+    `state ${loop.state || "waiting"}`,
+    `iteration ${loop.iteration || 1}/${loop.max_iterations || 1}`,
+    loop.latest_decision ? `decision ${loop.latest_decision}` : null,
+    loop.stop_reason ? `stop ${loop.stop_reason.replaceAll("_", " ")}` : null,
+  ].filter(Boolean).join(" · ");
+}
+
 export default function ProjectRunDetail() {
   const { projectId, taskId } = useParams<{ projectId: string; taskId: string }>();
   const navigate = useNavigate();
@@ -167,6 +178,7 @@ export default function ProjectRunDetail() {
   const { data: run, isLoading: runLoading, error } = useProjectCodingRun(projectId, taskId);
   const continueRun = useContinueProjectCodingRun(projectId);
   const markReviewed = useMarkProjectCodingRunReviewed(projectId);
+  const disableLoop = useDisableProjectCodingRunLoop(projectId);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [createdFollowUp, setCreatedFollowUp] = useState<ProjectCodingRun | null>(null);
 
@@ -362,6 +374,42 @@ export default function ProjectRunDetail() {
 
           {recoverySection}
 
+          {run.loop?.enabled && (
+            <Section
+              title="Bounded Loop"
+              description="Automatic continuation state driven by explicit loop decisions in Project run receipts."
+              action={
+                <ActionButton
+                  label={disableLoop.isPending ? "Stopping" : "Stop loop"}
+                  icon={<Repeat2 size={13} />}
+                  size="small"
+                  variant="secondary"
+                  disabled={disableLoop.isPending}
+                  onPress={() => disableLoop.mutate(run.task.id)}
+                />
+              }
+            >
+              <div className="flex flex-col gap-2">
+                <SettingsControlRow
+                  leading={<Repeat2 size={14} />}
+                  title={loopLine(run)}
+                  description={run.loop.stop_condition || "No stop condition recorded."}
+                  meta={<StatusBadge label={run.loop.state || "loop"} variant={run.loop.state === "continue" ? "info" : statusTone(run.loop.latest_decision || run.loop.state || "pending")} />}
+                />
+                {(run.loop.iterations ?? []).map((item, index) => (
+                  <SettingsControlRow
+                    key={`${item.task_id || index}`}
+                    leading={<GitBranch size={14} />}
+                    title={`Iteration ${(item.continuation_index ?? index) + 1}${item.decision ? ` · ${item.decision}` : ""}`}
+                    description={[item.reason, item.remaining_work, item.updated_at ? formatRunTime(item.updated_at) : null].filter(Boolean).join(" · ") || item.status || "No receipt decision yet"}
+                    meta={<StatusBadge label={item.status || item.task_status || "pending"} variant={statusTone(item.status || item.task_status || "pending")} />}
+                    action={item.task_id && item.task_id !== run.task.id ? <RowLink to={`/admin/projects/${project.id}/runs/${item.task_id}`}>Open</RowLink> : undefined}
+                  />
+                ))}
+              </div>
+            </Section>
+          )}
+
           <Section title="Review Decision" description="Reviewer outcome, merge metadata, blockers, and detailed review notes.">
             <div className="flex flex-col gap-2">
               <SettingsControlRow
@@ -413,6 +461,7 @@ export default function ProjectRunDetail() {
           <Section title="Receipt Metadata" description="Raw structured evidence published by the implementation agent.">
             <JsonBlock value={{
               receipt_metadata: receipt?.metadata ?? {},
+              loop: run.loop ?? {},
               work_surface: run.work_surface ?? {},
               dependency_stack: run.dependency_stack ?? {},
               readiness: run.readiness ?? {},

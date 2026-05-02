@@ -31,6 +31,8 @@ from app.services.project_coding_run_lib import (
     _prior_evidence_context,
     _safe_dependency_stack_target,
     _utcnow,
+    initial_project_run_loop_state,
+    normalize_project_run_loop_policy,
 )
 from app.services.project_runtime import project_snapshot
 
@@ -45,6 +47,8 @@ def _project_coding_run_prompt(
     dev_targets: list[dict[str, Any]] | None = None,
     machine_target_grant: ProjectMachineTargetGrant | None = None,
     continuation: dict[str, Any] | None = None,
+    loop_policy: dict[str, Any] | None = None,
+    loop_iteration: int = 1,
 ) -> str:
     base_branch = defaults.get("base_branch") or "the repository default branch"
     branch = defaults.get("branch")
@@ -93,6 +97,22 @@ def _project_coding_run_prompt(
             "- Address the reviewer feedback, rerun relevant tests/screenshots, and publish a new Project run receipt.\n\n"
             f"Reviewer feedback:\n{feedback}"
         )
+    loop_block = ""
+    if loop_policy:
+        max_iterations = int(loop_policy.get("max_iterations") or 1)
+        stop_condition = str(loop_policy.get("stop_condition") or "").strip()
+        loop_block = (
+            "\n\nBounded Project run loop:\n"
+            f"- Loop iteration: {loop_iteration} of {max_iterations}.\n"
+            f"- Stop condition: {stop_condition}\n"
+            "- This loop reuses the same branch, PR/handoff, Project instance, dependency stack, and continuation lineage.\n"
+            "- At the end of this turn, publish_project_run_receipt must include loop_decision.\n"
+            "- Use loop_decision=\"continue\" only when there is concrete remaining implementation or verification work and another iteration should start automatically.\n"
+            "- Use loop_decision=\"done\" when the work satisfies the stop condition and is ready for human review.\n"
+            "- Use loop_decision=\"needs_review\" when a human should decide instead of another automatic iteration.\n"
+            "- Use loop_decision=\"blocked\" when progress requires external input or unavailable access.\n"
+            "- Include loop_reason and remaining_work when loop_decision is continue, blocked, or needs_review.\n"
+        )
     return (
         f"{base_prompt}\n\n"
         "Project coding-run handoff configuration:\n"
@@ -122,6 +142,7 @@ def _project_coding_run_prompt(
         "If not, publish a blocked or needs_review receipt with the exact blocker.\n"
         "5. publish_project_run_receipt must include branch, base_branch, changed files, tests, screenshots, dev target status, and handoff URL when available.\n\n"
         f"Project task request:\n{request_text}"
+        f"{loop_block}"
         f"{continuation_block}"
     )
 
@@ -156,6 +177,7 @@ async def create_project_coding_run(
         schedule_task_id=body.schedule_task_id,
         schedule_run_number=body.schedule_run_number,
     )
+    loop_policy = normalize_project_run_loop_policy(body.loop_policy)
     prompt = _project_coding_run_prompt(
         base_prompt=preset.task_defaults.prompt,
         project=project,
@@ -164,6 +186,7 @@ async def create_project_coding_run(
         runtime_target=ctx.runtime_target.to_persisted(),
         dev_targets=[t.to_persisted() for t in ctx.dev_targets],
         machine_target_grant=body.machine_target_grant,
+        loop_policy=loop_policy,
     )
     task = Task(
         id=task_id,
@@ -175,6 +198,9 @@ async def create_project_coding_run(
         created_at=_utcnow(),
     )
     ctx.apply_to_task(task, channel=channel)
+    run_cfg = task.execution_config.setdefault("project_coding_run", {})
+    run_cfg["loop_policy"] = loop_policy
+    run_cfg["loop_state"] = initial_project_run_loop_state(loop_policy)
     db.add(task)
     await db.flush()
     await _attach_task_machine_grant(
@@ -250,6 +276,9 @@ async def continue_project_coding_run(
         "handoff_url": prior_evidence.get("handoff_url"),
         "prior_evidence": prior_evidence,
     }
+    parent_cfg = parent.execution_config if isinstance(parent.execution_config, dict) else {}
+    parent_run_cfg = parent_cfg.get("project_coding_run") if isinstance(parent_cfg.get("project_coding_run"), dict) else {}
+    loop_policy = normalize_project_run_loop_policy(parent_run_cfg.get("loop_policy") if isinstance(parent_run_cfg.get("loop_policy"), dict) else None)
     prompt = _project_coding_run_prompt(
         base_prompt=preset.task_defaults.prompt,
         project=project,
@@ -259,6 +288,8 @@ async def continue_project_coding_run(
         dev_targets=[t.to_persisted() for t in ctx.dev_targets],
         machine_target_grant=None,
         continuation=continuation_context,
+        loop_policy=loop_policy,
+        loop_iteration=continuation_index + 1,
     )
     task = Task(
         id=new_task_id,
@@ -271,6 +302,13 @@ async def continue_project_coding_run(
     ctx.apply_to_task(task, channel=channel)
     task.title = f"{preset.task_defaults.title} follow-up {continuation_index}"
     parent_ecfg = parent.execution_config if isinstance(parent.execution_config, dict) else {}
+    task_run_cfg = task.execution_config.setdefault("project_coding_run", {})
+    task_run_cfg["loop_policy"] = loop_policy
+    task_run_cfg["loop_state"] = {
+        **initial_project_run_loop_state(loop_policy),
+        "iteration": continuation_index + 1,
+        "state": "running" if loop_policy else "disabled",
+    }
     if isinstance(parent_ecfg.get("session_target"), dict):
         task.execution_config["session_target"] = dict(parent_ecfg["session_target"])
     if isinstance(parent_ecfg.get("project_instance"), dict):

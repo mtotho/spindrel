@@ -391,10 +391,11 @@ export default function NoteWorkspacePage() {
               tool_hints: ["workspace/notes", "workspace/knowledge_bases", "workspace/channel_workspaces", "grill_me"],
               payload: {
                 kind: "note_session",
-                note_path: note.path,
+                note_path: note.workspace_path ?? note.path,
+                internal_note_path: note.path,
                 note_title: note.title,
                 current_markdown: bodyDraft.slice(0, 12000),
-                instruction: "Pinned notes mode. When the user asks you to write notes, work in this active Markdown note file, not bot memory.",
+                instruction: `Pinned notes mode. When the user asks you to write notes, edit ${note.workspace_path ?? note.path} with workspace file tools. Do not use bot memory.`,
               },
             },
           }}

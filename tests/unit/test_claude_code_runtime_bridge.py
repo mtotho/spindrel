@@ -47,10 +47,17 @@ from integrations.claude_code.harness import _allowed_tools_for_mode  # noqa: E4
 from integrations.claude_code.harness import _bridge_message  # noqa: E402
 from integrations.claude_code.harness import _extract_claude_system_slash_commands  # noqa: E402
 from integrations.claude_code.harness import _is_native_slash_passthrough_prompt  # noqa: E402
+from integrations.claude_code.harness import _normalize_claude_agent_definitions  # noqa: E402
+from integrations.claude_code.harness import _normalize_claude_mcp_servers  # noqa: E402
 from integrations.claude_code.harness import _normalize_claude_plugin_configs  # noqa: E402
+from integrations.claude_code.harness import _record_claude_hook_event  # noqa: E402
+from integrations.claude_code.harness import _set_claude_agent_kwargs  # noqa: E402
+from integrations.claude_code.harness import _set_claude_mcp_server_kwargs  # noqa: E402
+from integrations.claude_code.harness import _set_claude_observability_hooks  # noqa: E402
 from integrations.claude_code.harness import _set_claude_plugin_kwargs  # noqa: E402
 from integrations.claude_code.harness import _set_native_filesystem_feature_kwargs  # noqa: E402
 from integrations.claude_code.harness import _set_partial_message_streaming_kwarg  # noqa: E402
+from integrations.claude_code.harness import _set_streaming_permission_hooks  # noqa: E402
 
 
 class _RecordingEmitter:
@@ -181,6 +188,90 @@ def test_native_filesystem_feature_sources_preserve_explicit_override():
     assert options_kwargs == {"setting_sources": ["project"]}
 
 
+def test_streaming_permission_hook_uses_sdk_hook_matcher():
+    class Options:
+        def __init__(self, hooks: dict | None = None) -> None:
+            self.hooks = hooks
+
+    options_kwargs: dict = {}
+
+    _set_streaming_permission_hooks(Options, options_kwargs)
+
+    pre_tool_hooks = options_kwargs["hooks"]["PreToolUse"]
+    assert len(pre_tool_hooks) == 1
+    matcher = pre_tool_hooks[0]
+    assert matcher.matcher is None
+    assert len(matcher.hooks) == 1
+
+
+@pytest.mark.asyncio
+async def test_claude_observability_hooks_record_sdk_lifecycle_events():
+    class Options:
+        def __init__(self, hooks: dict | None = None) -> None:
+            self.hooks = hooks
+
+    result_meta: dict = {}
+    options_kwargs: dict = {}
+
+    _set_claude_observability_hooks(Options, options_kwargs, result_meta)
+
+    assert {
+        "PreToolUse",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "Notification",
+        "SubagentStart",
+        "SubagentStop",
+        "PreCompact",
+        "Stop",
+    }.issubset(options_kwargs["hooks"])
+    hook = options_kwargs["hooks"]["PostToolUse"][0].hooks[0]
+    decision = await hook(
+        {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Read",
+            "tool_use_id": "toolu_123",
+            "tool_input": {"file_path": "/tmp/example.txt"},
+            "cwd": "/workspace/project",
+            "transcript_path": "/tmp/transcript.jsonl",
+        },
+        None,
+        None,
+    )
+
+    assert decision == {"decision": "continue"}
+    assert result_meta["claude_hook_events"] == [
+        {
+            "event": "PostToolUse",
+            "tool_name": "Read",
+            "tool_use_id": "toolu_123",
+            "tool_input_keys": ["file_path"],
+        }
+    ]
+
+
+def test_record_claude_hook_event_sanitizes_and_bounds_payload():
+    result_meta: dict = {}
+
+    _record_claude_hook_event(
+        result_meta,
+        {
+            "hook_event_name": "Notification",
+            "notification_type": "warning",
+            "message": "x" * 700,
+            "transcript_path": "/sensitive/transcript.jsonl",
+        },
+    )
+
+    assert result_meta["claude_hook_events"] == [
+        {
+            "event": "Notification",
+            "notification_type": "warning",
+            "message": "x" * 500,
+        }
+    ]
+
+
 def test_claude_plugin_runtime_settings_map_to_sdk_local_plugin_configs():
     class Options:
         def __init__(self, plugins: list[dict] | None = None) -> None:
@@ -248,6 +339,243 @@ def test_normalize_claude_plugin_configs_ignores_unsupported_entries():
         ],
         cwd="/workspace/project",
     ) == [{"type": "local", "path": "/workspace/project/relative-plugin"}]
+
+
+def test_claude_agent_runtime_settings_map_to_sdk_agent_definitions():
+    class Options:
+        def __init__(
+            self,
+            agents: dict | None = None,
+            allowed_tools: list[str] | None = None,
+        ) -> None:
+            self.agents = agents
+            self.allowed_tools = allowed_tools
+
+    ctx = _ctx(
+        runtime_settings={
+            "claude_agents": {
+                "marker-agent": {
+                    "description": "Return a deterministic marker.",
+                    "prompt": "Reply with the configured marker only.",
+                    "tools": [],
+                    "model": "claude-haiku-4-5",
+                    "unknown": "ignored",
+                }
+            }
+        },
+    )
+    options_kwargs: dict = {"allowed_tools": ["Read"]}
+
+    _set_claude_agent_kwargs(Options, options_kwargs, ctx)
+
+    assert set(options_kwargs["agents"]) == {"marker-agent"}
+    agent = options_kwargs["agents"]["marker-agent"]
+    assert agent.description == "Return a deterministic marker."
+    assert agent.prompt == "Reply with the configured marker only."
+    assert agent.tools == []
+    assert agent.model == "claude-haiku-4-5"
+    assert "unknown" not in agent.__dict__
+    assert options_kwargs["allowed_tools"] == ["Read", "Agent(marker-agent)"]
+
+
+def test_claude_agent_runtime_settings_accept_generic_agents_key_in_claude_adapter():
+    class Options:
+        def __init__(self, agents: dict | None = None) -> None:
+            self.agents = agents
+
+    ctx = _ctx(
+        runtime_settings={
+            "agents": {
+                "reviewer": {
+                    "description": "Review only.",
+                    "prompt": "Review the requested text.",
+                }
+            }
+        },
+    )
+    options_kwargs: dict = {}
+
+    _set_claude_agent_kwargs(Options, options_kwargs, ctx)
+
+    assert set(options_kwargs["agents"]) == {"reviewer"}
+    assert options_kwargs["agents"]["reviewer"].description == "Review only."
+
+
+def test_claude_agent_runtime_settings_preserve_explicit_override():
+    class Options:
+        def __init__(self, agents: dict | None = None) -> None:
+            self.agents = agents
+
+    ctx = _ctx(
+        runtime_settings={
+            "claude_agents": {
+                "runtime-agent": {
+                    "description": "Should not be used.",
+                    "prompt": "Should not be used.",
+                }
+            }
+        },
+    )
+    options_kwargs: dict = {"agents": {"explicit": object()}}
+
+    _set_claude_agent_kwargs(Options, options_kwargs, ctx)
+
+    assert options_kwargs == {"agents": {"explicit": options_kwargs["agents"]["explicit"]}}
+
+
+def test_claude_agent_runtime_settings_do_not_add_allowlist_when_bypass_already_allows_agents():
+    class Options:
+        def __init__(
+            self,
+            agents: dict | None = None,
+            allowed_tools: list[str] | None = None,
+        ) -> None:
+            self.agents = agents
+            self.allowed_tools = allowed_tools
+
+    ctx = _ctx(
+        mode="bypassPermissions",
+        runtime_settings={
+            "claude_agents": {
+                "marker-agent": {
+                    "description": "Return a deterministic marker.",
+                    "prompt": "Reply with the configured marker only.",
+                }
+            }
+        },
+    )
+    options_kwargs: dict = {"allowed_tools": ["Agent", "Read"]}
+
+    _set_claude_agent_kwargs(Options, options_kwargs, ctx)
+
+    assert set(options_kwargs["agents"]) == {"marker-agent"}
+    assert options_kwargs["allowed_tools"] == ["Agent", "Read"]
+
+
+def test_normalize_claude_agent_definitions_ignores_invalid_entries():
+    definitions = _normalize_claude_agent_definitions(
+        {
+            "valid": {
+                "description": "Valid agent.",
+                "prompt": "Do valid work.",
+                "tools": ["Read"],
+            },
+            "missing-description": {"prompt": "No description."},
+            "missing-prompt": {"description": "No prompt."},
+            "invalid": "not an object",
+            "": {"description": "No name.", "prompt": "No name."},
+        }
+    )
+
+    assert set(definitions) == {"valid"}
+    assert definitions["valid"].tools == ["Read"]
+
+
+def test_claude_mcp_runtime_settings_map_to_sdk_server_configs_and_allowlist():
+    class Options:
+        def __init__(
+            self,
+            mcp_servers: dict | None = None,
+            allowed_tools: list[str] | None = None,
+        ) -> None:
+            self.mcp_servers = mcp_servers
+            self.allowed_tools = allowed_tools
+
+    ctx = _ctx(
+        runtime_settings={
+            "claude_mcp_servers": {
+                "docs": {"type": "http", "url": "https://code.claude.com/docs/mcp"},
+                "local": {"command": "node", "args": ["server.js"]},
+            }
+        },
+    )
+    options_kwargs: dict = {"allowed_tools": ["Read", "mcp__docs__*"]}
+
+    _set_claude_mcp_server_kwargs(Options, options_kwargs, ctx)
+
+    assert options_kwargs["mcp_servers"] == {
+        "docs": {"type": "http", "url": "https://code.claude.com/docs/mcp"},
+        "local": {"command": "node", "args": ["server.js"]},
+    }
+    assert options_kwargs["allowed_tools"] == [
+        "Read",
+        "mcp__docs__*",
+        "mcp__local__*",
+    ]
+
+
+def test_claude_mcp_runtime_settings_accept_generic_mcp_servers_key():
+    class Options:
+        def __init__(self, mcp_servers: dict | None = None) -> None:
+            self.mcp_servers = mcp_servers
+
+    ctx = _ctx(
+        runtime_settings={
+            "mcp_servers": {
+                "filesystem": {"command": "npx", "args": ["server-filesystem", "."]},
+            }
+        },
+    )
+    options_kwargs: dict = {}
+
+    _set_claude_mcp_server_kwargs(Options, options_kwargs, ctx)
+
+    assert options_kwargs["mcp_servers"] == {
+        "filesystem": {"command": "npx", "args": ["server-filesystem", "."]},
+    }
+
+
+def test_claude_mcp_runtime_settings_preserve_explicit_override():
+    class Options:
+        def __init__(self, mcp_servers: dict | None = None) -> None:
+            self.mcp_servers = mcp_servers
+
+    ctx = _ctx(runtime_settings={"claude_mcp_servers": {"runtime": {"command": "x"}}})
+    options_kwargs: dict = {"mcp_servers": {"explicit": {"command": "y"}}}
+
+    _set_claude_mcp_server_kwargs(Options, options_kwargs, ctx)
+
+    assert options_kwargs == {"mcp_servers": {"explicit": {"command": "y"}}}
+
+
+def test_claude_mcp_runtime_settings_do_not_add_allowlist_in_bypass_mode():
+    class Options:
+        def __init__(
+            self,
+            mcp_servers: dict | None = None,
+            allowed_tools: list[str] | None = None,
+        ) -> None:
+            self.mcp_servers = mcp_servers
+            self.allowed_tools = allowed_tools
+
+    ctx = _ctx(
+        mode="bypassPermissions",
+        runtime_settings={"claude_mcp_servers": {"docs": {"type": "http", "url": "x"}}},
+    )
+    options_kwargs: dict = {"allowed_tools": ["Read"]}
+
+    _set_claude_mcp_server_kwargs(Options, options_kwargs, ctx)
+
+    assert options_kwargs["mcp_servers"] == {"docs": {"type": "http", "url": "x"}}
+    assert options_kwargs["allowed_tools"] == ["Read"]
+
+
+def test_normalize_claude_mcp_servers_accepts_relative_config_file_path():
+    assert _normalize_claude_mcp_servers(
+        ".mcp.json",
+        cwd="/workspace/project",
+    ) == "/workspace/project/.mcp.json"
+
+
+def test_normalize_claude_mcp_servers_ignores_invalid_entries():
+    assert _normalize_claude_mcp_servers(
+        {
+            "valid": {"command": "node", "args": ["server.js"]},
+            "invalid": "not an object",
+            "": {"command": "missing-name"},
+        },
+        cwd="/workspace/project",
+    ) == {"valid": {"command": "node", "args": ["server.js"]}}
 
 
 def test_native_slash_passthrough_prompts_skip_spindrel_bridge():

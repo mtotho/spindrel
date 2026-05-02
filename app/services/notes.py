@@ -570,11 +570,14 @@ async def get_or_create_note_session(
     title: str,
     content: str,
 ) -> Session:
+    workspace_note_path = f"{surface.kb_rel}/{note_path}"
+
     async def upsert_note_context(session: Session) -> None:
         context_text = build_note_session_context(
             channel=channel,
             surface=surface,
             note_path=note_path,
+            workspace_note_path=workspace_note_path,
             title=title,
             content=content,
         )
@@ -592,6 +595,7 @@ async def get_or_create_note_session(
             "kind": NOTE_CONTEXT_KIND,
             "note_session_kind": NOTE_SESSION_KIND,
             "note_path": note_path,
+            "workspace_note_path": workspace_note_path,
             "surface_scope": surface.scope,
             "notes_directory": f"{surface.kb_rel}/{NOTES_DIR}",
             "title": title,
@@ -614,6 +618,7 @@ async def get_or_create_note_session(
             **(session.metadata_ or {}),
             "kind": NOTE_SESSION_KIND,
             "note_path": note_path,
+            "workspace_note_path": workspace_note_path,
             "surface_scope": surface.scope,
             "channel_id": str(channel.id),
             "project_id": surface.project_id,
@@ -644,9 +649,10 @@ async def get_or_create_note_session(
         "payload": {
             "kind": NOTE_SESSION_KIND,
             "note_path": note_path,
+            "workspace_note_path": workspace_note_path,
             "surface_scope": surface.scope,
             "notes_directory": f"{surface.kb_rel}/{NOTES_DIR}",
-            "instruction": "Pinned notes mode. When the user asks you to write or update notes, work in the active Markdown note file, not bot memory.",
+            "instruction": f"Pinned notes mode. When the user asks you to write or update notes, edit `{workspace_note_path}` with workspace file tools. Do not use bot memory.",
         },
     }
     session = await spawn_ephemeral_session(db, bot_id=bot.id, parent_channel_id=channel.id, context=context)
@@ -659,6 +665,7 @@ def build_note_session_context(
     channel: Channel,
     surface: NotesSurface,
     note_path: str,
+    workspace_note_path: str,
     title: str,
     content: str,
 ) -> str:
@@ -670,14 +677,17 @@ def build_note_session_context(
         "# Pinned Notes Mode\n\n"
         "You are assisting inside Spindrel's active Markdown note editor. This session is pinned to one note file.\n\n"
         f"Active note title: {title}\n"
-        f"Active note path: `{note_path}`\n"
+        f"Active note file path for workspace tools: `{workspace_note_path}`\n"
+        f"Internal note path: `{note_path}`\n"
         f"Knowledge base notes directory: `{surface.kb_rel}/{NOTES_DIR}`\n"
         f"Scope: {surface.scope}\n"
         f"Channel ID: {channel.id}\n"
         f"{project_line}\n\n"
         "Pinned skill: `workspace/notes` is mandatory for this session. Follow it before generic memory or logging behavior.\n\n"
         "Rules:\n"
-        "- When the user asks you to write notes, update or propose updates for the active note file above.\n"
+        f"- When the user asks you to write notes, update or propose updates for `{workspace_note_path}`.\n"
+        "- If you use the `file` tool, pass the active note file path exactly as shown above.\n"
+        f"- Do not edit `{note_path}` unless it is identical to the active note file path.\n"
         "- Do not write these note requests to bot memory unless the user explicitly asks for memory.\n"
         "- Preserve user-written Markdown. Prefer additive edits or clearly reviewable replacements.\n"
         "- Keep the document Markdown-formatted with useful headings and lists.\n"

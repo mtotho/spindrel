@@ -191,6 +191,14 @@ async def _fire_task_complete(task: Task, status: str) -> None:
         except Exception:
             logger.exception("Mission task completion failed for task %s", task.id)
 
+    try:
+        ecfg = task.execution_config if isinstance(task.execution_config, dict) else {}
+        if ecfg.get("run_preset_id") == "project_coding_run":
+            from app.services.project_coding_run_loops import on_project_coding_run_task_complete
+            await on_project_coding_run_task_complete(task.id, status)
+    except Exception:
+        logger.exception("Project coding-run loop completion failed for task %s", task.id)
+
     # Fire generic hook broadcast for non-workflow listeners (integrations, etc.)
     try:
         from app.agent.hooks import HookContext, fire_hook

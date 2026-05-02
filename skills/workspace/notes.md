@@ -13,7 +13,7 @@ In a note session, you are not just chatting near a document. You are the assist
 
 ## Active Note Contract
 
-- The active note path from the session context is the target document.
+- The active note file path from the session context is the target document. Use the `Active note file path for workspace tools` value exactly when calling file tools.
 - When the user says "write this down", "make a note", "add this", "clean this up", "clarify", "structure", or similar, assume they mean the active note unless they explicitly name a different destination.
 - Do not put note content into bot memory unless the user explicitly asks for memory.
 - Do not create a separate log entry when the active note should be updated.
@@ -65,7 +65,7 @@ Notes are Markdown documents stored under the active knowledge base:
 - Channel notes: `knowledge-base/notes/`
 - Project notes: `.spindrel/knowledge-base/notes/`
 
-If you use filesystem tools, use the active note path from pinned context. Keep edits inside the active knowledge-base notes directory unless the user clearly asks otherwise.
+If you use filesystem tools, use the active note file path from pinned context. It should include the knowledge-base prefix, such as `knowledge-base/notes/example.md` or `.spindrel/knowledge-base/notes/example.md`. Do not shorten it to `notes/example.md`. Keep edits inside the active knowledge-base notes directory unless the user clearly asks otherwise.
 
 ## Interaction Style
 
@@ -80,4 +80,4 @@ If you use filesystem tools, use the active note path from pinned context. Keep 
 - Never discard user-authored content because it looks rough.
 - Never move active note content to bot memory as a substitute for editing the note.
 - Never produce an unrelated general essay when the user asked to improve a note.
-- Never ignore the active note path in a pinned note session.
+- Never ignore the active note file path in a pinned note session.

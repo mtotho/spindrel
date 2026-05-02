@@ -36,6 +36,7 @@ def _schedule_execution_config(
     request: str,
     repo_path: str | None,
     machine_target_grant: ProjectMachineTargetGrant | None,
+    loop_policy: dict[str, Any] | None,
 ) -> dict[str, Any]:
     return {
         "run_preset_id": PROJECT_CODING_RUN_SCHEDULE_PRESET_ID,
@@ -44,6 +45,7 @@ def _schedule_execution_config(
             "request": request.strip(),
             "repo_path": repo_path,
             "machine_target_grant": _machine_target_grant_summary(machine_target_grant),
+            "loop_policy": dict(loop_policy or {}),
         },
     }
 
@@ -101,6 +103,7 @@ async def create_project_coding_run_schedule(
             request=body.request,
             repo_path=body.repo_path,
             machine_target_grant=body.machine_target_grant,
+            loop_policy=body.loop_policy,
         ),
         recurrence=recurrence,
         source="project_coding_run_schedule",
@@ -164,6 +167,8 @@ async def update_project_coding_run_schedule(
             grant=body.machine_target_grant,
             granted_by_user_id=body.granted_by_user_id,
         )
+    if body.loop_policy is not None:
+        cfg["loop_policy"] = dict(body.loop_policy or {})
     task.execution_config = {
         **dict(task.execution_config or {}),
         "run_preset_id": PROJECT_CODING_RUN_SCHEDULE_PRESET_ID,
@@ -232,6 +237,7 @@ async def fire_project_coding_run_schedule(
             machine_target_grant=grant,
             schedule_task_id=schedule.id,
             schedule_run_number=run_number,
+            loop_policy=cfg.get("loop_policy") if isinstance(cfg.get("loop_policy"), dict) else None,
         ),
     )
     schedule = await db.get(Task, schedule.id)
@@ -302,4 +308,5 @@ async def _coding_run_schedule_row(db: AsyncSession, task: Task, recent_runs: li
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "machine_target_grant": await task_machine_grant_payload(db, task),
         "repo_path": cfg.get("repo_path"),
+        "loop_policy": cfg.get("loop_policy") if isinstance(cfg.get("loop_policy"), dict) else None,
     }

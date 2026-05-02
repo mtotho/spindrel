@@ -23,6 +23,7 @@ _RETURNS = {
         "receipt": {"type": "object"},
         "created": {"type": "boolean"},
         "updated": {"type": "boolean"},
+        "loop": {"type": "object"},
         "error": {"type": "string"},
     },
     "required": ["ok"],
@@ -93,6 +94,13 @@ def _handoff_value(handoff: dict[str, Any] | None, *keys: str) -> str | None:
                     "description": "Optional stable key for retries. When omitted, the tool derives one from task, handoff, or git metadata.",
                 },
                 "metadata": {"type": "object", "description": "Optional extra machine-readable run metadata."},
+                "loop_decision": {
+                    "type": "string",
+                    "enum": ["done", "continue", "blocked", "needs_review"],
+                    "description": "Required for bounded Project run loops. Use continue only when another automatic iteration should start.",
+                },
+                "loop_reason": {"type": "string", "description": "Short reason for the loop decision."},
+                "remaining_work": {"type": "string", "description": "Concrete remaining work when loop_decision is continue, blocked, or needs_review."},
             },
             "required": ["summary"],
         },
@@ -111,11 +119,24 @@ async def publish_project_run_receipt(
     handoff: dict[str, Any] | None = None,
     idempotency_key: str | None = None,
     metadata: dict[str, Any] | None = None,
+    loop_decision: str | None = None,
+    loop_reason: str | None = None,
+    remaining_work: str | None = None,
 ) -> str:
     from app.db.engine import async_session
     from app.services.project_run_receipts import create_project_run_receipt, serialize_project_run_receipt
 
     try:
+        receipt_metadata = dict(metadata or {})
+        normalized_loop_decision = str(loop_decision or "").strip().lower()
+        if normalized_loop_decision:
+            if normalized_loop_decision not in {"done", "continue", "blocked", "needs_review"}:
+                return json.dumps({"ok": False, "error": "loop_decision must be one of done, continue, blocked, needs_review"}, ensure_ascii=False)
+            receipt_metadata["loop"] = {
+                "decision": normalized_loop_decision,
+                "reason": str(loop_reason or "").strip() or None,
+                "remaining_work": str(remaining_work or "").strip() or None,
+            }
         async with async_session() as db:
             resolved_project_id = await _infer_project_id(db, project_id, project_instance_id)
             receipt = await create_project_run_receipt(
@@ -136,7 +157,7 @@ async def publish_project_run_receipt(
                 tests=tests or [],
                 screenshots=screenshots or [],
                 dev_targets=dev_targets or None,
-                metadata=metadata or {},
+                metadata=receipt_metadata,
                 idempotency_key=idempotency_key,
             )
     except Exception as exc:
@@ -150,4 +171,5 @@ async def publish_project_run_receipt(
         "receipt": payload,
         "created": created,
         "updated": not created,
+        "loop": payload.get("metadata", {}).get("loop") if isinstance(payload.get("metadata"), dict) else None,
     }, ensure_ascii=False)

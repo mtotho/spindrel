@@ -24,6 +24,13 @@ import type {
 } from "../../types/api";
 import type { MachineTargetGrant } from "./useTasks";
 
+export interface ProjectRunLoopPolicyInput {
+  enabled: boolean;
+  max_iterations?: number;
+  stop_condition?: string;
+  continuation_prompt?: string;
+}
+
 export function useProjects(enabled = true) {
   return useQuery({
     queryKey: ["projects"],
@@ -221,7 +228,7 @@ export function useDisableProjectCodingRunSchedule(projectId: string | undefined
 export function useCreateProjectCodingRun(projectId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { channel_id: string; request?: string; repo_path?: string | null; machine_target_grant?: MachineTargetGrant | null; source_work_pack_id?: string | null }) =>
+    mutationFn: (data: { channel_id: string; request?: string; repo_path?: string | null; machine_target_grant?: MachineTargetGrant | null; source_work_pack_id?: string | null; loop_policy?: ProjectRunLoopPolicyInput | null }) =>
       apiFetch<ProjectCodingRun>(`/api/v1/projects/${projectId}/coding-runs`, {
         method: "POST",
         body: JSON.stringify(data),
@@ -256,7 +263,7 @@ export function useContinueProjectCodingRun(projectId: string | undefined) {
   });
 }
 
-function useProjectCodingRunAction(projectId: string | undefined, action: "refresh" | "reviewed" | "cleanup") {
+function useProjectCodingRunAction(projectId: string | undefined, action: "refresh" | "reviewed" | "cleanup" | "loop-disable") {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (taskId: string) =>
@@ -322,6 +329,10 @@ export function useCreateProjectCodingRunReviewSession(projectId: string | undef
 
 export function useCleanupProjectCodingRun(projectId: string | undefined) {
   return useProjectCodingRunAction(projectId, "cleanup");
+}
+
+export function useDisableProjectCodingRunLoop(projectId: string | undefined) {
+  return useProjectCodingRunAction(projectId, "loop-disable");
 }
 
 export function useCreateProjectInstance(projectId: string | undefined) {

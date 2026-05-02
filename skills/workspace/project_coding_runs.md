@@ -90,6 +90,12 @@ the user explicitly asked to launch a coding run.
    for tests, `{path,url,label,viewport,notes}` for screenshots, and metadata
    for risks, follow-ups, dependency health, PR notes, and implementation
    details.
+9. If the run prompt says a bounded Project run loop is enabled, include
+   `loop_decision` in the receipt. Use `done` when the stop condition is
+   satisfied, `continue` only for concrete remaining work that should start the
+   next automatic continuation, `needs_review` when a human should decide, and
+   `blocked` when external input or unavailable access is required. Include
+   `loop_reason` and `remaining_work` for every non-`done` decision.
 
 ## Run Details
 
@@ -106,6 +112,11 @@ the user explicitly asked to launch a coding run.
    the Project coding-run continuation path with concrete feedback. If
    `latest_continuation_id` is present, open or summarize that follow-up before
    creating another one. Do not continue active or already reviewed runs.
+5. For loop-enabled runs, inspect the returned `loop` object. A loop is not a
+   separate orchestrator: it is the same Project coding-run continuation path,
+   same branch/PR, same Project instance/dependency stack, and one receipt per
+   iteration. Stop or ask the operator when the loop is disabled, budget is
+   exhausted, a receipt is missing, or the latest decision is not `continue`.
 
 ## Review Sessions
 

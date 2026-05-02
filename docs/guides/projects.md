@@ -150,11 +150,22 @@ The service validates that the selected channel belongs to the Project, creates
 a normal background task from the `project_coding_run` preset, and records a
 secret-safe handoff config in `execution_config.project_coding_run`: request,
 repo, base branch, generated work branch, runtime target key names, new-session
-policy, fresh-instance policy, work-surface readiness, and any task-scoped machine target grant. The
-prompt tells the agent to update from the base branch, switch to the generated
-branch, use Project runtime env, use the granted e2e/machine target only when
-attached to the task, run e2e checks when relevant, and publish
-`publish_project_run_receipt` evidence.
+policy, fresh-instance policy, work-surface readiness, optional bounded loop
+policy, and any task-scoped machine target grant. The prompt tells the agent to
+update from the base branch, switch to the generated branch, use Project
+runtime env, use the granted e2e/machine target only when attached to the task,
+run e2e checks when relevant, and publish `publish_project_run_receipt`
+evidence.
+
+Bounded loops are an optional launch policy for exploratory or repeated repair
+work. They deliberately reuse the existing continuation primitive instead of a
+hidden orchestrator: every iteration is a normal Project coding run on the same
+lineage, branch, PR/handoff, Project instance, dependency stack, and receipt
+trail. The implementation agent controls the loop with receipt fields:
+`loop_decision=continue` starts the next continuation while budget remains,
+`done` stops as review-ready, `needs_review` stops for human decision, and
+`blocked` stops with the recorded blocker. Missing receipts or missing loop
+decisions stop the loop and surface as needs-review state.
 
 Spindrel records coordination state, not the canonical external issue tracker.
 Issue Intake captures rough notes, Work Packs turn those notes into launchable
