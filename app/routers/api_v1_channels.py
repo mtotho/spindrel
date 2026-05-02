@@ -1366,11 +1366,10 @@ async def get_channel_chat_zones(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("channels:read")),
 ):
-    """Channel dashboard pins grouped by chat-side zone.
+    """Channel workbench pins grouped for the chat shelf.
 
-    Zone is stored on each pin (``widget_dashboard_pins.zone``) and authored
-    directly via the multi-canvas editor at ``/widgets/channel/:id``. Pins
-    whose zone is ``grid`` are dashboard-only and excluded from the response.
+    New pins opt into chat via ``widget_config.show_in_chat_shelf``. Legacy
+    rail/header/dock zones are folded into the rail bucket for compatibility.
     """
     channel = await db.get(Channel, channel_id)
     if not channel:

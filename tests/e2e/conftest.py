@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import os
 import time
 from datetime import datetime, timezone
 from typing import AsyncGenerator
@@ -428,11 +429,20 @@ async def _cleanup_test_channels(
     _channel_tracker: list[str],
 ) -> AsyncGenerator[None, None]:
     """Sweep stale channels/resources at start, delete tracked channels at end."""
+    preserve_harness_parity = (
+        os.environ.get("HARNESS_PARITY_LOCAL") == "1"
+        and os.environ.get("HARNESS_PARITY_NATIVE_APP") == "1"
+    )
+
     # Clean up leftovers from interrupted prior runs
     await _sweep_stale_e2e_channels(e2e_config.base_url, e2e_config.api_key)
     await _sweep_stale_e2e_resources(e2e_config.base_url, e2e_config.api_key)
 
     yield
+
+    if preserve_harness_parity:
+        logger.info("Preserving local harness parity fixture channels after focused run")
+        return
 
     # Clean up channels created during this session (broad sweep catches all)
     await _sweep_stale_e2e_channels(e2e_config.base_url, e2e_config.api_key)

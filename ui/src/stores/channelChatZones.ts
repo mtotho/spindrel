@@ -9,15 +9,22 @@ export interface ChannelChatZones {
   dock: WidgetDashboardPin[];
 }
 
-/** Derive chat-side zone buckets for a channel from the dashboard-pins store.
+export function isChatShelfPin(pin: WidgetDashboardPin): boolean {
+  if (pin.widget_config?.show_in_chat_shelf === true) return true;
+  const legacyZone = pin.zone ?? "grid";
+  return legacyZone === "rail" || legacyZone === "header" || legacyZone === "dock";
+}
+
+/** Derive chat-shelf pins for a channel from the dashboard-pins store.
  *
  *  No separate network call — subscribes to the same store that OmniPanel /
- *  WidgetsDashboardPage already hydrate. Zone membership is stored directly
- *  on each pin (`pin.zone`) and authored via the multi-canvas editor, so
- *  grouping is a trivial filter.
+ *  WidgetsDashboardPage already hydrate. The current model is explicit:
+ *  ``widget_config.show_in_chat_shelf === true`` means the artifact appears
+ *  near chat. Legacy ``rail/header/dock`` zones are still treated as shelf
+ *  pins until the workbench canvas normalizes them to ``grid``.
  *
- *  The ``grid`` bucket is intentionally excluded — dashboard-only pins never
- *  appear on chat.
+ *  Header/dock buckets are kept for old call sites, but new UI renders one
+ *  chat shelf from the rail bucket only.
  */
 export function useChannelChatZones(channelId: string | undefined): ChannelChatZones {
   const slug = channelId ? channelSlug(channelId) : undefined;
@@ -35,10 +42,7 @@ export function useChannelChatZones(channelId: string | undefined): ChannelChatZ
     }
     const buckets: ChannelChatZones = { rail: [], header: [], dock: [] };
     for (const pin of pins) {
-      const zone = pin.zone ?? "grid";
-      if (zone === "rail") buckets.rail.push(pin);
-      else if (zone === "header") buckets.header.push(pin);
-      else if (zone === "dock") buckets.dock.push(pin);
+      if (isChatShelfPin(pin)) buckets.rail.push(pin);
     }
     const gl = (p: WidgetDashboardPin) =>
       (p.grid_layout as { x?: number; y?: number } | undefined) ?? {};

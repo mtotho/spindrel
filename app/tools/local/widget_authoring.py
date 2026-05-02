@@ -202,7 +202,14 @@ _PREPARE_SCHEMA = {
 }
 
 
-@register(_PREPARE_SCHEMA, safety_tier="readonly", requires_bot_context=True, requires_channel_context=False, returns={
+_WIDGET_TOOL_METADATA = {
+    "domains": ["widgets"],
+    "intent_tags": ["widget authoring", "dashboard widgets", "html widgets"],
+    "exposure": "explicit",
+}
+
+
+@register(_PREPARE_SCHEMA, safety_tier="readonly", requires_bot_context=True, requires_channel_context=False, tool_metadata=_WIDGET_TOOL_METADATA, returns={
     "type": "object",
     "properties": {
         "goal": {"type": "string"},
@@ -411,7 +418,7 @@ def _uuid_or_none(value: object) -> uuid.UUID | None:
         return None
 
 
-@register(_SCHEMA, safety_tier="readonly", requires_bot_context=True, requires_channel_context=False, returns=_RETURNS)
+@register(_SCHEMA, safety_tier="readonly", requires_bot_context=True, requires_channel_context=False, tool_metadata=_WIDGET_TOOL_METADATA, returns=_RETURNS)
 async def check_widget_authoring(
     yaml_template: str,
     python_code: str | None = None,
@@ -436,7 +443,7 @@ async def check_widget_authoring(
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
-@register(_HTML_SCHEMA, safety_tier="readonly", requires_bot_context=True, requires_channel_context=False, returns={
+@register(_HTML_SCHEMA, safety_tier="readonly", requires_bot_context=True, requires_channel_context=False, tool_metadata=_WIDGET_TOOL_METADATA, returns={
     **_RETURNS,
     "properties": {
         **_RETURNS["properties"],
@@ -477,6 +484,7 @@ async def check_html_widget_authoring(
     safety_tier="mutating",
     requires_bot_context=True,
     requires_channel_context=False,
+    tool_metadata=_WIDGET_TOOL_METADATA,
     returns=_RECEIPT_RETURNS,
 )
 async def publish_widget_authoring_receipt(

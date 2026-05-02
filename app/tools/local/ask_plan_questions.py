@@ -120,6 +120,10 @@ def _coerce_questions(raw_questions: list[dict] | str) -> list[dict]:
     safety_tier="readonly",
     requires_bot_context=True,
     requires_channel_context=True,
+    tool_metadata={
+        "domains": ["plan_control"],
+        "exposure": "ambient",
+    },
     returns={
         "type": "object",
         "additionalProperties": False,

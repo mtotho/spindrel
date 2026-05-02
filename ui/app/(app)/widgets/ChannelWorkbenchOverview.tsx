@@ -89,7 +89,7 @@ export function ChannelWorkbenchOverview({
             </h1>
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-text-muted">
               <span>{pins.length} pinned artifact{pins.length === 1 ? "" : "s"}</span>
-              <span>{railCount} in chat rail</span>
+              <span>{railCount} in chat shelf</span>
               <span>{dashboardHealthLabel}</span>
             </div>
           </div>

@@ -313,7 +313,8 @@ class TestHeartbeatDiscoveryHatchesSuppressed:
             n: _schema(n)
             for n in baseline + ["arr_heartbeat_snapshot", "run_script"]
         }
-        result = await _run(bot, schemas=schemas)
+        with patch("app.agent.context_assembly.auto_injected_pin_names", return_value=frozenset(baseline)):
+            result = await _run(bot, schemas=schemas)
         exposed = {t["function"]["name"] for t in result.pre_selected_tools or []}
         assert "arr_heartbeat_snapshot" in exposed
         assert exposed.isdisjoint(set(baseline))
@@ -456,6 +457,19 @@ class TestChatRegressionGuard:
                 "app.agent.context_assembly.get_local_tool_schemas",
                 side_effect=lambda names: [schemas[n] for n in names if n in schemas],
             ),
+            patch(
+                "app.agent.context_assembly.get_local_tool_schemas_by_metadata",
+                side_effect=lambda domain, exposure: [
+                    schemas[n] for n in ("get_tool_info",)
+                    if domain == "tool_schema" and exposure == "ambient" and n in schemas
+                ] + [
+                    schemas[n] for n in ("search_tools",)
+                    if domain == "tool_discovery" and exposure == "ambient" and n in schemas
+                ] + [
+                    schemas[n] for n in ("get_skill", "get_skill_list")
+                    if domain == "skill_access" and exposure == "ambient" and n in schemas
+                ],
+            ),
         ]
         for p in patches:
             p.start()
@@ -485,6 +499,6 @@ class TestChatRegressionGuard:
         exposed = {t["function"]["name"] for t in result.pre_selected_tools or []}
         assert "get_tool_info" in exposed
         assert "search_tools" in exposed
-        assert "list_tool_signatures" in exposed
+        assert "list_tool_signatures" not in exposed
         # Heartbeat-specific trace block must NOT appear on chat surfaces.
         assert "heartbeat_surface" not in result.tool_discovery_info

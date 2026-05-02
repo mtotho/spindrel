@@ -46,7 +46,7 @@ test("freeform grid config preserves existing dashboard settings", () => {
   assert.equal(isFreeformGridConfig(cfg), true);
 });
 
-test("legacy grid layouts offset once into freeform space", () => {
+test("legacy layouts offset once into freeform grid space", () => {
   const origin = { x: 48, y: 8 };
   const patches = migrateLayoutsToFreeform(
     [
@@ -57,22 +57,25 @@ test("legacy grid layouts offset once into freeform space", () => {
     { x: 0, y: 0, w: 6, h: 10 },
   );
 
-  assert.deepEqual(patches, [{ id: "a", zone: "grid", x: 48, y: 8, w: 6, h: 10 }]);
+  assert.deepEqual(patches, [
+    { id: "a", zone: "grid", x: 48, y: 8, w: 6, h: 10 },
+    { id: "b", zone: "grid", x: 54, y: 8, w: 6, h: 10 },
+  ]);
 });
 
-test("drop classifier keeps rail, dock, header, and free grid distinct", () => {
+test("drop classifier treats legacy panel lanes as freeform grid", () => {
   const origin = freeformOriginForPreset(preset);
   const frame = dashboardFrame(preset, origin, 720, 900);
 
-  assert.equal(classifyDashboardDrop({ ...frame.railRect, w: 120, h: 100 }, frame).zone, "rail");
-  assert.equal(classifyDashboardDrop({ ...frame.dockRect, w: 120, h: 100 }, frame).zone, "dock");
-  assert.equal(classifyDashboardDrop({ ...frame.headerRect, w: 120, h: 30 }, frame).zone, "header");
+  assert.equal(classifyDashboardDrop({ ...frame.railRect, w: 120, h: 100 }, frame).zone, "grid");
+  assert.equal(classifyDashboardDrop({ ...frame.dockRect, w: 120, h: 100 }, frame).zone, "grid");
+  assert.equal(classifyDashboardDrop({ ...frame.headerRect, w: 120, h: 30 }, frame).zone, "grid");
 
   const freeRect = gridLayoutToWorldRect({ x: origin.x + 20, y: origin.y + 20, w: 3, h: 4 }, frame);
   assert.equal(classifyDashboardDrop(freeRect, frame).zone, "grid");
 });
 
-test("header drop can fit the full top center lane", () => {
+test("legacy zone clamp keeps freeform dimensions", () => {
   assert.deepEqual(
     clampDropToZone("header", 0, 0, preset.cols.lg, 2, preset.cols.lg),
     { x: 0, y: 0, w: preset.cols.lg, h: 2 },
@@ -99,19 +102,19 @@ test("dashboard camera never zooms past current dashboard scale", () => {
 test("home dashboard camera keeps the native dashboard scale", () => {
   const frame = dashboardFrame(preset, freeformOriginForPreset(preset), 720, 900);
   const camera = homeFrameCamera(frame, { w: 1800, h: 760 });
-  const minX = Math.min(frame.railRect.x, frame.headerRect.x, frame.centerRect.x);
-  const maxX = Math.max(frame.dockRect.x + frame.dockRect.w, frame.headerRect.x + frame.headerRect.w);
+  const minX = frame.centerRect.x;
+  const maxX = frame.centerRect.x + frame.centerRect.w;
   const frameWidth = maxX - minX;
 
   assert.equal(camera.scale, DASHBOARD_CAMERA_MAX_SCALE);
   assert.equal(camera.x, 1800 / 2 - (minX + frameWidth / 2));
-  assert.equal(camera.y, 24 - frame.headerRect.y);
+  assert.equal(camera.y, 24 - frame.centerRect.y);
 });
 
 test("home dashboard camera keeps the left edge visible on narrow containers", () => {
   const frame = dashboardFrame(preset, freeformOriginForPreset(preset), 1080, 900);
   const camera = homeFrameCamera(frame, { w: 900, h: 760 });
-  const minX = Math.min(frame.railRect.x, frame.headerRect.x, frame.centerRect.x);
+  const minX = frame.centerRect.x;
 
   assert.equal(camera.scale, DASHBOARD_CAMERA_MAX_SCALE);
   assert.equal(camera.x, 24 - minX);
@@ -123,7 +126,7 @@ test("dashboard camera supports deep zoom-out before spatial handoff CTA", () =>
   assert.equal(camera.scale, 0.08);
 });
 
-test("neighbor ghosts stay outside the guided dashboard frame", () => {
+test("neighbor ghosts stay outside the freeform board", () => {
   const origin = freeformOriginForPreset(preset);
   const frame = dashboardFrame(preset, origin, 720, 900);
   const ghosts = placeDashboardNeighborGhosts(frame, [
@@ -132,8 +135,8 @@ test("neighbor ghosts stay outside the guided dashboard frame", () => {
   ]);
 
   for (const ghost of ghosts) {
-    const insideX = ghost.x >= frame.railRect.x && ghost.x <= frame.dockRect.x + frame.dockRect.w;
-    const insideY = ghost.y >= frame.headerRect.y && ghost.y <= frame.centerRect.y + frame.centerRect.h;
+    const insideX = ghost.x >= frame.centerRect.x && ghost.x <= frame.centerRect.x + frame.centerRect.w;
+    const insideY = ghost.y >= frame.centerRect.y && ghost.y <= frame.centerRect.y + frame.centerRect.h;
     assert.equal(insideX && insideY, false);
   }
 });
@@ -146,13 +149,14 @@ test("freeform dashboard canvas has one lock reset outside the canvas controls",
   assert.doesNotMatch(source, /CanvasControls/);
   assert.doesNotMatch(source, /Fit dashboard/);
   assert.match(source, /function classifyDashboardPointer/);
-  assert.match(source, /pointInRect\(point, frame\.railRect, 28\)/);
+  assert.doesNotMatch(source, /pointInRect/);
   assert.match(source, /const target = classifyDashboardPointer\(pointerWorld, movedRect, frame\)/);
-  assert.match(source, /const fromNarrowZoneToGrid = normalizeZone\(pin\) !== "grid" && target\.zone === "grid"/);
+  assert.doesNotMatch(source, /fromNarrowZoneToGrid/);
   assert.doesNotMatch(source, /findOpenGridPlacement\(desired, gridOccupancy\(pins, layouts, pinId\)\)/);
   assert.match(source, /const snappedRect = zonedLayoutToWorldRect\(target\.zone, next, frame\)/);
-  assert.match(source, /rect: settleCollision \|\| target\.zone !== "grid"\s+\? snappedRect\s+: \{ \.\.\.movedRect, w: snappedRect\.w, h: snappedRect\.h \}/);
-  assert.match(source, /clampDropToZone\("header", 0, 0, preset\.cols\.lg, DASHBOARD_HEADER_ROWS, preset\.cols\.lg\)/);
+  assert.match(source, /rect: settleCollision\s+\? snappedRect\s+: \{ \.\.\.movedRect, w: snappedRect\.w, h: snappedRect\.h \}/);
+  assert.doesNotMatch(source, /DASHBOARD_HEADER_ROWS/);
+  assert.match(source, /Freeform canvas\. Drag artifacts anywhere on the board\./);
   assert.match(source, /cursor: viewLocked \? "default" : isPanning \? "grabbing" : "grab"/);
   assert.match(routeSource, /viewLocked=\{dashboardViewLocked\}/);
   assert.match(routeSource, /aria-pressed=\{dashboardViewLocked\}/);

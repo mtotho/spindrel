@@ -11,9 +11,11 @@ logger = logging.getLogger(__name__)
 _cache: dict[str, tuple[float, list[str]]] = {}
 _CACHE_TTL = 3600  # 1 hour — repeated lookups don't change fast
 
-# Tools whose `arguments["query"]` field is used for repeated-lookup tracking.
-# Excludes web_search (too noisy/generic) and get_memory_file (uses "name" not "query").
-_TRACKED_TOOLS = ["search_memory", "search_channel_workspace", "search_channel_archive"]
+def _tracked_query_tools() -> list[str]:
+    """Tools whose metadata declares query-based repeated-lookup tracking."""
+    from app.tools.registry import get_local_tool_names_by_metadata
+
+    return get_local_tool_names_by_metadata(domain="repeated_lookup_tracking")
 
 
 async def find_repeated_lookups(
@@ -24,10 +26,9 @@ async def find_repeated_lookups(
 ) -> list[str]:
     """Return search queries the bot has repeated across multiple agent runs.
 
-    Queries the tool_calls table for search_memory, search_channel_workspace,
-    and search_channel_archive calls, groups by normalized query text, and
-    returns queries that appear in >= min_runs distinct correlation_ids
-    (agent runs) within the lookback window.
+    Queries tool_calls for metadata-declared query lookup tools, groups by
+    normalized query text, and returns queries that appear in >= min_runs
+    distinct correlation_ids (agent runs) within the lookback window.
 
     Results are cached for 1 hour per bot to avoid hitting the DB on
     every message.
@@ -43,6 +44,9 @@ async def find_repeated_lookups(
         from app.db.models import ToolCall
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+        tracked_tools = _tracked_query_tools()
+        if not tracked_tools:
+            return []
 
         async with async_session() as db:
             query_expr = func.lower(func.trim(
@@ -54,7 +58,7 @@ async def find_repeated_lookups(
                     func.count(func.distinct(ToolCall.correlation_id)).label("run_count"),
                 )
                 .where(
-                    ToolCall.tool_name.in_(_TRACKED_TOOLS),
+                    ToolCall.tool_name.in_(tracked_tools),
                     ToolCall.bot_id == bot_id,
                     ToolCall.created_at >= cutoff,
                     ToolCall.arguments["query"].as_string().isnot(None),

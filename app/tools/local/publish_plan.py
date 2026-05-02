@@ -134,6 +134,10 @@ _SCHEMA = {
     safety_tier="mutating",
     requires_bot_context=True,
     requires_channel_context=True,
+    tool_metadata={
+        "domains": ["plan_control"],
+        "exposure": "ambient",
+    },
     returns={"oneOf": [_SUCCESS_RETURN_SCHEMA, _ERROR_RETURN_SCHEMA]},
 )
 async def publish_plan(

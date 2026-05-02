@@ -9,6 +9,7 @@ import {
   type WidgetPackageListItem,
 } from "@/src/api/hooks/useWidgetPackages";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
+import { ManifestSignatureBadge } from "@/src/components/shared/ManifestSignatureBadge";
 
 interface Props {
   pkg: WidgetPackageListItem;
@@ -116,6 +117,7 @@ export function PackageCard({ pkg, variant = "default", seedFallbackName }: Prop
                   <AlertCircle size={10} /> Invalid
                 </span>
               )}
+              <ManifestSignatureBadge state={pkg.signature_state} />
               {pkg.has_python_code && (
                 <span className="inline-flex items-center rounded bg-accent/10 text-accent text-[10px] font-mono px-1.5 py-0.5">
                   +python

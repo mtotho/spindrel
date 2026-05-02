@@ -255,7 +255,11 @@ async def _collect_scratch_rows(
 _MULTI_CHANNEL_CAP = 10
 
 
-@register(_LIST_SCHEMA, requires_channel_context=True)
+@register(_LIST_SCHEMA, requires_channel_context=True, tool_metadata={
+    "domains": ["context_navigation"],
+    "exposure": "ambient",
+    "auto_inject": ["chat_baseline"],
+})
 async def list_sub_sessions(
     channel_id: str | None = None,
     limit: int = 10,
@@ -368,7 +372,11 @@ _READ_SCHEMA = {
 }
 
 
-@register(_READ_SCHEMA)
+@register(_READ_SCHEMA, tool_metadata={
+    "domains": ["context_navigation"],
+    "exposure": "ambient",
+    "auto_inject": ["chat_baseline"],
+})
 async def read_sub_session(session_id: str, limit: int = 50) -> str:
     try:
         sid = uuid.UUID(str(session_id))

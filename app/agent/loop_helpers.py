@@ -478,8 +478,10 @@ async def _resolve_loop_tools(
         client_schemas = get_client_tool_schemas_fn(bot.client_tools)
         all_tools = local_schemas + mcp_schemas + client_schemas
         existing_names = {t.get("function", {}).get("name") for t in all_tools}
+        from app.tools.registry import get_local_tool_names_by_metadata
+
         skill_tools_to_add = [
-            n for n in ("get_skill", "get_skill_list")
+            n for n in get_local_tool_names_by_metadata(domain="skill_access")
             if n not in existing_names
         ]
         if skill_tools_to_add:
@@ -496,15 +498,17 @@ async def _resolve_loop_tools(
             and tool_surface_policy != "full"
             and len(all_tools) > _LEGACY_FULL_TOOL_DUMP_MAX_TOOLS
         ):
-            from app.agent.channel_overrides import AUTO_INJECTED_PIN_NAMES
+            from app.agent.channel_overrides import auto_injected_pin_names
+            from app.tools.registry import get_local_tool_names_by_metadata
 
+            auto_injected = auto_injected_pin_names()
             allowed_names = {str(n) for n in (required_tool_names or []) if n}
             allowed_names.update(
                 str(n)
                 for n in (getattr(bot, "pinned_tools", None) or [])
-                if n and str(n) not in AUTO_INJECTED_PIN_NAMES
+                if n and str(n) not in auto_injected
             )
-            allowed_names.update(("get_skill", "get_skill_list"))
+            allowed_names.update(get_local_tool_names_by_metadata(domain="skill_access"))
             if injected:
                 allowed_names.update(t["function"]["name"] for t in injected)
             all_tools = [

@@ -476,6 +476,10 @@ async def _enforce_session_plan_write_policy(operation: str, resolved_path: str,
             "required": ["operation", "path"],
         },
     },
+}, tool_metadata={
+    "domains": ["workspace_files"],
+    "exposure": "ambient",
+    "auto_inject": ["workspace_files_memory"],
 }, returns={
     "oneOf": [
         {

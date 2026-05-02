@@ -34,6 +34,7 @@ from app.services.project_coding_runs import (
     fire_project_coding_run_schedule,
     get_project_coding_run,
     get_project_coding_run_review_context,
+    list_project_factory_review_inbox,
     list_project_coding_run_review_batches,
     list_project_coding_run_review_sessions,
     list_project_coding_run_schedules,
@@ -405,6 +406,9 @@ class ProjectCodingRunOut(BaseModel):
     continuation_count: int = 0
     latest_continuation: dict | None = None
     continuations: list[dict] = Field(default_factory=list)
+    review_queue_state: str | None = None
+    review_queue_priority: int | None = None
+    review_next_action: str | None = None
     task: ProjectCodingRunTaskOut
     receipt: ProjectRunReceiptOut | None = None
     activity: list[dict] = Field(default_factory=list)
@@ -431,6 +435,13 @@ class ProjectCodingRunReviewBatchOut(BaseModel):
     latest_activity_at: str | None = None
     summary: dict = Field(default_factory=dict)
     actions: dict = Field(default_factory=dict)
+
+
+class ProjectFactoryReviewInboxOut(BaseModel):
+    generated_at: str | None = None
+    summary: dict = Field(default_factory=dict)
+    items: list[dict] = Field(default_factory=list)
+    projects: list[dict] = Field(default_factory=list)
 
 
 class ProjectCodingRunReviewSessionLedgerOut(BaseModel):
@@ -1052,6 +1063,15 @@ async def create_project(
         raise HTTPException(status_code=409, detail=f"project already exists or is invalid: {exc}") from exc
     await db.refresh(project)
     return await _project_out(db, project)
+
+
+@router.get("/review-inbox", response_model=ProjectFactoryReviewInboxOut)
+async def get_project_factory_review_inbox(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    return await list_project_factory_review_inbox(db, limit=limit)
 
 
 @router.get("/{project_id}", response_model=ProjectOut)

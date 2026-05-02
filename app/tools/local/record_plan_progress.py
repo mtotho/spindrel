@@ -164,6 +164,10 @@ async def _turn_has_successful_readback(
     safety_tier="mutating",
     requires_bot_context=True,
     requires_channel_context=True,
+    tool_metadata={
+        "domains": ["plan_control"],
+        "exposure": "ambient",
+    },
     returns={
         "type": "object",
         "additionalProperties": False,

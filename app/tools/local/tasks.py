@@ -806,7 +806,11 @@ async def cancel_task(task_id: str) -> str:
             "required": ["task_id"],
         },
     },
-}, safety_tier="control_plane")
+}, safety_tier="control_plane", tool_metadata={
+    "domains": ["automation"],
+    "intent_tags": ["scheduled tasks", "automation definitions", "pipelines"],
+    "exposure": "explicit",
+})
 async def update_task(
     task_id: str,
     title: str | None | object = _UNSET,

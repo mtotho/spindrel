@@ -4,6 +4,8 @@ import {
   Activity,
   CalendarClock,
   CheckCheck,
+  GitMerge,
+  MessageSquareWarning,
   Plus,
   Radar,
 } from "lucide-react";
@@ -17,6 +19,7 @@ import { useLatestHealthSummary } from "../../api/hooks/useSystemHealth";
 import { useMissionControl } from "../../api/hooks/useMissionControl";
 import { useUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
 import { useUnreadState } from "../../api/hooks/useUnread";
+import { useProjectFactoryReviewInbox } from "../../api/hooks/useProjects";
 import { usePageRefresh } from "../../hooks/usePageRefresh";
 import { PageHeader } from "../layout/PageHeader";
 import { RefreshableScrollView } from "../shared/RefreshableScrollView";
@@ -144,6 +147,59 @@ function HomeOverview() {
   );
 }
 
+function reviewStateLabel(state: string | undefined) {
+  return String(state || "needs_review").replaceAll("_", " ");
+}
+
+function ProjectFactoryPulseSection() {
+  const { data: inbox } = useProjectFactoryReviewInbox(8);
+  const items = inbox?.items ?? [];
+  const needsAttention = inbox?.summary?.needs_attention_count ?? items.filter((item) => item.state !== "reviewed" && item.state !== "reviewing").length;
+  if (!needsAttention) return null;
+  const topItems = items.slice(0, 3);
+
+  return (
+    <AnchorSection
+      testId="home-project-factory-pulse"
+      icon={<GitMerge size={14} />}
+      eyebrow="Project Factory"
+      title="Runs waiting for review"
+      meta={`${needsAttention} need${needsAttention === 1 ? "s" : ""} attention`}
+      action={
+        topItems[0]?.links?.project_runs_url ? (
+          <Link to={topItems[0].links.project_runs_url} className="rounded-md px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/[0.08]">
+            Open
+          </Link>
+        ) : null
+      }
+      emphasis="secondary"
+    >
+      <div className="flex flex-col gap-1">
+        {topItems.map((item) => (
+          <Link
+            key={item.id}
+            to={item.links?.run_url || item.links?.project_runs_url || `/admin/projects/${item.project_id}#Runs`}
+            className="group flex min-h-[58px] items-start gap-3 rounded-md px-2.5 py-2 transition-colors hover:bg-surface-overlay/35"
+          >
+            <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-warning/10 text-warning-muted">
+              <MessageSquareWarning size={14} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span className="truncate text-sm font-semibold text-text">{item.title}</span>
+                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">{reviewStateLabel(item.state)}</span>
+              </span>
+              <span className="mt-0.5 block truncate text-xs text-text-muted">
+                {item.project_name} · {item.next_action || item.summary_line || "Review run evidence"}
+              </span>
+            </span>
+          </Link>
+        ))}
+      </div>
+    </AnchorSection>
+  );
+}
+
 export function HomeDashboard() {
   const { refreshing, onRefresh } = usePageRefresh();
 
@@ -176,6 +232,7 @@ export function HomeDashboard() {
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
         <main className="box-border flex w-full max-w-[1600px] flex-col gap-5 px-4 py-4 sm:px-6 lg:px-8 lg:py-5">
           <HomeOverview />
+          <ProjectFactoryPulseSection />
           <div className="xl:hidden">
             <UnreadCenterSection />
           </div>

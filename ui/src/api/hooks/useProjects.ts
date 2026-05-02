@@ -12,6 +12,7 @@ import type {
   ProjectCodingRunReviewSessionLedger,
   ProjectCodingRunSchedule,
   ProjectCodingRunTask,
+  ProjectFactoryReviewInbox,
   ProjectFromBlueprintWrite,
   ProjectInstance,
   ProjectRunReceipt,
@@ -36,6 +37,14 @@ export function useProject(projectId: string | undefined) {
     queryKey: ["projects", projectId],
     queryFn: () => apiFetch<Project>(`/api/v1/projects/${projectId}`),
     enabled: !!projectId,
+  });
+}
+
+export function useProjectFactoryReviewInbox(limit = 50) {
+  return useQuery({
+    queryKey: ["projects", "review-inbox", limit],
+    queryFn: () => apiFetch<ProjectFactoryReviewInbox>(`/api/v1/projects/review-inbox?limit=${limit}`),
+    refetchInterval: 60_000,
   });
 }
 
@@ -221,6 +230,7 @@ export function useCreateProjectCodingRun(projectId: string | undefined) {
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-batches"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-sessions"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
+      qc.invalidateQueries({ queryKey: ["projects", "review-inbox"] });
     },
   });
 }
@@ -240,6 +250,7 @@ export function useContinueProjectCodingRun(projectId: string | undefined) {
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-batches"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-sessions"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
+      qc.invalidateQueries({ queryKey: ["projects", "review-inbox"] });
     },
   });
 }
@@ -259,6 +270,7 @@ function useProjectCodingRunAction(projectId: string | undefined, action: "refre
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-sessions"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "instances"] });
+      qc.invalidateQueries({ queryKey: ["projects", "review-inbox"] });
     },
   });
 }
@@ -284,6 +296,7 @@ export function useMarkProjectCodingRunsReviewed(projectId: string | undefined) 
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-batches"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-sessions"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
+      qc.invalidateQueries({ queryKey: ["projects", "review-inbox"] });
     },
   });
 }
@@ -301,6 +314,7 @@ export function useCreateProjectCodingRunReviewSession(projectId: string | undef
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-batches"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-sessions"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
+      qc.invalidateQueries({ queryKey: ["projects", "review-inbox"] });
     },
   });
 }

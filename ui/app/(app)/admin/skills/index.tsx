@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { useFileSync, useSkills, type FileSyncResult } from "@/src/api/hooks/useSkills";
+import { ManifestSignatureBadge } from "@/src/components/shared/ManifestSignatureBadge";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { Spinner } from "@/src/components/shared/Spinner";
@@ -140,6 +141,10 @@ function SkillRow({
               <span className="min-w-0 truncate text-[12px] font-semibold text-text">{entry.skill.name || entry.skill.id}</span>
               {hasChildren && <StatusBadge label="folder" variant="neutral" />}
               {sourceBadge(bucket)}
+              <ManifestSignatureBadge
+                state={entry.skill.signature_state}
+                lastSignedAt={entry.skill.last_signed_at}
+              />
               {warnings > 0 && <StatusBadge label={`${warnings} warning${warnings === 1 ? "" : "s"}`} variant="warning" />}
             </div>
             <div className="mt-0.5 text-[11px] leading-snug text-text-dim">

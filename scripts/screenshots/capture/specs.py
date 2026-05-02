@@ -71,9 +71,89 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
             ' && document.querySelectorAll(\'[data-testid="home-user-row"]\').length >= 2'
             ' && !!document.querySelector(\'[data-testid="home-users-section"]\')'
             ' && !!document.querySelector(\'[data-testid="home-unread-center"]\')'
+            ' && !!document.querySelector(\'[data-testid="home-project-factory-pulse"]\')'
             ' && /Unread center/i.test(document.body.innerText)'
         ),
         output="home.png",
+        extra_init_scripts=[
+            """
+(() => {
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (input, init) => {
+    const raw = typeof input === "string" ? input : input?.url;
+    if (raw) {
+      const url = new URL(raw, window.location.origin);
+      if (url.pathname === "/api/v1/projects/review-inbox") {
+        return new Response(JSON.stringify({
+          generated_at: "2026-05-01T12:00:00Z",
+          summary: {
+            total: 3,
+            needs_attention_count: 2,
+            in_flight_count: 1,
+            project_count: 1,
+            ready_for_review: 1,
+            changes_requested: 1,
+            follow_up_running: 1,
+            follow_up_created: 0,
+            missing_evidence: 0,
+            reviewing: 0,
+            reviewed: 0,
+            blocked: 0
+          },
+          items: [{
+            id: "home-project-run-review",
+            project_id: "home-project",
+            project_name: "Spindrel",
+            project_slug: "spindrel",
+            task_id: "home-project-run-review",
+            title: "Review overnight Project Factory PR",
+            branch: "factory/overnight-review",
+            state: "ready_for_review",
+            status: "completed",
+            review_status: "ready_for_review",
+            updated_at: "2026-05-01T11:45:00Z",
+            evidence: { tests_count: 3, screenshots_count: 2, changed_files_count: 5, dev_targets_count: 1 },
+            next_action: "Review the PR, tests, screenshots, and receipt.",
+            links: {
+              project_url: "/admin/projects/home-project",
+              project_runs_url: "/admin/projects/home-project#Runs",
+              run_url: "/admin/projects/home-project/runs/home-project-run-review"
+            }
+          }, {
+            id: "home-project-run-changes",
+            project_id: "home-project",
+            project_name: "Spindrel",
+            project_slug: "spindrel",
+            task_id: "home-project-run-changes",
+            title: "Follow up on intake triage screenshots",
+            branch: "factory/intake-follow-up",
+            state: "changes_requested",
+            status: "completed",
+            review_status: "changes_requested",
+            updated_at: "2026-05-01T11:30:00Z",
+            evidence: { tests_count: 1, screenshots_count: 0, changed_files_count: 2, dev_targets_count: 1 },
+            next_action: "Start a follow-up run from reviewer feedback.",
+            links: {
+              project_url: "/admin/projects/home-project",
+              project_runs_url: "/admin/projects/home-project#Runs",
+              run_url: "/admin/projects/home-project/runs/home-project-run-changes"
+            }
+          }]
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+    }
+    return originalFetch(input, init);
+  };
+})();
+            """,
+        ],
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('Project Factory') "
+            "&& text.includes('Runs waiting for review') "
+            "&& text.includes('Review overnight Project Factory PR'), "
+            "detail: 'Home did not surface Project Factory review inbox attention' };"
+        ),
     ),
     ScreenshotSpec(
         name="chat-main",
@@ -3563,9 +3643,23 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
       if (match) {
         const response = await originalFetch(input, init);
         const finalizedReview = window.__PROJECT_REVIEW_FINALIZED__ === true;
-        const enrichRun = (run, projectId) => ({
+        const enrichRun = (run, projectId) => {
+          const latestContinuation = run.latest_continuation || null;
+          const queueState = finalizedReview ? "reviewed" : (
+            latestContinuation ? "follow_up_running" : run.review?.status === "changes_requested" ? "changes_requested" : "ready_for_review"
+          );
+          const queuePriority = finalizedReview ? 90 : queueState === "changes_requested" ? 10 : queueState === "follow_up_running" ? 50 : 30;
+          const queueAction = finalizedReview ? "No operator action needed." : (
+            queueState === "follow_up_running" ? "Wait for the follow-up run to publish updated evidence." :
+            queueState === "changes_requested" ? "Start a follow-up run from reviewer feedback." :
+            "Review the PR, tests, screenshots, and receipt."
+          );
+          return {
           ...run,
           launch_batch_id: run.launch_batch_id || "issue-work-pack-batch:screenshot",
+          review_queue_state: queueState,
+          review_queue_priority: queuePriority,
+          review_next_action: queueAction,
           dev_targets: run.dev_targets || [
             { key: "api", label: "API", port: 31100, port_env: "SPINDREL_DEV_API_PORT", url: "http://127.0.0.1:31100", url_env: "SPINDREL_DEV_API_URL" },
             { key: "ui", label: "UI", port: 31200, port_env: "SPINDREL_DEV_UI_PORT", url: "http://127.0.0.1:31200", url_env: "SPINDREL_DEV_UI_URL" }
@@ -3574,23 +3668,9 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
           parent_task_id: run.parent_task_id || null,
           continuation_index: run.continuation_index || 0,
           continuation_feedback: run.continuation_feedback || null,
-          continuation_count: run.continuation_count ?? 1,
-          latest_continuation: run.latest_continuation || {
-            id: "screenshot-project-coding-run-follow-up",
-            task_id: "screenshot-project-coding-run-follow-up-task",
-            status: "pending",
-            review_status: "pending",
-            continuation_index: 1,
-            feedback: "Tighten the receipt copy and recapture the Project Runs screenshot."
-          },
-          continuations: run.continuations || [{
-            id: "screenshot-project-coding-run-follow-up",
-            task_id: "screenshot-project-coding-run-follow-up-task",
-            status: "pending",
-            review_status: "pending",
-            continuation_index: 1,
-            feedback: "Tighten the receipt copy and recapture the Project Runs screenshot."
-          }],
+          continuation_count: run.continuation_count ?? (latestContinuation ? 1 : 0),
+          latest_continuation: latestContinuation,
+          continuations: run.continuations || (latestContinuation ? [latestContinuation] : []),
           review: finalizedReview ? {
             status: "reviewed",
             blocker: null,
@@ -3663,7 +3743,8 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
             instance: { id: "screenshot-project-instance", status: "ready", root_path: "common/project-instances/screenshot/project-run" },
             actions: { can_refresh: true, can_mark_reviewed: true, can_cleanup_instance: true, can_request_changes: true }
           }
-        });
+        };
+        };
         const ensureBatchRows = (rows, projectId) => {
           const enriched = rows.map((run) => enrichRun(run, projectId));
           if (enriched.length === 0) return enriched;
@@ -4140,12 +4221,12 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         assert_js=(
             "const text = document.body.innerText;"
             "return { ok: text.includes('Review Inbox') "
-            "&& text.includes('Launch batches grouped for morning review') "
+            "&& text.includes('Operator queue for runs needing acceptance') "
             "&& text.includes('Sources: Prepare the Project workspace screenshot receipt') "
             "&& text.includes('Evidence: 4 tests') "
             "&& text.includes('Select runs') "
-            "&& text.includes('Start review'), "
-            "detail: 'Project Runs tab did not show the launch-batch Review Inbox' };"
+            "&& text.includes('Review batch'), "
+            "detail: 'Project Runs tab did not show the operator Review Inbox and batch context' };"
         ),
     ),
     ScreenshotSpec(

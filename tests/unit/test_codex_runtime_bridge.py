@@ -355,8 +355,12 @@ def test_codex_native_command_method_constants_are_current():
     assert schema.NOTIFICATION_GUARDIAN_WARNING == "guardianWarning"
     assert schema.NOTIFICATION_FS_CHANGED == "fs/changed"
     assert schema.NOTIFICATION_MCP_TOOL_CALL_PROGRESS == "item/mcpToolCall/progress"
+    assert schema.ITEM_COMMAND_TERMINAL_INTERACTION == "item/commandExecution/terminalInteraction"
     assert schema.NOTIFICATION_MCP_SERVER_STARTUP_STATUS_UPDATED == "mcpServer/startupStatus/updated"
     assert schema.NOTIFICATION_ACCOUNT_RATE_LIMITS_UPDATED == "account/rateLimits/updated"
+    assert schema.NOTIFICATION_ACCOUNT_UPDATED == "account/updated"
+    assert schema.NOTIFICATION_ACCOUNT_LOGIN_COMPLETED == "account/login/completed"
+    assert schema.NOTIFICATION_MCP_SERVER_OAUTH_LOGIN_COMPLETED == "mcpServer/oauthLogin/completed"
     assert schema.NOTIFICATION_MODEL_REROUTED == "model/rerouted"
 
 

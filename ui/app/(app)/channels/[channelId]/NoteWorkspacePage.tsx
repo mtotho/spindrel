@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
+  BookOpen,
   Check,
   Eye,
   FileText,
@@ -17,14 +18,16 @@ import {
   useChannelNote,
   useChannelWorkspaceFileVersions,
   useWriteChannelNote,
-  type ChannelNoteAssistProposal,
 } from "@/src/api/hooks/useChannels";
 import { MarkdownViewer } from "@/src/components/workspace/MarkdownViewer";
 import { ChatSession } from "@/src/components/chat/ChatSession";
 import { useModelGroups } from "@/src/api/hooks/useModels";
+import { DocsMarkdownModal } from "@/src/components/shared/DocsMarkdownModal";
 
 type SelectionState = { start: number; end: number; text: string };
 type AutoSaveState = "idle" | "pending" | "saving" | "saved" | "error";
+type SelectionRequest = { id: number; start: number; end: number };
+type AppliedNotice = { message: string; undoBody?: string };
 
 export default function NoteWorkspacePage() {
   const { channelId, slug } = useParams<{ channelId: string; slug: string }>();
@@ -43,13 +46,14 @@ export default function NoteWorkspacePage() {
   const [baseHash, setBaseHash] = useState<string | null>(null);
   const [selection, setSelection] = useState<SelectionState>({ start: 0, end: 0, text: "" });
   const [preview, setPreview] = useState(false);
-  const [proposal, setProposal] = useState<ChannelNoteAssistProposal | null>(null);
   const [customInstruction, setCustomInstruction] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [aiFlash, setAiFlash] = useState(false);
   const [assistModel, setAssistModel] = useState("");
   const [assistProviderId, setAssistProviderId] = useState<string | null>(null);
-  const [appliedNotice, setAppliedNotice] = useState<string | null>(null);
+  const [appliedNotice, setAppliedNotice] = useState<AppliedNotice | null>(null);
+  const [selectionRequest, setSelectionRequest] = useState<SelectionRequest | null>(null);
   const [autoSaveState, setAutoSaveState] = useState<AutoSaveState>("idle");
   const [autoSaveError, setAutoSaveError] = useState<string | null>(null);
   const savedContentRef = useRef("");
@@ -66,7 +70,8 @@ export default function NoteWorkspacePage() {
     savedContentRef.current = note.content;
     setAutoSaveState("saved");
     setAutoSaveError(null);
-    setProposal(null);
+    setAppliedNotice(null);
+    setSelectionRequest(null);
     setSelection({ start: 0, end: 0, text: "" });
   }, [note]);
 
@@ -79,7 +84,6 @@ export default function NoteWorkspacePage() {
   }, [fullDraft]);
   const dirty = Boolean(note && fullDraft !== savedContentRef.current);
   const selectedText = selection.text.trim();
-  const proposalMeaningful = proposal ? normalizeMd(proposal.replacement_markdown) !== normalizeMd(proposal.target === "selection" && selectedText ? selectedText : bodyDraft) : false;
   const modelOptions = useMemo(() => {
     return (modelGroupsQuery.data ?? []).flatMap((group) =>
       group.models.map((model) => ({
@@ -106,7 +110,6 @@ export default function NoteWorkspacePage() {
         setBodyDraft(split.body);
       }
       setAutoSaveState("saved");
-      setProposal(null);
     } finally {
       saveInFlightRef.current = false;
     }
@@ -149,39 +152,41 @@ export default function NoteWorkspacePage() {
     const original = next.target === "selection" && activeSelection?.text ? activeSelection.text : bodyDraft;
     const meaningful = normalizeMd(next.replacement_markdown) !== normalizeMd(original);
     if (!meaningful) {
-      setProposal(null);
-      setAppliedNotice("No useful note change found.");
+      setAppliedNotice({ message: "No useful note change found." });
       window.setTimeout(() => setAppliedNotice(null), 2200);
       return;
     }
+    const previousBody = bodyDraft;
+    let nextBody: string;
+    let changedStart = 0;
+    let changedEnd = 0;
     if (next.target === "selection" && activeSelection?.text) {
-      setBodyDraft((current) => current.slice(0, activeSelection.start) + next.replacement_markdown + current.slice(activeSelection.end));
+      nextBody = bodyDraft.slice(0, activeSelection.start) + next.replacement_markdown + bodyDraft.slice(activeSelection.end);
+      changedStart = activeSelection.start;
+      changedEnd = activeSelection.start + next.replacement_markdown.length;
     } else {
-      setBodyDraft(stripFrontmatter(next.replacement_markdown));
+      nextBody = stripFrontmatter(next.replacement_markdown);
+      const bounds = changedRange(bodyDraft, nextBody);
+      changedStart = bounds.start;
+      changedEnd = bounds.end;
     }
-    setProposal(null);
-    setAppliedNotice(next.rationale || "Updated the note draft.");
+    setBodyDraft(nextBody);
+    setSelectionRequest({ id: Date.now(), start: changedStart, end: changedEnd });
+    setAppliedNotice({ message: next.rationale || "Updated the note draft.", undoBody: previousBody });
     setCustomInstruction("");
     setAiFlash(true);
     window.setTimeout(() => setAiFlash(false), 900);
-    window.setTimeout(() => setAppliedNotice(null), 2600);
+    window.setTimeout(() => setAppliedNotice((current) => current?.undoBody === previousBody ? null : current), 5200);
   }, [assistModel, assistNote, assistProviderId, baseHash, bodyDraft, customInstruction, fullDraft, selectedText, selection, slug]);
 
-  const acceptProposal = useCallback(() => {
-    if (!proposal) return;
-    if (!proposalMeaningful) {
-      setProposal(null);
-      return;
-    }
-    if (proposal.target === "selection" && selectedText) {
-      setBodyDraft((current) => current.slice(0, selection.start) + proposal.replacement_markdown + current.slice(selection.end));
-    } else {
-      setBodyDraft(stripFrontmatter(proposal.replacement_markdown));
-    }
-    setProposal(null);
+  const undoAppliedChange = useCallback(() => {
+    if (!appliedNotice?.undoBody) return;
+    setBodyDraft(appliedNotice.undoBody);
+    setAppliedNotice(null);
+    setSelectionRequest({ id: Date.now(), start: 0, end: Math.min(appliedNotice.undoBody.length, 1) });
     setAiFlash(true);
     window.setTimeout(() => setAiFlash(false), 900);
-  }, [proposal, proposalMeaningful, selectedText, selection.end, selection.start]);
+  }, [appliedNotice]);
 
   if (!channelId || !slug) {
     return <div className="p-6 text-text-muted">Missing note route.</div>;
@@ -204,7 +209,6 @@ export default function NoteWorkspacePage() {
   const channelName = channelQuery.data?.display_name || channelQuery.data?.name || "Channel";
   const botId = channelQuery.data?.bot_id;
   const targetLabel = selectedText ? `${selectedText.length} selected chars` : "Whole note";
-  const proposalOriginal = proposal?.target === "selection" && selectedText ? selectedText : bodyDraft;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
@@ -227,6 +231,15 @@ export default function NoteWorkspacePage() {
         <span className="hidden rounded-full bg-surface-overlay px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text-dim sm:inline-flex">
           {note.scope}
         </span>
+        <button
+          type="button"
+          onClick={() => setHelpOpen(true)}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-text-dim hover:bg-surface-overlay hover:text-text"
+          aria-label="Open notes documentation"
+          title="Notes documentation"
+        >
+          <BookOpen size={15} />
+        </button>
         <button
           type="button"
           onClick={() => setPreview((v) => !v)}
@@ -276,7 +289,12 @@ export default function NoteWorkspacePage() {
               <MarkdownViewer content={bodyDraft} />
             </div>
           ) : (
-            <MarkdownNoteEditor value={bodyDraft} onChange={setBodyDraft} onSelectionChange={setSelection} />
+            <MarkdownNoteEditor
+              value={bodyDraft}
+              onChange={setBodyDraft}
+              onSelectionChange={setSelection}
+              focusSelection={selectionRequest}
+            />
           )}
           {assistNote.isPending && (
             <div className="pointer-events-none absolute inset-x-6 top-6 flex items-center gap-2 rounded-md bg-accent/[0.10] px-3 py-2 text-[12px] text-accent">
@@ -285,9 +303,18 @@ export default function NoteWorkspacePage() {
             </div>
           )}
           {appliedNotice && (
-            <div className="pointer-events-none absolute inset-x-6 bottom-6 flex items-center gap-2 rounded-md border border-accent/20 bg-surface/90 px-3 py-2 text-[12px] text-text-muted shadow-lg shadow-black/20 backdrop-blur">
-              <Sparkles size={14} className="text-accent" />
-              {appliedNotice}
+            <div className="absolute inset-x-6 bottom-6 flex items-center gap-2 rounded-md border border-accent/20 bg-surface/90 px-3 py-2 text-[12px] text-text-muted shadow-lg shadow-black/20 backdrop-blur">
+              <Sparkles size={14} className="shrink-0 text-accent" />
+              <span className="min-w-0 flex-1 truncate">{appliedNotice.message}</span>
+              {appliedNotice.undoBody && (
+                <button
+                  type="button"
+                  onClick={undoAppliedChange}
+                  className="shrink-0 rounded-md px-2 py-1 text-[12px] font-medium text-accent hover:bg-accent/[0.10]"
+                >
+                  Undo
+                </button>
+              )}
             </div>
           )}
         </section>
@@ -340,18 +367,9 @@ export default function NoteWorkspacePage() {
           </button>
 
           <div className="min-h-0 flex-1 overflow-hidden">
-            {proposal ? (
-              <ProposalSummary
-                proposal={proposal}
-                meaningful={proposalMeaningful}
-                onAccept={acceptProposal}
-                onReject={() => setProposal(null)}
-              />
-            ) : (
-              <div className="flex h-full items-center rounded-md border border-dashed border-surface-border px-3 py-4 text-[12px] leading-relaxed text-text-dim">
-                Highlight text or write an instruction, then let the assistant prepare a reviewable Markdown draft.
-              </div>
-            )}
+            <div className="flex h-full items-center rounded-md border border-dashed border-surface-border px-3 py-4 text-[12px] leading-relaxed text-text-dim">
+              Highlight text or write an instruction. Magic edit applies to the draft and briefly highlights the changed text.
+            </div>
           </div>
         </aside>
       </main>
@@ -388,6 +406,14 @@ export default function NoteWorkspacePage() {
           initiallyExpanded
         />
       )}
+      {helpOpen && (
+        <DocsMarkdownModal
+          path="guides/notes"
+          title="Notes"
+          errorMessage="Failed to load notes documentation."
+          onClose={() => setHelpOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -396,10 +422,12 @@ function MarkdownNoteEditor({
   value,
   onChange,
   onSelectionChange,
+  focusSelection,
 }: {
   value: string;
   onChange: (value: string) => void;
   onSelectionChange: (selection: SelectionState) => void;
+  focusSelection: SelectionRequest | null;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -422,6 +450,21 @@ function MarkdownNoteEditor({
       emitSelection(target);
     });
   }, [emitSelection, onChange]);
+
+  useEffect(() => {
+    if (!focusSelection) return;
+    const target = textareaRef.current;
+    if (!target) return;
+    const start = Math.max(0, Math.min(focusSelection.start, value.length));
+    const end = Math.max(start, Math.min(focusSelection.end, value.length));
+    window.requestAnimationFrame(() => {
+      target.focus();
+      target.selectionStart = start;
+      target.selectionEnd = end;
+      target.scrollTop = Math.max(0, target.scrollHeight * (start / Math.max(value.length, 1)) - target.clientHeight / 2);
+      emitSelection(target);
+    });
+  }, [emitSelection, focusSelection, value]);
 
   const replaceSelection = useCallback((replacement: string, selectOffset = replacement.length) => {
     const target = textareaRef.current;
@@ -593,117 +636,6 @@ function AutoSaveIndicator({
   );
 }
 
-function InlineProposalReview({
-  proposal,
-  originalMarkdown,
-  meaningful,
-  onAccept,
-  onReject,
-}: {
-  proposal: ChannelNoteAssistProposal;
-  originalMarkdown: string;
-  meaningful: boolean;
-  onAccept: () => void;
-  onReject: () => void;
-}) {
-  const nextMarkdown = stripFrontmatter(proposal.replacement_markdown);
-  return (
-    <div className="absolute inset-x-4 bottom-4 z-10 rounded-lg border border-accent/30 bg-surface/95 shadow-2xl shadow-black/35 backdrop-blur-md sm:inset-x-6">
-      <div className="flex items-start gap-3 border-b border-surface-border/70 px-4 py-3">
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent/[0.14] text-accent">
-          <Sparkles size={16} className="thinking-pulse" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-[13px] font-semibold text-text">AI draft ready</div>
-            <span className="rounded-full bg-accent/[0.10] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-accent">
-              {proposal.target === "selection" ? "Selection" : "Whole note"}
-            </span>
-          </div>
-          <div className="mt-1 text-[12px] leading-relaxed text-text-muted">
-            {meaningful ? proposal.rationale : "The assistant did not find a meaningful rewrite for this text."}
-          </div>
-        </div>
-        <button type="button" onClick={onReject} className="rounded-md p-1.5 text-text-dim hover:bg-surface-overlay hover:text-text" aria-label="Close AI draft">
-          <X size={15} />
-        </button>
-      </div>
-
-      {meaningful ? (
-        <div className="grid max-h-[38vh] min-h-[180px] grid-cols-1 overflow-hidden md:grid-cols-2">
-          <div className="min-h-0 overflow-auto border-b border-surface-border/70 px-4 py-3 md:border-b-0 md:border-r">
-            <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.10em] text-text-dim">Original</div>
-            <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-text-muted">{originalMarkdown.trim()}</pre>
-          </div>
-          <div className="min-h-0 overflow-auto bg-accent/[0.035] px-4 py-3">
-            <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.10em] text-accent">
-              <Wand2 size={12} />
-              Proposed Markdown
-            </div>
-            <MarkdownViewer content={nextMarkdown} />
-          </div>
-        </div>
-      ) : null}
-
-      <div className="flex items-center justify-between gap-3 border-t border-surface-border/70 px-4 py-3">
-        <div className="text-[11px] text-text-dim">
-          Review before applying. Accept only changes the editor draft.
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <button type="button" onClick={onReject} className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px] text-text-muted hover:bg-surface-overlay">
-            <X size={13} />
-            {meaningful ? "Reject" : "Dismiss"}
-          </button>
-          {meaningful && (
-            <button type="button" onClick={onAccept} className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:bg-accent/90">
-              <Check size={13} />
-              Apply draft
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ProposalSummary({
-  proposal,
-  meaningful,
-  onAccept,
-  onReject,
-}: {
-  proposal: ChannelNoteAssistProposal;
-  meaningful: boolean;
-  onAccept: () => void;
-  onReject: () => void;
-}) {
-  return (
-    <div className="flex h-full min-h-0 flex-col justify-between gap-3 rounded-md border border-accent/20 bg-accent/[0.055] p-3">
-      <div className="min-w-0">
-        <div className="mb-1 flex items-center gap-1.5 text-[12px] font-semibold text-accent">
-          <Sparkles size={13} />
-          AI draft is open in the editor
-        </div>
-        <div className="text-[12px] leading-relaxed text-text-muted">
-          {meaningful ? proposal.rationale : "No useful rewrite was found for this selection."}
-        </div>
-      </div>
-      <div className="flex shrink-0 gap-2">
-        {meaningful && (
-          <button type="button" onClick={onAccept} className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px] text-accent hover:bg-surface-overlay">
-            <Check size={13} />
-            Apply
-          </button>
-        )}
-        <button type="button" onClick={onReject} className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px] text-text-muted hover:bg-surface-overlay">
-          <X size={13} />
-          {meaningful ? "Reject" : "Dismiss"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function splitFrontmatter(content: string): { frontmatter: string; body: string } {
   if (!content.startsWith("---\n")) return { frontmatter: "", body: content };
   const end = content.indexOf("\n---", 4);
@@ -747,4 +679,18 @@ function wordCount(value: string): number {
 
 function normalizeMd(value: string): string {
   return stripFrontmatter(value).replace(/\s+/g, " ").trim();
+}
+
+function changedRange(before: string, after: string): { start: number; end: number } {
+  let start = 0;
+  while (start < before.length && start < after.length && before[start] === after[start]) {
+    start += 1;
+  }
+  let beforeEnd = before.length;
+  let afterEnd = after.length;
+  while (beforeEnd > start && afterEnd > start && before[beforeEnd - 1] === after[afterEnd - 1]) {
+    beforeEnd -= 1;
+    afterEnd -= 1;
+  }
+  return { start, end: Math.max(start, afterEnd) };
 }

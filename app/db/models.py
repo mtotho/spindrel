@@ -589,6 +589,9 @@ class ToolEmbedding(Base):
     source_dir: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_integration: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_file: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONB, server_default=text("'{}'::jsonb")
+    )
     schema_: Mapped[dict] = mapped_column("schema", JSONB, nullable=False)
     embed_text: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(Text, nullable=False)

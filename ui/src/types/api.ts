@@ -1545,6 +1545,16 @@ export interface ProjectCodingRunTask {
   } | null;
 }
 
+export type ProjectFactoryReviewQueueState =
+  | "ready_for_review"
+  | "changes_requested"
+  | "follow_up_running"
+  | "follow_up_created"
+  | "missing_evidence"
+  | "reviewing"
+  | "reviewed"
+  | "blocked";
+
 export interface ProjectCodingRun {
   id: string;
   project_id: string;
@@ -1582,6 +1592,9 @@ export interface ProjectCodingRun {
   continuation_count?: number;
   latest_continuation?: Record<string, any> | null;
   continuations?: Array<Record<string, any>>;
+  review_queue_state?: ProjectFactoryReviewQueueState | string | null;
+  review_queue_priority?: number | null;
+  review_next_action?: string | null;
   task: ProjectCodingRunTask;
   receipt?: ProjectRunReceipt | null;
   activity?: Array<Record<string, any>>;
@@ -1642,6 +1655,59 @@ export interface ProjectCodingRun {
   };
   created_at?: string | null;
   updated_at?: string | null;
+}
+
+export interface ProjectFactoryReviewInboxItem {
+  id: string;
+  project_id: string;
+  project_name: string;
+  project_slug?: string | null;
+  task_id: string;
+  title: string;
+  branch?: string | null;
+  state: ProjectFactoryReviewQueueState | string;
+  status?: string | null;
+  review_status?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+  launch_batch_id?: string | null;
+  evidence?: {
+    tests_count?: number;
+    screenshots_count?: number;
+    changed_files_count?: number;
+    dev_targets_count?: number;
+  };
+  latest_continuation?: Record<string, any> | null;
+  review_task_id?: string | null;
+  review_session_id?: string | null;
+  summary_line?: string | null;
+  next_action?: string | null;
+  priority?: number | null;
+  links?: {
+    project_url?: string | null;
+    project_runs_url?: string | null;
+    run_url?: string | null;
+    review_task_url?: string | null;
+    handoff_url?: string | null;
+  };
+}
+
+export interface ProjectFactoryReviewInboxProject {
+  project: {
+    id: string;
+    name: string;
+    slug?: string | null;
+    root_path?: string | null;
+  };
+  counts: Record<string, number>;
+  items: ProjectFactoryReviewInboxItem[];
+}
+
+export interface ProjectFactoryReviewInbox {
+  generated_at?: string | null;
+  summary: Record<string, number>;
+  items: ProjectFactoryReviewInboxItem[];
+  projects: ProjectFactoryReviewInboxProject[];
 }
 
 export interface ProjectCodingRunReviewBatch {

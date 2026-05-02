@@ -16,8 +16,6 @@ import {
   DASHBOARD_CAMERA_EXIT_SCALE,
   DASHBOARD_CAMERA_MAX_SCALE,
   DASHBOARD_CAMERA_MIN_SCALE,
-  DASHBOARD_HEADER_ROWS,
-  DASHBOARD_HEADER_ROW_HEIGHT,
   buildFreeformGridConfig,
   clampDashboardCamera,
   clampDropToZone,
@@ -69,12 +67,11 @@ function defaultGridLayout(index: number, preset: GridPreset, origin: { x: numbe
 
 function layoutForPin(pin: WidgetDashboardPin, index: number, preset: GridPreset, origin: { x: number; y: number }): GridLayoutItem {
   if (hasLayout(pin)) return pin.grid_layout;
-  if ((pin.zone ?? "grid") === "grid") return defaultGridLayout(index, preset, origin);
-  return { x: 0, y: index * preset.defaultTile.h, w: 1, h: preset.defaultTile.h };
+  return defaultGridLayout(index, preset, origin);
 }
 
 function normalizeZone(pin: WidgetDashboardPin): ChatZone {
-  return pin.zone ?? "grid";
+  return "grid";
 }
 
 function tileRect(pin: WidgetDashboardPin, layout: GridLayoutItem, frame: DashboardFrame): Rect {
@@ -98,31 +95,11 @@ function gridOccupancy(
     .filter((box): box is GridLayoutItem => !!box);
 }
 
-function pointInRect(point: { x: number; y: number }, rect: Rect, inset = 0): boolean {
-  return point.x >= rect.x - inset
-    && point.x <= rect.x + rect.w + inset
-    && point.y >= rect.y - inset
-    && point.y <= rect.y + rect.h + inset;
-}
-
 function classifyDashboardPointer(
-  point: { x: number; y: number },
+  _point: { x: number; y: number },
   rect: Rect,
   frame: DashboardFrame,
 ): { zone: ChatZone; x: number; y: number } {
-  if (pointInRect(point, frame.headerRect, 72)) {
-    return {
-      zone: "header",
-      x: 0,
-      y: Math.max(0, Math.min(1, Math.round((point.y - frame.headerRect.y) / DASHBOARD_HEADER_ROW_HEIGHT))),
-    };
-  }
-  if (pointInRect(point, frame.railRect, 28)) {
-    return { zone: "rail", x: 0, y: Math.max(0, Math.round((point.y - frame.frameY) / frame.stepY)) };
-  }
-  if (pointInRect(point, frame.dockRect, 28)) {
-    return { zone: "dock", x: 0, y: Math.max(0, Math.round((point.y - frame.frameY) / frame.stepY)) };
-  }
   return {
     zone: "grid",
     x: Math.max(0, Math.round(rect.x / frame.stepX)),
@@ -167,6 +144,7 @@ export function ChannelDashboardFreeformCanvas({
 }: Props) {
   const navigate = useNavigate();
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
+  const replaceConfig = useDashboardPinsStore((s) => s.replaceWidgetConfig);
   const updateDashboard = useDashboardsStore((s) => s.update);
   const { data: spatialNodes } = useSpatialNodes();
   const { data: channels } = useChannels();
@@ -235,7 +213,7 @@ export function ChannelDashboardFreeformCanvas({
     migratedRef.current = true;
     const nextOrigin = freeformOriginForPreset(preset);
     const patches = migrateLayoutsToFreeform(
-      pins.map((pin) => ({ id: pin.id, zone: normalizeZone(pin), grid_layout: hasLayout(pin) ? pin.grid_layout : null })),
+      pins.map((pin) => ({ id: pin.id, zone: pin.zone ?? "grid", grid_layout: hasLayout(pin) ? pin.grid_layout : null })),
       nextOrigin,
       { x: 0, y: 0, ...preset.defaultTile },
     );
@@ -248,6 +226,38 @@ export function ChannelDashboardFreeformCanvas({
       setLayoutError(err instanceof Error ? err.message : "Failed to enable freeform dashboard");
     });
   }, [dashboardSlug, freeformEnabled, gridConfig, pins, persistLayout, preset, updateDashboard]);
+
+  useEffect(() => {
+    if (!freeformEnabled) return;
+    const legacyPins = pins.filter((pin) => {
+      const zone = pin.zone ?? "grid";
+      return zone === "rail" || zone === "header" || zone === "dock";
+    });
+    if (legacyPins.length === 0) return;
+    const occupied = gridOccupancy(pins, layouts, "");
+    const patches = legacyPins.map((pin, index) => {
+      const layout = findOpenGridPlacement(
+        defaultGridLayout(index, preset, origin),
+        occupied,
+      );
+      occupied.push(layout);
+      return { id: pin.id, zone: "grid" as ChatZone, ...layout };
+    });
+    void (async () => {
+      await Promise.all(
+        legacyPins.map((pin) =>
+          replaceConfig(pin.id, {
+            ...(pin.widget_config ?? {}),
+            show_in_chat_shelf: true,
+          }),
+        ),
+      );
+      await persistLayout(patches);
+    })().catch((err) => {
+      console.error("Failed to normalize legacy workbench zones:", err);
+      setLayoutError(err instanceof Error ? err.message : "Failed to normalize legacy zones");
+    });
+  }, [freeformEnabled, layouts, origin, persistLayout, pins, preset, replaceConfig]);
 
   const lockDashboardView = useCallback(() => {
     if (!viewportSize.w || !viewportSize.h) return;
@@ -308,22 +318,9 @@ export function ChannelDashboardFreeformCanvas({
     const pin = pins.find((p) => p.id === pinId);
     if (!pin || !layout) return null;
     const target = classifyDashboardPointer(pointerWorld, movedRect, frame);
-    if (target.zone === "header") {
-      const fitted = clampDropToZone("header", 0, 0, preset.cols.lg, DASHBOARD_HEADER_ROWS, preset.cols.lg);
-      return {
-        zone: "header",
-        layout: fitted,
-        rect: zonedLayoutToWorldRect("header", fitted, frame),
-      };
-    }
     const bounds = getWidgetLayoutBounds(pin.widget_presentation, target.zone, preset.cols.lg);
-    const fromNarrowZoneToGrid = normalizeZone(pin) !== "grid" && target.zone === "grid";
-    const preferredW = fromNarrowZoneToGrid
-      ? Math.max(bounds.minW, Math.min(bounds.maxW, preset.defaultTile.w))
-      : Math.max(bounds.minW, Math.min(bounds.maxW, target.zone === "rail" || target.zone === "dock" ? 1 : layout.w));
-    const preferredH = fromNarrowZoneToGrid
-      ? Math.max(bounds.minH, preset.defaultTile.h)
-      : Math.max(bounds.minH, layout.h);
+    const preferredW = Math.max(bounds.minW, Math.min(bounds.maxW, layout.w));
+    const preferredH = Math.max(bounds.minH, layout.h);
     const desired = clampDropToZone(
       target.zone,
       target.x,
@@ -337,7 +334,7 @@ export function ChannelDashboardFreeformCanvas({
     return {
       zone: target.zone,
       layout: next,
-      rect: settleCollision || target.zone !== "grid"
+      rect: settleCollision
         ? snappedRect
         : { ...movedRect, w: snappedRect.w, h: snappedRect.h },
     };
@@ -569,21 +566,21 @@ export function ChannelDashboardFreeformCanvas({
                   borderless={chrome.borderless}
                   hoverScrollbars={chrome.hoverScrollbars}
                   hideTitles={chrome.hideTitles}
-                  layout={zone}
+                  layout="grid"
                   externalDrag={binding}
                   canvasDragHandle
                 />
                 {editMode && (
                   <ResizeHandles
-                    edges={zone === "header" ? ["e"] : zone === "rail" || zone === "dock" ? ["s"] : ["s", "e", "se", "w", "sw"]}
+                    edges={["s", "e", "se", "w", "sw"]}
                     initial={layout}
-                    cellPx={{ w: frame.stepX, h: zone === "header" ? DASHBOARD_HEADER_ROW_HEIGHT : frame.stepY }}
+                    cellPx={{ w: frame.stepX, h: frame.stepY }}
                     scale={camera.scale}
                     clampW={{
-                      min: zone === "rail" || zone === "dock" ? 1 : getWidgetLayoutBounds(pin.widget_presentation, zone, preset.cols.lg).minW,
-                      max: zone === "rail" || zone === "dock" ? 1 : getWidgetLayoutBounds(pin.widget_presentation, zone, preset.cols.lg).maxW,
+                      min: getWidgetLayoutBounds(pin.widget_presentation, "grid", preset.cols.lg).minW,
+                      max: getWidgetLayoutBounds(pin.widget_presentation, "grid", preset.cols.lg).maxW,
                     }}
-                    clampH={{ min: zone === "header" ? 1 : getWidgetLayoutBounds(pin.widget_presentation, zone, preset.cols.lg).minH }}
+                    clampH={{ min: getWidgetLayoutBounds(pin.widget_presentation, "grid", preset.cols.lg).minH }}
                     onResizing={(box: TileBox) => {
                       const next = clampDropToZone(zone, box.x, box.y, box.w, box.h, preset.cols.lg);
                       setLayoutPreview((current) => {
@@ -697,37 +694,24 @@ function DashboardTile({
 }
 
 function CanvasGuides({ frame, editMode, scale }: { frame: DashboardFrame; editMode: boolean; scale: number }) {
-  const guide = editMode ? "border-accent/35 bg-accent/[0.025]" : "border-surface-border/25 bg-white/[0.01]";
   const labelScale = Number.isFinite(scale) && scale > 0 ? 1 / scale : 1;
   return (
     <>
       <div
-        className={`pointer-events-none absolute rounded-lg border border-dashed ${guide}`}
-        style={{ left: frame.railRect.x, top: frame.railRect.y, width: frame.railRect.w, height: frame.railRect.h }}
-      />
-      <div
         className={`pointer-events-none absolute rounded-lg border ${editMode ? "border-accent/20" : "border-surface-border/20"} bg-surface/20`}
         style={{ left: frame.centerRect.x, top: frame.centerRect.y, width: frame.centerRect.w, height: frame.centerRect.h }}
-      />
-      <div
-        className={`pointer-events-none absolute rounded-lg border border-dashed ${guide}`}
-        style={{ left: frame.dockRect.x, top: frame.dockRect.y, width: frame.dockRect.w, height: frame.dockRect.h }}
-      />
-      <div
-        className={`pointer-events-none absolute rounded-md border border-dashed ${guide}`}
-        style={{ left: frame.headerRect.x, top: frame.headerRect.y, width: frame.headerRect.w, height: frame.headerRect.h }}
       />
       {editMode && (
         <div
           className="pointer-events-none absolute whitespace-nowrap rounded-md border border-surface-border/50 bg-surface-raised/80 px-2 py-1 text-[10px] uppercase tracking-wide text-text-dim shadow-sm backdrop-blur"
           style={{
             left: frame.centerRect.x,
-            top: frame.headerRect.y - 34,
+            top: frame.centerRect.y - 34,
             transform: `scale(${labelScale})`,
             transformOrigin: "left bottom",
           }}
         >
-          Guided lanes stay available; drag outside for freeform placement.
+          Freeform canvas. Drag artifacts anywhere on the board.
         </div>
       )}
     </>

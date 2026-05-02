@@ -711,11 +711,23 @@ class TestAssemblyBudgetTight:
             return {"type": "function", "function": {"name": name, "description": name, "parameters": {}}}
 
         mock_schemas = {name: _schema(name) for name in ["web_search", "file", "exec_command", "get_tool_info"]}
+        metadata_schema_patch = patch(
+            "app.agent.context_assembly.get_local_tool_schemas_by_metadata",
+            return_value=[mock_schemas["get_tool_info"]],
+        )
         patches = _assembly_patches() + [
             patch("app.agent.context_assembly._all_tool_schemas_by_name", new_callable=AsyncMock, return_value=mock_schemas),
             patch("app.agent.context_assembly.retrieve_tools", new_callable=AsyncMock, return_value=(
                 [mock_schemas["web_search"]], 0.8, [("web_search", 0.8)],
             )),
+            metadata_schema_patch,
+            patch("app.agent.context_assembly.auto_injected_pin_names", return_value=frozenset({
+                "file", "get_tool_info",
+                "get_skill", "get_skill_list",
+                "list_agent_capabilities", "run_agent_doctor",
+                "list_channels", "read_conversation_history",
+                "list_sub_sessions", "read_sub_session",
+            })),
             patch("app.agent.context_assembly.get_client_tool_schemas", return_value=[]),
             patch("app.agent.context_assembly.get_mcp_server_for_tool", return_value=None),
         ]

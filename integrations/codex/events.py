@@ -182,6 +182,10 @@ def translate_notification(
         _append_codex_command_output_delta(result_meta, params)
         return
 
+    if method == schema.ITEM_COMMAND_TERMINAL_INTERACTION:
+        _emit_command_terminal_interaction(params, emit=emit, result_meta=result_meta)
+        return
+
     if method == schema.ITEM_PLAN_DELTA:
         delta = _extract_text_delta(params)
         if delta:
@@ -210,6 +214,18 @@ def translate_notification(
 
     if method == schema.NOTIFICATION_ACCOUNT_RATE_LIMITS_UPDATED:
         _emit_account_rate_limits_updated(params, emit=emit, result_meta=result_meta)
+        return
+
+    if method == schema.NOTIFICATION_ACCOUNT_UPDATED:
+        _emit_account_updated(params, emit=emit, result_meta=result_meta)
+        return
+
+    if method == schema.NOTIFICATION_ACCOUNT_LOGIN_COMPLETED:
+        _emit_account_login_completed(params, emit=emit, result_meta=result_meta)
+        return
+
+    if method == schema.NOTIFICATION_MCP_SERVER_OAUTH_LOGIN_COMPLETED:
+        _emit_mcp_server_oauth_login_completed(params, emit=emit, result_meta=result_meta)
         return
 
     if method == schema.NOTIFICATION_MODEL_REROUTED:
@@ -737,6 +753,169 @@ def _emit_model_rerouted(
         tool_call_id=call_id,
         result_summary=envelope["plain_body"],
         is_error=False,
+        envelope=envelope,
+        surface="rich_result",
+        summary=summary,
+    )
+
+
+def _emit_account_updated(
+    params: dict[str, Any],
+    *,
+    emit: ChannelEventEmitter,
+    result_meta: dict[str, Any],
+) -> None:
+    auth_mode = str(params.get("authMode") or "unknown")
+    plan_type = str(params.get("planType") or "")
+    account = {"auth_mode": auth_mode, **({"plan_type": plan_type} if plan_type else {})}
+    result_meta["codex_account"] = account
+    label = f"Codex account: {auth_mode}"
+    body = label
+    if plan_type:
+        body = f"{body}\nplan: {plan_type}"
+    _emit_status_row(
+        emit=emit,
+        tool_name="Codex account",
+        call_id=f"codex-account-updated:{len(result_meta.setdefault('codex_account_events', [])) + 1}",
+        label=label,
+        body=body,
+        subject_type="account",
+        result_meta=result_meta,
+        event_key="codex_account_events",
+        event=account,
+    )
+
+
+def _emit_command_terminal_interaction(
+    params: dict[str, Any],
+    *,
+    emit: ChannelEventEmitter,
+    result_meta: dict[str, Any],
+) -> None:
+    item_id = str(params.get("itemId") or params.get("item_id") or "")
+    process_id = str(params.get("processId") or params.get("process_id") or "")
+    stdin = str(params.get("stdin") or "")
+    event = {
+        **({"item_id": item_id} if item_id else {}),
+        **({"process_id": process_id} if process_id else {}),
+        "stdin": stdin,
+        **({"thread_id": str(params.get("threadId"))} if params.get("threadId") else {}),
+        **({"turn_id": str(params.get("turnId"))} if params.get("turnId") else {}),
+    }
+    body = "Terminal interaction"
+    if stdin:
+        body = f"{body}\nstdin: {stdin}"
+    if process_id:
+        body = f"{body}\nprocess: {process_id}"
+    _emit_status_row(
+        emit=emit,
+        tool_name="Bash",
+        call_id=item_id or f"codex-terminal-interaction:{len(result_meta.setdefault('codex_terminal_interactions', [])) + 1}",
+        label="Terminal interaction",
+        body=body,
+        subject_type="process",
+        result_meta=result_meta,
+        event_key="codex_terminal_interactions",
+        event=event,
+    )
+
+
+def _emit_account_login_completed(
+    params: dict[str, Any],
+    *,
+    emit: ChannelEventEmitter,
+    result_meta: dict[str, Any],
+) -> None:
+    success = bool(params.get("success"))
+    error = str(params.get("error") or "").strip()
+    login_id = str(params.get("loginId") or "")
+    event = {
+        "success": success,
+        **({"login_id": login_id} if login_id else {}),
+        **({"error": error} if error else {}),
+    }
+    label = "Codex login completed" if success else "Codex login failed"
+    body = label
+    if login_id:
+        body = f"{body}\nlogin: {login_id}"
+    if error:
+        body = f"{body}\n{error}"
+    _emit_status_row(
+        emit=emit,
+        tool_name="Codex account",
+        call_id=f"codex-account-login:{login_id or len(result_meta.setdefault('codex_account_login_events', [])) + 1}",
+        label=label,
+        body=body,
+        subject_type="account",
+        result_meta=result_meta,
+        event_key="codex_account_login_events",
+        event=event,
+        is_error=not success or bool(error),
+    )
+
+
+def _emit_mcp_server_oauth_login_completed(
+    params: dict[str, Any],
+    *,
+    emit: ChannelEventEmitter,
+    result_meta: dict[str, Any],
+) -> None:
+    name = str(params.get("name") or "MCP server")
+    success = bool(params.get("success"))
+    error = str(params.get("error") or "").strip()
+    event = {"name": name, "success": success, **({"error": error} if error else {})}
+    label = f"{name} MCP OAuth login completed" if success else f"{name} MCP OAuth login failed"
+    body = label
+    if error:
+        body = f"{body}\n{error}"
+    _emit_status_row(
+        emit=emit,
+        tool_name="MCP server",
+        call_id=f"codex-mcp-oauth-login:{name}:{len(result_meta.setdefault('codex_mcp_oauth_login_events', [])) + 1}",
+        label=label,
+        body=body,
+        subject_type="integration",
+        result_meta=result_meta,
+        event_key="codex_mcp_oauth_login_events",
+        event=event,
+        target_label=name,
+        is_error=not success or bool(error),
+    )
+
+
+def _emit_status_row(
+    *,
+    emit: ChannelEventEmitter,
+    tool_name: str,
+    call_id: str,
+    label: str,
+    body: str,
+    subject_type: str,
+    result_meta: dict[str, Any],
+    event_key: str,
+    event: dict[str, Any],
+    target_label: str | None = None,
+    is_error: bool = False,
+) -> None:
+    events = result_meta.setdefault(event_key, [])
+    if isinstance(events, list):
+        events.append(event)
+    envelope, summary = build_text_tool_result(
+        tool_name=tool_name,
+        tool_call_id=call_id,
+        body=body,
+        label=label,
+        summary_kind="status",
+        subject_type=subject_type,
+        preview_text=body,
+    )
+    if target_label:
+        summary["target_label"] = target_label
+    emit.tool_result(
+        tool_name=tool_name,
+        tool_call_id=call_id,
+        result_summary=envelope["plain_body"],
+        is_error=is_error,
         envelope=envelope,
         surface="rich_result",
         summary=summary,

@@ -45,6 +45,7 @@ class ToolOut(BaseModel):
     source_file: Optional[str] = None
     description: Optional[str] = None
     parameters: Optional[dict] = None
+    metadata: dict[str, Any] = {}
     schema_: Optional[dict] = None
     indexed_at: datetime
     active_widget_package: Optional[ActiveWidgetPackageOut] = None
@@ -280,6 +281,7 @@ def _to_out(
         source_file=row.source_file,
         description=fn.get("description"),
         parameters=fn.get("parameters"),
+        metadata=row.metadata_ or {},
         schema_=schema,
         indexed_at=row.indexed_at,
         active_widget_package=ActiveWidgetPackageOut(

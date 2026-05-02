@@ -1,77 +1,45 @@
-import { ShieldCheck, ShieldAlert, ShieldOff } from "lucide-react";
-
-import { useThemeTokens } from "../../theme/tokens";
+import { StatusBadge } from "./SettingsControls";
 
 type SignatureState = "signed" | "unsigned" | "tampered";
 
 interface Props {
   state?: SignatureState | null;
   lastSignedAt?: string | null;
-  size?: "sm" | "md";
 }
 
 /**
  * Signed / Unsigned / Tampered badge for skills and widget packages.
  *
- * Backed by `signature_state` from `/api/v1/admin/{skills,widget-packages}`
- * — a NULL signature is "unsigned" (Phase-1 backward compat), a present
- * signature that verifies is "signed", and a present signature that fails
- * verification is "tampered" (run trust-current-state after review).
+ * Backed by `signature_state` from `/api/v1/admin/{skills,widget-packages}` —
+ * NULL signature → "unsigned" (Phase-1 backward compat),
+ * present + verifies → "signed",
+ * present + fails verification → "tampered" (run `POST
+ * /api/v1/admin/manifest/trust-current-state` after review).
+ *
+ * Renders nothing for "unsigned" so existing rows pre-trust-current-state
+ * don't drown the listing in muted pills; the absence of a badge implies
+ * unsigned.
  */
-export function ManifestSignatureBadge({ state, lastSignedAt, size = "sm" }: Props) {
-  const t = useThemeTokens();
+export function ManifestSignatureBadge({ state, lastSignedAt }: Props) {
   const effective: SignatureState = state ?? "unsigned";
-  const dim = size === "sm" ? 11 : 14;
-  const fontSize = size === "sm" ? 10 : 12;
+  if (effective === "unsigned") return null;
 
-  let color: string;
-  let bg: string;
-  let label: string;
-  let icon: React.ReactNode;
-  let title: string;
-
-  if (effective === "signed") {
-    color = t.success;
-    bg = t.successSubtle;
-    label = "Signed";
-    icon = <ShieldCheck size={dim} color={color} />;
-    title = lastSignedAt
-      ? `Signed (verified) — last updated ${new Date(lastSignedAt).toLocaleString()}`
-      : "Signed (verified)";
-  } else if (effective === "tampered") {
-    color = t.danger;
-    bg = t.dangerSubtle;
-    label = "Tampered";
-    icon = <ShieldAlert size={dim} color={color} />;
-    title =
-      "Signature does not match body. Review the row, then run POST /api/v1/admin/manifest/trust-current-state.";
-  } else {
-    color = t.textMuted;
-    bg = "transparent";
-    label = "Unsigned";
-    icon = <ShieldOff size={dim} color={color} />;
-    title =
-      "No signature persisted (Phase-1 backward compat). Run trust-current-state to sign.";
+  if (effective === "tampered") {
+    return (
+      <span
+        title="Signature does not match body. Review the row, then run POST /api/v1/admin/manifest/trust-current-state."
+      >
+        <StatusBadge label="tampered" variant="danger" />
+      </span>
+    );
   }
 
+  const title = lastSignedAt
+    ? `Signed (verified) — last updated ${new Date(lastSignedAt).toLocaleString()}`
+    : "Signed (verified)";
   return (
-    <span
-      title={title}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        padding: "2px 6px",
-        borderRadius: 999,
-        background: bg,
-        color,
-        fontSize,
-        fontWeight: 500,
-        lineHeight: 1,
-      }}
-    >
-      {icon}
-      {label}
+    <span title={title}>
+      <StatusBadge label="signed" variant="success" />
     </span>
   );
 }

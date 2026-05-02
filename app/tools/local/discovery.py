@@ -31,7 +31,12 @@ logger = logging.getLogger(__name__)
             "required": ["tool_name"],
         },
     },
-}, requires_bot_context=True, returns={
+}, requires_bot_context=True, tool_metadata={
+    "domains": ["tool_schema"],
+    "intent_tags": ["load tool schema", "tool enrollment", "tool activation"],
+    "exposure": "ambient",
+    "auto_inject": ["tool_retrieval"],
+}, returns={
     "type": "object",
     "properties": {
         "schema": {"type": "object", "description": "OpenAI function-call input schema"},
@@ -356,6 +361,10 @@ async def prune_enrolled_tools(
             "required": ["query"],
         },
     },
+}, tool_metadata={
+    "domains": ["tool_discovery"],
+    "intent_tags": ["load tool schema", "tool enrollment", "tool discovery"],
+    "exposure": "ambient",
 }, returns={
     "type": "object",
     "properties": {
@@ -491,6 +500,10 @@ def _summarize_params(parameters: dict | None) -> str:
             "required": [],
         },
     },
+}, tool_metadata={
+    "domains": ["programmatic_tool_calling"],
+    "intent_tags": ["tool signatures", "return schemas", "script composition"],
+    "exposure": "explicit",
 }, returns={
     "type": "object",
     "properties": {

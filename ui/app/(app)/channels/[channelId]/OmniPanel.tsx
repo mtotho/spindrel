@@ -2,11 +2,11 @@
  * OmniPanel — channel workbench side panel.
  *
  *   Notes:   rich Markdown notes over the active knowledge base.
- *   Widgets: all channel dashboard pins in a single in-chat surface.
+ *   Widgets: artifacts explicitly marked for the chat shelf.
  *   Files:   workspace/project file browser.
  *
- * Editing happens on the full dashboard page (`/widgets/channel/:id`). Chat
- * intentionally has one widget surface; dashboard zones stay authoring data.
+ * Editing happens on the full workbench page (`/widgets/channel/:id`). Chat
+ * intentionally has one widget surface: the chat shelf.
  */
 import { useCallback, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
@@ -129,14 +129,12 @@ export function OmniPanel({
     [dashboardRow?.grid_config],
   );
 
-  // Chat has one widget surface. Keep dashboard zones for the full dashboard,
-  // but aggregate every pin here so users do not have to remember whether a
-  // widget lives in header/rail/dock/grid.
-  const { rail: railBucket, header: headerBucket, dock: dockBucket } = useChannelChatZones(channelId);
-  const allPins = useDashboardPinsStore((s) => s.pins);
+  // Chat has one widget surface: explicit chat-shelf artifacts. Legacy
+  // rail/header/dock pins are folded into the rail bucket by the hook.
+  const { rail: railBucket } = useChannelChatZones(channelId);
   const railPins = useMemo(
-    () => uniquePins([...headerBucket, ...railBucket, ...dockBucket, ...allPins]).sort(sortByGridYX),
-    [allPins, dockBucket, headerBucket, railBucket],
+    () => uniquePins(railBucket).sort(sortByGridYX),
+    [railBucket],
   );
 
   // Auto-hydrate when the slug we want differs from the one the store is

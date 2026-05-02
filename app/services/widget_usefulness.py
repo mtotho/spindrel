@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Channel, Project
-from app.services.dashboard_pins import apply_layout_bulk, delete_pin, get_pin, list_pins, serialize_pin
+from app.services.dashboard_pins import delete_pin, get_pin, list_pins, serialize_pin
 from app.services.widget_agency_receipts import (
     build_widget_agency_state,
     create_widget_agency_receipt,
@@ -20,13 +20,7 @@ from app.services.widget_context import build_pinned_widget_context_snapshot
 from app.services.widget_health import latest_health_for_pins
 
 
-_CHAT_VISIBLE_ZONES = {"rail", "header", "dock"}
-_LAYOUT_VISIBLE_ZONES = {
-    "full": {"rail", "header", "dock"},
-    "rail-header-chat": {"rail", "header"},
-    "rail-chat": {"rail"},
-    "dashboard-only": set(),
-}
+_LEGACY_CHAT_ZONES = {"rail", "header", "dock"}
 _SEVERITY_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3}
 _WIDGET_AGENCY_MODES = {"propose", "propose_and_fix"}
 
@@ -56,6 +50,11 @@ def _pin_id(pin: dict[str, Any]) -> str | None:
 def _zone(pin: dict[str, Any]) -> str:
     zone = pin.get("zone")
     return zone if zone in {"rail", "header", "dock", "grid"} else "grid"
+
+
+def _show_in_chat_shelf(pin: dict[str, Any]) -> bool:
+    config = pin.get("widget_config") if isinstance(pin.get("widget_config"), dict) else {}
+    return config.get("show_in_chat_shelf") is True or _zone(pin) in _LEGACY_CHAT_ZONES
 
 
 def _context_export_enabled(pin: dict[str, Any]) -> bool:
@@ -150,13 +149,6 @@ def _proposal_id(action: str, values: list[str]) -> str:
     return f"{action}:{compact[:180]}"
 
 
-def _best_visible_zone(visible_zones: set[str]) -> str | None:
-    for zone in ("rail", "header", "dock"):
-        if zone in visible_zones:
-            return zone
-    return None
-
-
 def _overall_recommendation_status(recommendations: list[dict[str, Any]]) -> str:
     if not recommendations:
         return "healthy"
@@ -166,10 +158,6 @@ def _overall_recommendation_status(recommendations: list[dict[str, Any]]) -> str
     if worst >= _SEVERITY_RANK["medium"]:
         return "needs_attention"
     return "has_suggestions"
-
-
-def _chat_visible_zones(layout_mode: str) -> set[str]:
-    return set(_LAYOUT_VISIBLE_ZONES.get(layout_mode, _LAYOUT_VISIBLE_ZONES["full"]))
 
 
 def assess_widget_usefulness_from_data(
@@ -189,7 +177,6 @@ def assess_widget_usefulness_from_data(
     cfg = channel_config or {}
     layout_mode = str(cfg.get("layout_mode") or "full")
     widget_agency_mode = normalize_widget_agency_mode(cfg.get("widget_agency_mode"))
-    visible_zones = _chat_visible_zones(layout_mode)
     health_by_pin = widget_health or {}
     recommendations: list[dict[str, Any]] = []
     findings: list[dict[str, Any]] = []
@@ -269,57 +256,15 @@ def assess_widget_usefulness_from_data(
             apply=apply,
         ))
 
-    chat_visible_count = 0
-    hidden_chat_pins: list[dict[str, Any]] = []
-    for pin in pins:
-        zone = _zone(pin)
-        if zone in visible_zones:
-            chat_visible_count += 1
-        elif zone in _CHAT_VISIBLE_ZONES:
-            hidden_chat_pins.append(pin)
-    for pin in hidden_chat_pins:
-        target_zone = _best_visible_zone(visible_zones)
-        if target_zone is None:
-            findings.append(_recommendation(
-                type="visibility",
-                severity="medium",
-                surface="chat",
-                pin=pin,
-                reason=f"Pin is in the { _zone(pin) } zone, but channel layout mode {layout_mode!r} hides that zone in chat.",
-                suggested_next_action="Change the channel presentation mode if this widget should be visible while chatting.",
-                evidence={"layout_mode": layout_mode, "zone": _zone(pin), "visible_zones": sorted(visible_zones)},
-                requires_policy_decision=True,
-            ))
-            continue
-        pin_id = _pin_id(pin) or ""
-        apply = {
-            "id": _proposal_id("move_pin_to_visible_zone", [pin_id, target_zone]),
-            "action": "move_pin_to_visible_zone",
-            "label": f"Move to {target_zone}",
-            "description": f"Move {_label(pin)} from {_zone(pin)} to {target_zone} so it appears in chat.",
-            "impact": "Changes this pin's dashboard zone and keeps its existing size where possible.",
-            "pin_id": pin_id,
-            "from_zone": _zone(pin),
-            "to_zone": target_zone,
-        }
-        recommendations.append(_recommendation(
-            type="visibility",
-            severity="medium",
-            surface="chat",
-            pin=pin,
-            reason=f"Pin is in the { _zone(pin) } zone, but channel layout mode {layout_mode!r} hides that zone in chat.",
-            suggested_next_action=apply["description"],
-            evidence={"layout_mode": layout_mode, "zone": _zone(pin), "visible_zones": sorted(visible_zones)},
-            apply=apply,
-        ))
+    chat_visible_count = sum(1 for pin in pins if _show_in_chat_shelf(pin))
     if pins and chat_visible_count == 0 and layout_mode != "dashboard-only":
         findings.append(_recommendation(
             type="missing_coverage",
             severity="low",
             surface="chat",
-            reason="No pinned widgets are currently visible in the chat-side surfaces.",
-            suggested_next_action="Promote one high-signal widget to rail, header, or dock if it should stay visible during conversation.",
-            evidence={"layout_mode": layout_mode, "visible_zones": sorted(visible_zones)},
+            reason="No pinned widgets are currently visible in the chat shelf.",
+            suggested_next_action="Mark one high-signal artifact as shown in the chat shelf if it should stay visible during conversation.",
+            evidence={"layout_mode": layout_mode},
             requires_policy_decision=True,
         ))
 
@@ -484,25 +429,15 @@ async def apply_channel_widget_usefulness_proposal(
         summary = str(apply.get("description") or f"Removed {len(remove_pin_ids)} duplicate widget pin(s).")
     elif action == "move_pin_to_visible_zone":
         pin_id = str(apply.get("pin_id") or "")
-        to_zone = str(apply.get("to_zone") or "")
-        if not pin_id or to_zone not in {"rail", "header", "dock", "grid"}:
-            raise ValueError("Visibility proposal has no valid pin or target zone.")
+        if not pin_id:
+            raise ValueError("Visibility proposal has no valid pin.")
         pin = await get_pin(db, uuid.UUID(pin_id))
-        layout = pin.grid_layout or {}
-        await apply_layout_bulk(
-            db,
-            [{
-                "id": pin.id,
-                "x": int(layout.get("x", 0) or 0),
-                "y": int(layout.get("y", 0) or 0),
-                "w": int(layout.get("w", 1) or 1),
-                "h": int(layout.get("h", 1) or 1),
-                "zone": to_zone,
-            }],
-            dashboard_key=dashboard_key,
-        )
+        config = dict(pin.widget_config or {})
+        config["show_in_chat_shelf"] = True
+        from app.services.dashboard_pins import apply_dashboard_pin_config_patch
+        await apply_dashboard_pin_config_patch(db, pin.id, config, merge=False)
         affected_pin_ids = [pin_id]
-        summary = str(apply.get("description") or f"Moved widget pin to {to_zone}.")
+        summary = str(apply.get("description") or "Marked widget pin as visible in the chat shelf.")
     else:
         raise ValueError(f"Unsupported widget proposal action: {action}")
 

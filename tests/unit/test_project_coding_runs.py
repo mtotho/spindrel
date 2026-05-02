@@ -24,6 +24,8 @@ from app.services.project_coding_runs import (
     list_project_coding_runs,
     list_project_coding_run_schedules,
     project_coding_run_defaults,
+    project_coding_run_review_next_action,
+    project_coding_run_review_queue_state,
     ProjectCodingRunScheduleCreate,
     ProjectCodingRunScheduleUpdate,
     disable_project_coding_run_schedule,
@@ -84,6 +86,39 @@ def test_project_coding_run_defaults_fall_back_when_no_repo_snapshot():
     assert defaults["branch"] == "spindrel/project-abcdef12-loose-project"
     assert defaults["base_branch"] is None
     assert defaults["repo"] == {"name": None, "path": None, "url": None}
+
+
+def test_project_coding_run_review_queue_state_uses_existing_run_signals():
+    ready = {
+        "status": "completed",
+        "task": {"status": "complete"},
+        "receipt": {"summary": "Done"},
+        "review": {
+            "status": "ready_for_review",
+            "evidence": {"tests_count": 1, "screenshots_count": 1, "changed_files_count": 2, "dev_targets_count": 1},
+        },
+    }
+    changes = {
+        **ready,
+        "latest_continuation": None,
+        "review": {"status": "changes_requested", "evidence": {"tests_count": 1}},
+    }
+    missing = {
+        "status": "completed",
+        "task": {"status": "complete"},
+        "receipt": None,
+        "review": {"status": "pending_evidence", "evidence": {}},
+    }
+    follow_up = {
+        **changes,
+        "latest_continuation": {"status": "pending", "review_status": "pending"},
+    }
+
+    assert project_coding_run_review_queue_state(ready) == "ready_for_review"
+    assert project_coding_run_review_queue_state(changes) == "changes_requested"
+    assert project_coding_run_review_queue_state(missing) == "missing_evidence"
+    assert project_coding_run_review_queue_state(follow_up) == "follow_up_running"
+    assert "follow-up" in project_coding_run_review_next_action("changes_requested")
 
 
 @pytest.mark.asyncio

@@ -67,7 +67,11 @@ def _parse_chunk_fields(chunk: str) -> tuple[str, str]:
             "required": ["query"],
         },
     },
-}, requires_bot_context=True, returns=_SEARCH_RETURNS)
+}, requires_bot_context=True, tool_metadata={
+    "domains": ["channel_workspace"],
+    "exposure": "ambient",
+    "auto_inject": ["channel_workspace"],
+}, returns=_SEARCH_RETURNS)
 async def search_workspace(query: str, top_k: int | None = None) -> str:
     bot_id = current_bot_id.get()
     if not bot_id:

@@ -118,6 +118,39 @@ class TestRegister:
         )(_f)
         assert registry.get_tool_execution_policy("needs_live_user") == "live_target_lease"
 
+    def test_tool_metadata_round_trip(self):
+        async def _f(**_):
+            return "ok"
+
+        registry.register(
+            {"type": "function", "function": {"name": "routed", "parameters": {}}},
+            tool_metadata={"domains": ["media"], "exposure": "explicit"},
+        )(_f)
+        assert registry.get_tool_metadata("routed") == {
+            "domains": ["media"],
+            "exposure": "explicit",
+        }
+
+    def test_get_local_tool_schemas_by_metadata(self):
+        async def _f(**_):
+            return "ok"
+
+        registry.register(
+            {"type": "function", "function": {"name": "ambient_discovery", "parameters": {}}},
+            tool_metadata={"domains": ["tool_discovery"], "exposure": "ambient"},
+        )(_f)
+        registry.register(
+            {"type": "function", "function": {"name": "explicit_admin", "parameters": {}}},
+            tool_metadata={"domains": ["system_admin"], "exposure": "explicit"},
+        )(_f)
+        schemas = registry.get_local_tool_schemas_by_metadata(
+            domain="tool_discovery",
+            exposure="ambient",
+        )
+        names = [s["function"]["name"] for s in schemas]
+        assert "ambient_discovery" in names
+        assert "explicit_admin" not in names
+
 
 # ---------------------------------------------------------------------------
 # iter_registered_tools()
@@ -136,8 +169,9 @@ class TestIterRegisteredTools:
         _register_dummy("tool_x")
         for item in registry.iter_registered_tools():
             if item[0] == "tool_x":
-                name, schema, source_dir, source_integration, source_file = item
+                name, schema, source_dir, source_integration, source_file, metadata = item
                 assert name == "tool_x"
+                assert metadata == {}
                 assert isinstance(schema, dict)
                 break
 

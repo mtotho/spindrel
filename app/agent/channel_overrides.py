@@ -18,47 +18,35 @@ class EffectiveTools:
     skills: list[SkillConfig] = field(default_factory=list)
 
 
-# Tools that context assembly may add to a bot's pin set as a system
-# baseline. These are availability helpers for chat/workspace flows, not
-# operator-curated heartbeat pins.
-AUTO_INJECTED_PIN_NAMES: frozenset[str] = frozenset({
-    "get_tool_info",
-    # Memory scheme helpers.
-    "search_memory",
-    "get_memory_file",
-    "memory",
-    "manage_bot_skill",
-    # Skill access.
-    "get_skill",
-    "get_skill_list",
-    # Agent self-inspection.
-    "list_agent_capabilities",
-    "run_agent_doctor",
-    # Channel/session awareness.
-    "list_channels",
-    "read_conversation_history",
-    "list_sub_sessions",
-    "read_sub_session",
-    # Channel workspace/search helpers injected by context admission.
-    "file",
-    "search_channel_archive",
-    "search_channel_workspace",
-    "search_channel_knowledge",
-    "search_bot_knowledge",
-    # API access helpers injected for scoped API-key bots.
-    "list_api_endpoints",
-    "call_api",
-})
+def _tool_names_for_metadata(**filters: str) -> frozenset[str]:
+    from app.tools.registry import get_local_tool_names_by_metadata
 
-# Discovery hatches — escape tools the LLM uses to *find* other tools.
-# Suppressed from heartbeat surfaces; heartbeat tool selection is
-# operator-configured, not LLM-discovered. Keep `run_script` out of this
-# set: it's composition, not discovery.
-DISCOVERY_HATCH_TOOL_NAMES: frozenset[str] = frozenset({
-    "get_tool_info",
-    "search_tools",
-    "list_tool_signatures",
-})
+    return frozenset(get_local_tool_names_by_metadata(**filters))
+
+
+def auto_injected_pin_names() -> frozenset[str]:
+    """Tools injected by runtime policy rather than operator curation."""
+    groups = (
+        "chat_baseline",
+        "workspace_files_memory",
+        "channel_workspace",
+        "api_access",
+        "tool_retrieval",
+    )
+    names: frozenset[str] = frozenset()
+    for group in groups:
+        names = names | _tool_names_for_metadata(auto_inject=group)
+    return names
+
+
+def discovery_hatch_tool_names() -> frozenset[str]:
+    """Escape tools the LLM uses to find or hydrate other tool schemas."""
+    return _tool_names_for_metadata(domain="tool_schema") | _tool_names_for_metadata(domain="tool_discovery")
+
+
+def plan_mode_control_tool_names() -> tuple[str, ...]:
+    """Plan-mode control tools declared by their own tool metadata."""
+    return tuple(_tool_names_for_metadata(domain="plan_control"))
 
 
 def apply_auto_injections(eff: EffectiveTools, bot: BotConfig) -> EffectiveTools:
@@ -68,15 +56,13 @@ def apply_auto_injections(eff: EffectiveTools, bot: BotConfig) -> EffectiveTools
     by context_assembly. Call this after resolve_effective_tools() to get
     the complete tool list that the LLM will actually see.
 
-    Injections:
-    - memory_scheme="workspace-files" → search_memory, get_memory_file, file, manage_bot_skill
-    - tool_retrieval=true → get_tool_info
-    - (unconditional) → get_skill, get_skill_list, list_agent_capabilities,
-      run_agent_doctor, list_channels, read_conversation_history,
-      list_sub_sessions, read_sub_session
+    Injections are declared by tool metadata. Runtime code selects groups such
+    as chat_baseline, tool_retrieval, and workspace_files_memory; it does not
+    check concrete tool names.
     """
     import dataclasses
-    from app.services.memory_scheme import MEMORY_SCHEME_TOOLS, MEMORY_SCHEME_HIDDEN_TOOLS
+    from app.services.memory_scheme import MEMORY_SCHEME_HIDDEN_TOOLS
+    from app.tools.registry import get_local_tool_names_by_metadata
 
     local = list(eff.local_tools)
     pinned = list(eff.pinned_tools or [])
@@ -90,28 +76,16 @@ def apply_auto_injections(eff: EffectiveTools, bot: BotConfig) -> EffectiveTools
     # Memory scheme
     if getattr(bot, "memory_scheme", None) == "workspace-files":
         local[:] = [t for t in local if t not in MEMORY_SCHEME_HIDDEN_TOOLS]
-        for t in MEMORY_SCHEME_TOOLS:
+        for t in get_local_tool_names_by_metadata(auto_inject="workspace_files_memory"):
             _inject(t)
 
     # Tool retrieval
     if getattr(bot, "tool_retrieval", False):
-        _inject("get_tool_info")
+        for t in get_local_tool_names_by_metadata(auto_inject="tool_retrieval"):
+            _inject(t)
 
-    # Skills — shared documents, always available
-    _inject("get_skill")
-    _inject("get_skill_list")
-
-    # Agent self-inspection — every bot can ask what it can do and why it may
-    # be blocked before making humans inspect configuration manually.
-    _inject("list_agent_capabilities")
-    _inject("run_agent_doctor")
-
-    # Channel awareness — any bot can inspect channel history and its
-    # attached sub-sessions (threads, scratch chats, pipeline/eval runs)
-    _inject("list_channels")
-    _inject("read_conversation_history")
-    _inject("list_sub_sessions")
-    _inject("read_sub_session")
+    for t in get_local_tool_names_by_metadata(auto_inject="chat_baseline"):
+        _inject(t)
 
     return dataclasses.replace(eff, local_tools=local, pinned_tools=pinned)
 

@@ -969,6 +969,110 @@ def test_model_rerouted_notifications_emit_rich_rows():
     )
 
 
+def test_account_updated_notifications_emit_status_rows():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.NOTIFICATION_ACCOUNT_UPDATED,
+            params={"authMode": "chatgpt", "planType": "pro"},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert meta["codex_account"] == {"auth_mode": "chatgpt", "plan_type": "pro"}
+    assert meta["codex_account_events"] == [{"auth_mode": "chatgpt", "plan_type": "pro"}]
+    result = emitter.calls[0][1]
+    assert result["tool_name"] == "Codex account"
+    assert result["is_error"] is False
+    assert result["summary"]["kind"] == "status"
+    assert result["envelope"]["body"] == "Codex account: chatgpt\nplan: pro"
+
+
+def test_command_terminal_interactions_emit_status_rows():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMMAND_TERMINAL_INTERACTION,
+            params={
+                "itemId": "cmd-1",
+                "processId": "proc-1",
+                "stdin": "yes\n",
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert meta["codex_terminal_interactions"] == [
+        {
+            "item_id": "cmd-1",
+            "process_id": "proc-1",
+            "stdin": "yes\n",
+            "thread_id": "thread-1",
+            "turn_id": "turn-1",
+        }
+    ]
+    result = emitter.calls[0][1]
+    assert result["tool_name"] == "Bash"
+    assert result["tool_call_id"] == "cmd-1"
+    assert result["summary"]["subject_type"] == "process"
+    assert result["envelope"]["body"] == "Terminal interaction\nstdin: yes\n\nprocess: proc-1"
+
+
+def test_account_login_completed_notifications_emit_error_rows():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.NOTIFICATION_ACCOUNT_LOGIN_COMPLETED,
+            params={"success": False, "loginId": "login-1", "error": "device code expired"},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert meta["codex_account_login_events"] == [
+        {"success": False, "login_id": "login-1", "error": "device code expired"}
+    ]
+    result = emitter.calls[0][1]
+    assert result["tool_name"] == "Codex account"
+    assert result["is_error"] is True
+    assert result["envelope"]["body"] == "Codex login failed\nlogin: login-1\ndevice code expired"
+
+
+def test_mcp_oauth_login_completed_notifications_emit_status_rows():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.NOTIFICATION_MCP_SERVER_OAUTH_LOGIN_COMPLETED,
+            params={"name": "github", "success": True},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert meta["codex_mcp_oauth_login_events"] == [{"name": "github", "success": True}]
+    result = emitter.calls[0][1]
+    assert result["tool_name"] == "MCP server"
+    assert result["is_error"] is False
+    assert result["summary"]["target_label"] == "github"
+    assert result["envelope"]["body"] == "github MCP OAuth login completed"
+
+
 def test_file_change_completed_uses_buffered_file_change_delta_diff():
     emitter, ids, parts, meta = _harness()
     ids["fc2"] = "fileChange"

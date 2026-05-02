@@ -141,7 +141,11 @@ async def _get_bot_and_roots(channel_id: str | None = None, *, source_tool: str 
             "required": ["query"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True, returns=_SEARCH_RETURNS)
+}, requires_bot_context=True, requires_channel_context=True, tool_metadata={
+    "domains": ["channel_workspace", "repeated_lookup_tracking"],
+    "exposure": "ambient",
+    "auto_inject": ["channel_workspace"],
+}, returns=_SEARCH_RETURNS)
 async def search_channel_archive(query: str) -> str:
     """Search archived workspace files for the current channel."""
     bot, ch_id, ws_root, embedding_model, _surface, access_error = await _get_bot_and_roots(source_tool="search_channel_archive")
@@ -207,7 +211,11 @@ async def search_channel_archive(query: str) -> str:
             "required": ["query"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True, returns=_SEARCH_RETURNS)
+}, requires_bot_context=True, requires_channel_context=True, tool_metadata={
+    "domains": ["channel_workspace", "repeated_lookup_tracking"],
+    "exposure": "ambient",
+    "auto_inject": ["channel_workspace"],
+}, returns=_SEARCH_RETURNS)
 async def search_channel_workspace(query: str, channel_id: str | None = None) -> str:
     """Search channel workspace files (active + archive)."""
     bot, ch_id, ws_root, embedding_model, surface, access_error = await _get_bot_and_roots(
@@ -275,7 +283,11 @@ async def search_channel_workspace(query: str, channel_id: str | None = None) ->
             "required": ["query"],
         },
     },
-}, requires_bot_context=True, requires_channel_context=True, returns=_SEARCH_RETURNS)
+}, requires_bot_context=True, requires_channel_context=True, tool_metadata={
+    "domains": ["channel_workspace"],
+    "exposure": "ambient",
+    "auto_inject": ["channel_workspace"],
+}, returns=_SEARCH_RETURNS)
 async def search_channel_knowledge(query: str) -> str:
     """Search the current channel's knowledge-base/ folder."""
     bot, ch_id, ws_root, embedding_model, surface, access_error = await _get_bot_and_roots(source_tool="search_channel_knowledge")
@@ -328,7 +340,11 @@ async def search_channel_knowledge(query: str) -> str:
             "properties": {},
         },
     },
-}, requires_bot_context=True, requires_channel_context=True, returns={
+}, requires_bot_context=True, requires_channel_context=True, tool_metadata={
+    "domains": ["context_navigation"],
+    "exposure": "ambient",
+    "auto_inject": ["chat_baseline", "channel_workspace"],
+}, returns={
     "type": "object",
     "properties": {
         "count": {"type": "integer"},

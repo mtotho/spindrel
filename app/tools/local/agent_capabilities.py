@@ -45,7 +45,11 @@ from app.tools.registry import register
             },
         },
     },
-}, safety_tier="readonly", requires_bot_context=True, returns={
+}, safety_tier="readonly", requires_bot_context=True, tool_metadata={
+    "domains": ["agent_self_inspection"],
+    "exposure": "ambient",
+    "auto_inject": ["chat_baseline"],
+}, returns={
     "type": "object",
         "properties": {
             "schema_version": {"type": "string"},
@@ -101,7 +105,10 @@ async def list_agent_capabilities(
             "properties": {},
         },
     },
-}, safety_tier="readonly", requires_bot_context=True, returns={
+}, safety_tier="readonly", requires_bot_context=True, tool_metadata={
+    "domains": ["runtime_context"],
+    "exposure": "explicit",
+}, returns={
     "type": "object",
     "properties": {
         "context": {"type": "object"},
@@ -153,7 +160,10 @@ async def get_agent_context_snapshot() -> str:
             },
         },
     },
-}, safety_tier="readonly", requires_bot_context=True, returns={
+}, safety_tier="readonly", requires_bot_context=True, tool_metadata={
+    "domains": ["work_state"],
+    "exposure": "explicit",
+}, returns={
     "type": "object",
     "properties": {
         "context": {"type": "object"},
@@ -221,7 +231,10 @@ async def get_agent_work_snapshot(max_items: int = 10) -> str:
             },
         },
     },
-}, safety_tier="readonly", requires_bot_context=True, returns={
+}, safety_tier="readonly", requires_bot_context=True, tool_metadata={
+    "domains": ["activity_log"],
+    "exposure": "explicit",
+}, returns={
     "type": "object",
     "properties": {
         "context": {"type": "object"},
@@ -339,7 +352,11 @@ async def get_agent_status_snapshot(max_runs: int = 10) -> str:
             "properties": {},
         },
     },
-}, safety_tier="readonly", requires_bot_context=True, returns={
+}, safety_tier="readonly", requires_bot_context=True, tool_metadata={
+    "domains": ["agent_self_inspection"],
+    "exposure": "ambient",
+    "auto_inject": ["chat_baseline"],
+}, returns={
     "type": "object",
         "properties": {
             "status": {"type": "string"},

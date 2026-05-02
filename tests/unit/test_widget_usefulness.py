@@ -112,18 +112,40 @@ def test_duplicate_pins_are_reported_once() -> None:
     assert duplicate_recs[0]["apply"]["remove_pin_ids"] == ["b"]
 
 
-def test_hidden_chat_zone_is_reported_for_layout_mode() -> None:
-    pin = _pin("Dock Panel", pin_id="dock-1", zone="dock")
+def test_missing_chat_shelf_coverage_is_reported_for_layout_mode() -> None:
+    pin = _pin("Canvas Artifact", pin_id="grid-1", zone="grid")
 
     result = _assess([pin], channel_config={"layout_mode": "rail-chat"})
 
-    visibility = next(item for item in result["recommendations"] if item["type"] == "visibility")
+    visibility = next(item for item in result["findings"] if item["type"] == "missing_coverage")
     assert visibility["surface"] == "chat"
     assert visibility["evidence"]["layout_mode"] == "rail-chat"
-    assert visibility["evidence"]["zone"] == "dock"
-    assert visibility["apply"]["action"] == "move_pin_to_visible_zone"
-    assert visibility["apply"]["to_zone"] == "rail"
+    assert "chat shelf" in visibility["reason"]
+    assert result["chat_visible_pin_count"] == 0
     assert result["widget_agency_mode"] == "propose"
+
+
+def test_explicit_chat_shelf_pin_counts_as_chat_visible() -> None:
+    pin = _pin(
+        "Shelf Artifact",
+        pin_id="shelf-1",
+        zone="grid",
+        widget_config={"show_in_chat_shelf": True},
+    )
+
+    result = _assess([pin], channel_config={"layout_mode": "rail-chat"})
+
+    assert result["chat_visible_pin_count"] == 1
+    assert not [item for item in result["findings"] if item["type"] == "missing_coverage" and item["surface"] == "chat"]
+
+
+def test_legacy_panel_zones_count_as_chat_visible() -> None:
+    pin = _pin("Legacy Dock", pin_id="dock-1", zone="dock")
+
+    result = _assess([pin], channel_config={"layout_mode": "rail-chat"})
+
+    assert result["chat_visible_pin_count"] == 1
+    assert not [item for item in result["findings"] if item["type"] == "missing_coverage" and item["surface"] == "chat"]
 
 
 def test_widget_agency_mode_surfaces_when_channel_allows_fixes() -> None:

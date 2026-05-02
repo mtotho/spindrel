@@ -110,6 +110,7 @@ ITEM_REASONING_SUMMARY_TEXT_DELTA = "item/reasoning/summaryTextDelta"
 # textDelta channel by default.
 ITEM_REASONING_DELTA = ITEM_REASONING_TEXT_DELTA
 ITEM_COMMAND_OUTPUT_DELTA = "item/commandExecution/outputDelta"
+ITEM_COMMAND_TERMINAL_INTERACTION = "item/commandExecution/terminalInteraction"
 ITEM_FILE_CHANGE_OUTPUT_DELTA = "item/fileChange/outputDelta"
 ITEM_PLAN_DELTA = "item/plan/delta"
 
@@ -142,6 +143,9 @@ NOTIFICATION_FS_CHANGED = "fs/changed"
 NOTIFICATION_MCP_TOOL_CALL_PROGRESS = "item/mcpToolCall/progress"
 NOTIFICATION_MCP_SERVER_STARTUP_STATUS_UPDATED = "mcpServer/startupStatus/updated"
 NOTIFICATION_ACCOUNT_RATE_LIMITS_UPDATED = "account/rateLimits/updated"
+NOTIFICATION_ACCOUNT_UPDATED = "account/updated"
+NOTIFICATION_ACCOUNT_LOGIN_COMPLETED = "account/login/completed"
+NOTIFICATION_MCP_SERVER_OAUTH_LOGIN_COMPLETED = "mcpServer/oauthLogin/completed"
 NOTIFICATION_MODEL_REROUTED = "model/rerouted"
 NOTIFICATION_ITEM_GUARDIAN_REVIEW_STARTED = "item/autoApprovalReview/started"
 NOTIFICATION_ITEM_GUARDIAN_REVIEW_COMPLETED = "item/autoApprovalReview/completed"

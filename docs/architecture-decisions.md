@@ -1044,6 +1044,23 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 - Body-only signatures and static query tokens make captured traffic replayable.
 - These are security boundaries; tests should exercise concrete persistence/signature contracts rather than trusting comments or operator discipline.
 
+### Tampered manifest rows fail-closed at the loader, not at write
+**Decided 2026-05-01.** Skills and widget template packages persist an HMAC `signature` over the canonical body alongside `content_hash`. Verify-on-read at the loaders refuses tampered rows; the recovery path is operator-driven, not automatic.
+
+**What this means.**
+- `skills.signature` and `widget_template_packages.signature` are SHA-256 HMACs over the canonical payload (skill = content + sorted scripts; widget = yaml + python_code). Computed by every writer (`manage_bot_skill`, admin POST/PUT/fork, file seeders, widget seeder) via `manifest_signing.sign_*_payload`.
+- Loaders enforce: `app/agent/skills.py::load_skills` and `re_embed_skill` skip rows whose signature mismatches; `app/services/widget_templates.py::load_widget_templates_from_db` and `reload_tool` flag tampered widgets `is_invalid=true` and fall back to the last clean seed.
+- NULL signatures = "Phase 1 unsigned" → loaders pass them through; the audit surfaces them via the existing `content_hash` drift warning.
+- A non-NULL signature that fails verification = tampered → loader refuses, and the `manifest_hash_drift` audit promotes from warning to critical/fail.
+- Recovery is `POST /api/v1/admin/manifest/trust-current-state` with `{"target": "skills" | "widgets" | "all", "confirm": true}`. Without `confirm` the endpoint returns the dry-run count of rows that would change.
+- `MANIFEST_SIGNING_KEY` rotation does not orphan rows: when no key is configured, `verify_*_row` returns True (un-verifiable, not tampered), so the operator can restore the key or run `trust-current-state` without losing access first.
+
+**Why.**
+- Drift detection alone (Phase 1) tells the operator "something changed" but doesn't refuse to load tampered content — autonomous heartbeat / task / subagent runs would still execute attacker-injected skill scripts.
+- Verifying at write doesn't help: an attacker who edits the DB row directly bypasses the writer entirely. The check has to live where the agent actually reads.
+- Auto-resigning on mismatch would defeat the purpose. Re-signing is an explicit operator action, gated by a two-step confirm, with an audit trail.
+- The audit promotion (warning → critical/fail) keeps unsigned legacy rows out of the red bucket while making real tampering loud.
+
 ### Projects are shared roots inside the singleton Workspace
 **Decided 2026-04-29.** A Project is a named root path inside a `SharedWorkspace`, not a replacement for the singleton Workspace model and not a one-repo-only abstraction.
 

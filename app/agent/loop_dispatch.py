@@ -19,40 +19,13 @@ from app.agent.tool_dispatch import ToolCallResult, dispatch_tool_call, enforce_
 from app.config import settings
 from app.services import session_locks
 from app.tools.client_tools import is_client_tool
-from app.tools.registry import get_tool_safety_tier
+from app.tools.registry import get_tool_metadata, get_tool_safety_tier
 from app.utils import safe_create_task
 
 logger = logging.getLogger(__name__)
 
 
 _PARALLEL_UNSAFE_TIERS = {"mutating", "exec_capable", "control_plane"}
-_READ_ONLY_CACHEABLE_TOOLS = {
-    "get_memory_file",
-    "search_memory",
-    "read_conversation_history",
-    "read_sub_session",
-    "search_workspace",
-    "search_channel_archive",
-    "search_channel_workspace",
-    "search_channel_knowledge",
-    "search_bot_knowledge",
-    "sonarr_queue",
-    "radarr_queue",
-    "sonarr_calendar",
-    "qbit_torrents",
-    "arr_heartbeat_snapshot",
-    "jellyfin_library",
-    "jellyfin_now_playing",
-    "jellyseerr_requests",
-    "prowlarr_search",
-    "sonarr_wanted",
-    "sonarr_indexers",
-    "sonarr_quality_profiles",
-    "frigate_list_cameras",
-    "frigate_get_events",
-}
-
-
 def _tool_calls_are_parallel_safe(tool_calls: list[dict[str, Any]]) -> bool:
     for tc in tool_calls:
         name = tc["function"]["name"]
@@ -74,11 +47,12 @@ def _tool_call_is_cacheable(name: str, args: Any = None) -> bool:
         parsed = _parse_tool_args(args)
         action = parsed.get("action") if isinstance(parsed, dict) else None
         return action in {None, "get", "list", "search", "read"}
-    return name in _READ_ONLY_CACHEABLE_TOOLS or get_tool_safety_tier(name) == "readonly"
+    return get_tool_safety_tier(name) == "readonly"
 
 
-def _report_issue_already_called(state: LoopRunState) -> bool:
-    return "report_issue" in state.tool_calls_made
+def _singleton_tool_already_called(name: str, state: LoopRunState) -> bool:
+    metadata = get_tool_metadata(name)
+    return bool(metadata.get("singleton_per_run")) and name in state.tool_calls_made
 
 
 def _tool_batch_has_cache_pressure(tool_calls: list[dict[str, Any]], state: LoopRunState) -> bool:
@@ -574,11 +548,11 @@ async def dispatch_iteration_tool_calls(
                 continue
 
             if get_tool_safety_tier(name) in _PARALLEL_UNSAFE_TIERS:
-                if name == "report_issue" and _report_issue_already_called(state):
+                if _singleton_tool_already_called(name, state):
                     error = json.dumps({
                         "error": (
-                            "Only one report_issue call is allowed per run. "
-                            "Use the existing issue report and produce a concise final response."
+                            "Only one call to this reporting tool is allowed per run. "
+                            "Use the existing report and produce a concise final response."
                         )
                     })
                     state.tool_calls_made.append(name)
@@ -591,12 +565,12 @@ async def dispatch_iteration_tool_calls(
                     yield _event_with_compaction_tag({
                         "type": "tool_duplicate_blocked",
                         "tool": name,
-                        "error": "Repeated report_issue call blocked",
+                        "error": "Repeated singleton tool call blocked",
                     }, ctx.compaction)
                     yield _event_with_compaction_tag({
                         "type": "tool_result",
                         "tool": name,
-                        "error": "Repeated report_issue call blocked",
+                        "error": "Repeated singleton tool call blocked",
                     }, ctx.compaction)
                     continue
                 if cache_key in state.mutating_tool_call_seen:

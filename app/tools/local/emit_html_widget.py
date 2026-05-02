@@ -401,6 +401,11 @@ def _derive_plain_body(
     safety_tier="readonly",
     requires_bot_context=True,
     requires_channel_context=True,
+    tool_metadata={
+        "domains": ["widgets"],
+        "intent_tags": ["html widgets", "interactive widgets", "dashboard pins"],
+        "exposure": "explicit",
+    },
     returns={
         "type": "object",
         "properties": {

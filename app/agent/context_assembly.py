@@ -14,9 +14,11 @@ from dataclasses import replace as _dc_replace
 
 from app.agent.bots import BotConfig
 from app.agent.channel_overrides import (
-    AUTO_INJECTED_PIN_NAMES,
     EffectiveTools,
     apply_auto_injections,
+    auto_injected_pin_names,
+    discovery_hatch_tool_names,
+    plan_mode_control_tool_names,
     resolve_effective_tools,
 )
 from app.agent.context import (
@@ -47,19 +49,13 @@ from app.agent.tools import retrieve_tools
 from app.config import settings
 from app.tools.client_tools import get_client_tool_schemas
 from app.tools.mcp import get_mcp_server_for_tool
-from app.tools.registry import get_local_tool_schemas
+from app.tools.registry import get_local_tool_schemas, get_local_tool_schemas_by_metadata
 
 logger = logging.getLogger(__name__)
 
 # Enrollment sources eligible for auto-inject. Starter/migration skills are
 # generic utility docs that shouldn't compete for the injection slot.
 _INJECT_ELIGIBLE_SOURCES = frozenset({"authored", "fetched", "manual"})
-_PLAN_MODE_CONTROL_TOOLS = (
-    "ask_plan_questions",
-    "publish_plan",
-    "record_plan_progress",
-    "request_plan_replan",
-)
 _AGENT_SELF_INSPECTION_PROMPT = (
     "Agent self-inspection: when self-inspection tools are exposed, use them before "
     "broad API, config, integration, widget, Project, or readiness work. When they "
@@ -102,7 +98,7 @@ def _operator_pinned_tool_names(bot: BotConfig) -> list[str]:
     """Manual pins only; auto-injected chat baseline tools are availability,
     not schema pins for focused/global tool surfaces."""
     return _dedupe_tool_names(
-        n for n in (bot.pinned_tools or []) if n not in AUTO_INJECTED_PIN_NAMES
+        n for n in (bot.pinned_tools or []) if n not in auto_injected_pin_names()
     )
 
 
@@ -117,6 +113,18 @@ def _add_local_tool_schemas(
         tool_name = schema.get("function", {}).get("name")
         if tool_name:
             by_name[tool_name] = schema
+
+
+def _tool_schemas_for_metadata_domain(domain: str, exposure: str = "ambient") -> list[dict[str, Any]]:
+    return get_local_tool_schemas_by_metadata(domain=domain, exposure=exposure)
+
+
+def _tool_names_for_metadata_domain(domain: str, exposure: str = "ambient") -> list[str]:
+    return [
+        schema["function"]["name"]
+        for schema in _tool_schemas_for_metadata_domain(domain, exposure)
+        if schema.get("function", {}).get("name")
+    ]
 
 
 def _build_context_profile_note(
@@ -752,7 +760,9 @@ def _inject_api_access_tools(
     """
     if not bot.api_permissions:
         return bot, None
-    _api_tools = ["list_api_endpoints", "call_api"]
+    from app.tools.registry import get_local_tool_names_by_metadata
+
+    _api_tools = get_local_tool_names_by_metadata(auto_inject="api_access")
     _new_local = list(bot.local_tools or [])
     _new_pinned = list(dict.fromkeys(bot.pinned_tools or []))
     for _t in _api_tools:
@@ -1478,10 +1488,11 @@ async def _compose_heartbeat_tool_surface(
     headroom — heartbeat surfaces are configured, not discovered.
     `run_script` is exposed only when explicitly pinned/tagged/required.
     """
-    from app.agent.channel_overrides import DISCOVERY_HATCH_TOOL_NAMES
-
     count_cap = max(1, int(settings.HEARTBEAT_ENROLLED_TOOL_COUNT_CAP or 25))
     token_cap = max(500, int(settings.HEARTBEAT_ENROLLED_TOOL_TOKEN_CAP or 6000))
+    discovery_hatches = discovery_hatch_tool_names()
+    auto_injected_pins = auto_injected_pin_names()
+    plan_mode_tools = plan_mode_control_tool_names()
 
     # --- Step 1: always-included pin set (deterministic order) ---
     # apply_auto_injections() and context admission add chat/workspace baseline
@@ -1493,9 +1504,9 @@ async def _compose_heartbeat_tool_surface(
     def _add(name: str, *, allow_baseline: bool = False) -> None:
         if not name or name in seen or name not in by_name:
             return
-        if name in DISCOVERY_HATCH_TOOL_NAMES:
+        if name in discovery_hatches:
             return
-        if not allow_baseline and name in AUTO_INJECTED_PIN_NAMES:
+        if not allow_baseline and name in auto_injected_pins:
             return
         pin_set.append(name)
         seen.add(name)
@@ -1507,10 +1518,10 @@ async def _compose_heartbeat_tool_surface(
     for n in tagged_tool_names:
         _add(n, allow_baseline=True)
     if tagged_skill_names:
-        _add("get_skill", allow_baseline=True)
-        _add("get_skill_list", allow_baseline=True)
+        for n in _tool_names_for_metadata_domain("skill_access"):
+            _add(n, allow_baseline=True)
     if plan_mode_active:
-        for n in _PLAN_MODE_CONTROL_TOOLS:
+        for n in plan_mode_tools:
             _add(n, allow_baseline=True)
 
     pin_token_total = sum(_estimate_schema_tokens(by_name[n]) for n in pin_set)
@@ -1543,11 +1554,9 @@ async def _compose_heartbeat_tool_surface(
     # (skill/channel/self-inspect tools that apply_auto_injections adds to
     # every bot). Without curation, the warning surfaces in the trace so
     # the operator knows budget is being burned on system defaults.
-    operator_pinned = _operator_pinned_tool_names(bot)
-    has_curated_pins = bool(operator_pinned) or bool(tagged_tool_names)
     warning = (
         "heartbeat_no_required_or_curated_tools"
-        if (not pin_set and not has_curated_pins)
+        if not pin_set
         else None
     )
 
@@ -1560,7 +1569,7 @@ async def _compose_heartbeat_tool_surface(
         ],
         "baseline_pins_filtered": [
             n for n in (bot.pinned_tools or [])
-            if n in AUTO_INJECTED_PIN_NAMES and n in by_name
+            if n in auto_injected_pins and n in by_name
         ],
         "enrolled_included": list(enrolled_included),
         "enrolled_ignored": list(enrolled_ignored),
@@ -1618,24 +1627,21 @@ async def _run_tool_retrieval(
     ) else {}
     if required_tool_names:
         _add_local_tool_schemas(by_name, tuple(str(n) for n in required_tool_names if n))
-    if "get_tool_info" not in by_name:
-        for _gti in get_local_tool_schemas(["get_tool_info"]):
-            by_name[_gti["function"]["name"]] = _gti
-    if bot.tool_discovery and "search_tools" not in by_name:
-        for _st in get_local_tool_schemas(["search_tools"]):
-            by_name[_st["function"]["name"]] = _st
+    if bot.tool_retrieval or bot.tool_discovery:
+        for _schema in _tool_schemas_for_metadata_domain("tool_schema"):
+            by_name[_schema["function"]["name"]] = _schema
     if bot.tool_discovery:
-        for _name in ("list_tool_signatures", "run_script"):
-            if _name not in by_name:
-                for _sch in get_local_tool_schemas([_name]):
-                    by_name[_sch["function"]["name"]] = _sch
-    for _sk_name in ("get_skill", "get_skill_list"):
-        if _sk_name not in by_name:
-            for _sk_schema in get_local_tool_schemas([_sk_name]):
-                by_name[_sk_schema["function"]["name"]] = _sk_schema
+        for _schema in _tool_schemas_for_metadata_domain("tool_discovery"):
+            by_name[_schema["function"]["name"]] = _schema
+    for _skill_schema in get_local_tool_schemas_by_metadata(
+        domain="skill_access",
+        exposure="ambient",
+    ):
+        by_name[_skill_schema["function"]["name"]] = _skill_schema
     _plan_mode_active = _plan_mode_active_from_messages(messages)
+    _plan_mode_pins = list(plan_mode_control_tool_names()) if _plan_mode_active else []
     if _plan_mode_active:
-        _add_local_tool_schemas(by_name, _PLAN_MODE_CONTROL_TOOLS)
+        _add_local_tool_schemas(by_name, tuple(_plan_mode_pins))
 
     _surface_policy = (
         tool_surface_policy
@@ -1726,6 +1732,7 @@ async def _run_tool_retrieval(
         bot.mcp_servers,
         threshold=th,
         discover_all=bot.tool_discovery,
+        respect_exposure=True,
     )
     _ch_disabled_tools = set(getattr(ch_row, "local_tools_disabled", None) or []) if ch_row else set()
     if _ch_disabled_tools:
@@ -1765,38 +1772,63 @@ async def _run_tool_retrieval(
 
     pre_selected_tools: list[dict[str, Any]] | None = None
     if by_name:
-        _plan_mode_pins = list(_PLAN_MODE_CONTROL_TOOLS) if _plan_mode_active else []
         _operator_pinned = _operator_pinned_tool_names(bot)
         if _surface_policy == "full":
             _effective_pinned = _dedupe_tool_names(
                 required_tool_names,
                 _operator_pinned,
                 tagged_tool_names,
-                ["get_tool_info"],
             )
+            if bot.tool_retrieval or bot.tool_discovery:
+                _effective_pinned = _dedupe_tool_names(
+                    _effective_pinned,
+                    _tool_names_for_metadata_domain("tool_schema"),
+                )
             if bot.tool_discovery:
                 _effective_pinned = _dedupe_tool_names(
                     _effective_pinned,
-                    ["search_tools", "list_tool_signatures", "run_script"],
+                    _tool_names_for_metadata_domain("tool_discovery"),
                 )
             if _enrolled_tool_names:
                 _effective_pinned = _dedupe_tool_names(_effective_pinned, _enrolled_tool_names)
             if bot.skills and (context_profile.allow_skill_index or tagged_skill_names):
-                _effective_pinned = _dedupe_tool_names(_effective_pinned, ["get_skill", "get_skill_list"])
+                _effective_pinned = _dedupe_tool_names(
+                    _effective_pinned,
+                    [
+                        schema["function"]["name"]
+                        for schema in get_local_tool_schemas_by_metadata(
+                            domain="skill_access",
+                            exposure="ambient",
+                        )
+                    ],
+                )
         elif _surface_policy == "focused_escape":
             _effective_pinned = _dedupe_tool_names(
                 required_tool_names,
                 _operator_pinned,
                 tagged_tool_names,
-                ["get_tool_info"],
             )
+            if bot.tool_retrieval or bot.tool_discovery:
+                _effective_pinned = _dedupe_tool_names(
+                    _effective_pinned,
+                    _tool_names_for_metadata_domain("tool_schema"),
+                )
             if bot.tool_discovery:
                 _effective_pinned = _dedupe_tool_names(
                     _effective_pinned,
-                    ["search_tools", "list_tool_signatures", "run_script"],
+                    _tool_names_for_metadata_domain("tool_discovery"),
                 )
-            if tagged_skill_names:
-                _effective_pinned = _dedupe_tool_names(_effective_pinned, ["get_skill", "get_skill_list"])
+            if tagged_skill_names or (bot.skills and context_profile.allow_skill_index):
+                _effective_pinned = _dedupe_tool_names(
+                    _effective_pinned,
+                    [
+                        schema["function"]["name"]
+                        for schema in get_local_tool_schemas_by_metadata(
+                            domain="skill_access",
+                            exposure="ambient",
+                        )
+                    ],
+                )
         else:
             _effective_pinned = _dedupe_tool_names(
                 required_tool_names,
@@ -1804,7 +1836,16 @@ async def _run_tool_retrieval(
                 tagged_tool_names,
             )
             if tagged_skill_names:
-                _effective_pinned = _dedupe_tool_names(_effective_pinned, ["get_skill", "get_skill_list"])
+                _effective_pinned = _dedupe_tool_names(
+                    _effective_pinned,
+                    [
+                        schema["function"]["name"]
+                        for schema in get_local_tool_schemas_by_metadata(
+                            domain="skill_access",
+                            exposure="ambient",
+                        )
+                    ],
+                )
         if _plan_mode_pins:
             _effective_pinned = list(dict.fromkeys([*_effective_pinned, *_plan_mode_pins]))
         pinned_list = [by_name[n] for n in _effective_pinned if n in by_name]
@@ -1824,10 +1865,14 @@ async def _run_tool_retrieval(
         if _surface_policy != "full":
             _authorized_names = set(_retrieved_names)
             out_state["authorized_names"] = _authorized_names
+        _discovery_tool_names = {
+            *_tool_names_for_metadata_domain("tool_schema"),
+            *_tool_names_for_metadata_domain("tool_discovery"),
+        }
         _unretrieved = [
             (n, s["function"])
             for n, s in by_name.items()
-            if n not in _retrieved_names and n not in ("get_tool_info", "search_tools")
+            if n not in _retrieved_names and n not in _discovery_tool_names
         ]
         if _unretrieved:
             _index_lines = "\n".join(
@@ -1886,7 +1931,7 @@ async def _run_tool_retrieval(
             }) if _surface_policy != "full" else 0,
             "baseline_pins_filtered": [
                 n for n in (bot.pinned_tools or [])
-                if n in AUTO_INJECTED_PIN_NAMES and n in by_name
+                if n in auto_injected_pin_names() and n in by_name
             ],
             "operator_pins": list(_operator_pinned),
             "top_candidates": tool_candidates[:5] if tool_candidates else [],
@@ -2904,7 +2949,7 @@ async def assemble_context(
     result.authorized_tool_names = _authorized_names
     effective_local_tools = list(bot.local_tools)
     if _plan_mode_active_from_messages(messages):
-        effective_local_tools = list(dict.fromkeys([*effective_local_tools, *_PLAN_MODE_CONTROL_TOOLS]))
+        effective_local_tools = list(dict.fromkeys([*effective_local_tools, *plan_mode_control_tool_names()]))
     result.effective_local_tools = effective_local_tools
     result.tool_discovery_info = dict(stage_state.tool_discovery_info)
 

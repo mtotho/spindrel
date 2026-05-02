@@ -140,7 +140,11 @@ def _resolve_memory_path(name: str, memory_root: str) -> str | None:
             "required": ["query"],
         },
     },
-}, requires_bot_context=True, returns=_SEARCH_RETURNS)
+}, requires_bot_context=True, tool_metadata={
+    "domains": ["memory", "repeated_lookup_tracking"],
+    "exposure": "ambient",
+    "auto_inject": ["workspace_files_memory"],
+}, returns=_SEARCH_RETURNS)
 async def search_memory(query: str) -> str:
     """Hybrid search across memory files."""
     bot, bot_id, ws_root = _get_bot_and_root()
@@ -206,7 +210,11 @@ async def search_memory(query: str) -> str:
             "required": ["name"],
         },
     },
-}, requires_bot_context=True, returns={
+}, requires_bot_context=True, tool_metadata={
+    "domains": ["memory"],
+    "exposure": "ambient",
+    "auto_inject": ["workspace_files_memory"],
+}, returns={
     "type": "object",
     "properties": {
         "path": {"type": "string"},
@@ -350,7 +358,11 @@ def _memory_diff_stats(diff_text: str) -> tuple[int, int]:
             "required": ["operation"],
         },
     },
-}, safety_tier="mutating", requires_bot_context=True, returns={
+}, safety_tier="mutating", requires_bot_context=True, tool_metadata={
+    "domains": ["memory"],
+    "exposure": "ambient",
+    "auto_inject": ["workspace_files_memory"],
+}, returns={
     "type": "object",
     "properties": {
         "path": {"type": "string"},

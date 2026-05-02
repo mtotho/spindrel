@@ -34,6 +34,26 @@ PROJECT_CODING_RUN_REVIEW_PRESET_ID = "project_coding_run_review"
 PROJECT_CODING_RUN_SCHEDULE_PRESET_ID = "project_coding_run_schedule"
 PROJECT_REVIEW_TEMPLATE_MARKER = "SPINDREL_REVIEW_CMD_"
 DEFAULT_DEV_TARGET_PORT_RANGE = (31_000, 32_999)
+PROJECT_REVIEW_QUEUE_STATES = (
+    "changes_requested",
+    "missing_evidence",
+    "ready_for_review",
+    "follow_up_running",
+    "follow_up_created",
+    "reviewing",
+    "blocked",
+    "reviewed",
+)
+PROJECT_REVIEW_QUEUE_PRIORITY = {
+    "changes_requested": 10,
+    "missing_evidence": 20,
+    "ready_for_review": 30,
+    "follow_up_created": 40,
+    "follow_up_running": 50,
+    "blocked": 60,
+    "reviewing": 70,
+    "reviewed": 90,
+}
 
 
 @dataclass(frozen=True)
@@ -821,6 +841,64 @@ async def _coding_run_row(
     }
 
 
+def project_coding_run_review_queue_state(row: dict[str, Any]) -> str:
+    review = row.get("review") if isinstance(row.get("review"), dict) else {}
+    task = row.get("task") if isinstance(row.get("task"), dict) else {}
+    latest = row.get("latest_continuation") if isinstance(row.get("latest_continuation"), dict) else None
+    evidence = review.get("evidence") if isinstance(review.get("evidence"), dict) else {}
+    review_status = str(review.get("status") or row.get("status") or "").strip()
+    task_status = str(task.get("status") or row.get("status") or "").strip()
+
+    if review.get("reviewed") or review_status == "reviewed":
+        return "reviewed"
+    if latest:
+        latest_status = str(latest.get("review_status") or latest.get("status") or "").strip()
+        if latest_status in {"pending", "running"}:
+            return "follow_up_running"
+        return "follow_up_created"
+    if review_status == "changes_requested":
+        return "changes_requested"
+    if review_status == "pending_evidence" or (task_status == "complete" and not row.get("receipt")):
+        return "missing_evidence"
+    if review_status == "ready_for_review":
+        has_basic_evidence = any(
+            int(evidence.get(key) or 0) > 0
+            for key in ("tests_count", "screenshots_count", "changed_files_count", "dev_targets_count")
+        )
+        return "ready_for_review" if has_basic_evidence else "missing_evidence"
+    if review_status in {"blocked", "failed"} or task_status in {"blocked", "failed"}:
+        return "blocked"
+    if task_status in {"pending", "running"} or review_status in {"pending", "running"}:
+        return "reviewing"
+    return "blocked"
+
+
+def project_coding_run_review_next_action(state: str) -> str:
+    if state == "changes_requested":
+        return "Start a follow-up run from reviewer feedback."
+    if state == "missing_evidence":
+        return "Ask the implementation agent for tests, screenshots, and a receipt."
+    if state == "ready_for_review":
+        return "Review the PR, tests, screenshots, and receipt."
+    if state == "follow_up_running":
+        return "Wait for the follow-up run to publish updated evidence."
+    if state == "follow_up_created":
+        return "Open the follow-up run and verify the updated evidence."
+    if state == "reviewing":
+        return "Track the active run or review session."
+    if state == "reviewed":
+        return "No operator action needed."
+    return "Inspect the blocker before continuing."
+
+
+def apply_project_coding_run_review_queue(row: dict[str, Any]) -> dict[str, Any]:
+    state = project_coding_run_review_queue_state(row)
+    row["review_queue_state"] = state
+    row["review_queue_priority"] = PROJECT_REVIEW_QUEUE_PRIORITY.get(state, 99)
+    row["review_next_action"] = project_coding_run_review_next_action(state)
+    return row
+
+
 async def _load_project_coding_task(db: AsyncSession, project: Project, task_id: uuid.UUID) -> Task:
     task = await db.get(Task, task_id)
     if task is None:
@@ -836,7 +914,7 @@ async def _load_project_coding_task(db: AsyncSession, project: Project, task_id:
 async def get_project_coding_run(db: AsyncSession, project: Project, task_id: uuid.UUID) -> dict[str, Any]:
     task = await _load_project_coding_task(db, project, task_id)
     receipt = (await _latest_run_receipts_by_task(db, project.id, [task.id])).get(task.id)
-    return await _coding_run_row(db, project, task, receipt)
+    return apply_project_coding_run_review_queue(await _coding_run_row(db, project, task, receipt))
 
 
 async def refresh_project_coding_run_status(db: AsyncSession, project: Project, task_id: uuid.UUID) -> dict[str, Any]:
@@ -902,7 +980,124 @@ async def list_project_coding_runs(
         row["continuation_count"] = len(continuations)
         latest = continuations[-1] if continuations else None
         row["latest_continuation"] = latest
+        apply_project_coding_run_review_queue(row)
     return rows
+
+
+def _review_inbox_item(project: Project, row: dict[str, Any]) -> dict[str, Any]:
+    review = row.get("review") if isinstance(row.get("review"), dict) else {}
+    task = row.get("task") if isinstance(row.get("task"), dict) else {}
+    receipt = row.get("receipt") if isinstance(row.get("receipt"), dict) else {}
+    evidence = review.get("evidence") if isinstance(review.get("evidence"), dict) else {}
+    state = str(row.get("review_queue_state") or project_coding_run_review_queue_state(row))
+    task_id = str(task.get("id") or row.get("id"))
+    project_url = f"/admin/projects/{project.id}"
+    return {
+        "id": str(row.get("id") or task_id),
+        "project_id": str(project.id),
+        "project_name": project.name,
+        "project_slug": project.slug,
+        "task_id": task_id,
+        "title": row.get("request") or task.get("title") or "Project coding run",
+        "branch": row.get("branch"),
+        "state": state,
+        "status": row.get("status"),
+        "review_status": review.get("status"),
+        "updated_at": row.get("updated_at") or row.get("created_at"),
+        "created_at": row.get("created_at"),
+        "launch_batch_id": row.get("launch_batch_id"),
+        "evidence": {
+            "tests_count": evidence.get("tests_count", 0),
+            "screenshots_count": evidence.get("screenshots_count", 0),
+            "changed_files_count": evidence.get("changed_files_count", 0),
+            "dev_targets_count": evidence.get("dev_targets_count", 0),
+        },
+        "latest_continuation": row.get("latest_continuation"),
+        "review_task_id": review.get("review_task_id"),
+        "review_session_id": review.get("review_session_id"),
+        "summary_line": review.get("blocker") or review.get("review_summary") or (receipt or {}).get("summary"),
+        "next_action": row.get("review_next_action") or project_coding_run_review_next_action(state),
+        "links": {
+            "project_url": project_url,
+            "project_runs_url": f"{project_url}#Runs",
+            "run_url": f"{project_url}/runs/{task_id}",
+            "review_task_url": f"/admin/tasks/{review.get('review_task_id')}" if review.get("review_task_id") else None,
+            "handoff_url": review.get("handoff_url") or (receipt or {}).get("handoff_url"),
+        },
+    }
+
+
+async def list_project_factory_review_inbox(
+    db: AsyncSession,
+    *,
+    limit: int = 50,
+    per_project_limit: int = 25,
+) -> dict[str, Any]:
+    """Return the cross-Project operator queue derived from coding-run state."""
+    projects = list((await db.execute(
+        select(Project).order_by(Project.updated_at.desc(), Project.created_at.desc()).limit(100)
+    )).scalars().all())
+    items: list[dict[str, Any]] = []
+    project_rows: dict[str, dict[str, Any]] = {}
+    summary: dict[str, int] = {state: 0 for state in PROJECT_REVIEW_QUEUE_STATES}
+    summary.update({
+        "total": 0,
+        "needs_attention_count": 0,
+        "in_flight_count": 0,
+        "project_count": 0,
+    })
+
+    for project in projects:
+        runs = await list_project_coding_runs(db, project, limit=max(1, min(per_project_limit, 50)))
+        project_items: list[dict[str, Any]] = []
+        project_counts: dict[str, int] = {state: 0 for state in PROJECT_REVIEW_QUEUE_STATES}
+        for row in runs:
+            state = str(row.get("review_queue_state") or project_coding_run_review_queue_state(row))
+            if state not in PROJECT_REVIEW_QUEUE_STATES:
+                state = "blocked"
+            project_counts[state] += 1
+            summary[state] += 1
+            summary["total"] += 1
+            if state in {"changes_requested", "missing_evidence", "ready_for_review", "follow_up_created", "blocked"}:
+                summary["needs_attention_count"] += 1
+            if state in {"reviewing", "follow_up_running"}:
+                summary["in_flight_count"] += 1
+            if state != "reviewed":
+                item = _review_inbox_item(project, row)
+                item["priority"] = PROJECT_REVIEW_QUEUE_PRIORITY.get(state, 99)
+                items.append(item)
+                project_items.append(item)
+
+        if project_items:
+            project_rows[str(project.id)] = {
+                "project": {
+                    "id": str(project.id),
+                    "name": project.name,
+                    "slug": project.slug,
+                    "root_path": project.root_path,
+                },
+                "counts": project_counts,
+                "items": sorted(
+                    project_items,
+                    key=lambda item: (int(item.get("priority") or 99), str(item.get("updated_at") or "")),
+                ),
+            }
+
+    items = sorted(
+        items,
+        key=lambda item: (int(item.get("priority") or 99), str(item.get("updated_at") or "")),
+    )[: max(1, min(limit, 100))]
+    project_groups = sorted(
+        project_rows.values(),
+        key=lambda group: min((int(item.get("priority") or 99) for item in group["items"]), default=99),
+    )
+    summary["project_count"] = len(project_groups)
+    return {
+        "generated_at": _utcnow().isoformat(),
+        "summary": summary,
+        "items": items,
+        "projects": project_groups,
+    }
 
 
 def _review_task_config(task: Task) -> dict[str, Any]:

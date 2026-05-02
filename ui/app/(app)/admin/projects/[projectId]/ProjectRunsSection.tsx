@@ -94,6 +94,18 @@ function reviewStatusLabel(run: ProjectCodingRun) {
   return run.review?.status || run.status;
 }
 
+function reviewQueueState(run: ProjectCodingRun) {
+  return run.review_queue_state || reviewStatusLabel(run);
+}
+
+function reviewQueueLabel(state?: string | null) {
+  return String(state || "needs_review").replaceAll("_", " ");
+}
+
+function reviewQueueDescription(run: ProjectCodingRun) {
+  return run.review_next_action || reviewLine(run) || evidenceSummary(run);
+}
+
 function reviewLine(run: ProjectCodingRun) {
   const review = run.review;
   if (!review) return null;
@@ -312,6 +324,16 @@ export function ProjectRunsSection({
   const changeRun = runs.find((run) => run.id === changeRunId);
   const selectedRuns = runs.filter((run) => selectedRunIds.includes(run.id));
   const selectedTaskIds = selectedRuns.map((run) => run.task.id);
+  const reviewQueueRuns = useMemo(() => {
+    return runs
+      .filter((run) => reviewQueueState(run) !== "reviewed")
+      .sort((a, b) => {
+        const left = a.review_queue_priority ?? 99;
+        const right = b.review_queue_priority ?? 99;
+        if (left !== right) return left - right;
+        return String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || ""));
+      });
+  }, [runs]);
   const launchBatchGroups = useMemo(() => {
     const groups = new Map<string, ProjectCodingRun[]>();
     for (const run of runs) {
@@ -396,6 +418,25 @@ export function ProjectRunsSection({
         channel_id: selectedChannel.id,
         task_ids: taskIds,
         prompt: `${reviewPrompt.trim()}\n\nReview launch batch ${batchId}. Keep finalization provenance linked to this batch.`,
+        merge_method: "squash",
+        machine_target_grant: reviewMachineTargetGrant,
+      },
+      {
+        onSuccess: (task) => {
+          setReviewTaskId(task.id);
+        },
+      },
+    );
+  };
+  const launchReviewForRuns = (batchRuns: ProjectCodingRun[], promptSuffix: string) => {
+    if (!selectedChannel || batchRuns.length === 0 || batchBusy) return;
+    const taskIds = batchRuns.map((run) => run.task.id);
+    setSelectedRunIds(batchRuns.map((run) => run.id));
+    createReviewSession.mutate(
+      {
+        channel_id: selectedChannel.id,
+        task_ids: taskIds,
+        prompt: `${reviewPrompt.trim()}\n\n${promptSuffix}`,
         merge_method: "squash",
         machine_target_grant: reviewMachineTargetGrant,
       },
@@ -542,18 +583,67 @@ export function ProjectRunsSection({
 
       <ProjectScheduledReviewsSection project={project} channels={channels} selectedChannelId={selectedChannelId} />
 
-      <Section title="Review Inbox" description="Launch batches grouped for morning review, with readiness, evidence, source packs, and review-session links.">
+      <Section title="Review Inbox" description="Operator queue for runs needing acceptance, evidence, or follow-up. Launch batches stay visible as provenance, not a separate review system.">
         <div className="flex flex-col gap-2">
-          {reviewBatches.length === 0 ? (
-            <EmptyState message="No launched Work Pack batches are waiting for review." />
+          {reviewQueueRuns.length === 0 ? (
+            <EmptyState message="No Project coding runs are waiting for operator review." />
           ) : (
-            reviewBatches.map((batch) => (
+            reviewQueueRuns.map((run) => (
               <SettingsControlRow
-                key={batch.id}
+                key={run.id}
                 leading={<GitMerge size={14} />}
-                title={batch.summary?.title || `Launch batch ${shortBatchId(batch.id)}`}
+                title={run.request || run.task.title || "Project coding run"}
                 description={
                   <span className="flex min-w-0 flex-col gap-0.5">
+                    <span>{reviewQueueDescription(run)}</span>
+                    <span className="truncate text-[11px] text-text-dim">
+                      Evidence: {evidenceSummary(run)}
+                    </span>
+                    {run.branch && (
+                      <span className="truncate font-mono text-[11px] text-text-dim">{run.branch}</span>
+                    )}
+                    {run.launch_batch_id && (
+                      <span className="truncate text-[11px] text-text-dim">Launch batch: {shortBatchId(run.launch_batch_id)}</span>
+                    )}
+                    {lineageLine(run) && (
+                      <span className="truncate text-[11px] text-text-dim">Continuation: {lineageLine(run)}</span>
+                    )}
+                  </span>
+                }
+                meta={<StatusBadge label={reviewQueueLabel(reviewQueueState(run))} variant={statusTone(reviewQueueState(run))} />}
+                action={
+                  <div className="flex flex-wrap justify-end gap-1">
+                    <ActionButton
+                      label="Select"
+                      size="small"
+                      variant="ghost"
+                      disabled={batchBusy}
+                      onPress={() => setSelectedRunIds([run.id])}
+                    />
+                    <ActionButton
+                      label={createReviewSession.isPending ? "Starting" : "Start review"}
+                      icon={<GitMerge size={13} />}
+                      size="small"
+                      variant="secondary"
+                      disabled={!selectedChannel || batchBusy || reviewQueueState(run) === "follow_up_running"}
+                      onPress={() => launchReviewForRuns([run], `Review Project coding run ${run.task.id}. Preserve receipt, screenshot, PR, and follow-up provenance.`)}
+                    />
+                    <RunActionLinks run={run} />
+                  </div>
+                }
+              />
+            ))
+          )}
+          {reviewBatches.length > 0 && (
+            <div className="mt-2 flex flex-col gap-2">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">Launch batch context</div>
+              {reviewBatches.slice(0, 4).map((batch) => (
+                <SettingsControlRow
+                  key={batch.id}
+                  leading={<GitMerge size={14} />}
+                  title={batch.summary?.title || `Launch batch ${shortBatchId(batch.id)}`}
+                  description={
+                    <span className="flex min-w-0 flex-col gap-0.5">
                     <span>
                       Batch {shortBatchId(batch.id)} · {batch.run_count} run{batch.run_count === 1 ? "" : "s"} · {batchStatusLine(batch)}
                     </span>
@@ -573,34 +663,35 @@ export function ProjectRunsSection({
                         Latest review: {String(batch.latest_review_task.task_id).slice(0, 8)} · {batch.latest_review_task.status}
                       </span>
                     )}
-                  </span>
-                }
-                meta={<StatusBadge label={batch.status} variant={statusTone(batch.status)} />}
-                action={
-                  <div className="flex flex-wrap justify-end gap-1">
-                    <ActionButton
-                      label="Select runs"
-                      size="small"
-                      variant="ghost"
-                      disabled={batchBusy}
-                      onPress={() => setSelectedRunIds(batch.run_ids ?? [])}
-                    />
-                    {batch.active_review_task?.task_id ? (
-                      <RowLink to={`/admin/tasks/${batch.active_review_task.task_id}`}>Open review</RowLink>
-                    ) : (
+                    </span>
+                  }
+                  meta={<StatusBadge label={batch.status} variant={statusTone(batch.status)} />}
+                  action={
+                    <div className="flex flex-wrap justify-end gap-1">
                       <ActionButton
-                        label={createReviewSession.isPending ? "Starting" : "Start review"}
-                        icon={<GitMerge size={13} />}
+                        label="Select runs"
                         size="small"
-                        variant="secondary"
-                        disabled={!selectedChannel || batchBusy || !batch.actions?.can_start_review}
-                        onPress={() => launchReviewForInboxBatch(batch)}
+                        variant="ghost"
+                        disabled={batchBusy}
+                        onPress={() => setSelectedRunIds(batch.run_ids ?? [])}
                       />
-                    )}
-                  </div>
-                }
-              />
-            ))
+                      {batch.active_review_task?.task_id ? (
+                        <RowLink to={`/admin/tasks/${batch.active_review_task.task_id}`}>Open review</RowLink>
+                      ) : (
+                        <ActionButton
+                          label={createReviewSession.isPending ? "Starting" : "Review batch"}
+                          icon={<GitMerge size={13} />}
+                          size="small"
+                          variant="secondary"
+                          disabled={!selectedChannel || batchBusy || !batch.actions?.can_start_review}
+                          onPress={() => launchReviewForInboxBatch(batch)}
+                        />
+                      )}
+                    </div>
+                  }
+                />
+              ))}
+            </div>
           )}
         </div>
       </Section>

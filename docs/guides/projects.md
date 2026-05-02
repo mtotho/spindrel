@@ -280,12 +280,18 @@ to the source Work Pack metadata with the review task/session ids, outcome,
 summary, merge method, and `launch_batch_id`.
 
 Project Runs also exposes a Review Inbox above the individual run list. The
-inbox is a derived read model, not a new state machine: it groups runs by
-`launch_batch_id`, joins the source Work Packs and review-session tasks, and
-summarizes status counts, evidence counts, active review tasks, and available
-actions. Use it for the morning review workflow: identify launched batches,
-select the batch's runs, start the normal review session, or reopen the active
-review task if one already exists.
+inbox is a derived read model, not a new state machine: each coding run is
+classified into the operator queue states `ready_for_review`,
+`changes_requested`, `missing_evidence`, `follow_up_running`,
+`follow_up_created`, `reviewing`, `blocked`, or `reviewed`. Launch-batch
+provenance stays visible below the queue so morning review can still select a
+batch's runs, start the normal review session, or reopen the active review task
+if one already exists.
+
+The same derived state powers `/api/v1/projects/review-inbox`, which aggregates
+attention across every Project. Home uses that endpoint as a compact Project
+Factory pulse: it appears only when runs need operator attention and links
+directly back to the relevant Project run or Runs page.
 
 ![Project review session launched from selected coding runs](../images/project-workspace-review-launched.png)
 
@@ -328,7 +334,8 @@ artifacts, not ad hoc local captures:
 | Artifact | What it proves |
 |---|---|
 | [Project work hub](../images/project-workspace-detail.png) | Project detail opens as an agent-work home with pulse, runs, readiness, channels, and work-surface entry points instead of dropping directly into files. |
-| [Project Review Inbox](../images/project-workspace-review-inbox.png) | Launch-batch morning review queue with source Work Packs, run readiness, evidence counts, Select runs, and Start review actions. |
+| [Home Project Factory pulse](../images/home.png) | Home surfaces cross-Project Factory review attention only when runs need review, evidence, or follow-up, with direct links back to Project Runs. |
+| [Project Review Inbox](../images/project-workspace-review-inbox.png) | Operator queue with ready, changes-requested, follow-up, missing-evidence, and blocked states plus source Work Pack launch-batch provenance. |
 | [Project Run detail](../images/project-workspace-run-detail.png) | Canonical review page for one coding run, including summary, receipt, review decision, changed files, tests, screenshots, dev targets, dependency stack, activity, and raw metadata. |
 | [Project Run follow-up](../images/project-workspace-run-follow-up.png) | Recovery flow for a changes-requested run: suggested feedback, Start follow-up, and the created follow-up task link. |
 | [Project Review Ledger](../images/project-workspace-review-ledger.png) | Review-session audit rows with selected runs, source Work Packs, outcome counts, merge settings, summaries, evidence, and active/finalized review links. |

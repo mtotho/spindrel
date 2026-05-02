@@ -86,7 +86,11 @@ logger = logging.getLogger(__name__)
             "required": [],
         },
     },
-}, safety_tier="exec_capable", requires_bot_context=True, returns={
+}, safety_tier="exec_capable", requires_bot_context=True, tool_metadata={
+    "domains": ["programmatic_tool_calling"],
+    "intent_tags": ["tool composition", "batch tool calls", "scripts"],
+    "exposure": "explicit",
+}, returns={
     "type": "object",
     "properties": {
         "stdout": {"type": "string"},

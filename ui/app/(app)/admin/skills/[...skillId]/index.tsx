@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, Bot, Code2, FileText, Info, Save, Trash2 } from "lucide-react";
 
 import { useCreateSkill, useDeleteSkill, useSkill, useSkills, useUpdateSkill } from "@/src/api/hooks/useSkills";
+import { ManifestSignatureBadge } from "@/src/components/shared/ManifestSignatureBadge";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useGoBack } from "@/src/hooks/useGoBack";
@@ -252,7 +253,15 @@ export default function SkillDetailScreen() {
                       leading={sourceBucket === "bot" ? <Bot size={14} /> : <FileText size={14} />}
                       title={skillSourceLabel(skill)}
                       description={skill.source_path || skill.id}
-                      meta={<StatusBadge label={sourceBucket} variant={sourceVariant(sourceBucket)} />}
+                      meta={
+                        <div className="flex items-center gap-1.5">
+                          <ManifestSignatureBadge
+                            state={skill.signature_state}
+                            lastSignedAt={skill.last_signed_at}
+                          />
+                          <StatusBadge label={sourceBucket} variant={sourceVariant(sourceBucket)} />
+                        </div>
+                      }
                     />
                     <div className="flex flex-col gap-2 rounded-md bg-surface-raised/35 px-3 py-3">
                       <InfoRow label="ID" value={skill.id} />

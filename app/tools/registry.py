@@ -15,6 +15,8 @@ _current_load_source_dir: str | None = None
 _current_load_source_file: str | None = None
 # Set by loader.py when importing integration tool files.
 _current_source_integration: str | None = None
+# Set by loader.py from integration metadata while importing tool files.
+_current_tool_metadata_defaults: dict[str, Any] | None = None
 
 
 def _json_default(value: Any) -> str:
@@ -67,6 +69,7 @@ def register(
     requires_bot_context: bool = False,
     requires_channel_context: bool = False,
     returns: dict | None = None,
+    tool_metadata: dict[str, Any] | None = None,
 ):
     """Decorator that registers a local tool function with its OpenAI function schema.
 
@@ -99,12 +102,20 @@ def register(
             docstrings so a script can compose tool calls without
             guessing field names. Required for new readonly tools (lint
             pin in tests/unit/test_tool_returns_schema_coverage.py).
+        tool_metadata: Optional routing/presentation metadata owned by the
+            tool definition or integration manifest. Runtime code must use
+            these generic fields instead of checking concrete tool names.
     """
 
     def decorator(func: Callable):
         name = schema["function"]["name"]
         effective_source_dir = source_dir or _current_load_source_dir
         source_file = Path(_current_load_source_file).name if _current_load_source_file else None
+        metadata: dict[str, Any] = {}
+        if isinstance(_current_tool_metadata_defaults, dict):
+            metadata.update(_current_tool_metadata_defaults)
+        if isinstance(tool_metadata, dict):
+            metadata.update(tool_metadata)
         _tools[name] = {
             "function": func,
             "schema": schema,
@@ -118,6 +129,7 @@ def register(
             "requires_bot_context": requires_bot_context,
             "requires_channel_context": requires_channel_context,
             "returns": returns,
+            "tool_metadata": metadata,
         }
         logger.info("Registered local tool: %s (tier=%s)", name, safety_tier)
         return func
@@ -176,13 +188,20 @@ def get_tool_execution_policy(name: str) -> str:
     return str(entry.get("execution_policy") or "normal") if entry else "normal"
 
 
+def get_tool_metadata(name: str) -> dict[str, Any]:
+    """Return routing/presentation metadata declared by a tool."""
+    entry = _tools.get(name)
+    metadata = entry.get("tool_metadata") if entry else None
+    return dict(metadata) if isinstance(metadata, dict) else {}
+
+
 def get_all_tool_tiers() -> dict[str, str]:
     """Return a dict mapping tool name → safety tier for all registered tools."""
     return {name: entry.get("safety_tier", "readonly") for name, entry in _tools.items()}
 
 
-def iter_registered_tools() -> list[tuple[str, dict[str, Any], str | None, str | None, str | None]]:
-    """Yields (tool_name, schema, source_dir, source_integration, source_file) for indexing."""
+def iter_registered_tools() -> list[tuple[str, dict[str, Any], str | None, str | None, str | None, dict[str, Any]]]:
+    """Yields tool metadata needed for indexing."""
     out = []
     for name, entry in _tools.items():
         out.append((
@@ -191,6 +210,7 @@ def iter_registered_tools() -> list[tuple[str, dict[str, Any], str | None, str |
             entry.get("source_dir"),
             entry.get("source_integration"),
             entry.get("source_file"),
+            dict(entry.get("tool_metadata") or {}),
         ))
     return out
 
@@ -214,6 +234,61 @@ def get_local_tool_schemas(allowed_names: list[str] | None = None) -> list[dict]
         _tools[name]["schema"]
         for name in allowed_names
         if name in _tools
+    ]
+
+
+def _metadata_value_matches(value: Any, expected: str) -> bool:
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return expected in {str(item) for item in value}
+    return str(value or "") == expected
+
+
+def _tool_metadata_matches(
+    metadata: dict[str, Any],
+    *,
+    domain: str | None = None,
+    exposure: str | None = None,
+    auto_inject: str | None = None,
+) -> bool:
+    if domain is not None and not _metadata_value_matches(metadata.get("domains"), domain):
+        return False
+    if exposure is not None and str(metadata.get("exposure") or "ambient") != exposure:
+        return False
+    if auto_inject is not None and not _metadata_value_matches(metadata.get("auto_inject"), auto_inject):
+        return False
+    return True
+
+
+def get_local_tool_names_by_metadata(
+    *,
+    domain: str | None = None,
+    exposure: str | None = None,
+    auto_inject: str | None = None,
+) -> list[str]:
+    """Return local tool names matching generic tool metadata."""
+    out: list[str] = []
+    for name, entry in _tools.items():
+        metadata = entry.get("tool_metadata") or {}
+        if not _tool_metadata_matches(metadata, domain=domain, exposure=exposure, auto_inject=auto_inject):
+            continue
+        out.append(name)
+    return out
+
+
+def get_local_tool_schemas_by_metadata(
+    *,
+    domain: str | None = None,
+    exposure: str | None = None,
+    auto_inject: str | None = None,
+) -> list[dict]:
+    """Return local tool schemas matching generic tool metadata."""
+    return [
+        _tools[name]["schema"]
+        for name in get_local_tool_names_by_metadata(
+            domain=domain,
+            exposure=exposure,
+            auto_inject=auto_inject,
+        )
     ]
 
 

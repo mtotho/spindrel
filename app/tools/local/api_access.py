@@ -31,7 +31,11 @@ logger = logging.getLogger(__name__)
             },
         },
     },
-}, safety_tier="readonly", requires_bot_context=True, returns={
+}, safety_tier="readonly", requires_bot_context=True, tool_metadata={
+    "domains": ["api_access"],
+    "exposure": "ambient",
+    "auto_inject": ["api_access"],
+}, returns={
     "type": "object",
     "properties": {
         "endpoints": {
@@ -157,7 +161,11 @@ async def list_api_endpoints(scope: str = "") -> str:
             "required": ["method", "path"],
         },
     },
-}, safety_tier="mutating", requires_bot_context=True, returns={
+}, safety_tier="mutating", requires_bot_context=True, tool_metadata={
+    "domains": ["api_access"],
+    "exposure": "ambient",
+    "auto_inject": ["api_access"],
+}, returns={
     "type": "object",
     "properties": {
         "status": {"type": "integer"},

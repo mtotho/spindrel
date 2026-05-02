@@ -67,7 +67,7 @@ class TestRetrieveToolsDiscoverAll:
                 mock_db = AsyncMock()
                 mock_result = MagicMock()
                 mock_result.all.return_value = [
-                    ({"function": {"name": "discovered_tool"}}, "discovered_tool", 0.3)  # distance=0.3 → sim=0.7
+                    ({"function": {"name": "discovered_tool"}}, "discovered_tool", 0.3, {})  # distance=0.3 → sim=0.7
                 ]
                 mock_db.execute.return_value = mock_result
                 mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_db)
@@ -101,8 +101,8 @@ class TestRetrieveToolsDiscoverAll:
         # Both at similarity 0.5 (distance 0.5)
         # With threshold 0.45, declared passes (0.5 >= 0.45), undeclared needs 0.55 and fails
         rows = [
-            ({"function": {"name": "tool_a"}}, "tool_a", 0.5),  # sim=0.5
-            ({"function": {"name": "tool_b"}}, "tool_b", 0.5),  # sim=0.5
+            ({"function": {"name": "tool_a"}}, "tool_a", 0.5, {}),  # sim=0.5
+            ({"function": {"name": "tool_b"}}, "tool_b", 0.5, {}),  # sim=0.5
         ]
 
         with patch("app.agent.tools._embed_query", return_value=mock_embedding):
@@ -133,7 +133,7 @@ class TestRetrieveToolsDiscoverAll:
         # With threshold 0.6, discover threshold would be 0.7 but capped to 0.65
         # Tool at sim=0.66 should pass
         rows = [
-            ({"function": {"name": "found_tool"}}, "found_tool", 0.34),  # sim=0.66
+            ({"function": {"name": "found_tool"}}, "found_tool", 0.34, {}),  # sim=0.66
         ]
 
         with patch("app.agent.tools._embed_query", return_value=mock_embedding):
@@ -433,10 +433,10 @@ class TestVectorOnlyToolResults:
     def test_basic_threshold_filtering(self):
         """Tools above threshold are included, below are excluded."""
         rows = [
-            ({"function": {"name": "tool_a"}}, "tool_a", 0.2),  # sim=0.8
-            ({"function": {"name": "tool_b"}}, "tool_b", 0.7),  # sim=0.3
+            ({"function": {"name": "tool_a"}}, "tool_a", 0.2, {}),  # sim=0.8
+            ({"function": {"name": "tool_b"}}, "tool_b", 0.7, {}),  # sim=0.3
         ]
-        out, candidates = _vector_only_tool_results(rows, 0.5, set(), 0.5, False)
+        out, candidates = _vector_only_tool_results(rows, 0.5, set(), 0.5, False, False)
         names = [t["function"]["name"] for t in out]
         assert "tool_a" in names
         assert "tool_b" not in names
@@ -444,25 +444,25 @@ class TestVectorOnlyToolResults:
     def test_discover_stricter_threshold(self):
         """Undeclared tools in discover mode use stricter threshold."""
         rows = [
-            ({"function": {"name": "declared"}}, "declared", 0.45),   # sim=0.55
-            ({"function": {"name": "undeclared"}}, "undeclared", 0.45),  # sim=0.55
+            ({"function": {"name": "declared"}}, "declared", 0.45, {}),   # sim=0.55
+            ({"function": {"name": "undeclared"}}, "undeclared", 0.45, {}),  # sim=0.55
         ]
         # threshold=0.5, discover_threshold=0.6
-        out, _ = _vector_only_tool_results(rows, 0.5, {"declared"}, 0.6, True)
+        out, _ = _vector_only_tool_results(rows, 0.5, {"declared"}, 0.6, True, False)
         names = [t["function"]["name"] for t in out]
         assert "declared" in names
         assert "undeclared" not in names  # 0.55 < 0.6
 
     def test_top_candidates_limited_to_5(self):
         """Top candidates should be limited to 5 entries."""
-        rows = [({"function": {"name": f"tool_{i}"}}, f"tool_{i}", 0.1) for i in range(10)]
-        _, candidates = _vector_only_tool_results(rows, 0.5, set(), 0.5, False)
+        rows = [({"function": {"name": f"tool_{i}"}}, f"tool_{i}", 0.1, {}) for i in range(10)]
+        _, candidates = _vector_only_tool_results(rows, 0.5, set(), 0.5, False, False)
         assert len(candidates) == 5
 
     def test_nan_distance_yields_finite_sim(self):
         """NaN distance (degenerate vector) must not leak NaN into top_candidates — Postgres JSONB rejects NaN."""
-        rows = [({"function": {"name": "broken"}}, "broken", float("nan"))]
-        _, candidates = _vector_only_tool_results(rows, 0.5, set(), 0.5, False)
+        rows = [({"function": {"name": "broken"}}, "broken", float("nan"), {})]
+        _, candidates = _vector_only_tool_results(rows, 0.5, set(), 0.5, False, False)
         assert len(candidates) == 1
         assert math.isfinite(candidates[0]["sim"])
         assert candidates[0]["sim"] == 0.0
@@ -474,34 +474,34 @@ class TestFuseToolResults:
     def test_vector_match_above_threshold_included(self):
         """Tools above vector threshold should be included regardless of BM25."""
         vector_rows = [
-            ({"function": {"name": "tool_a"}}, "tool_a", 0.2),  # sim=0.8
+            ({"function": {"name": "tool_a"}}, "tool_a", 0.2, {}),  # sim=0.8
         ]
         bm25_rows = []
-        out, _ = _fuse_tool_results(vector_rows, bm25_rows, 0.5, set(), 0.5, False)
+        out, _ = _fuse_tool_results(vector_rows, bm25_rows, 0.5, set(), 0.5, False, False)
         assert len(out) == 1
         assert out[0]["function"]["name"] == "tool_a"
 
     def test_bm25_only_match_included(self):
         """Tools that match BM25 but not vector should be included."""
         vector_rows = [
-            ({"function": {"name": "tool_a"}}, "tool_a", 0.8),  # sim=0.2, below threshold
+            ({"function": {"name": "tool_a"}}, "tool_a", 0.8, {}),  # sim=0.2, below threshold
         ]
         bm25_rows = [
-            ({"function": {"name": "tool_a"}}, "tool_a", 0.5),  # BM25 match
+            ({"function": {"name": "tool_a"}}, "tool_a", 0.5, {}),  # BM25 match
         ]
-        out, _ = _fuse_tool_results(vector_rows, bm25_rows, 0.5, set(), 0.5, False)
+        out, _ = _fuse_tool_results(vector_rows, bm25_rows, 0.5, set(), 0.5, False, False)
         assert len(out) == 1
         assert out[0]["function"]["name"] == "tool_a"
 
     def test_bm25_surfaces_extra_tool(self):
         """BM25 can surface tools that vector search didn't find."""
         vector_rows = [
-            ({"function": {"name": "tool_a"}}, "tool_a", 0.2),  # sim=0.8
+            ({"function": {"name": "tool_a"}}, "tool_a", 0.2, {}),  # sim=0.8
         ]
         bm25_rows = [
-            ({"function": {"name": "tool_b"}}, "tool_b", 0.5),  # BM25-only
+            ({"function": {"name": "tool_b"}}, "tool_b", 0.5, {}),  # BM25-only
         ]
-        out, _ = _fuse_tool_results(vector_rows, bm25_rows, 0.5, set(), 0.5, False)
+        out, _ = _fuse_tool_results(vector_rows, bm25_rows, 0.5, set(), 0.5, False, False)
         names = [t["function"]["name"] for t in out]
         assert "tool_a" in names
         assert "tool_b" in names
@@ -509,26 +509,46 @@ class TestFuseToolResults:
     def test_no_duplicates_in_fused_output(self):
         """A tool appearing in both vector and BM25 should only appear once."""
         vector_rows = [
-            ({"function": {"name": "tool_a"}}, "tool_a", 0.2),  # sim=0.8
+            ({"function": {"name": "tool_a"}}, "tool_a", 0.2, {}),  # sim=0.8
         ]
         bm25_rows = [
-            ({"function": {"name": "tool_a"}}, "tool_a", 0.5),  # same tool
+            ({"function": {"name": "tool_a"}}, "tool_a", 0.5, {}),  # same tool
         ]
-        out, _ = _fuse_tool_results(vector_rows, bm25_rows, 0.5, set(), 0.5, False)
+        out, _ = _fuse_tool_results(vector_rows, bm25_rows, 0.5, set(), 0.5, False, False)
         assert len(out) == 1
 
     def test_discover_threshold_applied_to_bm25_only_undeclared(self):
         """In discover mode, undeclared tools from BM25 are still included (keyword match)."""
         vector_rows = [
-            ({"function": {"name": "undeclared"}}, "undeclared", 0.6),  # sim=0.4, below both thresholds
+            ({"function": {"name": "undeclared"}}, "undeclared", 0.6, {}),  # sim=0.4, below both thresholds
         ]
         bm25_rows = [
-            ({"function": {"name": "undeclared"}}, "undeclared", 0.3),  # BM25 match
+            ({"function": {"name": "undeclared"}}, "undeclared", 0.3, {}),  # BM25 match
         ]
-        out, _ = _fuse_tool_results(vector_rows, bm25_rows, 0.5, set(), 0.6, True)
+        out, _ = _fuse_tool_results(vector_rows, bm25_rows, 0.5, set(), 0.6, True, False)
         # BM25 match should rescue it even in discover mode
         assert len(out) == 1
         assert out[0]["function"]["name"] == "undeclared"
+
+    def test_explicit_exposure_filtered_when_context_respects_exposure(self):
+        vector_rows = [
+            (
+                {"function": {"name": "explicit_candidate"}},
+                "explicit_candidate",
+                0.1,
+                {"exposure": "explicit"},
+            ),
+            (
+                {"function": {"name": "ambient_candidate"}},
+                "ambient_candidate",
+                0.1,
+                {"exposure": "ambient"},
+            ),
+        ]
+
+        out, _ = _fuse_tool_results(vector_rows, [], 0.5, set(), 0.6, True, True)
+
+        assert [tool["function"]["name"] for tool in out] == ["ambient_candidate"]
 
 
 class TestRetrieveToolsHybrid:
@@ -546,7 +566,7 @@ class TestRetrieveToolsHybrid:
         mock_embedding = [0.1] * 256
 
         rows = [
-            ({"function": {"name": "tool_a"}}, "tool_a", 0.3),  # sim=0.7
+            ({"function": {"name": "tool_a"}}, "tool_a", 0.3, {}),  # sim=0.7
         ]
 
         with patch("app.agent.tools._embed_query", return_value=mock_embedding):

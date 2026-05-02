@@ -108,7 +108,10 @@ async def test_duplicate_mutating_tool_block_emits_dedicated_event():
         _tc("mutate", '{"id":1}', "tc_2"),
     ]
 
-    with patch("app.agent.loop_dispatch.get_tool_safety_tier", return_value="mutating"):
+    with (
+        patch("app.agent.loop_dispatch.get_tool_safety_tier", return_value="mutating"),
+        patch("app.agent.loop_dispatch.get_tool_metadata", return_value={"singleton_per_run": True}),
+    ):
         events = [
             event async for event in dispatch_iteration_tool_calls(
                 accumulated_tool_calls=tool_calls,
@@ -167,4 +170,4 @@ async def test_repeated_report_issue_is_blocked_after_first_call():
         and event.get("tool") == "report_issue"
         for event in events
     )
-    assert "Only one report_issue call is allowed" in state.messages[-1]["content"]
+    assert "Only one call to this reporting tool is allowed" in state.messages[-1]["content"]

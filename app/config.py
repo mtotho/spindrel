@@ -971,6 +971,11 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     # high-privilege (exec_capable / control_plane) tool executions.
     SECURITY_AUDIT_ENABLED: bool = True
 
+    # Deployment tier — drives the security_audit deployment_tier_readiness check.
+    # localhost / lan / vpn / public — see SECURITY.md "Threat Model by Deployment Tier".
+    # Default localhost; raise it as you mature the operator hardening posture.
+    DEPLOYMENT_TIER: str = "localhost"
+
     # API rate limiting — limits requests to the Spindrel server itself (NOT LLM provider calls).
     # Protects against runaway clients hammering your server. In-memory token bucket per API key/IP.
     RATE_LIMIT_ENABLED: bool = False

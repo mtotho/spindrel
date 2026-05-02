@@ -95,6 +95,10 @@ logger = logging.getLogger(__name__)
             },
         },
     ],
+}, tool_metadata={
+    "domains": ["system_admin"],
+    "intent_tags": ["bot configuration", "admin settings", "agent setup"],
+    "exposure": "explicit",
 })
 async def manage_bot(
     action: str,

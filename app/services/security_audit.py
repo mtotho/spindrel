@@ -975,6 +975,155 @@ async def _check_allow_rules_autonomous_scope(db: AsyncSession) -> SecurityCheck
     )
 
 
+_DEPLOYMENT_TIER_ORDER = ("localhost", "lan", "vpn", "public", "multi-user")
+
+
+def _check_deployment_tier_readiness() -> SecurityCheck:
+    """Surface concrete admin readiness findings against the operator's declared
+    DEPLOYMENT_TIER. Each tier in SECURITY.md adds hardening requirements over
+    the previous one; this check translates that matrix into a single check
+    with category-specific gaps and a tier-appropriate severity.
+
+    Severity: info at localhost (declared posture is the safe default); warning
+    at lan/vpn (gaps mean you haven't fully matured the posture you claim);
+    critical at public/multi-user (those tiers aren't currently supported, so
+    operating there always fails).
+    """
+    declared = (settings.DEPLOYMENT_TIER or "localhost").strip().lower()
+    if declared not in _DEPLOYMENT_TIER_ORDER:
+        return SecurityCheck(
+            id="deployment_tier_readiness",
+            category="deployment",
+            severity=Severity.warning,
+            status=Status.fail,
+            message=(
+                f"DEPLOYMENT_TIER={declared!r} is not one of "
+                f"{list(_DEPLOYMENT_TIER_ORDER)}; treat as misconfigured."
+            ),
+            recommendation=(
+                "Set DEPLOYMENT_TIER to one of localhost / lan / vpn (the "
+                "supported tiers). public and multi-user are documented in "
+                "SECURITY.md as out-of-scope today."
+            ),
+            details={"declared_tier": declared},
+        )
+
+    tier_index = _DEPLOYMENT_TIER_ORDER.index(declared)
+    gaps: list[dict[str, str]] = []
+
+    # Localhost baseline — applies at every tier.
+    if not is_encryption_enabled():
+        gaps.append({
+            "id": "encryption_key",
+            "minimum_tier": "localhost",
+            "finding": "ENCRYPTION_KEY not configured — provider keys and OAuth tokens stored in plaintext.",
+        })
+    if not bool(getattr(settings, "ENCRYPTION_STRICT", True)):
+        gaps.append({
+            "id": "encryption_strict",
+            "minimum_tier": "localhost",
+            "finding": "ENCRYPTION_STRICT=false — encrypt() silently no-ops if the key is lost.",
+        })
+    if not settings.TOOL_POLICY_TIER_GATING:
+        gaps.append({
+            "id": "tier_gating",
+            "minimum_tier": "localhost",
+            "finding": "TOOL_POLICY_TIER_GATING disabled — safety_tier values have no enforcement effect.",
+        })
+    if not (getattr(settings, "JWT_SECRET", "") or "").strip():
+        gaps.append({
+            "id": "jwt_secret_persistent",
+            "minimum_tier": "localhost",
+            "finding": "JWT_SECRET unset — sessions sign with an ephemeral key and invalidate on every restart.",
+        })
+
+    # LAN tier — adds admin-key separation.
+    if tier_index >= _DEPLOYMENT_TIER_ORDER.index("lan"):
+        admin_key = (getattr(settings, "ADMIN_API_KEY", "") or "").strip()
+        if not admin_key:
+            gaps.append({
+                "id": "admin_api_key_separation",
+                "minimum_tier": "lan",
+                "finding": "ADMIN_API_KEY empty — admin routes share the main API_KEY.",
+            })
+
+    # VPN tier — adds rate limiting + secret redaction posture.
+    if tier_index >= _DEPLOYMENT_TIER_ORDER.index("vpn"):
+        if not settings.RATE_LIMIT_ENABLED:
+            gaps.append({
+                "id": "rate_limiting",
+                "minimum_tier": "vpn",
+                "finding": "RATE_LIMIT_ENABLED=false — Spindrel API has no per-key/IP throttle.",
+            })
+        if not settings.SECRET_REDACTION_ENABLED:
+            gaps.append({
+                "id": "secret_redaction",
+                "minimum_tier": "vpn",
+                "finding": "SECRET_REDACTION_ENABLED=false — tool outputs and LLM responses may leak secrets.",
+            })
+
+    # Public / multi-user — out of scope today; surface explicitly.
+    public_block: dict[str, str] | None = None
+    if declared in ("public", "multi-user"):
+        public_block = {
+            "id": "tier_unsupported",
+            "minimum_tier": declared,
+            "finding": (
+                f"DEPLOYMENT_TIER={declared!r} is documented as out-of-scope in "
+                "SECURITY.md. The current hardening model does not yet meet that "
+                "posture (callback/widget/harness/local-machine surfaces, public "
+                "registration policy, third-party skill review)."
+            ),
+        }
+
+    if not gaps and public_block is None:
+        return SecurityCheck(
+            id="deployment_tier_readiness",
+            category="deployment",
+            severity=Severity.info if declared == "localhost" else Severity.warning,
+            status=Status.passed,
+            message=f"Deployment tier '{declared}' baseline hardening present.",
+            details={"declared_tier": declared, "gaps": []},
+        )
+
+    if public_block is not None:
+        return SecurityCheck(
+            id="deployment_tier_readiness",
+            category="deployment",
+            severity=Severity.critical,
+            status=Status.fail,
+            message=(
+                f"DEPLOYMENT_TIER={declared!r} exceeds the supported posture; do not "
+                "expose publicly until the SECURITY.md gates are reviewed and met."
+            ),
+            recommendation=(
+                "Drop DEPLOYMENT_TIER back to vpn or lower until the public/"
+                "multi-user gates in SECURITY.md (auth, callback routes, widget/"
+                "harness/local-machine surfaces, rate limits, deployment logging) "
+                "are reviewed and accepted."
+            ),
+            details={"declared_tier": declared, "gaps": [public_block, *gaps]},
+        )
+
+    severity = Severity.info if declared == "localhost" else (
+        Severity.critical if declared == "vpn" else Severity.warning
+    )
+    return SecurityCheck(
+        id="deployment_tier_readiness",
+        category="deployment",
+        severity=severity,
+        status=Status.fail if severity is Severity.critical else Status.warning,
+        message=(
+            f"Deployment tier '{declared}' has {len(gaps)} unmet hardening requirement(s)."
+        ),
+        recommendation=(
+            "Address the gaps in details.gaps[] (each carries minimum_tier + "
+            "finding), or lower DEPLOYMENT_TIER to match the posture you actually run."
+        ),
+        details={"declared_tier": declared, "gaps": gaps},
+    )
+
+
 def _check_backup_encryption_at_rest() -> SecurityCheck:
     """Surface backup archives in ``backups/`` that are stored as
     plaintext. Encrypted backups (``.tar.gz.enc``) are produced by the
@@ -1044,23 +1193,28 @@ def _check_backup_encryption_at_rest() -> SecurityCheck:
 
 
 async def _check_manifest_hash_drift(db: AsyncSession) -> SecurityCheck:
-    """Recompute canonical content hashes for Skill + WidgetTemplatePackage
-    rows and report any whose stored ``content_hash`` no longer matches.
+    """Two-tier integrity audit for Skill + WidgetTemplatePackage rows.
 
-    Drift means a writer mutated the body without updating the hash, OR
-    a non-writer code path (direct DB tampering, an out-of-band import,
-    a migration that landed body-only) bypassed the hash bookkeeping.
-    Either way, the row's integrity record is unreliable until the hash
-    is recomputed and re-signed.
+    Tier 1 (Phase 1 — warning): ``content_hash`` drift. The stored hash
+    no longer matches a fresh sha256 of the body, meaning a writer
+    skipped the hash bookkeeping or something edited the row out-of-band.
 
-    This is the Phase 1 audit signal for the supply-chain signing track —
-    it surfaces existing tamper evidence today without requiring the
-    Phase 2 ``signature`` column or verify-on-read enforcement.
+    Tier 2 (Phase 2 — fail): persisted ``signature`` no longer verifies
+    against the canonical body. Phase 2's verify-on-read at the loaders
+    refuses to load these rows; the audit promotes them to a hard fail
+    so the dashboard surfaces the active denial.
+
+    Severity / status branches:
+    - any signed+tampered row → fail
+    - else any content_hash drift → warning
+    - else passed
     """
     from app.db.models import Skill, WidgetTemplatePackage
     from app.services.manifest_signing import (
         detect_skill_drift,
         detect_widget_drift,
+        verify_skill_row,
+        verify_widget_row,
     )
 
     skill_rows = (await db.execute(select(Skill))).scalars().all()
@@ -1069,7 +1223,17 @@ async def _check_manifest_hash_drift(db: AsyncSession) -> SecurityCheck:
     skill_findings = detect_skill_drift(list(skill_rows))
     widget_findings = detect_widget_drift(list(widget_rows))
 
-    total_findings = len(skill_findings) + len(widget_findings)
+    # Phase 2: signed-and-tampered rows. A NULL signature is "Phase 1
+    # unsigned" and only surfaces via the Tier 1 hash drift above.
+    skill_sig_tampered = [
+        r for r in skill_rows if r.signature and not verify_skill_row(r)
+    ]
+    widget_sig_tampered = [
+        r for r in widget_rows if r.signature and not verify_widget_row(r)
+    ]
+    sig_tampered_count = len(skill_sig_tampered) + len(widget_sig_tampered)
+
+    total_hash_findings = len(skill_findings) + len(widget_findings)
     total_rows = len(skill_rows) + len(widget_rows)
 
     if total_rows == 0:
@@ -1083,10 +1247,11 @@ async def _check_manifest_hash_drift(db: AsyncSession) -> SecurityCheck:
                 "skill_count": 0,
                 "widget_template_count": 0,
                 "drift_findings": 0,
+                "signature_tampered": 0,
             },
         )
 
-    if total_findings == 0:
+    if total_hash_findings == 0 and sig_tampered_count == 0:
         return SecurityCheck(
             id="manifest_hash_drift",
             category="manifest_signing",
@@ -1094,13 +1259,65 @@ async def _check_manifest_hash_drift(db: AsyncSession) -> SecurityCheck:
             status=Status.passed,
             message=(
                 f"All {total_rows} skill / widget rows have intact "
-                "content_hash bookkeeping."
+                "content_hash and signature bookkeeping."
             ),
             details={
                 "skill_count": len(skill_rows),
                 "widget_template_count": len(widget_rows),
                 "drift_findings": 0,
+                "signature_tampered": 0,
             },
+        )
+
+    base_details = {
+        "skill_count": len(skill_rows),
+        "widget_template_count": len(widget_rows),
+        "drift_findings": total_hash_findings,
+        "signature_tampered": sig_tampered_count,
+        "skill_drift": [
+            {
+                "id": f.target_id,
+                "name": f.name,
+                "stored": f.stored_hash[:16] + "…",
+                "recomputed": f.recomputed_hash[:16] + "…",
+            }
+            for f in skill_findings[:25]
+        ],
+        "widget_drift": [
+            {
+                "id": f.target_id,
+                "name": f.name,
+                "stored": f.stored_hash[:16] + "…",
+                "recomputed": f.recomputed_hash[:16] + "…",
+            }
+            for f in widget_findings[:25]
+        ],
+        "skill_sig_tampered_ids": [r.id for r in skill_sig_tampered[:25]],
+        "widget_sig_tampered_ids": [str(r.id) for r in widget_sig_tampered[:25]],
+    }
+
+    if sig_tampered_count > 0:
+        # Phase 2 hard fail — these rows already get refused at the
+        # loader; the audit promotes the finding from warning to fail.
+        return SecurityCheck(
+            id="manifest_hash_drift",
+            category="manifest_signing",
+            severity=Severity.critical,
+            status=Status.fail,
+            message=(
+                f"{sig_tampered_count} row(s) have a signature that no "
+                f"longer matches the body "
+                f"({len(skill_sig_tampered)} skill, "
+                f"{len(widget_sig_tampered)} widget). "
+                "Verify-on-read at the loaders refuses these rows."
+            ),
+            recommendation=(
+                "Inspect each tampered row. If the body is the intended "
+                "state, run POST /api/v1/admin/manifest/trust-current-state "
+                "with confirm=true to re-sign over the live body. If the "
+                "body is wrong, restore from backup before re-signing."
+            ),
+            details=base_details,
         )
 
     return SecurityCheck(
@@ -1109,7 +1326,7 @@ async def _check_manifest_hash_drift(db: AsyncSession) -> SecurityCheck:
         severity=Severity.warning,
         status=Status.warning,
         message=(
-            f"{total_findings} row(s) have content_hash drift "
+            f"{total_hash_findings} row(s) have content_hash drift "
             f"({len(skill_findings)} skill, {len(widget_findings)} widget). "
             "Stored hash does not match a fresh sha256 of the body — a "
             "writer skipped the hash update or the body was edited "
@@ -1118,34 +1335,13 @@ async def _check_manifest_hash_drift(db: AsyncSession) -> SecurityCheck:
         recommendation=(
             "Inspect each drifted row. If the body is the intended state, "
             "rewrite it via the normal writer (e.g. manage_bot_skill, widget "
-            "package edit) so the hash is recomputed. If the body is wrong, "
-            "restore from a backup. Phase 2 of this track will add a "
-            "signature column and verify-on-read so out-of-band edits are "
-            "rejected automatically."
+            "package edit) so the hash is recomputed, or run "
+            "POST /api/v1/admin/manifest/trust-current-state with "
+            "confirm=true to recompute hashes and signatures over the live "
+            "row set after manual review. If the body is wrong, restore "
+            "from a backup."
         ),
-        details={
-            "skill_count": len(skill_rows),
-            "widget_template_count": len(widget_rows),
-            "drift_findings": total_findings,
-            "skill_drift": [
-                {
-                    "id": f.target_id,
-                    "name": f.name,
-                    "stored": f.stored_hash[:16] + "…",
-                    "recomputed": f.recomputed_hash[:16] + "…",
-                }
-                for f in skill_findings[:25]
-            ],
-            "widget_drift": [
-                {
-                    "id": f.target_id,
-                    "name": f.name,
-                    "stored": f.stored_hash[:16] + "…",
-                    "recomputed": f.recomputed_hash[:16] + "…",
-                }
-                for f in widget_findings[:25]
-            ],
-        },
+        details=base_details,
     )
 
 
@@ -1505,6 +1701,7 @@ async def run_security_audit(db: AsyncSession) -> SecurityAuditResponse:
     checks.append(_check_machine_control_tool_gates())
     checks.append(_check_browser_live_pairing_surface())
     checks.append(_check_backup_encryption_at_rest())
+    checks.append(_check_deployment_tier_readiness())
 
     # DB-dependent checks
     checks.append(await _check_exec_tools_without_rules(db))

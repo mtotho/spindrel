@@ -16,6 +16,7 @@ from app.services.security_audit import (
     _check_admin_key_separation,
     _check_approval_timeout,
     _check_audit_logging,
+    _check_deployment_tier_readiness,
     _check_bots_with_exec_tools,
     _check_bots_with_cross_workspace_access,
     _check_bots_with_high_risk_api_scopes,
@@ -276,6 +277,74 @@ class TestRateLimiting:
     def test_fail(self, monkeypatch):
         monkeypatch.setattr("app.services.security_audit.settings.RATE_LIMIT_ENABLED", False)
         assert _check_rate_limiting().status == Status.fail
+
+
+class TestDeploymentTierReadiness:
+    def _set_baseline(self, monkeypatch, *, encrypted=True, strict=True, tier_gating=True, jwt="persistent"):
+        monkeypatch.setattr("app.services.security_audit.settings.ENCRYPTION_STRICT", strict)
+        monkeypatch.setattr("app.services.security_audit.settings.TOOL_POLICY_TIER_GATING", tier_gating)
+        monkeypatch.setattr("app.services.security_audit.settings.JWT_SECRET", jwt)
+        monkeypatch.setattr("app.services.security_audit.settings.ADMIN_API_KEY", "admin-secret")
+        monkeypatch.setattr("app.services.security_audit.settings.RATE_LIMIT_ENABLED", True)
+        monkeypatch.setattr("app.services.security_audit.settings.SECRET_REDACTION_ENABLED", True)
+        return patch(
+            "app.services.security_audit.is_encryption_enabled",
+            return_value=encrypted,
+        )
+
+    def test_localhost_baseline_passes(self, monkeypatch):
+        monkeypatch.setattr("app.services.security_audit.settings.DEPLOYMENT_TIER", "localhost")
+        with self._set_baseline(monkeypatch):
+            c = _check_deployment_tier_readiness()
+        assert c.status == Status.passed
+        assert c.severity == Severity.info
+        assert c.details["gaps"] == []
+
+    def test_localhost_flags_missing_encryption(self, monkeypatch):
+        monkeypatch.setattr("app.services.security_audit.settings.DEPLOYMENT_TIER", "localhost")
+        with self._set_baseline(monkeypatch, encrypted=False):
+            c = _check_deployment_tier_readiness()
+        assert c.status == Status.warning
+        assert c.severity == Severity.info
+        ids = {g["id"] for g in c.details["gaps"]}
+        assert "encryption_key" in ids
+
+    def test_lan_requires_admin_key_separation(self, monkeypatch):
+        monkeypatch.setattr("app.services.security_audit.settings.DEPLOYMENT_TIER", "lan")
+        monkeypatch.setattr("app.services.security_audit.settings.ADMIN_API_KEY", "")
+        with self._set_baseline(monkeypatch):
+            monkeypatch.setattr("app.services.security_audit.settings.ADMIN_API_KEY", "")
+            c = _check_deployment_tier_readiness()
+        assert c.status == Status.warning
+        assert c.severity == Severity.warning
+        ids = {g["id"] for g in c.details["gaps"]}
+        assert "admin_api_key_separation" in ids
+
+    def test_vpn_critical_when_rate_limit_off(self, monkeypatch):
+        monkeypatch.setattr("app.services.security_audit.settings.DEPLOYMENT_TIER", "vpn")
+        with self._set_baseline(monkeypatch):
+            monkeypatch.setattr("app.services.security_audit.settings.RATE_LIMIT_ENABLED", False)
+            c = _check_deployment_tier_readiness()
+        assert c.status == Status.fail
+        assert c.severity == Severity.critical
+        ids = {g["id"] for g in c.details["gaps"]}
+        assert "rate_limiting" in ids
+
+    def test_public_tier_unsupported(self, monkeypatch):
+        monkeypatch.setattr("app.services.security_audit.settings.DEPLOYMENT_TIER", "public")
+        with self._set_baseline(monkeypatch):
+            c = _check_deployment_tier_readiness()
+        assert c.status == Status.fail
+        assert c.severity == Severity.critical
+        ids = {g["id"] for g in c.details["gaps"]}
+        assert "tier_unsupported" in ids
+
+    def test_unknown_tier_value_flagged(self, monkeypatch):
+        monkeypatch.setattr("app.services.security_audit.settings.DEPLOYMENT_TIER", "datacenter")
+        with self._set_baseline(monkeypatch):
+            c = _check_deployment_tier_readiness()
+        assert c.status == Status.fail
+        assert c.details["declared_tier"] == "datacenter"
 
 
 class TestSecretRedaction:
@@ -848,6 +917,85 @@ class TestMachineControlLeaseState:
 # Score computation
 # ---------------------------------------------------------------------------
 
+class TestManifestHashDriftSeverity:
+    """Phase 2 promotes signed-and-tampered to a hard fail; unsigned-and-
+    drifted stays a warning. Exercised against the live function so the
+    severity branches stay in sync with what the dashboard surfaces."""
+
+    @pytest.mark.asyncio
+    async def test_passes_when_no_drift_and_all_signed_clean(self, db, monkeypatch):
+        from app.services.security_audit import _check_manifest_hash_drift
+        from app.services.manifest_signing import sign_skill_payload
+        from app.db.models import Skill
+        import hashlib
+
+        monkeypatch.setattr(
+            "app.services.manifest_signing.settings.ENCRYPTION_KEY", "k"
+        )
+        sig = sign_skill_payload("body", [])
+        db.add(Skill(
+            id="s1", name="s1", content="body",
+            content_hash=hashlib.sha256(b"body").hexdigest(),
+            signature=sig,
+        ))
+        await db.commit()
+
+        result = await _check_manifest_hash_drift(db)
+        assert result.status == Status.passed
+        assert result.severity == Severity.warning  # baseline severity stays warning when passed
+
+    @pytest.mark.asyncio
+    async def test_warns_on_unsigned_hash_drift(self, db, monkeypatch):
+        from app.services.security_audit import _check_manifest_hash_drift
+        from app.db.models import Skill
+
+        monkeypatch.setattr(
+            "app.services.manifest_signing.settings.ENCRYPTION_KEY", "k"
+        )
+        # Unsigned (signature=NULL) row whose content_hash drifted.
+        db.add(Skill(
+            id="s1", name="s1", content="real body",
+            content_hash="0" * 64,
+            signature=None,
+        ))
+        await db.commit()
+
+        result = await _check_manifest_hash_drift(db)
+        assert result.status == Status.warning
+        assert result.severity == Severity.warning
+        assert result.details["drift_findings"] == 1
+        assert result.details["signature_tampered"] == 0
+
+    @pytest.mark.asyncio
+    async def test_fails_when_signed_and_tampered(self, db, monkeypatch):
+        """Phase 2 win: a row with a persisted signature that no longer
+        verifies promotes from warning to fail. The loader already refuses
+        these rows; the audit surfaces the active denial."""
+        from app.services.security_audit import _check_manifest_hash_drift
+        from app.services.manifest_signing import sign_skill_payload
+        from app.db.models import Skill
+        import hashlib
+
+        monkeypatch.setattr(
+            "app.services.manifest_signing.settings.ENCRYPTION_KEY", "k"
+        )
+        # Row was signed over "original" content, but the body says
+        # "tampered" — verify_skill_row returns False.
+        sig = sign_skill_payload("original", [])
+        db.add(Skill(
+            id="s1", name="s1", content="tampered",
+            content_hash=hashlib.sha256(b"tampered").hexdigest(),
+            signature=sig,
+        ))
+        await db.commit()
+
+        result = await _check_manifest_hash_drift(db)
+        assert result.status == Status.fail
+        assert result.severity == Severity.critical
+        assert result.details["signature_tampered"] == 1
+        assert "trust-current-state" in (result.recommendation or "")
+
+
 class TestScore:
     def test_all_pass(self):
         checks = [
@@ -915,7 +1063,7 @@ class TestSummary:
 
 class TestRunSecurityAudit:
     @pytest.mark.asyncio
-    async def test_returns_33_checks(self, db, monkeypatch):
+    async def test_returns_34_checks(self, db, monkeypatch):
         # Patch config settings
         monkeypatch.setattr("app.services.security_audit.settings.TOOL_POLICY_ENABLED", True)
         monkeypatch.setattr("app.services.security_audit.settings.TOOL_POLICY_DEFAULT_ACTION", "deny")
@@ -934,7 +1082,7 @@ class TestRunSecurityAudit:
              patch("app.services.security_audit.get_configured_server_count", return_value=0):
             result = await run_security_audit(db)
 
-        assert len(result.checks) == 33
+        assert len(result.checks) == 34
         assert result.score >= 0
         assert result.score <= 100
         assert "pass" in result.summary

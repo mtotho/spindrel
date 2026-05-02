@@ -154,9 +154,11 @@ export function useChannelWorkbenchController({
 
   const panelPrefs = channelPanelPrefs ?? channelPanelDefaults;
 
-  const { rail: railPins, header: headerChipPins, dock: dockPins } = useChannelChatZones(channelId ?? "");
-  const hasHeaderChips = headerChipPins.length > 0;
-  const workbenchWidgetCount = railPins.length + headerChipPins.length + dockPins.length;
+  const { rail: railPins } = useChannelChatZones(channelId ?? "");
+  const headerChipPins = useMemo(() => [], []);
+  const dockPins = useMemo(() => [], []);
+  const hasHeaderChips = false;
+  const workbenchWidgetCount = railPins.length;
   const switchSessionsShortcut = getChatShortcutLabel("switchSessions");
   const focusLayoutShortcut = getChatShortcutLabel("focusLayout");
   const browseFilesShortcut = getChatShortcutLabel("browseFiles");

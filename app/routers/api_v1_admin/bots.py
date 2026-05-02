@@ -289,6 +289,7 @@ async def _fetch_tool_rows(db: AsyncSession):
             ToolEmbedding.source_integration,
             ToolEmbedding.source_file,
             ToolEmbedding.schema_,
+            ToolEmbedding.metadata_,
         ).order_by(ToolEmbedding.server_name.nullsfirst(), ToolEmbedding.tool_name)
     )).all()
 
@@ -351,6 +352,7 @@ def _build_tool_groups(tool_rows, *, memory_scheme: str | None = None) -> list[d
         integration_packs[intg][pack].append({
             "name": r.tool_name,
             "description": fn.get("description"),
+            "metadata": r.metadata_ or {},
         })
 
     ordered = (["core"] if "core" in integration_packs else []) + sorted(

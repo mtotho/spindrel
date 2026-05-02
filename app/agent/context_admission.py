@@ -27,15 +27,13 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-CHANNEL_WORKSPACE_TOOLS = [
-    "file",
-    "search_channel_archive",
-    "search_channel_workspace",
-    "search_channel_knowledge",
-    "search_bot_knowledge",
-    "list_channels",
-]
 _CHANNEL_WORKSPACE_BUDGET = 50_000
+
+
+def channel_workspace_tools() -> list[str]:
+    from app.tools.registry import get_local_tool_names_by_metadata
+
+    return get_local_tool_names_by_metadata(auto_inject="channel_workspace")
 
 
 def _safe_sim(value: float) -> float | None:
@@ -56,13 +54,14 @@ def _mark_injection_decision(
 
 def apply_channel_workspace_tools(bot: BotConfig) -> BotConfig:
     local_tools = list(bot.local_tools)
-    for tool_name in CHANNEL_WORKSPACE_TOOLS:
+    tools = channel_workspace_tools()
+    for tool_name in tools:
         if tool_name not in local_tools:
             local_tools.append(tool_name)
     return replace(
         bot,
         local_tools=local_tools,
-        pinned_tools=list(dict.fromkeys((bot.pinned_tools or []) + CHANNEL_WORKSPACE_TOOLS)),
+        pinned_tools=list(dict.fromkeys((bot.pinned_tools or []) + tools)),
     )
 
 

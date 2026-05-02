@@ -26,7 +26,14 @@ _TOOL_CACHE_TTL = 300  # 5 minutes
 _tool_cache: dict[str, tuple[float, list[dict[str, Any]], float, list[dict[str, Any]]]] = {}
 
 
-def _cache_key(query: str, local_tool_names: list[str], mcp_server_names: list[str], top_k: int, threshold: float) -> str:
+def _cache_key(
+    query: str,
+    local_tool_names: list[str],
+    mcp_server_names: list[str],
+    top_k: int,
+    threshold: float,
+    respect_exposure: bool = False,
+) -> str:
     """Build a deterministic cache key from retrieval parameters."""
     parts = [
         query,
@@ -34,6 +41,7 @@ def _cache_key(query: str, local_tool_names: list[str], mcp_server_names: list[s
         ",".join(sorted(mcp_server_names)),
         str(top_k),
         f"{threshold:.4f}",
+        "exposure" if respect_exposure else "",
     ]
     return hashlib.sha256("|".join(parts).encode()).hexdigest()
 
@@ -81,6 +89,30 @@ def build_embed_text(openai_tool: dict[str, Any], tool_name: str, server_name: s
     return "\n".join(parts)
 
 
+def _metadata_embed_text(metadata: dict[str, Any] | None) -> str:
+    if not isinstance(metadata, dict) or not metadata:
+        return ""
+    parts: list[str] = []
+    for key in ("domains", "intent_tags", "capabilities", "exposure", "surface"):
+        value = metadata.get(key)
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple, set)):
+            rendered = ", ".join(str(v) for v in value if v)
+        else:
+            rendered = str(value)
+        if rendered:
+            parts.append(f"{key}: {rendered}")
+    return "\n".join(parts)
+
+
+def _tool_exposure(metadata: dict[str, Any] | None) -> str:
+    if not isinstance(metadata, dict):
+        return "ambient"
+    value = metadata.get("exposure")
+    return str(value or "ambient").strip().lower()
+
+
 async def _upsert_tool_row(
     *,
     tool_key: str,
@@ -89,6 +121,7 @@ async def _upsert_tool_row(
     source_dir: str | None,
     source_integration: str | None = None,
     source_file: str | None = None,
+    metadata: dict[str, Any] | None = None,
     schema: dict[str, Any],
     embed_text_value: str,
     embedding: list[float] | None,
@@ -109,6 +142,7 @@ async def _upsert_tool_row(
             source_dir=source_dir,
             source_integration=source_integration,
             source_file=source_file,
+            metadata=metadata or {},
             embed_text=embed_text_value,
             content_hash=h,
             embedding=embedding,
@@ -122,6 +156,7 @@ async def _upsert_tool_row(
                 "source_dir": source_dir,
                 "source_integration": source_integration,
                 "source_file": source_file,
+                "metadata": metadata or {},
                 "schema": schema,
                 "embed_text": embed_text_value,
                 "content_hash": h,
@@ -141,7 +176,7 @@ async def index_local_tools() -> None:
 
     invalidate_tool_cache()
     current_tools = list(iter_registered_tools())
-    current_keys = {tool_key_for(None, tool_name) for tool_name, _, _, _, _ in current_tools}
+    current_keys = {tool_key_for(None, tool_name) for tool_name, _, _, _, _, _ in current_tools}
 
     # Fetch existing hashes in one query to avoid re-embedding unchanged tools
     async with async_session() as db:
@@ -164,25 +199,29 @@ async def index_local_tools() -> None:
     # Update source metadata (source_file, source_integration) for all existing tools
     # regardless of content hash — these columns are not part of the hash.
     metadata_updates = []
-    for tool_name, _, _, source_integration, source_file in current_tools:
+    for tool_name, _, _, source_integration, source_file, metadata in current_tools:
         tkey = tool_key_for(None, tool_name)
         if tkey in existing_hashes:
-            metadata_updates.append((tkey, source_integration, source_file))
+            metadata_updates.append((tkey, source_integration, source_file, metadata or {}))
     if metadata_updates:
         async with async_session() as db:
-            for tkey, si, sf in metadata_updates:
+            for tkey, si, sf, metadata in metadata_updates:
                 await db.execute(
                     update(ToolEmbedding)
                     .where(ToolEmbedding.tool_key == tkey)
-                    .values(source_integration=si, source_file=sf)
+                    .values(source_integration=si, source_file=sf, metadata_=metadata)
                 )
             await db.commit()
 
     skipped = 0
     embed_disabled = False
-    for tool_name, schema, source_dir, source_integration, source_file in current_tools:
+    for tool_name, schema, source_dir, source_integration, source_file, metadata in current_tools:
         tkey = tool_key_for(None, tool_name)
+        metadata = metadata or {}
         embed_txt = build_embed_text(schema, tool_name, None)
+        metadata_txt = _metadata_embed_text(metadata)
+        if metadata_txt:
+            embed_txt = f"{embed_txt}\nMetadata:\n{metadata_txt}"
         h = content_hash(embed_txt)
         if existing_hashes.get(tkey) == h:
             skipped += 1
@@ -210,6 +249,7 @@ async def index_local_tools() -> None:
                 source_dir=source_dir,
                 source_integration=source_integration,
                 source_file=source_file,
+                metadata=metadata,
                 schema=schema,
                 embed_text_value=embed_txt,
                 embedding=emb,
@@ -274,6 +314,7 @@ async def index_mcp_tools(server_name: str, schemas: list[dict[str, Any]]) -> No
                 tool_name=tool_name,
                 server_name=server_name,
                 source_dir=None,
+                metadata={},
                 schema=sch,
                 embed_text_value=embed_txt,
                 embedding=emb,
@@ -305,8 +346,8 @@ async def _bm25_tool_search(
     mcp_server_names: list[str],
     discover_all: bool,
     limit: int,
-) -> list[tuple[dict, str, float]]:
-    """Run BM25 full-text search on tool_embeddings. Returns (schema, tool_name, rank)."""
+) -> list[tuple[dict, str, float, dict]]:
+    """Run BM25 full-text search on tool_embeddings."""
     from sqlalchemy import text as sa_text
 
     try:
@@ -339,6 +380,7 @@ async def _bm25_tool_search(
         sql = sa_text(f"""
             SELECT "schema", tool_name,
                    ts_rank(to_tsvector('english', embed_text), websearch_to_tsquery('english', :q)) AS rank
+                   , metadata
             FROM tool_embeddings
             WHERE ({where_clause})
               AND to_tsvector('english', embed_text) @@ websearch_to_tsquery('english', :q)
@@ -346,7 +388,7 @@ async def _bm25_tool_search(
             LIMIT :lim
         """)
         result = await db.execute(sql, params)
-        return [(row[0], row[1], float(row[2])) for row in result.all()]
+        return [(row[0], row[1], float(row[2]), row[3] or {}) for row in result.all()]
     except Exception:
         logger.debug("BM25 tool search failed, falling back to vector-only", exc_info=True)
         return []
@@ -358,11 +400,12 @@ def _vector_only_tool_results(
     declared_names: set[str],
     discover_threshold: float,
     discover_all: bool,
+    respect_exposure: bool,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Process cosine-only results with threshold filtering."""
     out: list[dict[str, Any]] = []
     top_candidates: list[dict[str, Any]] = []
-    for schema_obj, tool_name, distance in rows:
+    for schema_obj, tool_name, distance, metadata in rows:
         similarity = 1.0 - distance
         if not math.isfinite(similarity):
             similarity = 0.0
@@ -371,6 +414,13 @@ def _vector_only_tool_results(
         _eff_threshold = threshold if (not discover_all or tool_name in declared_names) else discover_threshold
         if similarity < _eff_threshold:
             continue
+        if (
+            respect_exposure
+            and discover_all
+            and tool_name not in declared_names
+            and _tool_exposure(metadata) == "explicit"
+        ):
+            continue
         if isinstance(schema_obj, dict):
             out.append(schema_obj)
     return out, top_candidates
@@ -378,11 +428,12 @@ def _vector_only_tool_results(
 
 def _fuse_tool_results(
     vector_rows: list,
-    bm25_rows: list[tuple[dict, str, float]],
+    bm25_rows: list[tuple[dict, str, float, dict]],
     threshold: float,
     declared_names: set[str],
     discover_threshold: float,
     discover_all: bool,
+    respect_exposure: bool,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Fuse vector + BM25 tool results using Reciprocal Rank Fusion."""
     from app.agent.hybrid_search import reciprocal_rank_fusion
@@ -390,24 +441,27 @@ def _fuse_tool_results(
     k = settings.HYBRID_SEARCH_RRF_K
 
     # Build ranked lists keyed by tool_name for dedup
-    vector_list = [(tool_name,) for _, tool_name, _ in vector_rows]
-    bm25_list = [(tool_name,) for _, tool_name, _ in bm25_rows]
+    vector_list = [(tool_name,) for _, tool_name, _, _ in vector_rows]
+    bm25_list = [(tool_name,) for _, tool_name, _, _ in bm25_rows]
 
     fused = reciprocal_rank_fusion(vector_list, bm25_list, k=k)
 
     # Build lookups
     vector_sims: dict[str, float] = {}
     vector_schemas: dict[str, dict] = {}
-    for schema_obj, tool_name, distance in vector_rows:
+    metadata_by_name: dict[str, dict] = {}
+    for schema_obj, tool_name, distance, metadata in vector_rows:
         if tool_name not in vector_sims:
             sim = 1.0 - distance
             vector_sims[tool_name] = sim if math.isfinite(sim) else 0.0
             vector_schemas[tool_name] = schema_obj
-    bm25_names = {tool_name for _, tool_name, _ in bm25_rows}
+            metadata_by_name[tool_name] = metadata or {}
+    bm25_names = {tool_name for _, tool_name, _, _ in bm25_rows}
     bm25_schemas: dict[str, dict] = {}
-    for schema_obj, tool_name, _ in bm25_rows:
+    for schema_obj, tool_name, _, metadata in bm25_rows:
         if tool_name not in bm25_schemas:
             bm25_schemas[tool_name] = schema_obj
+            metadata_by_name.setdefault(tool_name, metadata or {})
 
     out: list[dict[str, Any]] = []
     top_candidates: list[dict[str, Any]] = []
@@ -424,6 +478,13 @@ def _fuse_tool_results(
 
         vec_sim = vector_sims.get(tool_name)
         _eff_threshold = threshold if (not discover_all or tool_name in declared_names) else discover_threshold
+        if (
+            respect_exposure
+            and discover_all
+            and tool_name not in declared_names
+            and _tool_exposure(metadata_by_name.get(tool_name)) == "explicit"
+        ):
+            continue
 
         if len(top_candidates) < 5:
             _display_sim = vec_sim if vec_sim is not None else 0.0
@@ -450,6 +511,7 @@ async def retrieve_tools(
     top_k: int | None = None,
     threshold: float | None = None,
     discover_all: bool = False,
+    respect_exposure: bool = False,
 ) -> tuple[list[dict[str, Any]], float, list[dict[str, Any]]]:
     """Return (tool_dicts, best_similarity, top_candidates) for local + MCP tools above threshold.
 
@@ -466,7 +528,7 @@ async def retrieve_tools(
 
     # Check cache
     _discover_tag = "d" if discover_all else ""
-    ck = _cache_key(query, local_tool_names, mcp_server_names, top_k, threshold) + _discover_tag
+    ck = _cache_key(query, local_tool_names, mcp_server_names, top_k, threshold, respect_exposure) + _discover_tag
     cached = _tool_cache.get(ck)
     if cached is not None:
         ts, c_out, c_sim, c_cand = cached
@@ -506,7 +568,7 @@ async def retrieve_tools(
     # Increase limit when discovering to get a wider pool
     _limit = top_k * 2 if discover_all else top_k
     stmt = (
-        select(ToolEmbedding.schema_, ToolEmbedding.tool_name, distance_expr.label("distance"))
+        select(ToolEmbedding.schema_, ToolEmbedding.tool_name, distance_expr.label("distance"), ToolEmbedding.metadata_)
         .where(or_(*filters))
         .order_by(distance_expr)
         .limit(_limit)
@@ -518,7 +580,7 @@ async def retrieve_tools(
             rows = result.all()
 
             # Hybrid search: BM25 + RRF fusion (PostgreSQL only)
-            bm25_rows: list[tuple[dict, str, float]] = []
+            bm25_rows: list[tuple[dict, str, float, dict]] = []
             if settings.HYBRID_SEARCH_ENABLED and rows:
                 from app.agent.hybrid_search import is_postgres_dialect
                 if is_postgres_dialect(db.bind):
@@ -549,11 +611,11 @@ async def retrieve_tools(
     # Fuse vector + BM25 results if hybrid search produced results
     if bm25_rows:
         out, top_candidates = _fuse_tool_results(
-            rows, bm25_rows, threshold, _declared_names, _discover_threshold, discover_all,
+            rows, bm25_rows, threshold, _declared_names, _discover_threshold, discover_all, respect_exposure,
         )
     else:
         out, top_candidates = _vector_only_tool_results(
-            rows, threshold, _declared_names, _discover_threshold, discover_all,
+            rows, threshold, _declared_names, _discover_threshold, discover_all, respect_exposure,
         )
 
     # Store in cache

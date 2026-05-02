@@ -8,7 +8,7 @@
  * and action-dispatched button flips stay on merge:true semantics.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Code2, Loader2, Maximize2, Minimize2, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { ChevronDown, Code2, Loader2, Maximize2, Pin, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useBots } from "@/src/api/hooks/useBots";
@@ -70,8 +70,6 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
   );
   const renamePin = useDashboardPinsStore((s) => s.renamePin);
   const replaceConfig = useDashboardPinsStore((s) => s.replaceWidgetConfig);
-  const promotePanel = useDashboardPinsStore((s) => s.promotePinToPanel);
-  const demotePanel = useDashboardPinsStore((s) => s.demotePinFromPanel);
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
   const setPinScope = useDashboardPinsStore((s) => s.setPinScope);
   const { data: allBots } = useBots();
@@ -82,7 +80,7 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
   const unpinWidget = useDashboardPinsStore((s) => s.unpinWidget);
 
   const [saving, setSaving] = useState(false);
-  const [panelBusy, setPanelBusy] = useState(false);
+  const [shelfBusy, setShelfBusy] = useState(false);
   const [sizeBusy, setSizeBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -145,8 +143,6 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
 
   const jsonError = parsedConfig === null;
   const isOpen = !!pinId;
-  const isHeaderZone = pin?.zone === "header";
-
   const currentLayout = (pin?.grid_layout as GridLayoutItem | undefined) ?? null;
   /** Match the current pin's {w,h} against a preset. Used to highlight the
    *  active chip. Falls back to null when the pin has a custom size. */
@@ -236,7 +232,8 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
   };
 
   const isHtmlWidget = pin?.envelope?.content_type === HTML_INTERACTIVE_CT;
-  const isPanelPin = !!pin?.is_main_panel;
+  const legacyShelfZone = pin?.zone === "rail" || pin?.zone === "header" || pin?.zone === "dock";
+  const showInChatShelf = parsedConfig?.show_in_chat_shelf === true || legacyShelfZone;
   const configSchemaProperties = useMemo(
     () => pin?.config_schema?.properties ?? {},
     [pin?.config_schema],
@@ -304,20 +301,25 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
     }
   };
 
-  const handlePanelToggle = async () => {
+  const handleChatShelfToggle = async () => {
     if (!pin) return;
-    setPanelBusy(true);
+    setShelfBusy(true);
     setError(null);
     try {
-      if (isPanelPin) {
-        await demotePanel(pin.id);
-      } else {
-        await promotePanel(pin.id);
+      const nextConfig: Record<string, unknown> = {
+        ...(pin.widget_config ?? {}),
+        show_in_chat_shelf: !showInChatShelf,
+      };
+      if (!nextConfig.show_in_chat_shelf) delete nextConfig.show_in_chat_shelf;
+      const ops: Promise<unknown>[] = [replaceConfig(pin.id, nextConfig)];
+      if (legacyShelfZone && currentLayout) {
+        ops.push(applyLayout([{ id: pin.id, zone: "grid", ...currentLayout }]));
       }
+      await Promise.all(ops);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setPanelBusy(false);
+      setShelfBusy(false);
     }
   };
 
@@ -447,38 +449,36 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
             </div>
           )}
 
-          {isHtmlWidget && (
+          {pin && (
             <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
-                  Dashboard panel
+                  Chat shelf
                 </span>
-                {isPanelPin && (
+                {showInChatShelf && (
                   <span className="text-[10px] font-medium text-accent">
-                    Active
+                    Visible
                   </span>
                 )}
               </div>
               <p className="text-[11px] text-text-muted leading-snug">
-                {isPanelPin
-                  ? "This pin owns the dashboard's main area. Other pins surface in the rail strip alongside it."
-                  : "Promote to give this widget the dashboard's main area; existing tiles move to the rail strip."}
+                Show this artifact in the channel chat shelf. Canvas position stays independent.
               </p>
               <button
                 type="button"
-                onClick={handlePanelToggle}
-                disabled={panelBusy}
+                onClick={handleChatShelfToggle}
+                disabled={shelfBusy}
                 className={
                   "inline-flex w-fit items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors " +
-                  (isPanelPin
-                    ? "border-surface-border text-text-muted hover:bg-surface-overlay"
-                    : "border-accent/60 bg-accent/10 text-accent hover:bg-accent/20") +
+                  (showInChatShelf
+                    ? "border-accent/60 bg-accent/10 text-accent hover:bg-accent/20"
+                    : "border-surface-border text-text-muted hover:bg-surface-overlay") +
                   " disabled:opacity-50 disabled:cursor-not-allowed"
                 }
+                aria-pressed={showInChatShelf}
               >
-                {panelBusy && <Loader2 size={12} className="animate-spin" />}
-                {isPanelPin ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-                {isPanelPin ? "Demote from panel" : "Promote to dashboard panel"}
+                {shelfBusy ? <Loader2 size={12} className="animate-spin" /> : <Pin size={12} />}
+                {showInChatShelf ? "Shown in chat shelf" : "Show in chat shelf"}
               </button>
             </div>
           )}
@@ -654,17 +654,7 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
             </div>
           )}
 
-          {isHeaderZone ? (
-            <div className="rounded-md border border-surface-border bg-surface px-3 py-2.5">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
-                Header zone host chrome
-              </span>
-              <p className="mt-1 text-[11px] leading-snug text-text-muted">
-                Header-zone pins are always titleless at the host level. Wrapper shell treatment is controlled by the channel&apos;s <strong>Header strip shell</strong> setting, not per-pin overrides.
-              </p>
-            </div>
-          ) : (
-            <>
+          <>
               <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">
                 <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
                   Title bar
@@ -732,8 +722,7 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
                   Control whether the host wrapper draws the outer widget surface. Plain leaves the wrapper transparent so the widget can provide its own interior treatment.
                 </p>
               </div>
-            </>
-          )}
+          </>
 
           <div className="flex flex-col gap-2 rounded-md border border-surface-border bg-surface px-3 py-2.5" data-testid="advanced-widget-json-section">
             <div className="flex items-center justify-between gap-2">

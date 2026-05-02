@@ -116,14 +116,14 @@ export function migrateLayoutsToFreeform(
   fallback: GridLayoutItem,
 ): DashboardLayoutPatch[] {
   return layouts
-    .filter((item) => (item.zone ?? "grid") === "grid")
     .map((item, index) => {
       const raw = item.grid_layout ?? {};
+      const isGrid = (item.zone ?? "grid") === "grid";
       const base = {
-        x: Number.isFinite(raw.x) ? Math.max(0, Math.round(raw.x as number)) : (index % 2) * fallback.w,
-        y: Number.isFinite(raw.y) ? Math.max(0, Math.round(raw.y as number)) : Math.floor(index / 2) * fallback.h,
-        w: Number.isFinite(raw.w) ? Math.max(1, Math.round(raw.w as number)) : fallback.w,
-        h: Number.isFinite(raw.h) ? Math.max(1, Math.round(raw.h as number)) : fallback.h,
+        x: isGrid && Number.isFinite(raw.x) ? Math.max(0, Math.round(raw.x as number)) : (index % 2) * fallback.w,
+        y: isGrid && Number.isFinite(raw.y) ? Math.max(0, Math.round(raw.y as number)) : Math.floor(index / 2) * fallback.h,
+        w: isGrid && Number.isFinite(raw.w) ? Math.max(1, Math.round(raw.w as number)) : fallback.w,
+        h: isGrid && Number.isFinite(raw.h) ? Math.max(1, Math.round(raw.h as number)) : fallback.h,
       };
       return {
         id: item.id,
@@ -195,60 +195,13 @@ export function zonedLayoutToWorldRect(
   layout: GridLayoutItem,
   frame: DashboardFrame,
 ): Rect {
-  if (zone === "rail") {
-    return {
-      x: frame.railRect.x,
-      y: frame.frameY + layout.y * frame.stepY,
-      w: frame.railRect.w,
-      h: Math.max(24, layout.h * frame.stepY - DASHBOARD_CANVAS_GAP),
-    };
-  }
-  if (zone === "dock") {
-    return {
-      x: frame.dockRect.x,
-      y: frame.frameY + layout.y * frame.stepY,
-      w: frame.dockRect.w,
-      h: Math.max(24, layout.h * frame.stepY - DASHBOARD_CANVAS_GAP),
-    };
-  }
-  if (zone === "header") {
-    return {
-      x: frame.frameX + layout.x * frame.stepX,
-      y: frame.headerRect.y + layout.y * DASHBOARD_HEADER_ROW_HEIGHT,
-      w: Math.max(frame.colWidth, layout.w * frame.stepX - DASHBOARD_CANVAS_GAP),
-      h: Math.max(24, layout.h * DASHBOARD_HEADER_ROW_HEIGHT - 6),
-    };
-  }
   return gridLayoutToWorldRect(layout, frame);
-}
-
-function rectContains(rect: Rect, x: number, y: number, inset = 0): boolean {
-  return x >= rect.x - inset
-    && x <= rect.x + rect.w + inset
-    && y >= rect.y - inset
-    && y <= rect.y + rect.h + inset;
 }
 
 export function classifyDashboardDrop(
   rect: Rect,
   frame: DashboardFrame,
 ): { zone: ChatZone; x: number; y: number } {
-  const cx = rect.x + rect.w / 2;
-  const cy = rect.y + rect.h / 2;
-  const snapInset = 28;
-  if (rectContains(frame.headerRect, cx, cy, snapInset)) {
-    return {
-      zone: "header",
-      x: Math.max(0, Math.round((rect.x - frame.frameX) / frame.stepX)),
-      y: Math.max(0, Math.min(DASHBOARD_HEADER_ROWS - 1, Math.round((rect.y - frame.headerRect.y) / DASHBOARD_HEADER_ROW_HEIGHT))),
-    };
-  }
-  if (rectContains(frame.railRect, cx, cy, snapInset)) {
-    return { zone: "rail", x: 0, y: Math.max(0, Math.round((rect.y - frame.frameY) / frame.stepY)) };
-  }
-  if (rectContains(frame.dockRect, cx, cy, snapInset)) {
-    return { zone: "dock", x: 0, y: Math.max(0, Math.round((rect.y - frame.frameY) / frame.stepY)) };
-  }
   return {
     zone: "grid",
     x: Math.max(0, Math.round(rect.x / frame.stepX)),
@@ -264,19 +217,6 @@ export function clampDropToZone(
   h: number,
   cols: number,
 ): GridLayoutItem {
-  if (zone === "rail" || zone === "dock") {
-    return { x: 0, y: Math.max(0, y), w: 1, h: Math.max(1, h) };
-  }
-  if (zone === "header") {
-    const cw = Math.max(1, Math.min(cols, w));
-    const ch = Math.max(1, Math.min(DASHBOARD_HEADER_ROWS, h));
-    return {
-      x: Math.max(0, Math.min(cols - cw, x)),
-      y: Math.max(0, Math.min(DASHBOARD_HEADER_ROWS - ch, y)),
-      w: cw,
-      h: ch,
-    };
-  }
   return {
     x: Math.max(0, x),
     y: Math.max(0, y),
@@ -318,10 +258,10 @@ export function fitFrameCamera(
   frame: Pick<DashboardFrame, "railRect" | "dockRect" | "headerRect" | "centerRect">,
   viewport: { w: number; h: number },
 ): DashboardCamera {
-  const minX = Math.min(frame.railRect.x, frame.headerRect.x, frame.centerRect.x);
-  const minY = Math.min(frame.headerRect.y, frame.railRect.y, frame.centerRect.y);
-  const maxX = Math.max(frame.dockRect.x + frame.dockRect.w, frame.headerRect.x + frame.headerRect.w);
-  const maxY = Math.max(frame.centerRect.y + frame.centerRect.h, frame.railRect.y + frame.railRect.h, frame.dockRect.y + frame.dockRect.h);
+  const minX = frame.centerRect.x;
+  const minY = frame.centerRect.y;
+  const maxX = frame.centerRect.x + frame.centerRect.w;
+  const maxY = frame.centerRect.y + frame.centerRect.h;
   const w = Math.max(1, maxX - minX);
   const h = Math.max(1, maxY - minY);
   const scale = Math.max(
@@ -339,8 +279,8 @@ export function homeFrameCamera(
   frame: Pick<DashboardFrame, "railRect" | "dockRect" | "headerRect" | "centerRect">,
   viewport: { w: number; h: number },
 ): DashboardCamera {
-  const minX = Math.min(frame.railRect.x, frame.headerRect.x, frame.centerRect.x);
-  const maxX = Math.max(frame.dockRect.x + frame.dockRect.w, frame.headerRect.x + frame.headerRect.w);
+  const minX = frame.centerRect.x;
+  const maxX = frame.centerRect.x + frame.centerRect.w;
   const w = Math.max(1, maxX - minX);
   const x = w <= viewport.w - 48
     ? viewport.w / 2 - (minX + w / 2)
@@ -348,7 +288,7 @@ export function homeFrameCamera(
   return clampDashboardCamera({
     scale: DASHBOARD_CAMERA_MAX_SCALE,
     x,
-    y: 24 - frame.headerRect.y,
+    y: 24 - frame.centerRect.y,
   });
 }
 
@@ -356,10 +296,10 @@ export function placeDashboardNeighborGhosts(
   frame: Pick<DashboardFrame, "railRect" | "dockRect" | "headerRect" | "centerRect">,
   neighbors: Array<{ id: string; channelId: string; dx: number; dy: number }>,
 ): DashboardNeighborGhost[] {
-  const minX = Math.min(frame.railRect.x, frame.headerRect.x, frame.centerRect.x);
-  const minY = Math.min(frame.headerRect.y, frame.railRect.y, frame.centerRect.y);
-  const maxX = Math.max(frame.dockRect.x + frame.dockRect.w, frame.headerRect.x + frame.headerRect.w);
-  const maxY = Math.max(frame.centerRect.y + frame.centerRect.h, frame.railRect.y + frame.railRect.h, frame.dockRect.y + frame.dockRect.h);
+  const minX = frame.centerRect.x;
+  const minY = frame.centerRect.y;
+  const maxX = frame.centerRect.x + frame.centerRect.w;
+  const maxY = frame.centerRect.y + frame.centerRect.h;
   const cx = (minX + maxX) / 2;
   const cy = (minY + maxY) / 2;
   const halfW = (maxX - minX) / 2;

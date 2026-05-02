@@ -4,8 +4,25 @@ import importlib.util
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _load_integration_tool_metadata(integration_dir: Path) -> dict[str, Any]:
+    """Read integration-wide tool metadata from integration.yaml."""
+    manifest = integration_dir / "integration.yaml"
+    if not manifest.exists():
+        return {}
+    try:
+        import yaml
+
+        data = yaml.safe_load(manifest.read_text()) or {}
+    except Exception:
+        logger.debug("Could not read tool metadata from %s", manifest, exc_info=True)
+        return {}
+    metadata = data.get("tool_metadata")
+    return dict(metadata) if isinstance(metadata, dict) else {}
 
 
 def _project_root() -> Path:
@@ -152,11 +169,13 @@ def load_integration_tools(integration_dir: Path, *, is_external: bool | None = 
     before = set(_registry._tools.keys())
     integration_id = integration_dir.name
     _registry._current_source_integration = integration_id
+    _registry._current_tool_metadata_defaults = _load_integration_tool_metadata(integration_dir)
     try:
         for py_file in sorted(tools_dir.glob("*.py")):
             if not py_file.name.startswith("_"):
                 _import_tool_file(py_file)
     finally:
         _registry._current_source_integration = None
+        _registry._current_tool_metadata_defaults = None
 
     return list(set(_registry._tools.keys()) - before)

@@ -598,7 +598,17 @@ async def report_issue_work_packs(
     return json.dumps({"work_packs": payload, "count": len(payload)}, default=str)
 
 
-@register(REPORT_ISSUE_SCHEMA, safety_tier="mutating", requires_bot_context=True)
+@register(
+    REPORT_ISSUE_SCHEMA,
+    safety_tier="mutating",
+    requires_bot_context=True,
+    tool_metadata={
+        "domains": ["issue_reporting"],
+        "intent_tags": ["report issue", "missing permission", "needs fix"],
+        "exposure": "explicit",
+        "singleton_per_run": True,
+    },
+)
 async def report_issue(
     title: str,
     summary: str,

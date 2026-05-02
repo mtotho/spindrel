@@ -49,12 +49,11 @@ import { useScratchReturnStore } from "@/src/stores/scratchReturn";
 import { useWidgetStreamBroker } from "@/src/api/hooks/useWidgetStreamBroker";
 import { buildRecentHref } from "@/src/lib/recentPages";
 
-/** True when a pin currently lives on the chat sidebar rail canvas. Zone
- *  is stored explicitly on the pin; this is a convenience predicate so the
- *  dashboard breadcrumb can count rail pins without re-implementing the
- *  filter. */
+/** True when a pin is shown near chat. New pins use explicit widget config;
+ *  legacy rail/header/dock zones still count until the canvas normalizes them. */
 export function isRailPin(pin: WidgetDashboardPin): boolean {
-  return pin.zone === "rail";
+  if (pin.widget_config?.show_in_chat_shelf === true) return true;
+  return pin.zone === "rail" || pin.zone === "header" || pin.zone === "dock";
 }
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
@@ -184,7 +183,7 @@ export default function WidgetsDashboardPage() {
     () => pins.find((p) => p.is_main_panel) ?? null,
     [pins],
   );
-  const inPanelMode = layoutMode === "panel" && panelPin !== null;
+  const inPanelMode = !isChannelScoped && layoutMode === "panel" && panelPin !== null;
   /** While a widget is being dragged in edit mode, this tracks that a
    *  drag is in progress so `EditModeGridGuides` can show its column-index
    *  tick row. The channel dashboard now uses the multi-canvas editor, so

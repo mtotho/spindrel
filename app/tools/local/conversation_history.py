@@ -723,7 +723,11 @@ async def _read_multi_channel_history(section: str, channel_ids: list[str]) -> s
     return "\n\n".join(blocks)
 
 
-@register(_SCHEMA, requires_bot_context=True, requires_channel_context=True)
+@register(_SCHEMA, requires_bot_context=True, requires_channel_context=True, tool_metadata={
+    "domains": ["context_navigation"],
+    "exposure": "ambient",
+    "auto_inject": ["chat_baseline"],
+})
 async def read_conversation_history(
     section: str,
     channel_id: str | None = None,

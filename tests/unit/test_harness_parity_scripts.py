@@ -108,6 +108,14 @@ def test_harness_parity_local_batch_sdk_preset_covers_deep_sdk_scenarios() -> No
     assert "--tier skills --screenshots docs -k claude\\ and\\ claude_native_subagent_persists" in proc.stdout
 
 
+def test_local_harness_parity_preserves_prepared_channels_after_focused_pytest_runs() -> None:
+    conftest = Path("tests/e2e/conftest.py").read_text(encoding="utf-8")
+
+    assert 'os.environ.get("HARNESS_PARITY_LOCAL") == "1"' in conftest
+    assert 'os.environ.get("HARNESS_PARITY_NATIVE_APP") == "1"' in conftest
+    assert "Preserving local harness parity fixture channels after focused run" in conftest
+
+
 def test_harness_parity_local_batch_slash_preset_targets_native_slash_screenshots() -> None:
     proc = _run_script("--preset", "slash", "--screenshots", "docs", "--dry-run")
 

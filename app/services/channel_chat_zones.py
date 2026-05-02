@@ -1,9 +1,9 @@
-"""Resolve channel dashboard pins into chat-side zone buckets.
+"""Resolve channel dashboard pins into the chat shelf.
 
-Zone membership is stored directly on each pin (``widget_dashboard_pins.zone``)
-and authored via the multi-canvas editor at ``/widgets/channel/:id``. This
-module just groups pins by that column — the positional ``classify_pin``
-classifier from earlier iterations is gone (see migration 226).
+The current model is explicit: ``widget_config.show_in_chat_shelf`` opts a
+pin into the single chat shelf. Legacy ``rail/header/dock`` zones are still
+treated as shelf-visible until the workbench canvas normalizes them to
+``grid``.
 """
 
 from __future__ import annotations
@@ -49,9 +49,9 @@ async def resolve_chat_zones(
     endpoint strips it before returning to the client.
 
     Per-zone ordering:
-      rail   — ``grid_layout.y`` then pin ``position``
-      header — ``grid_layout.x`` (left-to-right in the chip row)
-      dock   — ``grid_layout.y``
+      rail   — the single chat shelf, ``grid_layout.y`` then pin ``position``
+      header — legacy empty bucket
+      dock   — legacy empty bucket
       grid   — pin ``position``
     """
     slug = f"channel:{channel_id}"
@@ -67,8 +67,16 @@ async def resolve_chat_zones(
     }
     for row in rows:
         pin = _serialize_pin_for_zone(row)
-        zone = pin["zone"] if pin["zone"] in buckets else "grid"
-        buckets[zone].append(pin)
+        widget_config = pin.get("widget_config") or {}
+        legacy_zone = pin["zone"] if pin["zone"] in buckets else "grid"
+        show_in_shelf = bool(
+            isinstance(widget_config, dict)
+            and widget_config.get("show_in_chat_shelf") is True
+        )
+        if show_in_shelf or legacy_zone in {"rail", "header", "dock"}:
+            buckets["rail"].append(pin)
+        else:
+            buckets["grid"].append(pin)
 
     def _y(p: dict[str, Any]) -> int:
         gl = p.get("grid_layout") or {}

@@ -76,6 +76,17 @@ activation:
 provides:
   - tools
 
+tool_metadata:
+  domains: [media]
+  intent_tags:
+    - media library
+    - downloads
+    - sonarr
+    - radarr
+    - jellyfin
+    - qbittorrent
+  exposure: ambient
+
 tool_families:
   arr:
     label: ARR Stack
