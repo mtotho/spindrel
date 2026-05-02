@@ -224,7 +224,10 @@ async def list_attachments(
             "injects the image into your own context — you see the actual pixels and can "
             "analyze them with your full capabilities. Use this for detailed visual "
             "assessment where your own judgment matters (e.g. dough assessment, plant "
-            "health, photo comparison). Works with image attachments only."
+            "health, photo comparison), especially for previous attachments or when "
+            "re-analyzing an earlier image with new context. Do not call this just to "
+            "view an image that is already attached inline in the current user message. "
+            "Works with image attachments only."
         ),
         "parameters": {
             "type": "object",
@@ -277,6 +280,10 @@ async def view_attachment(attachment_id: str) -> str:
         "name": "describe_attachment",
         "description": (
             "Describe or answer questions about an image attachment. "
+            "Use this for previous attachments, cached summaries, non-vision model "
+            "fallback, or deliberate second-pass analysis with a new focused question. "
+            "Do not call it just to inspect an image that is already attached inline in "
+            "the current user message; analyze that image directly. "
             "Without a prompt, returns the existing auto-generated description (no extra LLM call). "
             "With a prompt, makes a fresh vision model call to answer the specific question "
             "(e.g. 'Is there anyone at the front door?', 'How many cars are in the driveway?'). "

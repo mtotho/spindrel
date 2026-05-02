@@ -26,12 +26,21 @@ The user does not have to say "save this".
 - **Project coding run** - starts only after a human launches a Run Pack.
   Capturing or listing intake never launches anything.
 
-The Project's intake substrate is set once during `project/setup/init`. Read
-it from `get_project_factory_state -> intake_config`. **Always defer to a
-repo-local `.agents/skills/<repo>-issues/SKILL.md` when one exists** - that
-file names the schema, the file path, the commit cadence, and any
-GitHub-issue rules; this generic skill is the fallback when no repo-local
-convention exists.
+The Project's intake convention is set once during `project/setup/init` and
+overridden any time the repo says so via `.spindrel/WORKFLOW.md`. Resolution
+order:
+
+1. **`repo_workflow.sections.intake`** from `get_project_factory_state` -
+   when non-null, that section in `.spindrel/WORKFLOW.md` is the canonical
+   convention. Follow it verbatim - it names the schema, the file path, the
+   commit cadence, and any GitHub-issue rules. The repo-owned file always
+   wins over Spindrel's persisted settings.
+2. **`intake_config`** from `get_project_factory_state` - the persisted
+   convention recorded during setup. Use this only when WORKFLOW.md does not
+   carry an `## Intake` section.
+
+The generic four-substrate routing below is the fallback when neither source
+overrides it.
 
 ## Recognition Rules
 
@@ -53,10 +62,15 @@ intake - keep working on it.
 
 1. Acknowledge briefly inline (one short sentence). Do not interrupt the
    thread the user is on.
-2. Call `capture_project_intake` once for each discrete note. Required:
-   `title`. Optional: `kind` (`bug` | `idea` | `tech-debt` | `question`,
-   default `idea`), `area` (subsystem path), `body` (1-10 lines).
-3. The tool reads `intake_config.kind` from the Project and routes:
+2. **Check the repo contract first.** Read `repo_workflow.sections.intake`
+   from `get_project_factory_state`. If non-null, follow that section's
+   instructions for what to capture and where it lands. Use `file_ops`
+   directly when the section dictates a custom schema or path that
+   `capture_project_intake` cannot express - the repo-owned contract wins.
+3. Otherwise call `capture_project_intake` once for each discrete note.
+   Required: `title`. Optional: `kind` (`bug` | `idea` | `tech-debt` |
+   `question`, default `idea`), `area` (subsystem path), `body` (1-10 lines).
+4. The tool reads `intake_config.kind` from the Project and routes:
    - `repo_file` -> appends to the configured file in the canonical repo.
    - `repo_folder` -> writes a new timestamped `.md` file to the folder.
    - `external_tracker` -> returns a hand-off message; **read it back to the
@@ -65,10 +79,10 @@ intake - keep working on it.
    - `unset` -> returns a warning. Tell the user the convention is not
      configured and offer to run `project/setup/init` to fix it; surface the
      captured note in chat so it is not lost.
-4. Confirm capture in one line: "Noted (kind=bug). Wrote to
+5. Confirm capture in one line: "Noted (kind=bug). Wrote to
    `<relative_path>` in the canonical repo." For external trackers, use the
    tool's hand-off instructions verbatim.
-5. **Do not** open a Run Pack, launch a coding run, or write into channel
+6. **Do not** open a Run Pack, launch a coding run, or write into channel
    notes. The configured substrate is the durable home.
 
 If the note would be useless without one missing fact, ask exactly one
@@ -98,11 +112,13 @@ issues", or similar, switch to grouping mode:
 
 ## Tool Boundaries
 
-- `capture_project_intake` - the canonical write path for rough notes (4BD.3+).
-- `get_project_factory_state` - reads `intake_config` so you know which
-  substrate to write to before you call the capture tool.
-- `file_ops` - read existing intake during triage; write any custom schema
-  named by a repo-local `.agents/skills/<repo>-issues/SKILL.md`.
+- `capture_project_intake` - the canonical write path for rough notes when
+  `.spindrel/WORKFLOW.md` does not override.
+- `get_project_factory_state` - read `repo_workflow.sections.intake` (the
+  repo-owned override) and `intake_config` (the persisted fallback) before
+  calling the capture tool.
+- `file_ops` - read existing intake during triage; write directly when the
+  WORKFLOW.md `## Intake` section dictates a custom schema or path.
 - `report_issue` - autonomous scheduled/heartbeat/task runs reporting blockers.
 - `report_issue_work_packs` - restricted triage-task reporting path only.
 - `publish_issue_intake` - **deprecated**, kept only while existing channels
@@ -118,6 +134,6 @@ issues", or similar, switch to grouping mode:
   drops a side note.
 - Do not silently mirror intake into an external tracker the user has not
   asked you to use. Tracker integration is opt-in per Project.
-- Do not invent a schema when one exists: a repo-local
-  `.agents/skills/<repo>-issues/SKILL.md` always wins. Read it before
-  capturing.
+- Do not invent a schema when one exists: `repo_workflow.sections.intake`
+  from `.spindrel/WORKFLOW.md` always wins over `intake_config` and over
+  the generic four-substrate routing. Read it before capturing.

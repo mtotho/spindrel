@@ -489,6 +489,7 @@ class ProjectFactoryStateOut(BaseModel):
     blueprint: dict
     canonical_repo: dict = Field(default_factory=dict)
     intake_config: dict = Field(default_factory=dict)
+    repo_workflow: dict = Field(default_factory=dict)
     runtime_env: dict
     dependency_stack: dict
     intake: dict

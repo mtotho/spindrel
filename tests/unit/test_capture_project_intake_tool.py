@@ -47,6 +47,10 @@ def test_project_intake_skill_routes_via_capture_tool_not_publish():
     assert "deprecated" in text.lower() and "publish_issue_intake" in text, (
         "Skill must mark publish_issue_intake as deprecated until 4BD.6 retires it."
     )
-    assert ".agents/skills/" in text, (
-        "Skill must defer to repo-local <repo>-issues/SKILL.md when present."
+    assert "repo_workflow.sections.intake" in text, (
+        "Phase 4BE.2 - skill must read the WORKFLOW.md ## Intake section first "
+        "before falling back to intake_config."
+    )
+    assert ".spindrel/WORKFLOW.md" in text, (
+        "Skill must name the canonical repo-owned contract path."
     )

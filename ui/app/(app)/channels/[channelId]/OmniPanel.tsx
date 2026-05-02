@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ChevronLeft,
+  FolderOpen,
   Layers,
   MessageCircle,
   NotebookText,
@@ -277,7 +278,7 @@ export function OmniPanel({
       className="flex flex-col h-full overflow-hidden"
       style={fullWidth ? { flex: 1 } : { width, flexShrink: 0 }}
     >
-      <div className="flex items-center gap-1.5 px-2 py-2">
+      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden px-2 py-2">
         <WorkbenchNavButton
           label="Sessions"
           icon={<MessageCircle size={13} />}
@@ -305,6 +306,7 @@ export function OmniPanel({
         {hasWorkspace && (
           <WorkbenchNavButton
             label="Files"
+            icon={<FolderOpen size={13} />}
             active={activeTab === "files"}
             onClick={() => setTab("files")}
             priority="secondary"
@@ -320,9 +322,9 @@ export function OmniPanel({
             if (onCollapse) onCollapse();
             else setFileExplorerOpen(false);
           }}
-          aria-label="Collapse widgets panel"
+          aria-label="Collapse workbench panel"
           title="Collapse panel"
-          className="ml-auto flex items-center justify-center w-6 h-6 rounded-md transition-colors"
+          className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors"
           style={{ color: t.textDim, opacity: 0.55 }}
           onMouseEnter={(e) => {
             e.currentTarget.style.opacity = "1";
@@ -418,19 +420,21 @@ function WorkbenchNavButton({
     <button
       type="button"
       onClick={onClick}
+      title={label}
+      aria-label={label}
       className={[
-        "relative inline-flex h-8 items-center gap-1.5 rounded-md border-0 bg-transparent px-2.5 text-[12px] font-semibold transition-colors",
+        "relative inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border-0 bg-transparent text-[12px] font-semibold transition-colors",
         active
           ? "bg-accent/[0.08] text-text before:absolute before:left-0 before:top-1/2 before:h-4 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-accent"
           : isPrimary
             ? "text-text-muted hover:bg-surface-overlay/60 hover:text-text"
             : "text-text-dim hover:bg-surface-overlay/45 hover:text-text-muted",
-        isPrimary ? "min-w-[78px]" : "px-2",
+        isPrimary ? "min-w-[78px] px-2.5" : "min-w-8 px-2",
       ].join(" ")}
       aria-pressed={active}
     >
       {icon && <span className="shrink-0 flex items-center">{icon}</span>}
-      <span>{label}</span>
+      <span className={isPrimary ? "" : "sr-only"}>{label}</span>
       {typeof count === "number" && count > 0 && (
         <span className="rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] tabular-nums text-text-dim">
           {count}

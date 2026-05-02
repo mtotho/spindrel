@@ -194,6 +194,18 @@ async def test_get_project_factory_state_unconfigured_for_brand_new_project(db_s
     assert state["intake_config"]["configured"] is False
     assert state["intake_config"]["target"] is None
     assert state["intake_config"]["host_target"] is None
+    # Phase 4BE.1 - repo_workflow surface present even with no canonical repo.
+    repo_workflow = state["repo_workflow"]
+    assert repo_workflow["relative_path"] == ".spindrel/WORKFLOW.md"
+    assert repo_workflow["present"] is False
+    assert repo_workflow["host_path"] is None
+    assert repo_workflow["sections"] == {
+        "policy": None,
+        "intake": None,
+        "runs": None,
+        "hooks": None,
+        "dependencies": None,
+    }
     assert state["intake"] == {"pending": 0}
     assert state["run_packs"] == {"proposed": 0, "needs_info": 0, "launched": 0, "dismissed": 0}
     assert state["runs"]["total"] == 0

@@ -22,6 +22,46 @@ class LoopLlmIterationDone:
     latency_ms: int
 
 
+def _count_inline_image_parts(messages: list[dict[str, Any]]) -> int:
+    count = 0
+    for message in messages:
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        count += sum(
+            1
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "image_url"
+        )
+    return count
+
+
+def _build_attachment_vision_routing_event(
+    *,
+    messages: list[dict[str, Any]],
+    model: str,
+    provider_id: str | None,
+    iteration: int,
+) -> dict[str, Any] | None:
+    source_image_count = _count_inline_image_parts(messages)
+    if source_image_count == 0:
+        return None
+
+    from app.services.providers import model_supports_vision
+
+    supports_vision = model_supports_vision(model)
+    return {
+        "source_image_count": source_image_count,
+        "inline_image_count": source_image_count if supports_vision else 0,
+        "stripped_image_count": 0 if supports_vision else source_image_count,
+        "model_supports_vision": supports_vision,
+        "model": model,
+        "provider_id": provider_id,
+        "fallback_reason": None if supports_vision else "model_supports_vision_false",
+        "iteration": iteration + 1,
+    }
+
+
 async def stream_loop_llm_iteration(
     *,
     ctx: LoopRunContext,
@@ -54,6 +94,22 @@ async def stream_loop_llm_iteration(
     messages = state.messages
 
     llm_started_at = monotonic_fn()
+
+    routing_event = _build_attachment_vision_routing_event(
+        messages=messages,
+        model=effective_model,
+        provider_id=effective_provider_id,
+        iteration=iteration,
+    )
+    if routing_event and ctx.correlation_id is not None:
+        safe_create_task_fn(record_trace_event_fn(
+            correlation_id=ctx.correlation_id,
+            session_id=ctx.session_id,
+            bot_id=bot.id,
+            client_id=ctx.client_id,
+            event_type="attachment_vision_routing",
+            data=routing_event,
+        ))
 
     safe_create_task_fn(fire_hook_fn("before_llm_call", HookContext(
         bot_id=bot.id,

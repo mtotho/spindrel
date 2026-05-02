@@ -128,6 +128,10 @@ export default function ProviderDetailScreen() {
   const [editModelExtraBody, setEditModelExtraBody] = useState("");
   const [editModelExtraBodyError, setEditModelExtraBodyError] = useState<string | null>(null);
   const { confirm, ConfirmDialogSlot } = useConfirm();
+  const modelInputClass = "w-full rounded-md border border-input-border bg-input px-2 py-1.5 text-xs text-text placeholder:text-text-dim outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/40";
+  const modelMonoInputClass = `${modelInputClass} font-mono`;
+  const modelSelectClass = "w-full rounded-md border border-input-border bg-input px-2 py-1.5 text-xs text-text outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/40";
+  const modelTextareaClass = `${modelMonoInputClass} min-h-[72px] resize-y`;
 
   useEffect(() => {
     if (!provider || initialized) return;
@@ -623,11 +627,7 @@ export default function ProviderDetailScreen() {
                                 value={editModelDisplay}
                                 onChange={(e) => setEditModelDisplay(e.target.value)}
                                 placeholder="Optional"
-                                style={{
-                                  width: "100%", padding: "6px 8px", fontSize: 12,
-                                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-                                  color: t.text,
-                                }}
+                                className={modelInputClass}
                               />
                             </div>
                             <div style={{ flex: 1, minWidth: 120 }}>
@@ -637,11 +637,7 @@ export default function ProviderDetailScreen() {
                                 onChange={(e) => setEditModelMaxTokens(e.target.value)}
                                 placeholder="Optional"
                                 type="number"
-                                style={{
-                                  width: "100%", padding: "6px 8px", fontSize: 12,
-                                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-                                  color: t.text,
-                                }}
+                                className={modelInputClass}
                               />
                             </div>
                             <div style={{ flex: 1, minWidth: 120 }}>
@@ -650,11 +646,7 @@ export default function ProviderDetailScreen() {
                                 value={editModelInputCost}
                                 onChange={(e) => setEditModelInputCost(e.target.value)}
                                 placeholder="Optional"
-                                style={{
-                                  width: "100%", padding: "6px 8px", fontSize: 12,
-                                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-                                  color: t.text,
-                                }}
+                                className={modelInputClass}
                               />
                             </div>
                             <div style={{ flex: 1, minWidth: 120 }}>
@@ -663,11 +655,7 @@ export default function ProviderDetailScreen() {
                                 value={editModelOutputCost}
                                 onChange={(e) => setEditModelOutputCost(e.target.value)}
                                 placeholder="Optional"
-                                style={{
-                                  width: "100%", padding: "6px 8px", fontSize: 12,
-                                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-                                  color: t.text,
-                                }}
+                                className={modelInputClass}
                               />
                             </div>
                             <div style={{ minWidth: 110 }}>
@@ -675,11 +663,7 @@ export default function ProviderDetailScreen() {
                               <select
                                 value={editModelPromptStyle}
                                 onChange={(e) => setEditModelPromptStyle(e.target.value as "markdown" | "xml" | "structured")}
-                                style={{
-                                  width: "100%", padding: "5px 6px", fontSize: 12,
-                                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-                                  color: t.text,
-                                }}
+                                className={modelSelectClass}
                               >
                                 <option value="markdown">markdown</option>
                                 <option value="xml">xml</option>
@@ -696,7 +680,7 @@ export default function ProviderDetailScreen() {
                                 onChange={(e) => setEditModelContextWindow(e.target.value)}
                                 placeholder="Input cap"
                                 type="number"
-                                className="w-full px-2 py-1.5 text-xs rounded bg-input-bg border border-surface-border text-text"
+                                className={modelInputClass}
                               />
                             </div>
                             <div className="flex-1 min-w-[120px]">
@@ -706,7 +690,7 @@ export default function ProviderDetailScreen() {
                                 onChange={(e) => setEditModelMaxOutputTokens(e.target.value)}
                                 placeholder="Output cap"
                                 type="number"
-                                className="w-full px-2 py-1.5 text-xs rounded bg-input-bg border border-surface-border text-text"
+                                className={modelInputClass}
                               />
                             </div>
                             <div className="flex-1 min-w-[120px]">
@@ -715,7 +699,7 @@ export default function ProviderDetailScreen() {
                                 value={editModelCachedInputCost}
                                 onChange={(e) => setEditModelCachedInputCost(e.target.value)}
                                 placeholder="$0.30"
-                                className="w-full px-2 py-1.5 text-xs rounded bg-input-bg border border-surface-border text-text"
+                                className={modelInputClass}
                               />
                             </div>
                           </div>
@@ -798,7 +782,7 @@ export default function ProviderDetailScreen() {
                               }}
                               placeholder='{}'
                               rows={3}
-                              className="w-full px-2 py-1.5 text-xs font-mono rounded bg-input-bg border border-surface-border text-text resize-y"
+                              className={modelTextareaClass}
                             />
                             {editModelExtraBodyError && (
                               <div className="text-danger text-[11px]">{editModelExtraBodyError}</div>
@@ -884,11 +868,7 @@ export default function ProviderDetailScreen() {
                       if (v.toLowerCase().includes("minimax")) setNewModelNoSysMsg(true);
                     }}
                     placeholder="e.g. gpt-4o"
-                    style={{
-                      width: "100%", padding: "6px 8px", fontSize: 12,
-                      background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-                      color: t.text, fontFamily: "monospace",
-                    }}
+                    className={modelMonoInputClass}
                   />
                 </div>
                 <div style={{ flex: 2, minWidth: 120 }}>
@@ -897,11 +877,7 @@ export default function ProviderDetailScreen() {
                     value={newModelDisplay}
                     onChange={(e) => setNewModelDisplay(e.target.value)}
                     placeholder="Optional"
-                    style={{
-                      width: "100%", padding: "6px 8px", fontSize: 12,
-                      background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-                      color: t.text,
-                    }}
+                    className={modelInputClass}
                   />
                 </div>
                 <div style={{ flex: 1, minWidth: 80 }}>
@@ -911,11 +887,7 @@ export default function ProviderDetailScreen() {
                     onChange={(e) => setNewModelMaxTokens(e.target.value)}
                     placeholder="e.g. 128000"
                     type="number"
-                    style={{
-                      width: "100%", padding: "6px 8px", fontSize: 12,
-                      background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-                      color: t.text,
-                    }}
+                    className={modelInputClass}
                   />
                 </div>
                 <div style={{ flex: 1, minWidth: 80 }}>
@@ -924,11 +896,7 @@ export default function ProviderDetailScreen() {
                     value={newModelInputCost}
                     onChange={(e) => setNewModelInputCost(e.target.value)}
                     placeholder="e.g. $3.00"
-                    style={{
-                      width: "100%", padding: "6px 8px", fontSize: 12,
-                      background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-                      color: t.text,
-                    }}
+                    className={modelInputClass}
                   />
                 </div>
                 <div style={{ flex: 1, minWidth: 80 }}>
@@ -937,11 +905,7 @@ export default function ProviderDetailScreen() {
                     value={newModelOutputCost}
                     onChange={(e) => setNewModelOutputCost(e.target.value)}
                     placeholder="e.g. $15.00"
-                    style={{
-                      width: "100%", padding: "6px 8px", fontSize: 12,
-                      background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-                      color: t.text,
-                    }}
+                    className={modelInputClass}
                   />
                 </div>
                 <label style={{
@@ -990,11 +954,7 @@ export default function ProviderDetailScreen() {
                   <select
                     value={newModelPromptStyle}
                     onChange={(e) => setNewModelPromptStyle(e.target.value as "markdown" | "xml" | "structured")}
-                    style={{
-                      padding: "5px 6px", fontSize: 12,
-                      background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-                      color: t.text,
-                    }}
+                    className={modelSelectClass}
                     title="How framework prompts (global base, memory scheme, channel workspace) are rendered for this model. Anthropic native → xml; everything else → markdown."
                   >
                     <option value="markdown">markdown</option>

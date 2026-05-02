@@ -394,6 +394,22 @@ class TestGetAttachmentTool:
             assert "not configured" in data["error"]
             mock_get_client.assert_not_called()
 
+    async def test_attachment_tool_descriptions_distinguish_current_and_previous_images(self):
+        from app.tools.registry import get_local_tool_schemas
+        import app.tools.local.attachments  # noqa: F401 - registers tool schemas
+
+        schemas = {
+            schema["function"]["name"]: schema["function"]["description"]
+            for schema in get_local_tool_schemas(["view_attachment", "describe_attachment"])
+        }
+
+        assert "previous attachments" in schemas["view_attachment"]
+        assert "re-analyzing an earlier image with new context" in schemas["view_attachment"]
+        assert "already attached inline in the current user message" in schemas["view_attachment"]
+        assert "previous attachments" in schemas["describe_attachment"]
+        assert "second-pass analysis with a new focused question" in schemas["describe_attachment"]
+        assert "already attached inline in the current user message" in schemas["describe_attachment"]
+
 
 # ---------------------------------------------------------------------------
 # test_infer_type

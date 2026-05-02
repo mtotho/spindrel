@@ -21530,6 +21530,11 @@
             "title": "Recent Receipts",
             "type": "array"
           },
+          "repo_workflow": {
+            "additionalProperties": true,
+            "title": "Repo Workflow",
+            "type": "object"
+          },
           "run_packs": {
             "additionalProperties": true,
             "title": "Run Packs",
@@ -37904,7 +37909,7 @@
       },
       "patch": {
         "description": "Update a bot's config via JSON.",
-        "operationId": "admin_bot_update_api_v1_admin_bots__bot_id__patch_2",
+        "operationId": "admin_bot_update_api_v1_admin_bots__bot_id__patch",
         "parameters": [
           {
             "in": "path",
@@ -37964,7 +37969,7 @@
       },
       "put": {
         "description": "Update a bot's config via JSON.",
-        "operationId": "admin_bot_update_api_v1_admin_bots__bot_id__patch",
+        "operationId": "admin_bot_update_api_v1_admin_bots__bot_id__put",
         "parameters": [
           {
             "in": "path",
@@ -40155,7 +40160,7 @@
       },
       "patch": {
         "description": "Update heartbeat settings.",
-        "operationId": "admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch_2",
+        "operationId": "admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch",
         "parameters": [
           {
             "in": "path",
@@ -40216,7 +40221,7 @@
       },
       "put": {
         "description": "Update heartbeat settings.",
-        "operationId": "admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch",
+        "operationId": "admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_put",
         "parameters": [
           {
             "in": "path",
@@ -41120,7 +41125,7 @@
       },
       "patch": {
         "description": "Update channel settings.",
-        "operationId": "admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch_2",
+        "operationId": "admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch",
         "parameters": [
           {
             "in": "path",
@@ -41181,7 +41186,7 @@
       },
       "put": {
         "description": "Update channel settings.",
-        "operationId": "admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch",
+        "operationId": "admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_put",
         "parameters": [
           {
             "in": "path",
@@ -50599,7 +50604,7 @@
       },
       "patch": {
         "description": "Update task fields. Only provided fields are changed.",
-        "operationId": "admin_update_task_api_v1_admin_tasks__task_id__patch_2",
+        "operationId": "admin_update_task_api_v1_admin_tasks__task_id__patch",
         "parameters": [
           {
             "in": "path",
@@ -50660,7 +50665,7 @@
       },
       "put": {
         "description": "Update task fields. Only provided fields are changed.",
-        "operationId": "admin_update_task_api_v1_admin_tasks__task_id__patch",
+        "operationId": "admin_update_task_api_v1_admin_tasks__task_id__put",
         "parameters": [
           {
             "in": "path",
@@ -57919,7 +57924,7 @@
       },
       "patch": {
         "description": "Update any subset of channel settings + heartbeat config in one call.\n\nScope requirements depend on which fields are set:\n- Heartbeat fields only \u2192 ``channels.heartbeat:write``\n- Non-heartbeat fields (or both) \u2192 ``channels.config:write``\n``channels.config:write`` always covers heartbeat as a parent scope.",
-        "operationId": "update_channel_config_api_v1_channels__channel_id__config_patch_2",
+        "operationId": "update_channel_config_api_v1_channels__channel_id__config_patch",
         "parameters": [
           {
             "in": "path",
@@ -57987,7 +57992,7 @@
       },
       "put": {
         "description": "Update any subset of channel settings + heartbeat config in one call.\n\nScope requirements depend on which fields are set:\n- Heartbeat fields only \u2192 ``channels.heartbeat:write``\n- Non-heartbeat fields (or both) \u2192 ``channels.config:write``\n``channels.config:write`` always covers heartbeat as a parent scope.",
-        "operationId": "update_channel_config_api_v1_channels__channel_id__config_patch",
+        "operationId": "update_channel_config_api_v1_channels__channel_id__config_put",
         "parameters": [
           {
             "in": "path",
@@ -76770,7 +76775,7 @@
         ]
       },
       "patch": {
-        "operationId": "update_workspace_api_v1_workspaces__workspace_id__patch_2",
+        "operationId": "update_workspace_api_v1_workspaces__workspace_id__patch",
         "parameters": [
           {
             "in": "path",
@@ -76836,7 +76841,7 @@
         ]
       },
       "put": {
-        "operationId": "update_workspace_api_v1_workspaces__workspace_id__patch",
+        "operationId": "update_workspace_api_v1_workspaces__workspace_id__put",
         "parameters": [
           {
             "in": "path",
@@ -77090,7 +77095,7 @@
       },
       "patch": {
         "description": "Update a bot's workspace membership and/or config fields.",
-        "operationId": "update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch_2",
+        "operationId": "update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch",
         "parameters": [
           {
             "in": "path",
@@ -77164,7 +77169,7 @@
       },
       "put": {
         "description": "Update a bot's workspace membership and/or config fields.",
-        "operationId": "update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch",
+        "operationId": "update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__put",
         "parameters": [
           {
             "in": "path",
@@ -77240,7 +77245,7 @@
     "/api/v1/workspaces/{workspace_id}/bots/{bot_id}/indexing": {
       "patch": {
         "description": "Update per-bot indexing overrides within a workspace. Send null to clear a field (inherit).",
-        "operationId": "update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch_2",
+        "operationId": "update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch",
         "parameters": [
           {
             "in": "path",
@@ -77314,7 +77319,7 @@
       },
       "put": {
         "description": "Update per-bot indexing overrides within a workspace. Send null to clear a field (inherit).",
-        "operationId": "update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch",
+        "operationId": "update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_put",
         "parameters": [
           {
             "in": "path",

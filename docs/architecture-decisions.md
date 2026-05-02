@@ -10,6 +10,24 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### `run_script` egress sandbox uses `unshare` + UDS bridge, not Docker-per-call or veth+iptables
+**Decided 2026-05-02.** R2 Phase 2 wraps the script subprocess in `unshare --user --map-root-user --net` so the script lives in an empty network namespace; legitimate `spindrel.py` traffic to `/api/v1/internal/tools/exec` reaches the agent server through a UDS at `settings.SCRIPT_SANDBOX_UDS_PATH` served by a tiny TCP-forwarding bridge in the parent netns (`app/services/script_sandbox_bridge.py`).
+
+**Load-bearing invariants.**
+- The wrap runs as the agent-server's UID (1000, `spindrel`); user-namespace mapping (`--map-root-user`) lets it create a netns without `CAP_SYS_ADMIN` on the parent. No `--privileged`, no `cap_add`, no Docker socket access.
+- UDS path crossings: a UDS bound by filesystem path is NOT netns-isolated. The script `connect()`s by path, the bridge process (parent netns) forwards bytes to TCP `127.0.0.1:8000`. Path-based UDS is the only kind that works for this pattern; abstract-name UDS (`\0name`) IS netns-scoped and would break the bridge.
+- Phase 1 sitecustomize stays installed regardless. The two layers stack: Phase 2 enforces at the kernel, Phase 1 catches anything that escapes the netns (it shouldn't, but defense in depth is cheap).
+- `SCRIPT_NETNS_SANDBOX=auto` (default) probes once at startup with `unshare -Urn /bin/true` and falls back gracefully when the kernel/seccomp blocks it. The new `script_netns_sandbox` audit signal surfaces the gap so an operator on a hardened deployment sees it explicitly rather than silently losing the protection.
+
+**Why.** Three alternatives were rejected:
+- **`docker run --network=none` per script invocation.** Requires the agent-server container to mount the host Docker socket — root-on-host as a side effect, catastrophic escalation surface. Also adds 500ms–1s startup per script call.
+- **`veth` pair + `iptables` rules.** Requires `CAP_NET_ADMIN` on the parent process (deployment posture change) and brittle firewall state. UDS is privilege-free and stateless.
+- **eBPF / cgroup egress filter.** Requires `CAP_BPF` or root, complex to maintain.
+
+The unshare+UDS pair is the only mechanism that closes the kernel-level egress gap (the documented `curl` + `ctypes` raw-socket bypasses from Phase 1) while running entirely as an unprivileged UID inside a default-Docker-seccomp container.
+
+**Implementation.** `app/services/script_runner.py::wrap_command_for_sandbox` composes `unshare --user --map-root-user --net -- sh -c 'ip link set lo up; exec sh -c "<inner>"'`; `probe_netns_sandbox()` caches the kernel-support probe; `_helper_source` ships a `_UDSConnection(http.client.HTTPConnection)` subclass that switches transports on `SPINDREL_SERVER_UDS`. Bridge in `script_sandbox_bridge.py` uses half-close (`write_eof`) on EOF so HTTP request→response on the same socket survives. Coverage: `tests/unit/test_script_netns_sandbox.py` (15 cases including real-subprocess curl + ctypes blocked, sandboxed UDS round-trip end-to-end).
+
 ### UI API types are generated from OpenAPI, not hand-written
 **Decided 2026-05-02.** The Spindrel web UI consumes FastAPI response models as static TS types via `openapi-typescript`. The generator runs offline against `app.main:app.openapi()`; both the schema snapshot (`ui/openapi.json`) and the emitted types (`ui/src/types/api.generated.ts`) are committed. The CI `api-type-drift` job regenerates and fails on `git diff`, so any backend response-model change must ship its TS counterpart in the same PR.
 

@@ -57,6 +57,40 @@ async def lifespan(application: FastAPI):
     logger.info("Starting file watcher...")
     start_file_source_watcher(_runtime)
 
+    # R2 Phase 2 — UDS bridge for the run_script netns sandbox. The script
+    # subprocess runs inside an empty network namespace and reaches the
+    # agent server through this UDS->TCP forwarder. Started best-effort:
+    # if the listener can't bind (perm error, /run not writable), the
+    # netns sandbox simply falls back to the audit-signal probe-failure mode.
+    import asyncio
+    from app.services.script_runner import netns_sandbox_enabled
+    from app.services.script_sandbox_bridge import run_uds_bridge_forever
+    _sandbox_on, _sandbox_reason = netns_sandbox_enabled()
+    _sandbox_bridge_task: asyncio.Task | None = None
+    if _sandbox_on:
+        try:
+            from urllib.parse import urlparse
+            _internal = urlparse(settings.SERVER_INTERNAL_URL)
+            _tcp_host = _internal.hostname or "127.0.0.1"
+            _tcp_port = _internal.port or (443 if _internal.scheme == "https" else 80)
+            _sandbox_bridge_task = asyncio.create_task(
+                run_uds_bridge_forever(
+                    settings.SCRIPT_SANDBOX_UDS_PATH, _tcp_host, _tcp_port,
+                ),
+                name="script_sandbox_uds_bridge",
+            )
+            logger.info(
+                "run_script netns sandbox enabled (probe: %s); UDS bridge at %s",
+                _sandbox_reason, settings.SCRIPT_SANDBOX_UDS_PATH,
+            )
+        except Exception as exc:
+            logger.warning(
+                "run_script netns sandbox: failed to start UDS bridge (%s) — falling back to TCP",
+                exc,
+            )
+    else:
+        logger.info("run_script netns sandbox disabled: %s", _sandbox_reason)
+
     _t = time.monotonic()
     start_boot_background_services(_runtime, shared_workspace_rows=bootstrap_result.shared_workspace_rows)
     _t = _tlog("Container auto-start, watchers, background warmup launched", _t)
@@ -78,6 +112,12 @@ async def lifespan(application: FastAPI):
     try:
         yield
     finally:
+        if _sandbox_bridge_task is not None and not _sandbox_bridge_task.done():
+            _sandbox_bridge_task.cancel()
+            try:
+                await _sandbox_bridge_task
+            except (asyncio.CancelledError, Exception):
+                pass
         await shutdown_runtime_services(_runtime)
 
 

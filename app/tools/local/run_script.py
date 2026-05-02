@@ -210,15 +210,29 @@ async def run_script(
         f"export SPINDREL_SCRIPT_EGRESS_MODE={shlex.quote(_egress_cfg.SCRIPT_EGRESS_MODE)}"
     )
 
+    # R2 Phase 2 — kernel-level netns sandbox + UDS bridge for spindrel.py.
+    # When the sandbox is on, the script runs in an empty network namespace
+    # and reaches the agent server via the UDS bridge served from the parent
+    # netns. The helper detects SPINDREL_SERVER_UDS and switches transports.
+    from app.services.script_runner import netns_sandbox_enabled, wrap_command_for_sandbox
+    sandbox_on, sandbox_reason = netns_sandbox_enabled()
+    if sandbox_on:
+        env_exports.append(
+            f"export SPINDREL_SERVER_UDS={shlex.quote(_egress_cfg.SCRIPT_SANDBOX_UDS_PATH)}"
+        )
+
     # Use python3 (most workspaces alias both, but python3 is safer on hosts
     # where python is python2). The cwd is set to the scratch dir so spindrel.py
     # imports cleanly from the script's local dir.
     script_dir_str = str(scratch)
-    full_cmd = " && ".join([
+    inner_cmd = " && ".join([
         *env_exports,
         f"cd {shlex.quote(script_dir_str)}",
         "python3 script.py",
     ])
+    full_cmd = wrap_command_for_sandbox(inner_cmd) if sandbox_on else inner_cmd
+    if sandbox_on:
+        logger.debug("run_script netns sandbox active: %s", sandbox_reason)
 
     # Open the inner-tool-call budget for this script. Keyed by the parent
     # correlation id so /api/v1/internal/tools/exec can look it up on each

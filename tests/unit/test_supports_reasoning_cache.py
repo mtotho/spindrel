@@ -118,3 +118,43 @@ class TestReasoningCapableCache:
 
         assert providers.supports_reasoning("claude-opus-4-7") is False
         assert providers.supports_reasoning_set() == []
+
+
+class TestVisionSupportCache:
+    async def test_supports_vision_cache_updates_on_reload(self, engine, db_session):
+        from app.services import providers
+        from sqlalchemy import update as sa_update
+
+        await _insert_models(db_session, [("gpt-5.4", False)])
+
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        with patch("app.services.providers.async_session", factory):
+            await providers.load_providers()
+            assert providers.model_supports_vision("gpt-5.4") is True
+
+            await db_session.execute(
+                sa_update(ProviderModel)
+                .where(ProviderModel.model_id == "gpt-5.4")
+                .values(supports_vision=False)
+            )
+            await db_session.commit()
+            await providers.load_providers()
+            assert providers.model_supports_vision("gpt-5.4") is False
+
+            await db_session.execute(
+                sa_update(ProviderModel)
+                .where(ProviderModel.model_id == "gpt-5.4")
+                .values(supports_vision=True)
+            )
+            await db_session.commit()
+            await providers.load_providers()
+            assert providers.model_supports_vision("gpt-5.4") is True
+
+    async def test_unknown_models_default_to_vision_capable(self, engine, db_session):
+        from app.services import providers
+
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        with patch("app.services.providers.async_session", factory):
+            await providers.load_providers()
+
+        assert providers.model_supports_vision("unknown-model-xyz") is True

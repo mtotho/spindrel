@@ -787,6 +787,17 @@ class Settings(BaseSettings):
     # those. Modes: "off" / "audit" (log only, default) / "enforce" (raise).
     SCRIPT_EGRESS_MODE: str = "audit"
 
+    # R2 Phase 2 — OS-level network-namespace sandbox for run_script. Wraps the
+    # python invocation in `unshare --user --map-root-user --net` so the script
+    # subprocess sees an empty network stack (just lo). curl + ctypes bypasses
+    # die at the kernel layer; legitimate spindrel.py calls reach the agent
+    # server via SCRIPT_SANDBOX_UDS_PATH (a UDS bridge served alongside TCP).
+    # Modes: "auto" (default — probes unprivileged user-ns at startup; enables
+    # if supported), "on" (force; fail if probe fails), "off" (skip wrap, keep
+    # only Phase 1 sitecustomize). Defense-in-depth with SCRIPT_EGRESS_MODE.
+    SCRIPT_NETNS_SANDBOX: str = "auto"
+    SCRIPT_SANDBOX_UDS_PATH: str = "/run/spindrel/internal.sock"
+
     # Workspace code editor (code-server)
     EDITOR_PORT_RANGE_START: int = 9200
     EDITOR_PORT_RANGE_END: int = 9299

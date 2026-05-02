@@ -81,6 +81,9 @@ class TestBuildUserMessageContent:
         assert "IMG_2605.jpg" in text_part
         # XML tag format — less copy-prone than arrow/instruction syntax.
         assert '<attachment id="9316416e-5a79-4ab5-a490-e403cb615749"' in text_part
+        assert 'visible_inline="true"' in text_part
+        assert "re-analysis after this turn" in text_part
+        assert "describe_attachment" not in text_part
 
     def test_no_attachment_id_leaves_text_untouched(self):
         """Images without an ID (web UI pre-creation path) don't inject hints."""

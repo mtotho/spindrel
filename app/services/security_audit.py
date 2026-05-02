@@ -242,6 +242,64 @@ def _check_host_exec() -> SecurityCheck:
     )
 
 
+def _check_script_netns_sandbox() -> SecurityCheck:
+    """Report the run_script OS-level netns sandbox posture.
+
+    The wrap closes the documented Phase 1 bypasses (`subprocess.run(["curl",
+    ...])`, `ctypes` raw socket calls). When the kernel/seccomp profile
+    doesn't permit unprivileged user-namespace creation, the wrap silently
+    falls back to Phase 1 sitecustomize only — this signal makes the gap
+    visible to the operator.
+    """
+    from app.services.script_runner import netns_sandbox_enabled
+
+    mode = (settings.SCRIPT_NETNS_SANDBOX or "auto").lower()
+    if mode == "off":
+        return SecurityCheck(
+            id="script_netns_sandbox",
+            category="sandboxing",
+            severity=Severity.warning,
+            status=Status.warning,
+            message="run_script netns sandbox disabled (SCRIPT_NETNS_SANDBOX=off)",
+            recommendation=(
+                "Set SCRIPT_NETNS_SANDBOX=auto (default) to enable kernel-level "
+                "egress isolation for run_script subprocesses. Phase 1 sitecustomize "
+                "is bypassable via subprocess to native binaries (curl, etc.) and "
+                "ctypes raw socket calls."
+            ),
+            details={"mode": mode, "enabled": False},
+        )
+    enabled, reason = netns_sandbox_enabled()
+    if enabled:
+        return SecurityCheck(
+            id="script_netns_sandbox",
+            category="sandboxing",
+            severity=Severity.warning,
+            status=Status.passed,
+            message=f"run_script netns sandbox active ({reason})",
+            details={
+                "mode": mode, "enabled": True,
+                "uds_path": settings.SCRIPT_SANDBOX_UDS_PATH,
+                "probe_reason": reason,
+            },
+        )
+    return SecurityCheck(
+        id="script_netns_sandbox",
+        category="sandboxing",
+        severity=Severity.warning,
+        status=Status.warning,
+        message=f"run_script netns sandbox disabled — {reason}",
+        recommendation=(
+            "Kernel or container security profile prevents unprivileged "
+            "user-namespace + network-namespace creation. On Docker hosts, "
+            "ensure the agent-server container does not run with a seccomp "
+            "profile that blocks `unshare(CLONE_NEWUSER|CLONE_NEWNET)`. "
+            "Phase 1 sitecustomize remains active as a partial mitigation."
+        ),
+        details={"mode": mode, "enabled": False, "probe_reason": reason},
+    )
+
+
 def _check_audit_logging() -> SecurityCheck:
     enabled = settings.SECURITY_AUDIT_ENABLED
     return SecurityCheck(
@@ -1686,6 +1744,7 @@ async def run_security_audit(db: AsyncSession) -> SecurityAuditResponse:
     checks.append(_check_secret_redaction())
     checks.append(_check_docker_sandbox())
     checks.append(_check_host_exec())
+    checks.append(_check_script_netns_sandbox())
     checks.append(_check_audit_logging())
 
     # Tool registry and agentic boundary checks

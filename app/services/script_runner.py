@@ -14,10 +14,15 @@ changes, and ``__getattr__`` proxying makes any tool callable as
 """
 from __future__ import annotations
 
+import logging
 import os
+import shutil
+import subprocess
 import textwrap
 import uuid
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Scratch root inside the bot's workspace. Lives under the workspace mount so
 # the script can read sibling files (knowledge-base, attachments) if it needs
@@ -32,8 +37,12 @@ EGRESS_GUARD_FILENAME = "sitecustomize.py"
 def _helper_source() -> str:
     """Return the source of the spindrel.py helper module.
 
-    Uses requests if available, urllib.request otherwise — both are stdlib or
-    near-stdlib in any Python environment the workspace will have.
+    The helper speaks HTTP to the agent server. In R2 Phase 2 the script
+    subprocess runs inside an empty network namespace, so TCP loopback to the
+    agent server is unreachable. When ``SPINDREL_SERVER_UDS`` is set in env,
+    the helper switches to a unix-socket transport (the parent process serves
+    a UDS-to-TCP bridge at that path); otherwise it falls back to the legacy
+    TCP path via ``AGENT_SERVER_URL``.
     """
     return textwrap.dedent('''\
         """Spindrel programmatic-tool-call helper.
@@ -50,8 +59,10 @@ def _helper_source() -> str:
         tool calls go through.
         """
         from __future__ import annotations
+        import http.client
         import json
         import os
+        import socket
         import urllib.request
         import urllib.error
 
@@ -60,6 +71,9 @@ def _helper_source() -> str:
         PARENT_CORRELATION_ID = os.environ.get("SPINDREL_PARENT_CORRELATION_ID")
         CHANNEL_ID = os.environ.get("SPINDREL_CHANNEL_ID")
         DEFAULT_TIMEOUT = float(os.environ.get("SPINDREL_TOOL_TIMEOUT", "30"))
+        # R2 Phase 2: when set, talk to the agent server over a UDS bridge
+        # (path crosses the netns boundary; parent process forwards to TCP).
+        SERVER_UDS = os.environ.get("SPINDREL_SERVER_UDS", "")
 
 
         class ToolError(RuntimeError):
@@ -69,6 +83,23 @@ def _helper_source() -> str:
                 self.status = status
                 self.detail = detail
                 super().__init__(f"[{status}] {detail}")
+
+
+        class _UDSConnection(http.client.HTTPConnection):
+            """HTTPConnection that targets a unix-domain socket path.
+
+            host/port are placeholders — host header stays "localhost" so the
+            FastAPI router matches the same as the TCP listener.
+            """
+
+            def __init__(self, uds_path: str, timeout: float):
+                super().__init__("localhost", timeout=timeout)
+                self._uds_path = uds_path
+
+            def connect(self):  # type: ignore[override]
+                self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                self.sock.settimeout(self.timeout)
+                self.sock.connect(self._uds_path)
 
 
         class _ToolsProxy:
@@ -92,20 +123,24 @@ def _helper_source() -> str:
                 Need catalog? Call the ``list_tool_signatures`` tool through
                 this same proxy — there is no separate signatures endpoint.
                 """
-                body = {
+                body = json.dumps({
                     "name": name,
                     "arguments": kwargs,
                     "parent_correlation_id": PARENT_CORRELATION_ID,
                     "channel_id": CHANNEL_ID,
+                }).encode("utf-8")
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {AGENT_SERVER_API_KEY}",
                 }
+                if SERVER_UDS:
+                    return self._call_uds(body, headers)
+                return self._call_tcp(body, headers)
+
+            def _call_tcp(self, body, headers):
                 req = urllib.request.Request(
                     f"{AGENT_SERVER_URL}/api/v1/internal/tools/exec",
-                    data=json.dumps(body).encode("utf-8"),
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {AGENT_SERVER_API_KEY}",
-                    },
-                    method="POST",
+                    data=body, headers=headers, method="POST",
                 )
                 try:
                     with urllib.request.urlopen(req, timeout=DEFAULT_TIMEOUT) as resp:
@@ -118,7 +153,28 @@ def _helper_source() -> str:
                     raise ToolError(e.code, detail)
                 except urllib.error.URLError as e:
                     raise ToolError(0, f"Network error reaching agent server: {e}")
+                return self._handle_payload(payload)
 
+            def _call_uds(self, body, headers):
+                conn = _UDSConnection(SERVER_UDS, DEFAULT_TIMEOUT)
+                try:
+                    conn.request("POST", "/api/v1/internal/tools/exec", body=body, headers=headers)
+                    resp = conn.getresponse()
+                    raw = resp.read()
+                    if 200 <= resp.status < 300:
+                        payload = json.loads(raw.decode("utf-8"))
+                        return self._handle_payload(payload)
+                    try:
+                        detail = json.loads(raw.decode("utf-8"))
+                    except Exception:
+                        detail = resp.reason
+                    raise ToolError(resp.status, detail)
+                except (OSError, ConnectionError) as e:
+                    raise ToolError(0, f"Network error reaching agent server (uds): {e}")
+                finally:
+                    conn.close()
+
+            def _handle_payload(self, payload):
                 if not payload.get("ok"):
                     raise ToolError(200, payload.get("error") or payload.get("result"))
                 return payload.get("result")
@@ -252,8 +308,100 @@ def cleanup_scratch_dir(scratch_dir: Path) -> None:
     """Best-effort removal of the scratch dir. Swallows errors — the dir lives
     under the workspace and stale entries are harmless.
     """
-    import shutil
     try:
         shutil.rmtree(scratch_dir, ignore_errors=True)
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# R2 Phase 2 — OS-level netns sandbox helpers
+# ---------------------------------------------------------------------------
+
+# Cached probe result. None = not probed yet, (ok, reason) once probed.
+_NETNS_PROBE_RESULT: tuple[bool, str] | None = None
+
+
+def probe_netns_sandbox(force: bool = False) -> tuple[bool, str]:
+    """Probe whether ``unshare --user --map-root-user --net`` works for the
+    calling UID. Returns ``(ok, reason)``; cached after first call.
+
+    A successful probe means the kernel and any active seccomp/AppArmor
+    profile permit unprivileged user-namespace + network-namespace creation.
+    Failure is fatal *only* in ``SCRIPT_NETNS_SANDBOX=on`` mode; in ``auto``
+    we fall back to Phase 1 only with the audit signal flagging the gap.
+    """
+    global _NETNS_PROBE_RESULT
+    if _NETNS_PROBE_RESULT is not None and not force:
+        return _NETNS_PROBE_RESULT
+    if shutil.which("unshare") is None:
+        _NETNS_PROBE_RESULT = (False, "unshare binary not found on PATH")
+        return _NETNS_PROBE_RESULT
+    try:
+        proc = subprocess.run(
+            ["unshare", "--user", "--map-root-user", "--net", "--", "/bin/true"],
+            capture_output=True, timeout=5, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        _NETNS_PROBE_RESULT = (False, f"probe raised: {exc}")
+        return _NETNS_PROBE_RESULT
+    if proc.returncode == 0:
+        _NETNS_PROBE_RESULT = (True, "ok")
+        return _NETNS_PROBE_RESULT
+    stderr = (proc.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+    detail = stderr[-1] if stderr else f"exit {proc.returncode}"
+    _NETNS_PROBE_RESULT = (False, f"probe failed: {detail}")
+    return _NETNS_PROBE_RESULT
+
+
+def reset_netns_probe_cache() -> None:
+    """Clear the cached probe result. Test-only — production callers rely on
+    the cache so the probe runs once per process."""
+    global _NETNS_PROBE_RESULT
+    _NETNS_PROBE_RESULT = None
+
+
+def netns_sandbox_enabled() -> tuple[bool, str]:
+    """Return ``(enabled, reason)`` for the current process's sandbox decision.
+
+    Reads ``SCRIPT_NETNS_SANDBOX`` setting — ``auto`` consults the probe,
+    ``on`` requires the probe to pass (logs a warning if it doesn't but still
+    returns enabled=True so the wrap is attempted — the operator chose ``on``
+    deliberately), ``off`` skips the wrap entirely.
+    """
+    from app.config import settings
+
+    mode = (settings.SCRIPT_NETNS_SANDBOX or "auto").lower()
+    if mode == "off":
+        return False, "SCRIPT_NETNS_SANDBOX=off"
+    if mode == "on":
+        ok, reason = probe_netns_sandbox()
+        if not ok:
+            logger.warning(
+                "SCRIPT_NETNS_SANDBOX=on but probe failed: %s — wrap will likely fail",
+                reason,
+            )
+        return True, f"forced on (probe: {reason})"
+    # auto
+    ok, reason = probe_netns_sandbox()
+    return ok, reason
+
+
+def wrap_command_for_sandbox(inner_shell_cmd: str) -> str:
+    """Wrap a shell command (the ``sh -c`` payload) in an unshare invocation.
+
+    Brings ``lo`` up inside the new netns so the script can talk to the UDS
+    bridge mount and any localhost services *exposed inside its own ns*
+    (currently none, but harmless). The unshare binary is exec-ed directly
+    by the outer ``sh -c`` so PID/process tree shape stays simple.
+    """
+    import shlex as _shlex
+
+    # Inside the unshared ns we run our own sh -c that brings lo up and execs
+    # the original payload. ``exec`` replaces the inner sh with the script
+    # so signals + exit code propagate cleanly.
+    inner = f"ip link set lo up 2>/dev/null; exec sh -c {_shlex.quote(inner_shell_cmd)}"
+    return (
+        "unshare --user --map-root-user --net -- "
+        f"sh -c {_shlex.quote(inner)}"
+    )

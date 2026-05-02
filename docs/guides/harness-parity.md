@@ -60,7 +60,7 @@ screenshots, transcripts, project workspaces, and operator visibility on top.
 
 ## Current High-Priority Gaps
 
-1. **Claude CLI resume-leaf continuity.** The `cli` preset now proves Codex CLI transcript mirroring, model/effort sync, and chat-mode resume after a CLI turn. Claude currently proves transcript mirroring, native session-id promotion, and native CLI naming via `--name` only; the next SDK chat turn resumes the session id but not the live CLI-mutated leaf.
+1. **Native CLI screenshot proof refresh.** Transcript-first checks now cover chat -> native CLI -> chat continuity and model/effort sync for both runtimes, but Claude settings-sync and the new switching guard still need durable screenshot proof after the fast batch.
 2. **Codex CLI-first native resume.** CLI-originated Codex sessions now bypass app-server continuation and use installed Codex's native `codex exec resume <session> --json` path for the next Spindrel chat turn. Keep the live CLI-first roundtrip screenshot current because this is a second native execution surface.
 3. **Codex context parity.** Keep `/context` honest as terminal handoff until app-server exposes a supported method; use native CLI mirror for exact output.
 4. **Claude hooks/checkpointing audit.** Compare installed SDK support with docs and add rows/tests for any non-interactive surfaces we can safely expose. File checkpointing is SDK-supported but has native limitations and conflicts with external session stores, so expose it only behind an explicit runtime setting if we add it.

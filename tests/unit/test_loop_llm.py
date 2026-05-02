@@ -1,5 +1,5 @@
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -98,6 +98,79 @@ async def test_stream_events_are_yielded_and_traced_with_iteration_metadata():
     assert isinstance(outputs[-1], LoopLlmIterationDone)
     assert record_trace.call_args_list[0].kwargs["event_type"] == "llm_retry"
     assert record_trace.call_args_list[0].kwargs["data"]["iteration"] == 3
+
+
+@pytest.mark.asyncio
+async def test_inline_image_routing_trace_records_direct_vision_path():
+    ctx = _make_ctx(correlation_id=uuid.uuid4())
+    state = LoopRunState(messages=[{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "see attached"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+        ],
+    }])
+    acc = AccumulatedMessage(content="done", usage=_usage())
+
+    with patch("app.services.providers.model_supports_vision", return_value=True):
+        _, _, _, record_trace, _ = await _collect(
+            ctx=ctx,
+            state=state,
+            iteration=0,
+            model="gpt-5.4",
+            effective_provider_id="chatgpt-subscription",
+            llm_call_stream_fn=_streaming_fn(acc),
+        )
+
+    routing_call = next(
+        call for call in record_trace.call_args_list
+        if call.kwargs["event_type"] == "attachment_vision_routing"
+    )
+    assert routing_call.kwargs["data"] == {
+        "source_image_count": 1,
+        "inline_image_count": 1,
+        "stripped_image_count": 0,
+        "model_supports_vision": True,
+        "model": "gpt-5.4",
+        "provider_id": "chatgpt-subscription",
+        "fallback_reason": None,
+        "iteration": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_inline_image_routing_trace_records_no_vision_strip_path():
+    ctx = _make_ctx(correlation_id=uuid.uuid4())
+    state = LoopRunState(messages=[{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "see attached"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,def"}},
+        ],
+    }])
+    acc = AccumulatedMessage(content="done", usage=_usage())
+
+    with patch("app.services.providers.model_supports_vision", return_value=False):
+        _, _, _, record_trace, _ = await _collect(
+            ctx=ctx,
+            state=state,
+            iteration=0,
+            model="gpt-5.4",
+            effective_provider_id="chatgpt-subscription",
+            llm_call_stream_fn=_streaming_fn(acc),
+        )
+
+    routing_call = next(
+        call for call in record_trace.call_args_list
+        if call.kwargs["event_type"] == "attachment_vision_routing"
+    )
+    data = routing_call.kwargs["data"]
+    assert data["source_image_count"] == 2
+    assert data["inline_image_count"] == 0
+    assert data["stripped_image_count"] == 2
+    assert data["model_supports_vision"] is False
+    assert data["fallback_reason"] == "model_supports_vision_false"
 
 
 @pytest.mark.asyncio

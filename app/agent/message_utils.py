@@ -25,11 +25,9 @@ def _build_user_message_content(text: str, attachments: list[dict] | None) -> st
         return text
 
     # Collect image-entry IDs so the LLM can call attachment-aware tools
-    # (generate_image, send_file, describe_attachment, …) against the
-    # upload it just received. Without this, the model only sees the raw
-    # image bytes and has no way to name the attachment — it either has
-    # to call list_attachments first or (as seen in the bug trace)
-    # hallucinates a UUID that doesn't exist.
+    # (generate_image, send_file, describe_attachment, ...) against the
+    # upload it just received. The hint must not imply that the model needs a
+    # tool to see the current image; fresh uploads are attached inline below.
     id_hints: list[str] = []
     for att in attachments:
         if att.get("type") != "image":
@@ -37,7 +35,10 @@ def _build_user_message_content(text: str, attachments: list[dict] | None) -> st
         aid = att.get("attachment_id")
         name = att.get("name") or "attachment"
         if aid:
-            id_hints.append(f'<attachment id="{aid}" filename="{name}"/>')
+            id_hints.append(
+                f'<attachment id="{aid}" filename="{name}" visible_inline="true" '
+                'tool_use="for later reuse, editing, or re-analysis after this turn"/>'
+            )
 
     base_text = text or "(no text)"
     if id_hints:

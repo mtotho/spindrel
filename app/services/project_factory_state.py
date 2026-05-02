@@ -42,6 +42,10 @@ from app.services.project_run_receipts import (
     serialize_project_run_receipt,
 )
 from app.services.project_runtime import load_project_runtime_environment
+from app.services.project_workflow_file import (
+    STANDARD_SECTIONS as _WORKFLOW_STANDARD_SECTIONS,
+    project_workflow_file,
+)
 from app.services.projects import (
     project_blueprint_snapshot,
     project_canonical_repo_host_path,
@@ -49,6 +53,26 @@ from app.services.projects import (
     project_directory_from_project,
     project_intake_config,
 )
+
+
+def _repo_workflow_payload(project: Any, snapshot: dict[str, Any] | None) -> dict[str, Any]:
+    """Surface the parsed ``.spindrel/WORKFLOW.md`` for a Project.
+
+    Always emits all ``STANDARD_SECTIONS`` keys (``None`` when absent) so
+    skill consumers can read ``sections.intake`` etc. without guarding the
+    dict shape. Extra sections the author defined ride along under their
+    kebab-slug keys.
+    """
+    workflow = project_workflow_file(project, snapshot)
+    sections: dict[str, str | None] = {key: None for key in _WORKFLOW_STANDARD_SECTIONS}
+    for key, body in workflow.sections.items():
+        sections[key] = body
+    return {
+        "relative_path": workflow.relative_path,
+        "host_path": workflow.host_path,
+        "present": workflow.present,
+        "sections": sections,
+    }
 
 
 _QUEUE_STATES_RUNS_IN_FLIGHT = {
@@ -353,6 +377,7 @@ async def get_project_factory_state(
             "host_path": project_canonical_repo_host_path(project, snapshot),
         },
         "intake_config": project_intake_config(project),
+        "repo_workflow": _repo_workflow_payload(project, snapshot),
         "runtime_env": runtime_payload,
         "dependency_stack": dep_payload,
         "intake": intake_counts,

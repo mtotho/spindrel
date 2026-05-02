@@ -44,6 +44,7 @@ _FILE_TO_TIER = {
     "test_chat_basic": "server_behavior",
     "test_voice_input": "server_behavior",
     "test_chat_stream": "server_behavior",
+    "test_attachment_vision_routing": "server_behavior",
     "test_skill_loading": "server_behavior",
     "test_harness_live_smoke": "server_behavior",
     "test_harness_live_parity": "server_behavior",

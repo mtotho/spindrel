@@ -172,7 +172,7 @@ These appear as custom usernames on messages posted by that bot, making it visua
 The bot downloads files shared in Slack automatically:
 
 - **Text files** (plain text, markdown, CSV, JSON, Python, YAML): content is appended to the message
-- **Images**: sent as vision attachments to the LLM
+- **Images**: sent as inline vision attachments to the current LLM turn, with a persisted attachment ID for later reuse, editing, or re-analysis
 
 Requires the `files:read` scope. The `files:write` scope is needed for the `generate_image` tool to post generated images back to the channel.
 

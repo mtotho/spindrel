@@ -46,10 +46,15 @@ Before changing a visual surface, name these in your working notes:
 - Use the `emphasis` token only as a sparse non-semantic scan marker for
   primary anchors.
 - Run `cd ui && npx tsc --noEmit --pretty false` after UI changes.
+- For visual verification, reuse an already-running Vite/app server when one is
+  available. If none is running and screenshots or browser checks are needed,
+  start the required local dev server using the repo's normal workflow, choosing
+  an open port if the default is occupied.
 
 ## Avoid
 
-- Do not start a new Vite server or claim a new port unless explicitly asked.
+- Do not start duplicate Vite servers when an existing suitable server is
+  already running; reuse it instead.
 - Do not add UI cards inside UI cards.
 - Do not create repeated equal metric-card grids when one anchor section plus
   compact rows would scan faster.
