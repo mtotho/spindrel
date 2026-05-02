@@ -187,6 +187,13 @@ async def test_get_project_factory_state_unconfigured_for_brand_new_project(db_s
     state = await get_project_factory_state(db_session, project)
     assert state["current_stage"] == "unconfigured"
     assert state["blueprint"]["applied"] is False
+    # Phase 4BD.0 - canonical_repo present even when no blueprint applied.
+    assert state["canonical_repo"] == {"relative_path": None, "host_path": None}
+    # Phase 4BD.1 - intake_config defaults to "unset" with empty target/metadata.
+    assert state["intake_config"]["kind"] == "unset"
+    assert state["intake_config"]["configured"] is False
+    assert state["intake_config"]["target"] is None
+    assert state["intake_config"]["host_target"] is None
     assert state["intake"] == {"pending": 0}
     assert state["run_packs"] == {"proposed": 0, "needs_info": 0, "launched": 0, "dismissed": 0}
     assert state["runs"]["total"] == 0
@@ -274,3 +281,8 @@ async def test_get_project_factory_state_counts_pending_intake_and_packs(db_sess
     # configured + proposed packs => shaping_packs
     assert state["current_stage"] == "shaping_packs"
     assert state["suggested_next_action"]["skill_id_to_load"] == "project/plan/run_packs"
+    # Phase 4BD.0 - canonical_repo resolves to first repo when no flag is set.
+    assert state["canonical_repo"]["relative_path"] == "p"
+    # Phase 4BD.1 - intake_config rides along even when project still uses defaults.
+    assert state["intake_config"]["kind"] == "unset"
+    assert state["intake_config"]["configured"] is False

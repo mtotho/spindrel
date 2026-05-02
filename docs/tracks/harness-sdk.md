@@ -634,6 +634,34 @@ Approval mapping intent (final values from schema):
   first assistant turn with no duplicate user row. Screenshot proof:
   `docs/images/native-cli/harness-claude-queued-followup-dark.png` and
   `docs/images/native-cli/harness-codex-queued-followup-dark.png`.
+- 2026-05-02 Multi-turn resume transcript proof: added
+  `test_live_harness_multiturn_resume_preserves_original_request_after_tool_use`
+  for both Claude Code and Codex. The first turn must run a native shell/tool
+  command and acknowledge a marker; the second turn omits the marker and asks
+  the runtime to recall it from the original user request. The test asserts the
+  native session/thread id stays stable, the marker is recalled, and two
+  independent transcript fetches preserve user/assistant order with no
+  duplicate first user row. Local run with screenshots disabled passed both
+  runtimes (`2 passed, 66 deselected`), giving a faster inner-loop guard before
+  adding browser proof.
+- 2026-05-02 Model/effort refetch guard: added
+  `test_live_harness_selected_model_effort_survive_turn_and_refetch` for both
+  Claude Code and Codex. The scenario selects the low-cost runtime model/effort,
+  runs a real no-tool turn, then fetches session harness settings/status twice
+  and asserts `model`, `effort`, `effective_model`, and `effective_effort` stay
+  on the selected values instead of displaying `"default"`. Local transcript
+  batch with screenshots disabled passed the new resume and settings checks
+  together (`4 passed, 66 deselected`).
+- 2026-05-02 native CLI switching guard: added
+  `test_live_harness_native_cli_switching_preserves_thread_and_order` for both
+  Claude Code and Codex. The scenario starts in Spindrel chat, switches into
+  the embedded native CLI and asks it to recall the prior chat marker without
+  restating it, verifies the mirrored CLI assistant row and runtime metadata,
+  switches back to chat, then verifies the next chat turn can recall the CLI
+  response marker on the same native session/thread id. Two transcript refetches
+  assert persisted assistant order stays chat bootstrap -> CLI mirror -> chat
+  roundtrip. Local run with screenshots disabled passed both runtimes
+  (`2 passed, 70 deselected`).
 - 2026-05-02 Claude native CLI naming parity: the embedded Claude CLI command
   now passes the Spindrel session title through Claude Code's native `--name`
   option. The installed CLI documents this value as the prompt-box, `/resume`

@@ -63,12 +63,15 @@ from app.services.project_runtime import load_project_runtime_environment
 from app.services.project_factory_state import get_project_factory_state
 from app.services.projects import (
     materialize_project_blueprint,
+    normalize_project_intake_kind,
     normalize_project_path,
     normalize_project_slug,
     project_blueprint_snapshot,
     project_directory_from_project,
     project_directory_payload,
+    project_intake_config,
     render_project_blueprint_root_path,
+    validate_blueprint_repos_canonical,
 )
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -85,6 +88,9 @@ class ProjectOut(BaseModel):
     prompt: Optional[str] = None
     prompt_file_path: Optional[str] = None
     metadata_: dict = {}
+    intake_kind: str = "unset"
+    intake_target: Optional[str] = None
+    intake_metadata: dict = Field(default_factory=dict)
     resolved: dict | None = None
     blueprint: "ProjectBlueprintSummaryOut | None" = None
     secret_bindings: list["ProjectSecretBindingOut"] = Field(default_factory=list)
@@ -104,6 +110,9 @@ class ProjectWrite(BaseModel):
     prompt: str | None = None
     prompt_file_path: str | None = None
     metadata_: dict | None = None
+    intake_kind: str | None = None
+    intake_target: str | None = None
+    intake_metadata: dict | None = None
 
 
 class ProjectBlueprintSummaryOut(BaseModel):
@@ -478,6 +487,8 @@ class ProjectFactoryStateOut(BaseModel):
     project: dict
     current_stage: str
     blueprint: dict
+    canonical_repo: dict = Field(default_factory=dict)
+    intake_config: dict = Field(default_factory=dict)
     runtime_env: dict
     dependency_stack: dict
     intake: dict
@@ -563,6 +574,9 @@ async def _project_out(db: AsyncSession, project: Project) -> ProjectOut:
         prompt=project.prompt,
         prompt_file_path=project.prompt_file_path,
         metadata_=project.metadata_ or {},
+        intake_kind=getattr(project, "intake_kind", None) or "unset",
+        intake_target=getattr(project, "intake_target", None),
+        intake_metadata=dict(getattr(project, "intake_metadata", None) or {}),
         created_at=project.created_at,
         updated_at=project.updated_at,
     )
@@ -796,6 +810,7 @@ def _apply_blueprint_write(blueprint: ProjectBlueprint, body: ProjectBlueprintWr
     if "knowledge_files" in fields:
         blueprint.knowledge_files = body.knowledge_files or {}
     if "repos" in fields:
+        validate_blueprint_repos_canonical(body.repos)
         blueprint.repos = body.repos or []
     if "setup_commands" in fields:
         blueprint.setup_commands = body.setup_commands or []
@@ -834,6 +849,10 @@ async def create_project_blueprint(
         raise HTTPException(status_code=422, detail="name is required")
     if body.workspace_id and await db.get(SharedWorkspace, body.workspace_id) is None:
         raise HTTPException(status_code=404, detail="workspace not found")
+    try:
+        validate_blueprint_repos_canonical(body.repos)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     blueprint = ProjectBlueprint(
         workspace_id=body.workspace_id,
         name=body.name.strip(),
@@ -889,7 +908,10 @@ async def update_project_blueprint(
         raise HTTPException(status_code=404, detail="project blueprint not found")
     if body.workspace_id and await db.get(SharedWorkspace, body.workspace_id) is None:
         raise HTTPException(status_code=404, detail="workspace not found")
-    _apply_blueprint_write(blueprint, body)
+    try:
+        _apply_blueprint_write(blueprint, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
         await db.commit()
     except Exception as exc:
@@ -1098,6 +1120,10 @@ async def create_project(
     root_path = normalize_project_path(body.root_path)
     if not root_path:
         raise HTTPException(status_code=422, detail="root_path is required")
+    try:
+        intake_kind = normalize_project_intake_kind(body.intake_kind) if body.intake_kind is not None else "unset"
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     project = Project(
         workspace_id=workspace_id,
         name=body.name.strip(),
@@ -1107,6 +1133,9 @@ async def create_project(
         prompt=body.prompt,
         prompt_file_path=normalize_project_path(body.prompt_file_path),
         metadata_=body.metadata_ or {},
+        intake_kind=intake_kind,
+        intake_target=(body.intake_target or None),
+        intake_metadata=dict(body.intake_metadata or {}),
     )
     db.add(project)
     try:
@@ -1179,6 +1208,15 @@ async def update_project(
         project.prompt_file_path = normalize_project_path(body.prompt_file_path)
     if "metadata_" in fields:
         project.metadata_ = body.metadata_ or {}
+    if "intake_kind" in fields:
+        try:
+            project.intake_kind = normalize_project_intake_kind(body.intake_kind)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if "intake_target" in fields:
+        project.intake_target = body.intake_target or None
+    if "intake_metadata" in fields:
+        project.intake_metadata = dict(body.intake_metadata or {})
     try:
         await db.commit()
     except Exception as exc:

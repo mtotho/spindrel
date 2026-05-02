@@ -5,7 +5,7 @@ updated: 2026-05-01
 ---
 # Agent Server — Roadmap
 
-Where the project stands. **Read [[../AGENTS]] first** for navigation. For *why* → [[architecture-decisions]]. For *how* → [[architecture]] + `spindrel/docs/guides/`. For bugs → [[loose-ends]].
+Where the project stands. **Read [[../AGENTS]] first** for navigation. For *why* → [[architecture-decisions]]. For *how* → [[architecture]] + `spindrel/docs/guides/`. For bugs → [[inbox]].
 
 ## Product Identity
 **"Best self-hosted personal AI agent."** Target: runs Ollama/local models, wants more than chat, values self-hosting. Auto-discovery is the killer feature — bots need only `model` + `system_prompt`.
@@ -113,6 +113,6 @@ Index: `spindrel/docs/guides/index.md`. These win against other docs when they d
 - [[../AGENTS]] — start-here navigation map
 - [[architecture]] — subsystem map and request flow
 - [[architecture-decisions]] — load-bearing decisions
-- [[loose-ends]] — bugs, gotchas, things to verify
+- [[inbox]] — bugs, gotchas, things to verify
 - [[open-issues]] — untriaged review findings (accumulative)
 - [[Ideas & Investigations]] — parking lot

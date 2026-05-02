@@ -1398,6 +1398,13 @@ class Project(Base):
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")
     )
+    intake_kind: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'unset'")
+    )
+    intake_target: Mapped[str | None] = mapped_column(Text, nullable=True)
+    intake_metadata: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 

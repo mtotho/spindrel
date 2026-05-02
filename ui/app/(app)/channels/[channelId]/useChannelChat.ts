@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useChatStore } from "@/src/stores/chat";
+import { useShallow } from "zustand/react/shallow";
 import { useUIStore } from "@/src/stores/ui";
 import { useSubmitChat, useCancelChat, useSessionStatus } from "@/src/api/hooks/useChat";
 import { useChannelEvents } from "@/src/api/hooks/useChannelEvents";
@@ -39,8 +40,6 @@ export interface UseChannelChatOptions {
 }
 
 export interface UseChannelChatReturn {
-  /** Chat store state for this channel */
-  chatState: ReturnType<typeof useChatStore.getState>["channels"][string];
   /** Flattened messages from DB, in chronological order (newest last) */
   invertedData: Message[];
   /** TanStack Query loading state */
@@ -111,7 +110,22 @@ export function useChannelChat({
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
-  const chatState = useChatStore((s) => s.getChannel(channelId!));
+  // Narrow shallow-equality subscription: re-renders only when `messages`
+  // reference, `isProcessing`, or `turnsCount` change — i.e., turn boundaries
+  // and DB sync, NOT the per-token text_delta churn that mutates
+  // `turns[*].streamingContent`. The streaming-text subtree subscribes
+  // separately via `<ChatStreamingArea>` so it doesn't bubble re-renders up
+  // through this hook into the parent.
+  const { messages, isProcessing, turnsCount } = useChatStore(
+    useShallow((s) => {
+      const c = s.getChannel(channelId!);
+      return {
+        messages: c.messages,
+        isProcessing: c.isProcessing,
+        turnsCount: Object.keys(c.turns).length,
+      };
+    }),
+  );
   const setMessages = useChatStore((s) => s.setMessages);
   const addMessage = useChatStore((s) => s.addMessage);
   const clearProcessing = useChatStore((s) => s.clearProcessing);
@@ -177,8 +191,7 @@ export function useChannelChat({
   const [queuedMessageText, setQueuedMessageText] = useState<string | null>(null);
   // Ref for checking active state inside async callbacks (avoids stale closures).
   const isActiveRef = useRef(false);
-  const turnsCount = Object.keys(chatState.turns).length;
-  isActiveRef.current = turnsCount > 0 || chatState.isProcessing;
+  isActiveRef.current = turnsCount > 0 || isProcessing;
 
   // ---- Message fetching ----
   const {
@@ -214,8 +227,8 @@ export function useChannelChat({
   // start the conversation" until the turn finishes.
   useEffect(() => {
     if (!enabled) return;
-    const storeEmpty = (chatState.messages?.length ?? 0) === 0;
-    const canSync = turnsCount === 0 && !chatState.isProcessing;
+    const storeEmpty = (messages?.length ?? 0) === 0;
+    const canSync = turnsCount === 0 && !isProcessing;
     if (channelId && pages && (canSync || storeEmpty)) {
       const allMessages = [...pages.pages].reverse().flatMap((p) => p.messages)
         .filter((m) => {
@@ -303,7 +316,7 @@ export function useChannelChat({
   }, [channelId, pages]);
 
   // Poll session status while background processing is active
-  const { data: sessionStatus } = useSessionStatus(channelId, enabled && chatState.isProcessing);
+  const { data: sessionStatus } = useSessionStatus(channelId, enabled && isProcessing);
 
   const submitChat = useSubmitChat();
   const cancelChat = useCancelChat();
@@ -336,7 +349,7 @@ export function useChannelChat({
   const prevTurnsCountRef = useRef(turnsCount);
   useEffect(() => {
     const wasActive = prevTurnsCountRef.current > 0;
-    const nowIdle = turnsCount === 0 && !chatState.isProcessing;
+    const nowIdle = turnsCount === 0 && !isProcessing;
     prevTurnsCountRef.current = turnsCount;
 
     if (wasActive && nowIdle && queuedRequestRef.current) {
@@ -346,12 +359,12 @@ export function useChannelChat({
       setQueuedMessageText(null);
       submitPrepared(queued);
     }
-  }, [turnsCount, chatState.isProcessing, submitPrepared]);
+  }, [turnsCount, isProcessing, submitPrepared]);
 
   // When background processing completes, clear state and refetch.
   useEffect(() => {
     if (
-      chatState.isProcessing &&
+      isProcessing &&
       sessionStatus &&
       !sessionStatus.processing &&
       sessionStatus.pending_tasks === 0
@@ -359,7 +372,7 @@ export function useChannelChat({
       if (channelId) clearProcessing(channelId);
       queryClient.invalidateQueries({ queryKey: ["session-messages"] });
     }
-  }, [chatState.isProcessing, sessionStatus, channelId, clearProcessing, queryClient]);
+  }, [isProcessing, sessionStatus, channelId, clearProcessing, queryClient]);
 
   const syncCancelledState = useCallback(() => {
     if (!channelId) return;
@@ -778,8 +791,8 @@ export function useChannelChat({
 
   // Reverse for inverted FlatList
   const invertedData = useMemo(
-    () => [...chatState.messages].reverse(),
-    [chatState.messages],
+    () => [...messages].reverse(),
+    [messages],
   );
 
   const handleLoadMore = useCallback(() => {
@@ -801,7 +814,6 @@ export function useChannelChat({
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return {
-    chatState,
     invertedData,
     isLoading,
     isFetchingNextPage,

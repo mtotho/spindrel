@@ -1462,6 +1462,9 @@ export interface Project extends ProjectSummary {
   prompt?: string | null;
   prompt_file_path?: string | null;
   metadata_?: Record<string, any>;
+  intake_kind?: "unset" | "repo_file" | "repo_folder" | "external_tracker" | string;
+  intake_target?: string | null;
+  intake_metadata?: Record<string, any>;
   resolved?: {
     project_id?: string | null;
     name?: string | null;
@@ -1997,6 +2000,9 @@ export interface ProjectWrite {
   prompt?: string | null;
   prompt_file_path?: string | null;
   metadata_?: Record<string, any> | null;
+  intake_kind?: "unset" | "repo_file" | "repo_folder" | "external_tracker" | null;
+  intake_target?: string | null;
+  intake_metadata?: Record<string, any> | null;
 }
 
 export interface ProjectBlueprintWrite {

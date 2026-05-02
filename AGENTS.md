@@ -12,7 +12,7 @@ This file is the index, the rule book, and the retrieval contract. Drill into `d
 3. The most recent file in `~/personal/vault/Sessions/spindrel/` — last session's notes (vault-private; skip if vault is unavailable).
 
 **Tier 1 — read when relevant to the current task:**
-- `docs/loose-ends.md` — open bugs and tech debt.
+- `docs/inbox.md` — open bugs / ideas / tech debt / questions. Light schema (`## <date> <time> <slug>` + `**kind:** · **area:** · **status:**` tag line). Replaces the prior `loose-ends.md`.
 - `docs/guides/index.md` — canonical guides; open the matching guide for the area you're touching.
 - The relevant `docs/tracks/<slug>.md` for multi-phase work.
 
@@ -30,7 +30,7 @@ This file is the index, the rule book, and the retrieval contract. Drill into `d
 | Need | File |
 |---|---|
 | Current active work, status of named tracks | `docs/roadmap.md` |
-| Open bugs, tech debt, things to verify | `docs/loose-ends.md` |
+| Open bugs, tech debt, things to verify | `docs/inbox.md` |
 | Why does it work this way? | `docs/architecture-decisions.md` |
 | Subsystem map, request flow | `docs/architecture.md` |
 | Resolved bug history (one-liners) | `docs/fix-log.md` |
@@ -132,10 +132,10 @@ updated: YYYY-MM-DD
 
 ## Same-edit doc updates
 
-- Fixing a bug from `docs/loose-ends.md`: remove it there and add a one-line entry to `docs/fix-log.md` in the **same edit**.
+- Fixing a bug from `docs/inbox.md`: remove it there and add a one-line entry to `docs/fix-log.md` in the **same edit**.
 - Completing a track phase: update the track's `## Status` table immediately. Compress phase prose in place when work ships. See `docs/guides/tracks.md` for the full lifecycle (when to flip `status: complete`, when to supersede, when to split).
 - Making a load-bearing decision: add to `docs/architecture-decisions.md`.
-- Discovering a bug or gotcha: add to `docs/loose-ends.md`. Ideas / speculation go to vault `Ideas & Investigations.md` instead.
+- Discovering a bug or gotcha: add to `docs/inbox.md`. Ideas / speculation go to vault `Ideas & Investigations.md` instead.
 - Architectural change: update the matching `docs/guides/<area>.md` in the same pass.
 
 ## Worktree safety

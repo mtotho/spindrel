@@ -22,10 +22,10 @@ import {
 } from "@/src/api/hooks/useChannels";
 import { MarkdownViewer } from "@/src/components/workspace/MarkdownViewer";
 import { ChatSession } from "@/src/components/chat/ChatSession";
-import { useModelGroups } from "@/src/api/hooks/useModels";
 import { DocsMarkdownModal } from "@/src/components/shared/DocsMarkdownModal";
 import { useBot } from "@/src/api/hooks/useBots";
 import type { Message } from "@/src/types/api";
+import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 
 type SelectionState = { start: number; end: number; text: string };
 type AutoSaveState = "idle" | "pending" | "saving" | "saved" | "error";
@@ -42,7 +42,6 @@ export default function NoteWorkspacePage() {
   const assistNote = useAssistChannelNote(channelId ?? "");
   const note = noteQuery.data ?? null;
   const versionsQuery = useChannelWorkspaceFileVersions(channelId, note?.workspace_path ?? note?.path ?? null, !!note);
-  const modelGroupsQuery = useModelGroups();
   const botQuery = useBot(channelQuery.data?.bot_id);
 
   const [bodyDraft, setBodyDraft] = useState("");
@@ -110,17 +109,6 @@ export default function NoteWorkspacePage() {
       },
     }];
   }, [chatOpen, note?.content_hash, note?.session_id, selectedText, selection.end, selection.start]);
-  const modelOptions = useMemo(() => {
-    return (modelGroupsQuery.data ?? []).flatMap((group) =>
-      group.models.map((model) => ({
-        modelId: model.id,
-        providerId: group.provider_id ?? null,
-        label: model.display && model.display !== model.id ? `${model.display} (${model.id})` : model.id,
-        providerName: group.provider_name,
-      })),
-    );
-  }, [modelGroupsQuery.data]);
-
   const saveDraft = useCallback(async (content: string, hash: string | null) => {
     if (!channelId || !slug) return;
     saveInFlightRef.current = true;
@@ -304,29 +292,18 @@ export default function NoteWorkspacePage() {
           {preview ? "Edit" : "Preview"}
         </button>
         <AutoSaveIndicator state={autoSaveState} dirty={dirty} error={autoSaveError} />
-        <select
-          value={assistModel ? `${assistProviderId ?? ""}::${assistModel}` : ""}
-          onChange={(event) => {
-            const value = event.target.value;
-            if (!value) {
-              setAssistModel("");
-              setAssistProviderId(null);
-              return;
-            }
-            const [provider, model] = value.split("::");
-            setAssistModel(model);
-            setAssistProviderId(provider || null);
-          }}
-          className="max-w-[190px] rounded-md bg-transparent px-2 py-1.5 text-[11px] text-text-dim outline-none hover:bg-surface-overlay"
-          title="Magic edit model"
-        >
-          <option value="">model default ({effectiveDefaultModel})</option>
-          {modelOptions.map((option) => (
-            <option key={`${option.providerId ?? ""}::${option.modelId}`} value={`${option.providerId ?? ""}::${option.modelId}`}>
-              {option.modelId}
-            </option>
-          ))}
-        </select>
+        <div className="w-[210px] max-w-[32vw]">
+          <LlmModelDropdown
+            value={assistModel}
+            selectedProviderId={assistProviderId}
+            allowClear
+            placeholder={`model default (${effectiveDefaultModel})`}
+            onChange={(model, providerId) => {
+              setAssistModel(model);
+              setAssistProviderId(providerId ?? null);
+            }}
+          />
+        </div>
       </header>
 
       <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pb-2 text-[11px] text-text-dim sm:px-6 lg:px-8">

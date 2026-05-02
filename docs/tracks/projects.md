@@ -3,7 +3,7 @@ title: Track - Projects
 summary: First-class Project roots inside the singleton Workspace plus the Project Factory Vision — Blueprints, fresh instances, dev targets, dependency stacks, coding runs, review sessions, and the canonical execution context Module.
 tags: [spindrel, track, projects]
 status: active
-updated: 2026-05-02 (cohesion pass: 4AZ + 4BA + 4AY-a + 4BB.1 + 4BB.2 + 4BB.3 shipped; 4BB.4-5 / 4AY-b / 4BC queued)
+updated: 2026-05-02 (cohesion pass: 4AZ + 4BA + 4AY-a + 4BB.1-3 + 4BD.0 shipped; 4BB.4-5 / 4BD.1-7 / 4BC queued; 4AY-b cancelled)
 ---
 
 # Track - Projects
@@ -128,8 +128,21 @@ Six phases, ordered (revised after Codex review - factory-state ships first, ren
   - [x] **4BB.3 - Blueprint policy fields** *(shipped 2026-05-02)*. Added `stall_timeout_seconds`, `turn_timeout_seconds`, `max_concurrent_runs` columns to `project_blueprints` (migration `291_add_blueprint_orchestration_policy`). All three are NULL = use cohesion-plan defaults so existing blueprints keep working without backfill. `project_blueprint_snapshot` emits these fields only when set (legacy snapshots stay byte-identical). `ProjectBlueprintWrite`/`ProjectBlueprintOut` schemas + the blueprint editor's new "Orchestration Policy" section let operators set them; positive-int validator on the API rejects zero/negative values. UI types updated in `ui/src/types/api.ts`; OpenAPI snapshot regenerated. Concurrency cap *enforcement* at launch lands in 4BB.4.
   - **4BB.4 - Concurrency cap enforcement** at single-pack and batch launch.
   - **4BB.5 - UI** stalled badge in Project Runs row + run_phase chip in run detail.
+
+### Phase 4BD - File-based Issue Substrate *(parallel architectural shift)*
+
+Replace the bespoke `IssueWorkPack` table + Mission Control intake lane with a repo-resident file (or external tracker), discovered per-Project via setup. Generic skill is convention-discovery; repo-local `.agents/skills/` carry the prescriptive bits. **Cancels Phase 4AY-b** (the planned RunPack rename) since the table is deleted instead of renamed. Full plan: [`docs/plans/project-factory-issue-substrate.md`](../plans/project-factory-issue-substrate.md).
+
+- [x] **4BD.0 - Canonical repo flag** *(shipped 2026-05-02)*. New `canonical: true` flag on `blueprint.repos[]` entries with at-most-one validator (raises 422 on create + update). New helpers in `app/services/projects.py`: `project_canonical_repo_entry`, `project_canonical_repo_relative_path`, `project_canonical_repo_host_path`, `validate_blueprint_repos_canonical`. Resolution rule: explicit canonical wins; otherwise first repo. `get_project_factory_state` payload gains `canonical_repo: {relative_path, host_path}` so any agent can ask "where do I commit durable artifacts?" without rederiving. Replaces `docs/loose-ends.md` with `docs/inbox.md` (fresh start, light schema documented in the new file's header). AGENTS.md + roadmap + tracks guide updated.
+- **4BD.1 - Project intake settings**. `intake_kind` (`unset` | `repo_file` | `repo_folder` | `external_tracker`) + `intake_target` + `intake_metadata` columns on `Project`. Migration, schemas, factory-state inclusion.
+- **4BD.2 - Setup-time convention prompt**. Extend `project/setup/init` to ask once, persist, never re-ask unless user says "reconfigure intake."
+- **4BD.3 - Generic intake skill rewrite**. `project/intake` writes to the configured target (file, folder, or hand-off message). No DB write. Defers entirely to repo-local `.agents/skills/<repo>-issues/` when present.
+- **4BD.4 - Run Pack stops being a table row**. `propose_run_packs` writes to a Track file (or repo-local convention) instead of `IssueWorkPack` rows.
+- **4BD.5 - Launch reads from file**. `source_artifact: {path, section?, commit_sha}` on `ProjectCodingRun`.
+- **4BD.6 - Drop bespoke tables**. `issue_work_packs` table dropped; `WorkspaceAttentionItem(target_kind="issue_intake")` rows deleted; Mission Control issue lane removed.
+- **4BD.7 - Repo-local skill for this repo**. `.agents/skills/spindrel-issues/SKILL.md` codifies inbox path, schema, commit cadence, GitHub-issue rule.
 - [x] **Phase 4AY-a - Skill namespace + product copy** *(shipped 2026-05-02 with 4BA)*. New `app/services/skill_aliases.py` resolves legacy `workspace/project_*` and `workspace/issue_intake` IDs to the new `project/*` canonical IDs at `get_skill` entry; persisted enrollments and external prompts using the old IDs continue to load the new content. Updated `RUNTIME_SKILL_INDEX`, `RUNTIME_SKILL_COVERAGE_AUDIT`, `_skill_recommendation` calls in `agent_capabilities.py`, run preset prompts/skills tuples in `run_presets.py`, `/project-init` slash payload in `slash_commands.py`, `project_factory_state.py` `suggested_next_action` mappings, `skills/index.md` cluster list, `skills/workspace/index.md`, `docs/guides/projects.md`, and the repo-dev `.agents/skills/spindrel-{e2e-development,visual-feedback-loop}/SKILL.md`. Product copy in PRD/Run Packs skills says "Run Pack". Internal class/table names unchanged - tracked as Phase 4AY-b.
-- **Phase 4AY-b - Internal RunPack rename**. After dogfood validates new UX. Migration `issue_work_packs` -> `issue_run_packs`; FK columns `*_work_pack_id` -> `*_run_pack_id`. Python `IssueWorkPack` -> `RunPack`. Tool IDs `create_issue_work_packs` -> `create_run_packs` with one-release alias. API field renames with deprecation field. Existing dogfood data survives via migration alias support.
+- ~~**Phase 4AY-b - Internal RunPack rename**~~. **Cancelled 2026-05-02** in favor of Phase 4BD - the `IssueWorkPack` table is being dropped entirely (replaced by repo-resident files), so there is nothing to rename. See `docs/plans/project-factory-issue-substrate.md`.
 - **Phase 4BC - Canonical orchestration policy view**. New `GET /api/v1/projects/{id}/orchestration-policy` + `get_project_orchestration_policy` tool returning merged Blueprint+Runbook+preset view. Optional `.spindrel/project-orchestration.yml` repo mirror.
 
 **Dogfood acceptance:** brand-new Project-bound channel, "I want to build X" -> Blueprint + PRD + 3 proposed Run Packs in <=6 messages, none launched without explicit go. Day later, "the Y page is slow" recognized as intake, piled, then "triage" groups into Run Packs. Both flows work without the user naming a skill.

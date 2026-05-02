@@ -168,6 +168,119 @@ def render_project_blueprint_root_path(
     return normalized
 
 
+def project_canonical_repo_entry(snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return the canonical repo dict from a blueprint snapshot.
+
+    Resolution rule (Phase 4BD.0): the entry with ``canonical: true`` wins.
+    If none is flagged, fall back to the first repo in the list. Returns None
+    when the snapshot has no repos.
+    """
+    if not isinstance(snapshot, dict):
+        return None
+    repos = snapshot.get("repos")
+    if not isinstance(repos, list) or not repos:
+        return None
+    typed = [repo for repo in repos if isinstance(repo, dict)]
+    if not typed:
+        return None
+    for repo in typed:
+        if repo.get("canonical") is True:
+            return repo
+    return typed[0]
+
+
+def project_canonical_repo_relative_path(snapshot: dict[str, Any] | None) -> str | None:
+    """Relative path of the canonical repo within the Project work surface."""
+    repo = project_canonical_repo_entry(snapshot)
+    if repo is None:
+        return None
+    raw = repo.get("path")
+    if not isinstance(raw, str):
+        return None
+    return normalize_project_path(raw)
+
+
+def project_canonical_repo_host_path(project: Any, snapshot: dict[str, Any] | None = None) -> str | None:
+    """Absolute on-disk path of the canonical repo for a Project, or None.
+
+    Used by skills that need to write durable artifacts (intake file, PRDs,
+    Run Pack files) into the *actual git repo*, not the Spindrel-managed
+    work-surface bowl that may contain several sibling repos.
+    """
+    if snapshot is None:
+        metadata = getattr(project, "metadata_", None)
+        snapshot = metadata.get("blueprint_snapshot") if isinstance(metadata, dict) else None
+    rel = project_canonical_repo_relative_path(snapshot)
+    if rel is None:
+        return None
+    project_dir = project_directory_from_project(project)
+    return str(Path(project_dir.host_path) / rel)
+
+
+def validate_blueprint_repos_canonical(repos: list[dict[str, Any]] | None) -> None:
+    """Enforce the at-most-one-canonical invariant on a repos list.
+
+    Raises ValueError when more than one entry carries ``canonical: true``.
+    """
+    if not isinstance(repos, list):
+        return
+    canonical = [repo for repo in repos if isinstance(repo, dict) and repo.get("canonical") is True]
+    if len(canonical) > 1:
+        raise ValueError(
+            "At most one repo entry may be marked canonical. Found "
+            f"{len(canonical)}: {[repo.get('path') for repo in canonical]}"
+        )
+
+
+PROJECT_INTAKE_KINDS: tuple[str, ...] = (
+    "unset",
+    "repo_file",
+    "repo_folder",
+    "external_tracker",
+)
+
+
+def normalize_project_intake_kind(value: Any) -> str:
+    """Validate and normalize an intake kind. Raises ValueError on bad input."""
+    if value is None:
+        return "unset"
+    if not isinstance(value, str):
+        raise ValueError("intake_kind must be a string")
+    candidate = value.strip().lower()
+    if candidate not in PROJECT_INTAKE_KINDS:
+        raise ValueError(
+            f"intake_kind must be one of {', '.join(PROJECT_INTAKE_KINDS)}; got {value!r}"
+        )
+    return candidate
+
+
+def project_intake_config(project: Any) -> dict[str, Any]:
+    """Return the resolved intake config for a Project as a JSON-safe dict.
+
+    Always returns the full shape so agents can branch on `kind` without
+    having to defend against missing keys. `target` is None when unset; for
+    repo-relative kinds, `host_target` is the absolute on-disk path resolved
+    against the canonical repo (None when no canonical repo or target).
+    """
+    kind = getattr(project, "intake_kind", None) or "unset"
+    target = getattr(project, "intake_target", None)
+    metadata = dict(getattr(project, "intake_metadata", None) or {})
+    host_target: str | None = None
+    if kind in {"repo_file", "repo_folder"} and target:
+        canonical_host = project_canonical_repo_host_path(project)
+        if canonical_host:
+            normalized = target.lstrip("/").rstrip()
+            if normalized:
+                host_target = str(Path(canonical_host) / normalized)
+    return {
+        "kind": kind,
+        "target": target,
+        "metadata": metadata,
+        "host_target": host_target,
+        "configured": kind != "unset",
+    }
+
+
 def project_blueprint_snapshot(blueprint: Any) -> dict[str, Any]:
     snapshot = {
         "id": str(blueprint.id),

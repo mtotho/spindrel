@@ -81,4 +81,4 @@ Constraints we won't violate. Things to remember when picking up this track cold
 - **Don't spawn a new track for ongoing work in an existing track's domain.** Closed tracks are closed; if a follow-up is meaningfully new scope, that's a new track. If it's continuation, reopen the existing track (set `status: active` if it had been complete) and add a phase. Living tracks can stay open indefinitely.
 - **Don't put implementation detail in `docs/roadmap.md`.** Roadmap rows are 1–2 lines + link to track. Detail belongs in the track.
 - **Don't duplicate Architecture Decisions in tracks.** A decision goes in `docs/architecture-decisions.md` once; the track references it.
-- **Don't track bugs as tracks.** Bugs go in `docs/loose-ends.md` (active) or `docs/fix-log.md` (resolved).
+- **Don't track bugs as tracks.** Bugs go in `docs/inbox.md` (active; see schema there) or `docs/fix-log.md` (resolved).

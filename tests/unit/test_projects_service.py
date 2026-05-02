@@ -90,6 +90,141 @@ def test_materialize_project_blueprint_creates_starter_surface(tmp_path):
     assert second.payload()["knowledge_files_skipped"] == ["overview.md"]
 
 
+def test_normalize_project_intake_kind_accepts_known_kinds_and_rejects_others():
+    """Phase 4BD.1 - intake_kind must be one of the four known values."""
+    from app.services.projects import (
+        PROJECT_INTAKE_KINDS,
+        normalize_project_intake_kind,
+    )
+
+    assert set(PROJECT_INTAKE_KINDS) == {"unset", "repo_file", "repo_folder", "external_tracker"}
+    assert normalize_project_intake_kind(None) == "unset"
+    assert normalize_project_intake_kind("UNSET") == "unset"
+    assert normalize_project_intake_kind(" repo_file ") == "repo_file"
+    for kind in PROJECT_INTAKE_KINDS:
+        assert normalize_project_intake_kind(kind) == kind
+
+    for bad in ("github", "github_issues", "tracker", ""):
+        with pytest.raises(ValueError):
+            normalize_project_intake_kind(bad)
+    with pytest.raises(ValueError):
+        normalize_project_intake_kind(42)
+
+
+def test_project_intake_config_resolves_host_target_against_canonical_repo(monkeypatch, tmp_path):
+    """Phase 4BD.1 - host_target joins canonical repo path with relative target for repo kinds."""
+    from app.services import projects as projects_module
+    from app.services.projects import project_intake_config
+
+    workspace_id = uuid.uuid4()
+    project = Project(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        name="P",
+        slug="p",
+        root_path="common/projects/p",
+        metadata_={"blueprint_snapshot": {"repos": [{"path": "app", "canonical": True}]}},
+        intake_kind="repo_file",
+        intake_target="docs/inbox.md",
+        intake_metadata={"format": "spindrel-md"},
+    )
+
+    monkeypatch.setattr(
+        projects_module,
+        "project_directory_from_project",
+        lambda _: SimpleNamespace(host_path=str(tmp_path / "common/projects/p")),
+    )
+
+    config = project_intake_config(project)
+    assert config["kind"] == "repo_file"
+    assert config["target"] == "docs/inbox.md"
+    assert config["metadata"] == {"format": "spindrel-md"}
+    assert config["configured"] is True
+    assert config["host_target"] == str(tmp_path / "common/projects/p/app/docs/inbox.md")
+
+    # Unset projects expose the full shape with host_target=None.
+    project.intake_kind = "unset"
+    project.intake_target = None
+    project.intake_metadata = {}
+    bare = project_intake_config(project)
+    assert bare == {
+        "kind": "unset",
+        "target": None,
+        "metadata": {},
+        "host_target": None,
+        "configured": False,
+    }
+
+    # External tracker keeps target but never resolves a host path.
+    project.intake_kind = "external_tracker"
+    project.intake_target = "https://github.com/me/repo/issues"
+    project.intake_metadata = {"tracker": "github"}
+    external = project_intake_config(project)
+    assert external["kind"] == "external_tracker"
+    assert external["target"] == "https://github.com/me/repo/issues"
+    assert external["host_target"] is None
+    assert external["configured"] is True
+
+
+def test_project_canonical_repo_helpers_resolve_explicit_flag_then_first():
+    """Phase 4BD.0 - canonical: true wins, otherwise first repo wins, None for empty."""
+    from app.services.projects import (
+        project_canonical_repo_entry,
+        project_canonical_repo_relative_path,
+    )
+
+    snapshot_explicit = {
+        "repos": [
+            {"path": "docs", "branch": "main"},
+            {"path": "app", "branch": "main", "canonical": True},
+        ]
+    }
+    entry = project_canonical_repo_entry(snapshot_explicit)
+    assert entry is not None and entry["path"] == "app"
+    assert project_canonical_repo_relative_path(snapshot_explicit) == "app"
+
+    snapshot_fallback = {"repos": [{"path": "docs"}, {"path": "app"}]}
+    fallback = project_canonical_repo_entry(snapshot_fallback)
+    assert fallback is not None and fallback["path"] == "docs"
+
+    snapshot_canonical_false_ignored = {
+        "repos": [
+            {"path": "docs", "canonical": False},
+            {"path": "app"},
+        ]
+    }
+    # canonical: false is the same as no flag - first wins
+    assert project_canonical_repo_entry(snapshot_canonical_false_ignored)["path"] == "docs"
+
+    assert project_canonical_repo_entry(None) is None
+    assert project_canonical_repo_entry({}) is None
+    assert project_canonical_repo_entry({"repos": []}) is None
+    assert project_canonical_repo_relative_path({"repos": [{"branch": "main"}]}) is None  # no path
+
+
+def test_validate_blueprint_repos_canonical_rejects_multiple_flags():
+    """At most one repo entry may be flagged canonical."""
+    import pytest as _pytest
+
+    from app.services.projects import validate_blueprint_repos_canonical
+
+    # No-op cases
+    validate_blueprint_repos_canonical(None)
+    validate_blueprint_repos_canonical([])
+    validate_blueprint_repos_canonical([{"path": "a", "canonical": True}])
+    validate_blueprint_repos_canonical([{"path": "a"}, {"path": "b"}])
+    validate_blueprint_repos_canonical([
+        {"path": "a", "canonical": True},
+        {"path": "b", "canonical": False},
+    ])
+
+    with _pytest.raises(ValueError, match="At most one"):
+        validate_blueprint_repos_canonical([
+            {"path": "a", "canonical": True},
+            {"path": "b", "canonical": True},
+        ])
+
+
 def test_project_blueprint_write_rejects_non_positive_orchestration_values():
     """Validator guards against zero / negative timeouts and concurrency caps."""
     import pytest as _pytest

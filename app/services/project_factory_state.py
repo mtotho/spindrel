@@ -42,7 +42,13 @@ from app.services.project_run_receipts import (
     serialize_project_run_receipt,
 )
 from app.services.project_runtime import load_project_runtime_environment
-from app.services.projects import project_blueprint_snapshot, project_directory_from_project
+from app.services.projects import (
+    project_blueprint_snapshot,
+    project_canonical_repo_host_path,
+    project_canonical_repo_relative_path,
+    project_directory_from_project,
+    project_intake_config,
+)
 
 
 _QUEUE_STATES_RUNS_IN_FLIGHT = {
@@ -342,6 +348,11 @@ async def get_project_factory_state(
         "blueprint": {
             "applied": blueprint_applied,
         },
+        "canonical_repo": {
+            "relative_path": project_canonical_repo_relative_path(snapshot),
+            "host_path": project_canonical_repo_host_path(project, snapshot),
+        },
+        "intake_config": project_intake_config(project),
         "runtime_env": runtime_payload,
         "dependency_stack": dep_payload,
         "intake": intake_counts,

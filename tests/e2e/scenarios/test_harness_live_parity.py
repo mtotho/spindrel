@@ -298,6 +298,10 @@ def _user_messages(messages: list[dict]) -> list[dict]:
     return [message for message in messages if message.get("role") == "user"]
 
 
+def _ordered_messages(messages: list[dict]) -> list[dict]:
+    return sorted(messages, key=lambda message: str(message.get("created_at") or ""))
+
+
 def _message_metadata(message: dict) -> dict:
     meta = message.get("metadata")
     return meta if isinstance(meta, dict) else {}
@@ -1867,6 +1871,111 @@ async def test_live_harness_core_parity_controls_trace_and_context(
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)
 @pytest.mark.asyncio
+async def test_live_harness_multiturn_resume_preserves_original_request_after_tool_use(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    """Transcript-first parity check for native multi-turn resume fidelity.
+
+    The second prompt intentionally omits ``marker``. Seeing it again proves the
+    harness resumed the native runtime thread after a tool-bearing first turn
+    instead of starting a fresh native conversation from only the latest user
+    message.
+    """
+
+    _requires_tier("plan")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    await client.set_session_approval_mode(session_id, "bypassPermissions")
+
+    marker = f"resume-original-{case.name}-{uuid.uuid4().hex[:8]}"
+    first_expected = f"resume first ok {marker}"
+    second_expected = f"resume original ok {marker}"
+
+    first = await client.chat_session_stream(
+        (
+            "Native resume continuity check. First run one harmless shell command "
+            f"that prints `tool saw {marker}`. Then include this marker phrase in "
+            f"your response: {first_expected}"
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_plan_timeout(),
+    )
+    _assert_clean_turn(first)
+    assert marker in first.response_text, first.response_text
+    assert any(
+        (
+            str(event.data.get("tool") or event.data.get("name") or "").lower()
+            in {"bash", "shell", "exec"}
+            or "bash" in str(event.data).lower()
+            or "shell" in str(event.data).lower()
+            or "exec" in str(event.data).lower()
+        )
+        for event in first.events
+        if event.type == "tool_start"
+    ), f"{case.name} first turn did not emit a native tool start: {first.event_types}"
+
+    first_status = await client.get_session_harness_status(session_id)
+    first_native_id = first_status.get("harness_session_id")
+    assert first_native_id, first_status
+
+    second = await client.chat_session_stream(
+        (
+            "Without calling tools or reading files, recall the marker token from my first request "
+            "in this session. Include this marker phrase in your response: "
+            "resume original ok <the marker token from my first request>"
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_plan_timeout(),
+    )
+    _assert_clean_turn(second)
+    assert second_expected in second.response_text.lower(), (
+        f"{case.name} did not preserve original user request across native resume; "
+        f"expected {second_expected!r}, got {second.response_text!r}"
+    )
+
+    second_status = await client.get_session_harness_status(session_id)
+    assert second_status.get("harness_session_id") == first_native_id, (
+        f"{case.name} native session id changed across multi-turn resume: "
+        f"{first_native_id!r} -> {second_status.get('harness_session_id')!r}"
+    )
+
+    for fetch_index in range(2):
+        messages = _ordered_messages(await client.get_session_messages(session_id, limit=40))
+        contents = [str(message.get("content") or "") for message in messages]
+        first_user_index = next(
+            i for i, message in enumerate(messages)
+            if message.get("role") == "user" and marker in str(message.get("content") or "")
+        )
+        first_assistant_index = next(
+            i for i, message in enumerate(messages)
+            if message.get("role") == "assistant" and first_expected in str(message.get("content") or "").lower()
+        )
+        second_user_index = next(
+            i for i, message in enumerate(messages)
+            if message.get("role") == "user" and "recall the marker token" in str(message.get("content") or "")
+        )
+        second_assistant_index = next(
+            i for i, message in enumerate(messages)
+            if message.get("role") == "assistant" and second_expected in str(message.get("content") or "").lower()
+        )
+        assert first_user_index < first_assistant_index < second_user_index < second_assistant_index, (
+            fetch_index,
+            contents,
+        )
+        assert sum(
+            1
+            for message in messages
+            if message.get("role") == "user" and marker in str(message.get("content") or "")
+        ) == 1
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
 async def test_live_harness_core_native_slash_direct_commands(
     client: E2EClient,
     case: HarnessCase,
@@ -1966,6 +2075,47 @@ async def test_live_harness_core_model_selection_is_plan_mode_scoped(
     await client.start_session_plan_mode(session_id)
     resumed_plan_settings = await client.get_session_harness_settings(session_id)
     assert resumed_plan_settings["model"] == plan_model
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_selected_model_effort_survive_turn_and_refetch(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("plan")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    model, effort, _caps = await _configure_low_cost_session(client, case, session_id)
+    if not model and not effort:
+        pytest.skip(f"{case.runtime} did not expose a selectable model or effort")
+
+    marker = f"settings-refetch-{case.name}-{uuid.uuid4().hex[:8]}"
+    result = await client.chat_session_stream(
+        (
+            f"Settings refetch check {marker}. Do not call tools. "
+            f"Include this marker phrase in your response: settings refetch ok {marker}"
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert f"settings refetch ok {marker}" in result.response_text.lower()
+
+    for fetch_index in range(2):
+        settings = await client.get_session_harness_settings(session_id)
+        status = await client.get_session_harness_status(session_id)
+        if model:
+            assert settings.get("model") == model, (fetch_index, settings)
+            assert status.get("model") == model, (fetch_index, status)
+            assert status.get("effective_model") == model, (fetch_index, status)
+            assert status.get("model") != "default", (fetch_index, status)
+        if effort:
+            assert settings.get("effort") == effort, (fetch_index, settings)
+            assert status.get("effort") == effort, (fetch_index, status)
+            assert status.get("effective_effort") == effort, (fetch_index, status)
+            assert status.get("effort") != "default", (fetch_index, status)
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)
@@ -2862,6 +3012,96 @@ async def test_live_harness_terminal_tool_output_is_sequential(
             channel_id,
             {"chat_mode": original_config.get("chat_mode") or "default"},
         )
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_native_cli_switching_preserves_thread_and_order(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("terminal")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    await client.set_session_approval_mode(session_id, "bypassPermissions")
+
+    marker = f"cli-switch-{case.name}-{uuid.uuid4().hex[:8]}"
+    bootstrap = await client.chat_session_stream(
+        (
+            f"Native CLI switch bootstrap {marker}. Do not call tools. "
+            f"Include this marker phrase in your response: switch bootstrap ok {marker}"
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(bootstrap)
+    assert f"switch bootstrap ok {marker}" in bootstrap.response_text.lower()
+    before_status = await client.get_session_harness_status(session_id)
+    before_native_id = before_status.get("harness_session_id")
+    assert before_native_id, before_status
+
+    _terminal_screenshot, _mirror_screenshot, mirrored_message = await _send_native_cli_prompt_via_ui(
+        client,
+        runtime_name=case.runtime,
+        channel_id=channel_id,
+        session_id=session_id,
+        prompt=(
+            "The immediately previous Spindrel chat turn included a marker. "
+            "Without reading files, reply exactly: cli switch ok <that marker>"
+        ),
+        marker=marker,
+        expected_response=f"cli switch ok {marker}",
+        terminal_screenshot_name=None,
+        mirror_screenshot_name=None,
+    )
+    assert mirrored_message is not None, f"{case.name} native CLI response did not mirror to Spindrel"
+    assert f"cli switch ok {marker}" in str(mirrored_message.get("content") or "").lower()
+    mirror_meta = _message_metadata(mirrored_message)
+    native_cli_meta = mirror_meta.get("harness_native_cli") or {}
+    assert native_cli_meta.get("runtime") == case.runtime, mirror_meta
+
+    after_cli_status = await client.get_session_harness_status(session_id)
+    assert after_cli_status.get("harness_session_id") == before_native_id, (
+        before_status,
+        after_cli_status,
+    )
+
+    chat_roundtrip = await client.chat_session_stream(
+        (
+            "The immediately previous user-visible assistant response happened in native CLI mode. "
+            "Without calling tools or reading files, reply exactly: chat switch ok <the marker from that CLI response>"
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(chat_roundtrip)
+    assert f"chat switch ok {marker}" in chat_roundtrip.response_text.lower()
+    after_chat_status = await client.get_session_harness_status(session_id)
+    assert after_chat_status.get("harness_session_id") == before_native_id, (
+        after_cli_status,
+        after_chat_status,
+    )
+
+    for fetch_index in range(2):
+        messages = _ordered_messages(await client.get_session_messages(session_id, limit=80))
+        contents = [str(message.get("content") or "") for message in messages]
+        bootstrap_index = next(
+            i for i, message in enumerate(messages)
+            if message.get("role") == "assistant" and f"switch bootstrap ok {marker}" in str(message.get("content") or "").lower()
+        )
+        cli_index = next(
+            i for i, message in enumerate(messages)
+            if message.get("role") == "assistant" and f"cli switch ok {marker}" in str(message.get("content") or "").lower()
+        )
+        chat_index = next(
+            i for i, message in enumerate(messages)
+            if message.get("role") == "assistant" and f"chat switch ok {marker}" in str(message.get("content") or "").lower()
+        )
+        assert bootstrap_index < cli_index < chat_index, (fetch_index, contents)
 
 
 @pytest.mark.asyncio
