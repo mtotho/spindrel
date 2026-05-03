@@ -161,7 +161,7 @@ export function DefaultToolRows({
   }
 
   return (
-    <div className="flex flex-col" style={{ gap: 6, marginTop: 6 }}>
+    <div data-testid="default-tool-transcript" className="flex flex-col" style={{ gap: 6, marginTop: 6 }}>
       {entries.map((entry, idx) => {
         const formattedArgs = entry.args ? formatToolArgs(entry.args) : null;
         const expandable = entry.detailKind === "expandable" && (!!formattedArgs || !!entry.env);

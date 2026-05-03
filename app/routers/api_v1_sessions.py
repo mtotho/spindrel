@@ -24,6 +24,7 @@ from app.services.machine_control import (
 )
 from app.services.channel_sessions import RecentSessionListOut, build_recent_session_rows
 from app.services.sessions import store_passive_message
+from app.services.tool_result_envelopes import normalize_tool_result_envelope_ids
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,12 @@ class MessageOut(BaseModel):
 
     @classmethod
     def from_orm(cls, msg: Message) -> "MessageOut":
+        metadata = dict(msg.metadata_ or {})
+        if isinstance(metadata.get("tool_results"), list):
+            metadata["tool_results"] = normalize_tool_result_envelope_ids(
+                msg.tool_calls,
+                metadata["tool_results"],
+            )
         return cls(
             id=msg.id,
             session_id=msg.session_id,
@@ -151,7 +158,7 @@ class MessageOut(BaseModel):
             tool_call_id=msg.tool_call_id,
             correlation_id=msg.correlation_id,
             created_at=msg.created_at,
-            metadata=msg.metadata_,
+            metadata=metadata,
             attachments=[AttachmentBrief.from_orm(a) for a in (msg.attachments or [])],
         )
 

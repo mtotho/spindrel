@@ -76,14 +76,18 @@ class IterationResult:
 
 
 def refuse_inside_project_run() -> None:
-    if os.environ.get("SPINDREL_PROJECT_RUN_GUARD") == "1":
-        sys.stderr.write(
-            "ERROR: SPINDREL_PROJECT_RUN_GUARD=1 is set — this script must not run "
-            "inside a Project task agent. Stack lifecycle is owned by the schedule "
-            "firer / e2e skill, not the harness-task agent. See "
-            ".agents/skills/spindrel-e2e-development/SKILL.md lines 296-301.\n"
-        )
-        raise SystemExit(78)
+    if os.environ.get("SPINDREL_PROJECT_RUN_GUARD") != "1":
+        return
+    if os.environ.get("SPINDREL_ALLOW_REPO_DEV_BOOTSTRAP") == "1":
+        return
+    sys.stderr.write(
+        "ERROR: SPINDREL_PROJECT_RUN_GUARD=1 is set without "
+        "SPINDREL_ALLOW_REPO_DEV_BOOTSTRAP=1. Harness parity is the documented "
+        "infrastructure-task case for the bootstrap escape hatch — set "
+        "SPINDREL_ALLOW_REPO_DEV_BOOTSTRAP=1 before running prepare-harness-parity "
+        "and this script. See scripts/agent_e2e_dev.py:_reject_project_run_bootstrap.\n"
+    )
+    raise SystemExit(78)
 
 
 def load_env_file(path: Path) -> dict[str, str]:

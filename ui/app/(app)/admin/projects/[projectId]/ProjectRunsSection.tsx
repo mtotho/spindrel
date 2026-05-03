@@ -290,8 +290,11 @@ function batchSourceLine(batch: ProjectCodingRunReviewBatch) {
 }
 
 function RunActionLinks({ run }: { run: ProjectCodingRun }) {
+  const status = String(run.task?.status || run.status || "").toLowerCase();
+  const inFlight = status === "running" || status === "pending" || (run.loop?.enabled && run.loop?.state && run.loop.state !== "stopped");
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
+      {inFlight && <RowLink to={`/admin/projects/${run.project_id}/runs/${run.task.id}/live`}>Live view</RowLink>}
       <RowLink to={`/admin/projects/${run.project_id}/runs/${run.task.id}`}>Open review page</RowLink>
       {(run.review?.handoff_url || run.receipt?.handoff_url) && <RowLink href={run.review?.handoff_url || run.receipt?.handoff_url || undefined}>PR / handoff</RowLink>}
       <RowLink to={`/admin/tasks/${run.task.id}`}>Agent log</RowLink>

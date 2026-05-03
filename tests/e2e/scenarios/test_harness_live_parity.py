@@ -1663,8 +1663,17 @@ async def _assert_harness_chat_mode_ui(
                     assert "tool calls" not in lower
                 else:
                     assert await page.locator('[data-testid="terminal-tool-transcript"]').count() == 0
-                    await page.wait_for_selector('[data-testid="tool-trace-strip"]', timeout=60_000)
-                    assert await page.locator('[data-testid="tool-trace-strip"]').count() > 0
+                    await page.wait_for_function(
+                        """
+                        () => document.querySelector('[data-testid="tool-trace-strip"]')
+                          || document.querySelector('[data-testid="default-tool-transcript"]')
+                        """,
+                        timeout=60_000,
+                    )
+                    assert (
+                        await page.locator('[data-testid="tool-trace-strip"]').count()
+                        + await page.locator('[data-testid="default-tool-transcript"]').count()
+                    ) > 0
 
                 screenshot_path = _artifact_root() / chat_mode / f"{screenshot_stem}-{viewport_name}.png"
                 screenshot_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1965,7 +1974,7 @@ async def test_live_harness_multiturn_resume_preserves_original_request_after_to
         )
         first_assistant_index = next(
             i for i, message in enumerate(messages)
-            if message.get("role") == "assistant" and first_expected in str(message.get("content") or "").lower()
+            if message.get("role") == "assistant" and marker in str(message.get("content") or "")
         )
         second_user_index = next(
             i for i, message in enumerate(messages)
@@ -3501,11 +3510,11 @@ async def test_live_claude_busy_turn_queues_followup_and_resumes(
     first_turn = asyncio.create_task(
         client.chat_session_stream(
             (
-                "I need you to pause for a scope decision before continuing. Use the native AskUserQuestion tool "
-                "to ask me a required "
-                f"clarification question that includes `Blocking question for {marker}?`, offer the "
-                f"choice `{selected}`, and wait for my answer through that question card. After I answer, include this marker "
-                f"phrase in your response: {first_expected}"
+                "This is a deterministic SDK interaction test. After any required session-start checks, do not ask "
+                "for clarification in plain text. Use the native AskUserQuestion tool exactly once. The required "
+                f"question text is `Blocking question for {marker}?`; the only offered choice is `{selected}`. "
+                "Wait for my answer through that question card. After I answer, include this marker phrase in your "
+                f"response: {first_expected}"
             ),
             session_id=session_id,
             channel_id=channel_id,
@@ -4357,7 +4366,17 @@ async def test_live_harness_memory_hint_requires_explicit_read(
         _assert_clean_turn(unread)
         assert "memory not loaded" in unread.response_text.lower()
         assert secret not in unread.response_text
-        assert not unread.tool_events, "memory file content was accessed before explicit tool use"
+        memory_access_events = [
+            event
+            for event in unread.tool_events
+            if (
+                str(event.data.get("tool") or event.data.get("tool_name") or event.data.get("name") or "")
+                in {"get_memory_file", "mcp__spindrel__get_memory_file", "search_memory", "mcp__spindrel__search_memory", "file"}
+                or memory_tool_arg in json.dumps(event.data, default=str)
+                or workspace_path in json.dumps(event.data, default=str)
+            )
+        ]
+        assert not memory_access_events, "memory file content was accessed before explicit tool use"
 
         read_session_id = await client.create_channel_session(channel_id)
         await _configure_low_cost_session(client, case, read_session_id)

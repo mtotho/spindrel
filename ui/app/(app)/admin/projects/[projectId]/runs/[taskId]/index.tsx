@@ -288,6 +288,9 @@ export default function ProjectRunDetail() {
         backTo={`/admin/projects/${project.id}#runs`}
         right={
           <div className="flex flex-wrap items-center justify-end gap-1.5">
+            {(String(run.task?.status || run.status || "").toLowerCase() === "running" || (run.loop?.enabled && run.loop?.state && run.loop.state !== "stopped")) && (
+              <RowLink to={`/admin/projects/${project.id}/runs/${run.task.id}/live`}>Live view</RowLink>
+            )}
             <RowLink to={`/admin/projects/${project.id}#runs`}>Runs</RowLink>
             {handoffUrl && <RowLink href={handoffUrl}>PR / handoff</RowLink>}
             {reviewAgentTaskId(run) && <RowLink to={`/admin/tasks/${reviewAgentTaskId(run)}`}>Review agent log</RowLink>}

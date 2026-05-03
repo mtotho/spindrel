@@ -42,3 +42,28 @@ Body. 1-10 lines. Free-form. Repro steps, links, context.
 ## Open
 
 <!-- New items go below this line. Newest at top within the section. -->
+
+## 2026-05-02 22:50 thin-run-page-for-loop-iterations
+**kind:** ux · **area:** ui/projects · **status:** open
+
+Project coding-run detail page is the heavy Project Factory cockpit. For loop-driven runs the user wants a thin alternative: title + original prompt, current iteration N/M, live transcript feed of the active session, dive-in to the session, artifacts/PRs at end. Probably a `/live` tab on the existing run detail page.
+
+## 2026-05-02 22:48 agent-log-button-routes-wrong
+**kind:** bug · **area:** ui/projects · **status:** open
+
+"Agent log" button on a Project Runs row routes to `/admin/projects/{pid}#runs` instead of the iteration's session detail. The session id is on the run record (e.g. `session 648b7cce-...`); deep-link to it.
+
+## 2026-05-02 22:47 loop-policy-max-iterations-capped-to-8
+**kind:** bug · **area:** project_runs · **status:** open
+
+Schedule created with `loop_policy.max_iterations=15` renders as "iteration 1/8" on the run page. Either the UI Edit form clamps, or the server caps. Verify `app/services/project_coding_run_loops.py::normalize_project_run_loop_policy` and `CronScheduleModal`.
+
+## 2026-05-02 22:46 orchestration-policy-doesnt-roll-up-blueprint-concurrency
+**kind:** bug · **area:** projects/orchestration · **status:** open
+
+`GET /api/v1/projects/{id}/orchestration-policy` returns `concurrency.max_concurrent_runs: null, source: "unset"` even when the applied Blueprint has `max_concurrent_runs=2`. Cap applies at launch (verified); read endpoint should surface it as `source: "blueprint"`.
+
+## 2026-05-02 22:45 claude-code-runtime-capabilities-404
+**kind:** bug · **area:** runtimes · **status:** open
+
+`GET /api/v1/runtimes/claude_code/capabilities` returns 404 while `/api/v1/runtimes/codex/capabilities` is 200. Registry name drift. Surfaced by `scripts/spindrel_live_config_audit.py`.
