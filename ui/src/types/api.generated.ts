@@ -18206,6 +18206,10 @@ export interface components {
             last_run?: {
                 [key: string]: unknown;
             } | null;
+            /** Loop Policy */
+            loop_policy?: {
+                [key: string]: unknown;
+            } | null;
             /** Machine Target Grant */
             machine_target_grant?: {
                 [key: string]: unknown;

@@ -1894,6 +1894,8 @@ export interface ProjectCodingRunSchedule {
   last_run?: {
     id?: string;
     task_id?: string;
+    channel_id?: string | null;
+    session_id?: string | null;
     status?: string;
     created_at?: string | null;
     branch?: string | null;
@@ -1901,12 +1903,15 @@ export interface ProjectCodingRunSchedule {
   recent_runs?: Array<{
     id?: string;
     task_id?: string;
+    channel_id?: string | null;
+    session_id?: string | null;
     status?: string;
     created_at?: string | null;
     branch?: string | null;
   }>;
   created_at?: string | null;
   machine_target_grant?: ProjectCodingRunTask["machine_target_grant"];
+  loop_policy?: Record<string, any> | null;
 }
 
 export interface SessionProjectInstance {

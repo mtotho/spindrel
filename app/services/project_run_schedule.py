@@ -281,6 +281,8 @@ async def list_project_coding_run_schedules(
             rows.append({
                 "id": str(run.id),
                 "task_id": str(run.id),
+                "channel_id": str(run.channel_id) if run.channel_id else None,
+                "session_id": str(run.session_id) if run.session_id else None,
                 "status": run.status,
                 "created_at": run.created_at.isoformat() if run.created_at else None,
                 "branch": cfg.get("branch") if isinstance(cfg, dict) else None,

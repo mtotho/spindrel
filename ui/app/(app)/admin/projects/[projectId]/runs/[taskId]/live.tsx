@@ -116,7 +116,7 @@ export default function ProjectRunLive() {
           <div className="flex flex-wrap items-center justify-end gap-1.5">
             <StatusBadge label={status || "unknown"} variant={statusTone(status)} />
             <RowLink to={`/admin/projects/${project.id}/runs/${run.task.id}`}>Full detail</RowLink>
-            {sessionId && <RowLink to={`/admin/sessions/${sessionId}`}>Open session</RowLink>}
+            {channelId && sessionId && <RowLink to={`/channels/${channelId}/session/${sessionId}`}>Open session</RowLink>}
             {channelId && <RowLink to={`/channels/${channelId}`}>Open channel</RowLink>}
           </div>
         }
@@ -137,7 +137,7 @@ export default function ProjectRunLive() {
             </div>
           )}
 
-          <Section title="Original prompt" description="The launch request that started this run.">
+          <Section title="Launch prompt" description="The prompt was written into the visible channel session before the worker started.">
             <CollapsiblePrompt text={promptText} defaultOpen={iteration <= 1} />
           </Section>
 
@@ -150,7 +150,16 @@ export default function ProjectRunLive() {
             </div>
           )}
 
-          <Section title="Live transcript" description={sessionId ? `Streaming session ${String(sessionId).slice(0, 8)}` : "No session id linked yet"}>
+          <Section
+            title="Visible session"
+            description={
+              sessionId
+                ? active
+                  ? `Session ${String(sessionId).slice(0, 8)} is attached to this run. New turn events stream here while the worker is active.`
+                  : `Session ${String(sessionId).slice(0, 8)} is attached to the completed run.`
+                : "The run has not linked a visible session yet."
+            }
+          >
             {sessionId ? (
               <div className="flex h-[60vh] min-h-[420px] flex-col overflow-hidden rounded-md border border-border-subtle bg-surface">
                 <SessionChatView
@@ -161,7 +170,7 @@ export default function ProjectRunLive() {
                 />
               </div>
             ) : (
-              <EmptyState message="No active session — the current iteration has not produced a session yet. The transcript will appear here as soon as the agent starts." />
+              <EmptyState message="No visible session is linked yet. New Project runs should create one immediately; refresh this run if it was created before the session-visibility update." />
             )}
           </Section>
 

@@ -16,7 +16,7 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.models import Channel, Project, ProjectInstance, Task
+from app.db.models import Channel, Message, Project, ProjectInstance, Session, Task
 from app.services.execution_receipts import create_execution_receipt
 from app.services.project_instances import cleanup_project_instance
 from app.services.project_run_handoff import (
@@ -428,6 +428,48 @@ async def create_project_coding_run_review_session(
         created_at=_utcnow(),
     )
     ctx.apply_to_task(task, channel=channel)
+    now = _utcnow()
+    session_id = uuid.uuid4()
+    pre_user_msg_id = uuid.uuid4()
+    db.add(Session(
+        id=session_id,
+        client_id=channel.client_id or f"channel:{channel.id}",
+        bot_id=task.bot_id,
+        channel_id=channel.id,
+        title=task.title or "Project coding-run review",
+        locked=channel.integration is not None,
+        source_task_id=task.id,
+        metadata_={
+            "created_by": "project_coding_run_review",
+            "project_id": str(project.id),
+            "source_task_id": str(task.id),
+        },
+        created_at=now,
+        last_active=now,
+    ))
+    db.add(Message(
+        id=pre_user_msg_id,
+        session_id=session_id,
+        role="user",
+        content=prompt,
+        correlation_id=task.correlation_id,
+        metadata_={
+            "sender_type": "project_review_launcher",
+            "sender_display_name": "Project review launcher",
+            "task_id": str(task.id),
+            "project_id": str(project.id),
+            "context_visibility": "session",
+        },
+        created_at=now,
+    ))
+    task.session_id = session_id
+    task.execution_config = {
+        **dict(task.execution_config or {}),
+        "session_scoped": True,
+        "session_target": {"mode": "existing", "session_id": str(session_id)},
+        "pre_user_msg_id": str(pre_user_msg_id),
+    }
+    channel.updated_at = now
     db.add(task)
     await db.flush()
     await _attach_task_machine_grant(

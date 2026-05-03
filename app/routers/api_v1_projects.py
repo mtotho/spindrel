@@ -414,6 +414,7 @@ class ProjectCodingRunScheduleOut(BaseModel):
     recent_runs: list[dict] = Field(default_factory=list)
     created_at: str | None = None
     machine_target_grant: dict | None = None
+    loop_policy: dict | None = None
 
 
 class ProjectCodingRunTaskOut(BaseModel):

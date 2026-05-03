@@ -7,7 +7,7 @@ import json
 import pytest
 from sqlalchemy import select
 
-from app.db.models import Channel, Project, ProjectInstance, ProjectSecretBinding, SecretValue, SharedWorkspace, Task
+from app.db.models import Channel, Message, Project, ProjectInstance, ProjectSecretBinding, SecretValue, Session, SharedWorkspace, Task
 from app.services.encryption import encrypt
 from app.services.projects import project_directory_from_project
 from tests.integration.conftest import AUTH_HEADERS
@@ -283,12 +283,25 @@ class TestProjectsApi:
         task = await db_session.get(Task, uuid.UUID(launched_body["task"]["id"]))
         assert task is not None
         assert task.channel_id == channel.id
+        assert task.session_id is not None
         assert task.execution_config["run_preset_id"] == "project_coding_run"
-        assert task.execution_config["session_target"] == {"mode": "new_each_run"}
+        assert task.execution_config["session_target"] == {"mode": "existing", "session_id": str(task.session_id)}
+        assert task.execution_config["session_scoped"] is True
+        pre_user_msg_id = uuid.UUID(task.execution_config["pre_user_msg_id"])
         assert task.execution_config["project_instance"] == {"mode": "fresh"}
         assert task.execution_config["project_coding_run"]["branch"] == launched_body["branch"]
         assert "Create or switch to the work branch" in task.prompt
         assert "publish_project_run_receipt" in task.prompt
+        session = await db_session.get(Session, task.session_id)
+        assert session is not None
+        assert session.channel_id == channel.id
+        assert session.source_task_id == task.id
+        assert session.metadata_["created_by"] == "project_coding_run"
+        launch_message = await db_session.get(Message, pre_user_msg_id)
+        assert launch_message is not None
+        assert launch_message.session_id == task.session_id
+        assert launch_message.role == "user"
+        assert "publish_project_run_receipt" in (launch_message.content or "")
 
         receipt = await client.post(
             f"/api/v1/projects/{project_id}/run-receipts",

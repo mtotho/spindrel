@@ -226,6 +226,7 @@ export default function ProjectRunDetail() {
   const recoveryMeta = canContinue ? "can continue" : latestFollowUpId ? "follow-up" : run.review?.reviewed ? "closed" : "blocked";
   const terminalReviewed = isTerminalReviewed(run);
   const prMerged = Boolean(run.review?.merged_at);
+  const implementationSessionPath = run.task.channel_id && run.task.session_id ? `/channels/${run.task.channel_id}/session/${run.task.session_id}` : null;
   const submitFollowUp = () => {
     if (!canContinue || continueRun.isPending) return;
     continueRun.mutate(
@@ -292,9 +293,10 @@ export default function ProjectRunDetail() {
               <RowLink to={`/admin/projects/${project.id}/runs/${run.task.id}/live`}>Live view</RowLink>
             )}
             <RowLink to={`/admin/projects/${project.id}#runs`}>Runs</RowLink>
+            {implementationSessionPath && <RowLink to={implementationSessionPath}>Open session</RowLink>}
             {handoffUrl && <RowLink href={handoffUrl}>PR / handoff</RowLink>}
             {reviewAgentTaskId(run) && <RowLink to={`/admin/tasks/${reviewAgentTaskId(run)}`}>Review agent log</RowLink>}
-            <RowLink to={`/admin/tasks/${run.task.id}`}>Agent log</RowLink>
+            <RowLink to={`/admin/tasks/${run.task.id}`}>Task log</RowLink>
           </div>
         }
       />
@@ -365,7 +367,7 @@ export default function ProjectRunDetail() {
                 title="Implementation agent"
                 description={[run.task.status, run.task.bot_id, run.task.session_id ? `session ${String(run.task.session_id).slice(0, 8)}` : null].filter(Boolean).join(" · ")}
                 meta={<StatusBadge label={run.task.status || run.status} variant={statusTone(run.task.status || run.status)} />}
-                action={<RowLink to={`/admin/tasks/${run.task.id}`}>Open agent log</RowLink>}
+                action={implementationSessionPath ? <RowLink to={implementationSessionPath}>Open visible session</RowLink> : <RowLink to={`/admin/tasks/${run.task.id}`}>Open task log</RowLink>}
               />
               {reviewAgentTaskId(run) ? (
                 <SettingsControlRow

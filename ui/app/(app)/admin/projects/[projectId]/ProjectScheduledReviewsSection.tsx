@@ -82,11 +82,11 @@ function ScheduleEditForm({
           <ScheduleSummary scheduledAt={scheduledAt} recurrence={recurrence} />
         </div>
         <div className="flex flex-col gap-3">
-          <FormRow label="Review request">
+          <FormRow label="Run prompt">
             <PromptEditor
               value={request}
               onChange={setRequest}
-              label="Scheduled review request"
+              label="Scheduled run prompt"
               rows={5}
               fieldType="task_prompt"
               generateContext={`Project: ${project.name}. Root: /${project.root_path}`}
@@ -130,7 +130,11 @@ function RecentScheduleRuns({ schedule }: { schedule: ProjectCodingRunSchedule }
           <span className="min-w-0 truncate">
             {run.status || "unknown"} · {run.branch || run.task_id || run.id} · {formatRunTime(run.created_at)}
           </span>
-          {run.task_id && <RowLink to={`/admin/tasks/${run.task_id}`}>Agent log</RowLink>}
+          {run.channel_id && run.session_id ? (
+            <RowLink to={`/channels/${run.channel_id}/session/${run.session_id}`}>Open session</RowLink>
+          ) : run.task_id ? (
+            <RowLink to={`/admin/tasks/${run.task_id}`}>Task log</RowLink>
+          ) : null}
         </div>
       ))}
     </div>
@@ -156,6 +160,7 @@ export function ProjectScheduledReviewsSection({
   const [scheduleStart, setScheduleStart] = useState("");
   const [scheduleRecurrence, setScheduleRecurrence] = useState("+1w");
   const [scheduleMachineTargetGrant, setScheduleMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const selectedChannel = channels?.find((channel) => channel.id === selectedChannelId);
   const scheduleBusy = createSchedule.isPending || updateSchedule.isPending || runScheduleNow.isPending || disableSchedule.isPending;
@@ -169,56 +174,70 @@ export function ProjectScheduledReviewsSection({
       scheduled_at: scheduleStart || null,
       recurrence: scheduleRecurrence || "+1w",
       machine_target_grant: scheduleMachineTargetGrant,
-    });
+    }, { onSuccess: () => setShowCreateForm(false) });
   };
 
   return (
     <Section
-      title="Scheduled Reviews"
-      description="Recurring Project coding runs for reviews, maintenance sweeps, and no-change receipts."
+      title="Scheduled Runs"
+      description="Recurring prompts that launch visible Project coding-run sessions in the selected channel."
       action={
         <ActionButton
-          label={createSchedule.isPending ? "Saving" : "Create schedule"}
+          label={showCreateForm ? (createSchedule.isPending ? "Saving" : "Save schedule") : "Create schedule"}
           icon={<CalendarClock size={14} />}
           disabled={!selectedChannel || createSchedule.isPending}
-          onPress={startSchedule}
+          onPress={() => {
+            if (!showCreateForm) {
+              setShowCreateForm(true);
+              return;
+            }
+            startSchedule();
+          }}
         />
       }
     >
-      <div className="grid gap-3 md:grid-cols-[minmax(220px,0.75fr)_minmax(0,1.25fr)]">
-        <div className="flex flex-col gap-3">
-          <FormRow label="Title">
-            <input
-              value={scheduleTitle}
-              onChange={(event) => setScheduleTitle(event.target.value)}
-              className="w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none focus:border-accent"
-            />
-          </FormRow>
-          <ScheduledAtPicker value={scheduleStart} onChange={(value) => setScheduleStart(scheduledAtForPicker(value))} />
-          <RecurrencePicker value={scheduleRecurrence} onChange={setScheduleRecurrence} />
-          <ScheduleSummary scheduledAt={scheduleStart} recurrence={scheduleRecurrence} />
+      {showCreateForm && (
+        <div className="mb-3 rounded-md border border-surface-border bg-surface-raised/35 p-3">
+          <div className="grid gap-3 md:grid-cols-[minmax(220px,0.75fr)_minmax(0,1.25fr)]">
+            <div className="flex flex-col gap-3">
+              <FormRow label="Title">
+                <input
+                  value={scheduleTitle}
+                  onChange={(event) => setScheduleTitle(event.target.value)}
+                  className="w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none focus:border-accent"
+                />
+              </FormRow>
+              <ScheduledAtPicker value={scheduleStart} onChange={(value) => setScheduleStart(scheduledAtForPicker(value))} />
+              <RecurrencePicker value={scheduleRecurrence} onChange={setScheduleRecurrence} />
+              <ScheduleSummary scheduledAt={scheduleStart} recurrence={scheduleRecurrence} />
+            </div>
+            <div className="flex flex-col gap-3">
+              <FormRow label="Run prompt">
+                <PromptEditor
+                  value={scheduleRequest}
+                  onChange={setScheduleRequest}
+                  label="Scheduled run prompt"
+                  rows={5}
+                  fieldType="task_prompt"
+                  generateContext={`Project: ${project.name}. Root: /${project.root_path}`}
+                />
+              </FormRow>
+              <ExecutionAccessControl
+                value={scheduleMachineTargetGrant}
+                onChange={setScheduleMachineTargetGrant}
+                testId="project-schedule-execution-access"
+              />
+            </div>
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <ActionButton label="Cancel" size="small" variant="ghost" disabled={createSchedule.isPending} onPress={() => setShowCreateForm(false)} />
+            <ActionButton label={createSchedule.isPending ? "Saving" : "Save schedule"} size="small" disabled={!selectedChannel || createSchedule.isPending} onPress={startSchedule} />
+          </div>
         </div>
-        <div className="flex flex-col gap-3">
-          <FormRow label="Review request">
-            <PromptEditor
-              value={scheduleRequest}
-              onChange={setScheduleRequest}
-              label="Scheduled review request"
-              rows={5}
-              fieldType="task_prompt"
-              generateContext={`Project: ${project.name}. Root: /${project.root_path}`}
-            />
-          </FormRow>
-          <ExecutionAccessControl
-            value={scheduleMachineTargetGrant}
-            onChange={setScheduleMachineTargetGrant}
-            testId="project-schedule-execution-access"
-          />
-        </div>
-      </div>
+      )}
       <div className="mt-3 flex flex-col gap-2">
         {schedules.length === 0 ? (
-          <EmptyState message="No scheduled Project reviews are configured yet." />
+          <EmptyState message={showCreateForm ? "Fill in the schedule above." : "No scheduled Project runs are configured yet."} />
         ) : (
           schedules.map((schedule) => {
             const channel = channels?.find((item) => item.id === schedule.channel_id);
@@ -283,7 +302,11 @@ export function ProjectScheduledReviewsSection({
                           onPress={() => updateSchedule.mutate({ scheduleId: schedule.id, enabled: true })}
                         />
                       )}
-                      {schedule.last_run?.task_id && <RowLink to={`/admin/tasks/${schedule.last_run.task_id}`}>Last run</RowLink>}
+                      {schedule.last_run?.channel_id && schedule.last_run?.session_id ? (
+                        <RowLink to={`/channels/${schedule.last_run.channel_id}/session/${schedule.last_run.session_id}`}>Last session</RowLink>
+                      ) : schedule.last_run?.task_id ? (
+                        <RowLink to={`/admin/tasks/${schedule.last_run.task_id}`}>Last task</RowLink>
+                      ) : null}
                     </div>
                   }
                 />

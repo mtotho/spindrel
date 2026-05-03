@@ -14,7 +14,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, Project, Task
+from app.db.models import Channel, Message, Project, Session, Task
 from app.services.run_presets import get_run_preset
 
 from app.services.project_coding_run_lib import (
@@ -37,6 +37,65 @@ from app.services.project_coding_run_lib import (
     normalize_project_run_loop_policy,
 )
 from app.services.project_runtime import project_snapshot
+
+
+async def _attach_visible_project_run_session(
+    db: AsyncSession,
+    *,
+    channel: Channel,
+    task: Task,
+    project: Project,
+    prompt: str,
+    source: str,
+) -> None:
+    """Create the visible channel session that operators use to inspect a run."""
+    now = _utcnow()
+    session_id = uuid.uuid4()
+    pre_user_msg_id = uuid.uuid4()
+    title = task.title or "Project coding run"
+    session = Session(
+        id=session_id,
+        client_id=channel.client_id or f"channel:{channel.id}",
+        bot_id=task.bot_id,
+        channel_id=channel.id,
+        title=title,
+        locked=channel.integration is not None,
+        source_task_id=task.id,
+        metadata_={
+            "created_by": "project_coding_run",
+            "source": source,
+            "project_id": str(project.id),
+            "source_task_id": str(task.id),
+        },
+        created_at=now,
+        last_active=now,
+    )
+    message = Message(
+        id=pre_user_msg_id,
+        session_id=session_id,
+        role="user",
+        content=prompt,
+        correlation_id=task.correlation_id,
+        metadata_={
+            "sender_type": "project_run_launcher",
+            "sender_display_name": "Project run launcher",
+            "source": source,
+            "task_id": str(task.id),
+            "project_id": str(project.id),
+            "context_visibility": "session",
+        },
+        created_at=now,
+    )
+    db.add(session)
+    db.add(message)
+    task.session_id = session_id
+    task.execution_config = {
+        **dict(task.execution_config or {}),
+        "session_scoped": True,
+        "session_target": {"mode": "existing", "session_id": str(session_id)},
+        "pre_user_msg_id": str(pre_user_msg_id),
+    }
+    channel.updated_at = now
 
 
 def _project_coding_run_prompt(
@@ -210,6 +269,14 @@ async def create_project_coding_run(
     run_cfg = task.execution_config.setdefault("project_coding_run", {})
     run_cfg["loop_policy"] = loop_policy
     run_cfg["loop_state"] = initial_project_run_loop_state(loop_policy)
+    await _attach_visible_project_run_session(
+        db,
+        channel=channel,
+        task=task,
+        project=project,
+        prompt=prompt,
+        source="manual" if body.schedule_task_id is None else "schedule",
+    )
     db.add(task)
     await db.flush()
     await _attach_task_machine_grant(
@@ -322,6 +389,14 @@ async def continue_project_coding_run(
         task.execution_config["session_target"] = dict(parent_ecfg["session_target"])
     if isinstance(parent_ecfg.get("project_instance"), dict):
         task.execution_config["project_instance"] = dict(parent_ecfg["project_instance"])
+    await _attach_visible_project_run_session(
+        db,
+        channel=channel,
+        task=task,
+        project=project,
+        prompt=prompt,
+        source="continuation",
+    )
     parent.execution_config = {
         **parent_ecfg,
         "latest_continuation_task_id": str(task.id),
