@@ -49,10 +49,16 @@ async def resolve_harness_paths(
     *,
     channel_id: uuid.UUID | None,
     bot: BotConfig,
+    session_id: uuid.UUID | None = None,
 ) -> HarnessPathResolution:
     bot_workspace_dir = workspace_service.ensure_host_dir(bot.id, bot)
     channel = await db.get(Channel, channel_id) if channel_id is not None else None
-    surface = await resolve_channel_work_surface(db, channel, bot) if channel is not None else None
+    surface = await resolve_channel_work_surface(
+        db,
+        channel,
+        bot,
+        session_id=session_id,
+    ) if channel is not None else None
     if surface is not None:
         is_project_surface = is_project_like_surface(surface)
         project_dir = ProjectDirectory(

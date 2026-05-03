@@ -18,7 +18,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.models import Project, ProjectDependencyStackInstance, ProjectSecretBinding, SecretValue, Task
 from app.services.encryption import decrypt
-from app.services.secret_registry import redact
+from app.services.secret_registry import MIN_SECRET_LENGTH, redact
 
 _ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _RESERVED_ENV_NAMES = {
@@ -29,6 +29,23 @@ _RESERVED_ENV_NAMES = {
     "JWT_SECRET",
 }
 _RESERVED_ENV_PREFIXES = ("SPINDREL_INTERNAL_",)
+_SENSITIVE_ENV_NAME_RE = re.compile(
+    r"(SECRET|TOKEN|API_KEY|APIKEY|PASSWORD|PASSWD|PWD|PRIVATE|CREDENTIAL|DATABASE_URL|DSN)",
+    re.IGNORECASE,
+)
+
+
+def _is_sensitive_env_key(name: str) -> bool:
+    return bool(_SENSITIVE_ENV_NAME_RE.search(name or ""))
+
+
+def _values_to_redact(env: Mapping[str, str], keys: tuple[str, ...]) -> list[str]:
+    values: list[str] = []
+    for key in keys:
+        value = str(env.get(key) or "")
+        if len(value) >= MIN_SECRET_LENGTH:
+            values.append(value)
+    return sorted(set(values), key=len, reverse=True)
 
 
 @dataclass(frozen=True)
@@ -49,7 +66,12 @@ class ProjectRuntimeEnvironment:
 
     def redact_text(self, text: str) -> str:
         redacted = redact(text)
-        values = sorted((str(value) for value in self.env.values() if value), key=len, reverse=True)
+        sensitive_keys = tuple(
+            key
+            for key in set(self.secret_keys) | set(self.env.keys())
+            if key in self.secret_keys or _is_sensitive_env_key(str(key))
+        )
+        values = _values_to_redact(self.env, sensitive_keys)
         for value in values:
             redacted = redacted.replace(value, "[REDACTED]")
         return redacted

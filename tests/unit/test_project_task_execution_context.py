@@ -923,6 +923,36 @@ def test_runtime_env_redact_text_redacts_known_values():
     assert out == "token is [REDACTED] here"
 
 
+def test_runtime_env_redact_text_keeps_non_secret_numbers():
+    ctx = ProjectTaskExecutionContext(
+        project_id=str(uuid.uuid4()),
+        kind="project_coding_run",
+        preset_id="project_coding_run",
+        request="",
+        repo={},
+        branch=None,
+        base_branch=None,
+        dev_targets=(),
+        dependency_stack=DependencyStackView(False, None, (), ()),
+        runtime_target=RuntimeTargetView(True, (), ()),
+        lineage=__import__("app.services.project_task_execution_context", fromlist=["RunLineage"]).RunLineage(
+            parent_task_id=None,
+            root_task_id=str(uuid.uuid4()),
+            continuation_index=0,
+        ),
+        machine_grant=None,
+        source_artifact=None,
+        schedule_task_id=None,
+        schedule_run_number=None,
+        selected_task_ids=(),
+        _runtime_env={"SPINDREL_PROJECT_RUN_GUARD": "1", "SPINDREL_DEV_APP_PORT": "32001"},
+    )
+
+    out = ctx.runtime_env_redact_text("Iteration 1 failed on 32001 with exit 127")
+
+    assert out == "Iteration 1 failed on 32001 with exit 127"
+
+
 # ---------------------------------------------------------------------------
 # apply_to_task
 # ---------------------------------------------------------------------------

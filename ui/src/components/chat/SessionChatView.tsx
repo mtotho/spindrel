@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import type { Message } from "@/src/types/api";
 import { useSessionMessages } from "@/src/api/hooks/useSessionMessages";
 import { useSessionEvents } from "@/src/api/hooks/useSessionEvents";
+import { useSessionState } from "@/src/api/hooks/useSessionState";
 import { useChatStore } from "@/src/stores/chat";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { ChatMessageArea, DateSeparator } from "@/src/components/chat/ChatMessageArea";
@@ -84,6 +85,7 @@ export function SessionChatView({
   // Subscribe to the parent channel's SSE stream but route filtered events
   // (payload.session_id === sessionId) into the chat store under sessionId.
   useSessionEvents(parentChannelId, sessionId, botId);
+  useSessionState(sessionId, botId);
 
   // Fetch persisted messages for this session.
   const {

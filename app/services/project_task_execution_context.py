@@ -1091,13 +1091,14 @@ class ProjectTaskExecutionContext:
         return out
 
     def runtime_env_redact_text(self, text: str) -> str:
-        """Redact known runtime-env values from a string, longest first."""
+        """Redact sensitive runtime-env values from a string, longest first."""
         if not self._runtime_env:
             return text
         out = text
-        values = sorted(
-            (str(v) for v in self._runtime_env.values() if v), key=len, reverse=True
-        )
+        from app.services.project_runtime import _is_sensitive_env_key, _values_to_redact
+
+        keys = tuple(key for key in self._runtime_env if _is_sensitive_env_key(str(key)))
+        values = _values_to_redact(self._runtime_env, keys)
         for value in values:
             out = out.replace(value, "[REDACTED]")
         return out

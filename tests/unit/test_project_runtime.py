@@ -53,6 +53,36 @@ def test_project_runtime_env_uses_snapshot_defaults_and_bound_secrets() -> None:
     assert runtime.redact_text("token=ghp_project_runtime_secret_123456") == "token=[REDACTED]"
 
 
+def test_project_runtime_redaction_does_not_redact_short_control_values() -> None:
+    project = _project(
+        {
+            "env": {
+                "SPINDREL_PROJECT_RUN_GUARD": "1",
+                "SPINDREL_DEV_APP_PORT": "32001",
+                "APP_ENV": "test",
+            },
+            "required_secrets": ["GITHUB_TOKEN"],
+        }
+    )
+    bindings = [
+        SimpleNamespace(
+            logical_name="GITHUB_TOKEN",
+            secret_value_id=uuid.uuid4(),
+            secret_value=SimpleNamespace(value=encrypt("ghp_project_runtime_secret_123456")),
+        ),
+    ]
+
+    runtime = build_project_runtime_environment(project, bindings=bindings)
+    text = "Iteration 1 failed on port 32001 with exit 127; token=ghp_project_runtime_secret_123456"
+
+    out = runtime.redact_text(text)
+
+    assert "Iteration 1" in out
+    assert "32001" in out
+    assert "127" in out
+    assert "ghp_project_runtime_secret_123456" not in out
+
+
 def test_shared_workspace_env_overlays_project_runtime_env() -> None:
     service = SharedWorkspaceService()
     ws = SimpleNamespace(env={"PROJECT_KIND": "workspace", "BASE_ONLY": "1"})

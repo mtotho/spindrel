@@ -11,6 +11,7 @@ import {
   RefreshCcw,
   Repeat2,
   Trash2,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -35,6 +36,7 @@ import {
   useUpdateProjectCodingRunSchedule,
 } from "@/src/api/hooks/useProjects";
 import type { MachineTargetGrant } from "@/src/api/hooks/useTasks";
+import { DateTimePicker } from "@/src/components/shared/DateTimePicker";
 import { FormRow, SelectInput } from "@/src/components/shared/FormControls";
 import { PromptEditor } from "@/src/components/shared/LlmPrompt";
 import { ActionButton, EmptyState } from "@/src/components/shared/SettingsControls";
@@ -53,7 +55,6 @@ import {
   executionAccessLine,
   formatRunTime,
   RowLink,
-  scheduledAtForPicker,
 } from "./ProjectRunControls";
 
 type BoardColumnKey = "backlog" | "scheduled" | "running" | "review" | "closed";
@@ -286,28 +287,27 @@ function BoardCard({
       type="button"
       onClick={onSelect}
       className={[
-        "w-full rounded-lg border bg-surface-raised/80 p-3 text-left transition-colors hover:border-accent/70",
-        selected ? "border-accent shadow-[inset_3px_0_0_rgb(var(--color-accent))]" : urgent ? "border-danger/60" : "border-surface-border/80",
-        urgent && selected ? "shadow-[inset_3px_0_0_rgb(var(--color-danger))]" : "",
+        "w-full rounded-md border px-2 py-1.5 text-left transition-colors duration-100",
+        selected ? "border-accent bg-accent/[0.08]" : urgent ? "border-danger/45 bg-danger/10" : "border-surface-border/55 bg-surface-raised/45 hover:bg-surface-overlay/40",
       ].join(" ")}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 items-start gap-2">
-          <span className="mt-0.5 text-text-dim">{icon}</span>
-          <span className="min-w-0 text-[13px] font-semibold leading-5 text-text">{title}</span>
+      <div className="flex items-start justify-between gap-1.5">
+        <div className="flex min-w-0 items-start gap-1.5">
+          <span className="mt-0.5 shrink-0 text-text-dim">{icon}</span>
+          <span className="line-clamp-2 min-w-0 text-[12px] font-semibold leading-4 text-text">{title}</span>
         </div>
-        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${urgent ? "bg-danger/10 text-danger-muted" : "bg-surface-overlay text-text-muted"}`}>
+        <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold leading-3 ${urgent ? "bg-danger/10 text-danger-muted" : "bg-surface-overlay/70 text-text-dim"}`}>
           {age}
         </span>
       </div>
-      <div className="mt-2 truncate text-[12px] text-text-muted">{meta}</div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {tokens.filter(Boolean).slice(0, 4).map((token) => (
+      <div className="mt-1 truncate text-[11px] leading-4 text-text-muted">{meta}</div>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {tokens.filter(Boolean).slice(0, 3).map((token) => (
           <span
             key={token.label}
             className={[
-              "rounded px-1.5 py-0.5 text-[11px] font-semibold",
-              token.tone === "red" ? "bg-danger/10 text-danger-muted" : token.tone === "green" ? "bg-success/10 text-success" : token.tone === "blue" ? "bg-accent/10 text-accent" : "bg-surface-overlay text-text-muted",
+              "rounded px-1 py-0.5 text-[10px] font-semibold leading-3",
+              token.tone === "red" ? "bg-danger/10 text-danger-muted" : token.tone === "green" ? "bg-success/10 text-success" : token.tone === "blue" ? "bg-accent/10 text-accent" : "bg-surface-overlay/70 text-text-dim",
             ].join(" ")}
           >
             {token.label}
@@ -320,7 +320,7 @@ function BoardCard({
 
 function DetailRow({ label, value }: { label: string; value?: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-t border-surface-border/60 pt-2 text-[12px]">
+    <div className="flex items-start justify-between gap-4 border-t border-surface-border/45 pt-2 text-[12px]">
       <span className="text-text-dim">{label}</span>
       <span className="min-w-0 text-right font-semibold text-text-muted">{value || "none"}</span>
     </div>
@@ -329,9 +329,25 @@ function DetailRow({ label, value }: { label: string; value?: React.ReactNode })
 
 function InspectorPanel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-surface-border/80 bg-surface-raised/55 p-3">
+    <div className="rounded-md bg-surface-raised/55 p-3">
       <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-text-dim">{title}</div>
       {children}
+    </div>
+  );
+}
+
+function DetailDrawer({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-surface/55 backdrop-blur-[1px]" role="dialog" aria-modal="true" onMouseDown={onClose}>
+      <div className="h-full w-full max-w-[560px] overflow-auto border-l border-surface-border bg-surface px-4 py-4" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="min-w-0 text-sm font-semibold text-text">{title}</div>
+          <button type="button" className="rounded-md p-1.5 text-text-muted hover:bg-surface-overlay hover:text-text" onClick={onClose} aria-label="Close details">
+            <X size={16} />
+          </button>
+        </div>
+        {children}
+      </div>
     </div>
   );
 }
@@ -439,16 +455,11 @@ export function ProjectRunsSection({
   }, [boardItems]);
 
   useEffect(() => {
-    if (boardItems.some((item) => item.id === selectedItemId)) return;
-    const next = boardItems.find((item) => item.kind === "run" && isStaleActive(item.run))
-      || boardItems.find((item) => item.kind === "run" && reviewStatus(item.run) === "blocked")
-      || boardItems.find((item) => item.column === "running")
-      || boardItems.find((item) => item.column === "review")
-      || boardItems[0];
-    if (next) setSelectedItemId(next.id);
+    if (!selectedItemId || boardItems.some((item) => item.id === selectedItemId)) return;
+    setSelectedItemId("");
   }, [boardItems, selectedItemId]);
 
-  const selectedItem = boardItems.find((item) => item.id === selectedItemId) || boardItems[0];
+  const selectedItem = boardItems.find((item) => item.id === selectedItemId);
   const activeRuns = columns.running.filter((item) => item.kind === "run").length;
   const staleRuns = columns.running.filter((item) => item.kind === "run" && isStaleActive(item.run)).length;
   const reviewCount = columns.review.length;
@@ -529,64 +540,44 @@ export function ProjectRunsSection({
   };
 
   return (
-    <div data-testid="project-workspace-runs" className="flex h-full min-h-[calc(100vh-150px)] w-full flex-col overflow-hidden px-4 py-4">
-      <div className="mb-3 grid gap-2 lg:grid-cols-[1.4fr_repeat(4,1fr)]">
-        <div className={`rounded-lg border px-3 py-3 ${staleRuns > 0 ? "border-danger/50 bg-danger/10" : "border-surface-border bg-surface-raised/45"}`}>
-          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-dim">Needs operator</div>
-          <div className={`mt-1 text-xl font-semibold ${staleRuns > 0 ? "text-danger-muted" : "text-text"}`}>{staleRuns > 0 ? `${staleRuns} stale run${staleRuns === 1 ? "" : "s"}` : "Clear"}</div>
-          <div className="mt-1 truncate text-[12px] text-text-muted">{staleRuns > 0 ? "Open the selected run and decide whether to stop, review, or recover." : "No stale runs detected."}</div>
-        </div>
-        <div className="rounded-lg border border-surface-border bg-surface-raised/45 px-3 py-3">
-          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-dim">Running</div>
-          <div className="mt-1 text-xl font-semibold text-text">{activeRuns}</div>
-          <div className="mt-1 text-[12px] text-text-muted">implementation agents</div>
-        </div>
-        <div className="rounded-lg border border-surface-border bg-surface-raised/45 px-3 py-3">
-          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-dim">Review</div>
-          <div className="mt-1 text-xl font-semibold text-text">{reviewCount}</div>
-          <div className="mt-1 text-[12px] text-text-muted">waiting or blocked</div>
-        </div>
-        <div className="rounded-lg border border-surface-border bg-surface-raised/45 px-3 py-3">
-          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-dim">Schedules</div>
-          <div className="mt-1 text-xl font-semibold text-text">{scheduleCount}</div>
-          <div className="mt-1 text-[12px] text-text-muted">recurring prompts</div>
-        </div>
-        <div className="rounded-lg border border-surface-border bg-surface-raised/45 px-3 py-3">
-          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-dim">Closed</div>
-          <div className="mt-1 text-xl font-semibold text-text">{closedCount}</div>
-          <div className="mt-1 text-[12px] text-text-muted">recent completed work</div>
+    <div data-testid="project-workspace-runs" className="flex h-full min-h-[calc(100vh-150px)] w-full flex-col overflow-hidden px-3 py-3">
+      <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md bg-surface-raised/35 px-2 py-1.5 text-xs">
+        <span className={`font-semibold ${staleRuns > 0 ? "text-danger-muted" : "text-text"}`}>{staleRuns > 0 ? `${staleRuns} needs operator` : "clear"}</span>
+        <span className="text-text-dim">running <span className="font-semibold text-text-muted">{activeRuns}</span></span>
+        <span className="text-text-dim">review <span className="font-semibold text-text-muted">{reviewCount}</span></span>
+        <span className="text-text-dim">schedules <span className="font-semibold text-text-muted">{scheduleCount}</span></span>
+        <span className="text-text-dim">closed <span className="font-semibold text-text-muted">{closedCount}</span></span>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="grid min-h-full min-w-[980px] grid-cols-[190px_210px_210px_210px_210px] gap-1.5">
+          {(["backlog", "scheduled", "running", "review", "closed"] as BoardColumnKey[]).map((column) => (
+            <div key={column} className="min-h-[560px] bg-surface-raised/20 px-1.5 py-1.5">
+              <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
+                <div className="truncate text-[10px] font-bold uppercase tracking-[0.08em] text-text-dim/80">{columnLabel(column)}</div>
+                <div className="text-[10px] font-semibold text-text-dim">{columns[column].length}</div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {columns[column].length === 0 ? (
+                  <div className="rounded-md border border-dashed border-surface-border/45 px-2 py-5 text-center text-[11px] text-text-dim">No items</div>
+                ) : (
+                  columns[column].map((item) => (
+                    <BoardCard
+                      key={item.id}
+                      item={item}
+                      selected={item.id === selectedItem?.id}
+                      onSelect={() => setSelectedItemId(item.id)}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="min-w-0 overflow-auto">
-          <div className="grid min-w-[1220px] grid-cols-5 gap-3">
-            {(["backlog", "scheduled", "running", "review", "closed"] as BoardColumnKey[]).map((column) => (
-              <div key={column} className="min-h-[560px] rounded-lg border border-surface-border/70 bg-surface-raised/35 p-2">
-                <div className="flex items-center justify-between gap-2 px-1 pb-2">
-                  <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-dim">{columnLabel(column)}</div>
-                  <div className="grid h-6 min-w-6 place-items-center rounded-full bg-surface-overlay px-1.5 text-[11px] font-bold text-text-muted">{columns[column].length}</div>
-                </div>
-                <div className="flex flex-col gap-2">
-                  {columns[column].length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-surface-border/70 px-3 py-8 text-center text-[12px] text-text-dim">No items</div>
-                  ) : (
-                    columns[column].map((item) => (
-                      <BoardCard
-                        key={item.id}
-                        item={item}
-                        selected={item.id === selectedItem?.id}
-                        onSelect={() => setSelectedItemId(item.id)}
-                      />
-                    ))
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="min-h-0 overflow-auto border-t border-surface-border pt-3 xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0">
+      {selectedItem && (
+        <DetailDrawer title={selectedItem.kind === "run" ? runTitle(selectedItem.run) : selectedItem.kind === "schedule" ? selectedItem.schedule.title : selectedItem.kind === "batch" ? batchTitle(selectedItem.batch) : selectedItem.kind === "review_session" ? selectedItem.session.title || "Review agent" : selectedItem.kind === "inbox" ? selectedItem.item.title : selectedItem.kind === "new_run" ? "Start a new run" : "Schedule a prompt"} onClose={() => setSelectedItemId("")}>
           <Inspector
             project={project}
             item={selectedItem}
@@ -645,8 +636,8 @@ export function ProjectRunsSection({
             onDisableSchedule={(schedule) => disableSchedule.mutate(schedule.id)}
             onResumeSchedule={(schedule) => updateSchedule.mutate({ scheduleId: schedule.id, enabled: true })}
           />
-        </div>
-      </div>
+        </DetailDrawer>
+      )}
     </div>
   );
 }
@@ -852,7 +843,7 @@ function Inspector({
               <input value={scheduleTitle} onChange={(event) => setScheduleTitle(event.target.value)} className="w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none focus:border-accent" />
             </FormRow>
             <FormRow label="Start">
-              <input type="datetime-local" value={scheduleStart} onChange={(event) => setScheduleStart(scheduledAtForPicker(event.target.value))} className="w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none focus:border-accent" />
+              <DateTimePicker value={scheduleStart} onChange={setScheduleStart} />
             </FormRow>
             <FormRow label="Repeat">
               <SelectInput value={scheduleRecurrence} onChange={setScheduleRecurrence} options={[{ label: "Daily", value: "+1d" }, { label: "Weekly", value: "+1w" }, { label: "Manual", value: "" }]} />

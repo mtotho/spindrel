@@ -10,11 +10,11 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment, Attachment as AttachmentModel, Channel, ConversationSection, Message, Project, Session, Task, ToolCall
+from app.db.models import Attachment, Attachment as AttachmentModel, Channel, ConversationSection, Message, Project, Session, Task, ToolApproval, ToolCall
 from app.domain.errors import DomainError
 from app.dependencies import ApiKeyAuth, get_db, require_scopes, verify_auth_or_user, verify_user
 from app.services.api_keys import has_scope
-from app.services import presence
+from app.services import presence, session_locks
 from app.services.machine_control import (
     DEFAULT_LEASE_TTL_SECONDS,
     MAX_LEASE_TTL_SECONDS,
@@ -310,6 +310,11 @@ class SessionMachineTargetOut(BaseModel):
     connected_target_count: int | None = None
 
 
+class SessionStateOut(BaseModel):
+    active_turns: list[dict[str, Any]]
+    pending_approvals: list[dict[str, Any]]
+
+
 class SessionMachineTargetLeaseRequest(BaseModel):
     provider_id: str
     target_id: str
@@ -321,6 +326,42 @@ def _auth_has_scope(auth, scope: str) -> bool:
         return has_scope(auth.scopes, scope)
     scopes = getattr(auth, "_resolved_scopes", None) or []
     return bool(getattr(auth, "is_admin", False) or has_scope(scopes, scope))
+
+
+async def _snapshot_pending_approvals_for_session(db: AsyncSession, session_id: uuid.UUID) -> list[dict[str, Any]]:
+    from app.tools.registry import get_tool_safety_tier
+
+    rows = (await db.execute(
+        select(ToolApproval)
+        .where(
+            ToolApproval.session_id == session_id,
+            ToolApproval.status == "pending",
+        )
+        .order_by(ToolApproval.created_at.desc())
+        .limit(50)
+    )).scalars().all()
+    result: list[dict[str, Any]] = []
+    for r in rows:
+        result.append({
+            "id": str(r.id),
+            "session_id": str(r.session_id) if r.session_id else None,
+            "channel_id": str(r.channel_id) if r.channel_id else None,
+            "bot_id": r.bot_id,
+            "client_id": r.client_id,
+            "correlation_id": str(r.correlation_id) if r.correlation_id else None,
+            "tool_name": r.tool_name,
+            "tool_type": r.tool_type,
+            "arguments": r.arguments or {},
+            "policy_rule_id": str(r.policy_rule_id) if r.policy_rule_id else None,
+            "reason": r.reason,
+            "status": r.status,
+            "decided_by": r.decided_by,
+            "decided_at": r.decided_at.isoformat() if r.decided_at else None,
+            "timeout_seconds": r.timeout_seconds,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "safety_tier": get_tool_safety_tier(r.tool_name),
+        })
+    return result
 
 
 def _derive_session_scope(session: Session, channel: Channel | None) -> str:
@@ -831,6 +872,37 @@ async def get_session_machine_target(
     presence.mark_active(user.id)
     payload = await build_session_machine_target_payload(db, session=session)
     return SessionMachineTargetOut(**payload)
+
+
+@router.get("/{session_id}/state", response_model=SessionStateOut)
+async def get_session_state(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels:read")),
+):
+    """Snapshot in-flight state for a specific session transcript.
+
+    Project-run and sub-session views render by session id, not by the parent
+    channel's active session. This mirrors channel state hydration so those
+    views can recover a turn that started before their SSE subscription.
+    """
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    from app.routers.api_v1_channels import ACTIVE_TURN_WINDOW, _snapshot_active_turns
+
+    cutoff = datetime.now(timezone.utc) - ACTIVE_TURN_WINDOW
+    active_turns = await _snapshot_active_turns(
+        db,
+        session_id=session_id,
+        channel_bot_id=session.bot_id,
+        cutoff=cutoff,
+        session_active=session_locks.is_active(session_id),
+    )
+    return SessionStateOut(
+        active_turns=[turn.model_dump() for turn in active_turns],
+        pending_approvals=await _snapshot_pending_approvals_for_session(db, session_id),
+    )
 
 
 @router.post("/{session_id}/machine-target/lease", response_model=SessionMachineTargetOut)

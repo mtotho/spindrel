@@ -981,6 +981,21 @@ async def run_task(task: Task, *, deps: TaskRunHostDeps) -> None:
                     ),
                 ),
             )
+            from app.agent.recording import _record_trace_event
+            from app.utils import safe_create_task
+
+            safe_create_task(_record_trace_event(
+                correlation_id=_turn_id,
+                session_id=_publish_session_id or task.session_id,
+                bot_id=task.bot_id,
+                client_id=task.client_id,
+                event_type="turn_started",
+                data={
+                    "bot_id": task.bot_id,
+                    "task_id": str(task.id),
+                    "reason": "queued_task_starting",
+                },
+            ))
         except Exception:
             logger.debug("publish TURN_STARTED failed for task %s", task.id, exc_info=True)
 

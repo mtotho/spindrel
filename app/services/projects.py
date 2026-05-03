@@ -598,6 +598,7 @@ async def resolve_channel_work_surface(
     bot: BotConfig,
     *,
     include_prompt: bool = False,
+    session_id: uuid.UUID | str | None = None,
 ) -> WorkSurface | None:
     expected_project_id = getattr(channel, "project_id", None) if channel is not None else None
     instance_surface = await _resolve_context_project_instance_surface(
@@ -605,6 +606,7 @@ async def resolve_channel_work_surface(
         channel_id=str(channel.id) if channel is not None else None,
         expected_project_id=expected_project_id,
         include_prompt=include_prompt,
+        session_id=session_id,
     )
     if instance_surface is not None:
         return instance_surface
@@ -639,6 +641,7 @@ async def resolve_channel_work_surface_by_id(
     bot: BotConfig,
     *,
     include_prompt: bool = False,
+    session_id: uuid.UUID | str | None = None,
 ) -> WorkSurface | None:
     if channel_id is None:
         return None
@@ -647,7 +650,13 @@ async def resolve_channel_work_surface_by_id(
     except ValueError:
         return None
     channel = await db.get(Channel, ch_uuid)
-    return await resolve_channel_work_surface(db, channel, bot, include_prompt=include_prompt)
+    return await resolve_channel_work_surface(
+        db,
+        channel,
+        bot,
+        include_prompt=include_prompt,
+        session_id=session_id,
+    )
 
 
 async def _resolve_context_project_instance_surface(
@@ -656,21 +665,35 @@ async def _resolve_context_project_instance_surface(
     channel_id: str | None,
     expected_project_id: uuid.UUID | str | None,
     include_prompt: bool,
+    session_id: uuid.UUID | str | None = None,
 ) -> WorkSurface | None:
     instance_id: uuid.UUID | None = None
-    session_id: uuid.UUID | None = None
+    context_session_id: uuid.UUID | None = None
     try:
         from app.agent.context import current_project_instance_id, current_session_id
 
         instance_id = current_project_instance_id.get()
-        session_id = current_session_id.get()
+        context_session_id = current_session_id.get()
     except Exception:
         pass
 
-    if instance_id is None and session_id is not None:
+    explicit_session_id: uuid.UUID | None = None
+    if session_id is not None:
+        try:
+            explicit_session_id = uuid.UUID(str(session_id))
+        except ValueError:
+            explicit_session_id = None
+
+    if instance_id is None and explicit_session_id is not None:
         from app.db.models import Session
 
-        session = await db.get(Session, session_id)
+        session = await db.get(Session, explicit_session_id)
+        instance_id = getattr(session, "project_instance_id", None) if session is not None else None
+
+    if instance_id is None and context_session_id is not None:
+        from app.db.models import Session
+
+        session = await db.get(Session, context_session_id)
         instance_id = getattr(session, "project_instance_id", None) if session is not None else None
     if instance_id is None:
         return None

@@ -75,6 +75,7 @@ class CreateHarnessNativeTerminalOut(BaseModel):
     runtime: str
     native_session_id: str | None = None
     mirror_status: str = "polling"
+    warning: str | None = None
 
 
 async def _project_runtime_for_workspace_path(
@@ -201,7 +202,7 @@ async def create_harness_native_terminal_session(
         raise HTTPException(status_code=422, detail="session bot is not a native harness runtime")
 
     channel_id = session_row.channel_id or getattr(session_row, "parent_channel_id", None)
-    harness_paths = await resolve_harness_paths(db, channel_id=channel_id, bot=bot)
+    harness_paths = await resolve_harness_paths(db, channel_id=channel_id, bot=bot, session_id=session_id)
     runtime_env = None
     work_surface = getattr(harness_paths, "work_surface", None)
     if is_project_like_surface(work_surface) and work_surface.project_id:
@@ -212,6 +213,16 @@ async def create_harness_native_terminal_session(
         raw_native_session_id = harness_meta.get("session_id")
         if isinstance(raw_native_session_id, str) and raw_native_session_id.strip():
             native_session_id = raw_native_session_id.strip()
+    native_cwd = harness_paths.workdir
+    native_warning = None
+    if isinstance(harness_meta, dict):
+        raw_effective_cwd = harness_meta.get("effective_cwd")
+        if isinstance(raw_effective_cwd, str) and raw_effective_cwd.strip():
+            candidate_cwd = raw_effective_cwd.strip()
+            if os.path.isdir(candidate_cwd):
+                native_cwd = candidate_cwd
+            else:
+                native_warning = f"Latest harness cwd is not available on this host: {candidate_cwd}"
     settings = await load_session_settings(db, session_id)
     approval_mode = await load_session_mode(db, session_id)
     title = (session_row.title or bot.name or runtime_name).strip()
@@ -220,7 +231,7 @@ async def create_harness_native_terminal_session(
 
         command = build_native_cli_command(
             native_session_id=native_session_id,
-            cwd=harness_paths.workdir,
+            cwd=native_cwd,
             model=settings.model,
             effort=settings.effort,
         )
@@ -229,7 +240,7 @@ async def create_harness_native_terminal_session(
 
         command = build_native_cli_command(
             native_session_id=native_session_id,
-            cwd=harness_paths.workdir,
+            cwd=native_cwd,
             model=settings.model,
             effort=settings.effort,
             title=title,
@@ -241,7 +252,7 @@ async def create_harness_native_terminal_session(
         terminal = await create_session(
             user_key,
             seed_command=command,
-            cwd=harness_paths.workdir,
+            cwd=native_cwd,
             extra_env=dict(runtime_env.env) if runtime_env is not None else None,
         )
     except TerminalSessionLimitError as exc:
@@ -258,7 +269,7 @@ async def create_harness_native_terminal_session(
             spindrel_session_id=session_id,
             runtime_name=runtime_name,
             native_session_id=native_session_id,
-            cwd=harness_paths.workdir,
+            cwd=native_cwd,
             bot_id=session_row.bot_id,
             channel_id=channel_id,
         )
@@ -271,10 +282,11 @@ async def create_harness_native_terminal_session(
     return CreateHarnessNativeTerminalOut(
         session_id=terminal.id,
         command=command,
-        cwd=harness_paths.workdir,
+        cwd=native_cwd,
         runtime=runtime_name,
         native_session_id=native_session_id,
         mirror_status="polling",
+        warning=native_warning,
     )
 
 

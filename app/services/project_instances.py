@@ -356,6 +356,10 @@ async def bind_fresh_project_instance_for_task(
     task = await db.get(Task, task_id)
     if task is not None:
         task.project_instance_id = instance.id
+        if task.session_id is not None:
+            session = await db.get(Session, task.session_id)
+            if session is not None:
+                session.project_instance_id = instance.id
         await db.commit()
     if instance.status != INSTANCE_STATUS_READY:
         raise ValueError("Fresh Project instance setup failed")

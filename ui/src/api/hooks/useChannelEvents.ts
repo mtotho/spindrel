@@ -292,6 +292,10 @@ export function useChannelEvents(
       // tool rows before SSE or /state can catch up.
       if (lastSeqRef.current == null && channelId) {
         queryClient.invalidateQueries({ queryKey: ["channel-state", channelId] });
+        const storeKey = dispatchChannelIdRef.current;
+        if (storeKey) {
+          queryClient.invalidateQueries({ queryKey: ["session-state", storeKey] });
+        }
       }
 
       fetch(`${serverUrl}/api/v1/${subscribePathRef.current}/${channelId}/events${sinceParam}`, {
@@ -750,6 +754,9 @@ export function useChannelEvents(
           // instead of waiting for the next SSE event. Phase 3: together
           // with the mount-seed this deprecates the 256-event replay buffer.
           queryClient.invalidateQueries({ queryKey: ["channel-state", chId] });
+          if (storeKey) {
+            queryClient.invalidateQueries({ queryKey: ["session-state", storeKey] });
+          }
           // Reset the cursor so the next connect resumes from current head.
           // Also drop the persisted entry — otherwise a remount would resubmit
           // a `since` the server already told us is out of range.
