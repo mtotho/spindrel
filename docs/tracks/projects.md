@@ -61,6 +61,7 @@ Use this track to answer:
 | Repo-resident source artifacts | active | 2026-05-03 | Intake and Run Packs are moving to repo files/source artifacts; bespoke IssueWorkPack DB state is gone. |
 | Workflow contract | active | 2026-05-03 | `.spindrel/WORKFLOW.md` is now the single repo-owned Project contract with parser/starter/factory-state support. |
 | Project-channel agent readiness | shipped | 2026-05-03 | Project-bound channels now receive the Project entry skill and local-tool pack by default; sessions get compact Project bootstrap pointers, not full workflow injection. |
+| Run environment preflight | active | 2026-05-03 | V1 backend pre-agent profile execution now supports Blueprint/repo-file definitions, trust/approved-hash gating with an admin approval API, async setup/readiness execution, secret-safe evidence, shared-repo preservation, and run-row visibility. Remaining: validator API/tool, repeated-blocker schedule downgrade, dogfood profile, and repo-agent skill audit. |
 | Runs cockpit/taskboard | planned | 2026-05-03 | Next UI shape should group active runs by source artifact, schedule, status, and review need without making the track itself a board. |
 | Symphony parity map | shipped | 2026-05-03 | Native equivalence documented in `docs/audits/symphony-mapping.md`; strict Symphony compatibility is not the target. |
 
@@ -92,10 +93,12 @@ Locked next-phase ladder:
 9. **Parallel overnight factory** — multiple work packs can run overnight in fresh Project instances with isolated dependency stacks/dev targets, producing PRs, tests, screenshots, receipts, and morning review readiness.
 10. **Blueprint/fresh workspace maturity** — Blueprints define repo clones, setup commands, env slots, secret bindings, dependency stacks, dev targets, and eventually per-run isolation policy. Future sidecar/container execution should extend these primitives rather than bypass them.
 
-Immediate reliability push: Project coding runs need a generic run environment
-preflight boundary so scheduled isolated runs prepare dependencies, dev targets,
-setup commands, required artifacts, and readiness before the model starts. Full
-implementation plan: [`docs/plans/project-run-environment-preflight.md`](../plans/project-run-environment-preflight.md).
+Immediate reliability push: Project coding runs now have the first generic run
+environment preflight boundary. The shipped backend slice prepares trusted
+Blueprint/repo-file profiles before model launch, preserves `shared_repo`
+semantics, exposes `run_environment_preflight`, and redacts Project runtime
+secrets from evidence. Remaining work is tracked in the implementation plan:
+[`docs/plans/project-run-environment-preflight.md`](../plans/project-run-environment-preflight.md).
 
 ## Phase Log
 

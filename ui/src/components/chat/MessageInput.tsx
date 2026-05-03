@@ -223,7 +223,7 @@ function MessageInputImpl({ onSend, onSendAudio, disabled, sendDisabledReason = 
       setShowPlanMenu(false);
       return true;
     }
-    if (isQueued) {
+    if (isQueued && onCancelQueue) {
       onCancelQueue?.();
       return true;
     }
@@ -558,7 +558,7 @@ function MessageInputImpl({ onSend, onSendAudio, disabled, sendDisabledReason = 
           </div>
         )}
 
-        {/* Queue bar — shown when typing during a stream or when a message is queued */}
+        {/* Queue bar - shown when typing during a stream or when a message is queued */}
         {showQueueBar && (
           <div
             className="queue-bar"
@@ -576,13 +576,58 @@ function MessageInputImpl({ onSend, onSendAudio, disabled, sendDisabledReason = 
           >
             {isQueued && !hasContent ? (
               <>
-                <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, minWidth: 0 }}>
                   <Check size={12} color={t.success} />
-                  <span>{queuedMessageText ? `Queued: ${queuedMessageText.slice(0, 72)}${queuedMessageText.length > 72 ? "..." : ""}` : "Message queued"}</span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {queuedMessageText ? `Queued: ${queuedMessageText.slice(0, 72)}${queuedMessageText.length > 72 ? "..." : ""}` : "Message queued"}
+                  </span>
                 </span>
+                {(onEditQueue || onCancelQueue) && (
+                  <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    {onEditQueue && (
+                      <button
+                        onClick={handleRecallQueued}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: t.accent,
+                          fontSize: 12,
+                          cursor: "pointer",
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                        }}
+                      >
+                        Edit
+                      </button>
+                    )}
+                    {onCancelQueue && (
+                      <button
+                        onClick={onCancelQueue}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: t.textDim,
+                          fontSize: 12,
+                          cursor: "pointer",
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
                 <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <span className="typing-dot" style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+                  <span>Responding - follow-up will be queued</span>
+                </span>
+                {onSendNow && (
                   <button
-                    onClick={handleRecallQueued}
+                    onClick={handleSendNowLocal}
                     style={{
                       background: "none",
                       border: "none",
@@ -591,47 +636,12 @@ function MessageInputImpl({ onSend, onSendAudio, disabled, sendDisabledReason = 
                       cursor: "pointer",
                       padding: "2px 6px",
                       borderRadius: 4,
+                      fontWeight: 500,
                     }}
                   >
-                    Edit
+                    Send now
                   </button>
-                  <button
-                    onClick={onCancelQueue}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: t.textDim,
-                      fontSize: 12,
-                      cursor: "pointer",
-                      padding: "2px 6px",
-                      borderRadius: 4,
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </span>
-              </>
-            ) : (
-              <>
-                <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
-                  <span className="typing-dot" style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
-                  <span>Responding — message will be queued</span>
-                </span>
-                <button
-                  onClick={handleSendNowLocal}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: t.accent,
-                    fontSize: 12,
-                    cursor: "pointer",
-                    padding: "2px 6px",
-                    borderRadius: 4,
-                    fontWeight: 500,
-                  }}
-                >
-                  Send now
-                </button>
+                )}
               </>
             )}
           </div>

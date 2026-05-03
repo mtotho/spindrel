@@ -1629,6 +1629,8 @@ export interface ProjectCodingRun {
   runtime_target?: Record<string, any>;
   dev_targets?: Array<Record<string, any>>;
   dependency_stack?: ProjectDependencyStackState;
+  dependency_stack_preflight?: Record<string, any>;
+  run_environment_preflight?: Record<string, any>;
   execution_environment?: {
     session_id?: string | null;
     mode?: "shared" | "isolated" | string;

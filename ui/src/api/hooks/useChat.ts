@@ -44,6 +44,8 @@ export interface ChatSubmitResponse {
   queued?: boolean;
   task_id?: string;
   session_scoped?: boolean;
+  coalesced?: boolean;
+  queued_message_count?: number;
 }
 
 /**

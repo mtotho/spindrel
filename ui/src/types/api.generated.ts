@@ -7101,6 +7101,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/run-environment-profiles/{profile_id}/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Project Run Environment Profile Endpoint */
+        post: operations["approve_project_run_environment_profile_endpoint_api_v1_projects__project_id__run_environment_profiles__profile_id__approvals_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/run-receipts": {
         parameters: {
             query?: never;
@@ -18167,6 +18184,10 @@ export interface components {
             review_queue_state?: string | null;
             /** Root Task Id */
             root_task_id?: string | null;
+            /** Run Environment Preflight */
+            run_environment_preflight?: {
+                [key: string]: unknown;
+            };
             /** Runtime Target */
             runtime_target?: {
                 [key: string]: unknown;
@@ -18419,6 +18440,8 @@ export interface components {
              * @default 0
              */
             run_count: number;
+            /** Run Environment Profile */
+            run_environment_profile?: string | null;
             /** Scheduled At */
             scheduled_at?: string | null;
             /** Status */
@@ -18445,6 +18468,8 @@ export interface components {
             repo_path?: string | null;
             /** Request */
             request?: string | null;
+            /** Run Environment Profile */
+            run_environment_profile?: string | null;
             /** Scheduled At */
             scheduled_at?: string | null;
             /** Title */
@@ -18473,6 +18498,8 @@ export interface components {
              * @default
              */
             request: string;
+            /** Run Environment Profile */
+            run_environment_profile?: string | null;
             /** Scheduled At */
             scheduled_at?: string | null;
             /**
@@ -18538,6 +18565,8 @@ export interface components {
              * @default
              */
             request: string;
+            /** Run Environment Profile */
+            run_environment_profile?: string | null;
             source_artifact?: components["schemas"]["SourceArtifactIn"] | null;
             /**
              * Work Surface Mode
@@ -18971,6 +19000,27 @@ export interface components {
              * Format: uuid
              */
             workspace_id: string;
+        };
+        /** ProjectRunEnvironmentProfileApprovalOut */
+        ProjectRunEnvironmentProfileApprovalOut: {
+            /** Approved At */
+            approved_at: string;
+            /** Approved By */
+            approved_by?: string | null;
+            /** Profile Id */
+            profile_id: string;
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
+            /** Sha256 */
+            sha256: string;
+        };
+        /** ProjectRunEnvironmentProfileApprovalWrite */
+        ProjectRunEnvironmentProfileApprovalWrite: {
+            /** Sha256 */
+            sha256: string;
         };
         /** ProjectRunLoopPolicyIn */
         ProjectRunLoopPolicyIn: {
@@ -39933,6 +39983,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectOrchestrationPolicyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_project_run_environment_profile_endpoint_api_v1_projects__project_id__run_environment_profiles__profile_id__approvals_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                project_id: string;
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectRunEnvironmentProfileApprovalWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectRunEnvironmentProfileApprovalOut"];
                 };
             };
             /** @description Validation Error */

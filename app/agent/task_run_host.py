@@ -696,6 +696,16 @@ async def _ensure_session_environment_if_requested(
     run_cfg = ecfg.get("project_coding_run")
     if not isinstance(run_cfg, dict):
         return None
+    from app.services.project_coding_run_lib import WORK_SURFACE_SHARED_REPO, normalize_work_surface_mode
+
+    if normalize_work_surface_mode(run_cfg.get("work_surface_mode")) == WORK_SURFACE_SHARED_REPO:
+        run_cfg["session_environment"] = {"mode": "shared_repo", "status": "not_configured"}
+        task.execution_config = {**ecfg, "project_coding_run": run_cfg}
+        db_task = await db.get(Task, task.id)
+        if db_task is not None:
+            db_task.execution_config = task.execution_config
+        await db.commit()
+        return None
     from app.db.models import Project
     from app.services.project_run_environment_profiles import record_project_run_preflight_failure
     from app.services.session_execution_environments import (
@@ -1466,6 +1476,15 @@ async def run_task(task: Task, *, deps: TaskRunHostDeps) -> None:
         )
     finally:
         from app.agent.context import current_issue_reporting_enabled, current_project_instance_id, current_task_id
+        try:
+            async with deps.async_session() as cleanup_db:
+                cleanup_task = await cleanup_db.get(Task, task.id)
+                if cleanup_task is not None:
+                    from app.services.project_run_environment_profiles import cleanup_project_run_environment_background_processes
+                    await cleanup_project_run_environment_background_processes(cleanup_db, task=cleanup_task)
+                    await cleanup_db.commit()
+        except Exception:
+            logger.warning("Task %s: run environment background cleanup failed", task.id, exc_info=True)
         current_task_id.set(None)
         current_project_instance_id.set(None)
         current_issue_reporting_enabled.set(False)

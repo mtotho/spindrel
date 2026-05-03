@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import os
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -331,6 +333,66 @@ async def test_project_coding_run_records_environment_failure_in_task_runner(db_
 
 
 @pytest.mark.asyncio
+async def test_shared_repo_project_run_does_not_create_isolated_environment(db_session, monkeypatch):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Projects",
+        slug="projects",
+        root_path="common/projects",
+        metadata_={"blueprint_snapshot": {"repos": [{"name": "spindrel", "path": "spindrel", "branch": "development"}]}},
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    async def fail_environment(*_args, **_kwargs):
+        raise AssertionError("shared_repo must not create an isolated session environment")
+
+    monkeypatch.setattr(
+        "app.services.session_execution_environments.ensure_isolated_session_environment",
+        fail_environment,
+    )
+
+    task = await create_project_coding_run(
+        db_session,
+        project,
+        ProjectCodingRunCreate(
+            channel_id=channel_id,
+            request="Smoke.",
+            repo_path="spindrel",
+            work_surface_mode="shared_repo",
+        ),
+    )
+    task.status = "running"
+    await db_session.commit()
+
+    from app.agent.task_run_host import _ensure_session_environment_if_requested
+
+    ok = await _ensure_session_environment_if_requested(
+        db_session,
+        task=task,
+        project_instance=None,
+    )
+
+    assert ok is None
+    assert task.execution_config["project_coding_run"]["session_environment"] == {
+        "mode": "shared_repo",
+        "status": "not_configured",
+    }
+
+
+@pytest.mark.asyncio
 async def test_project_run_environment_profile_is_deferred_to_task_runner(db_session, monkeypatch, tmp_path):
     workspace_id = uuid.uuid4()
     project_id = uuid.uuid4()
@@ -344,13 +406,15 @@ async def test_project_run_environment_profile_is_deferred_to_task_runner(db_ses
         slug="spindrel",
         root_path="common/projects",
         metadata_={
-            "blueprint_snapshot": {"repos": [{"name": "spindrel", "path": "spindrel", "branch": "development"}]},
-            "run_environment_profiles": {
-                "touch-ready": {
-                    "name": "Touch ready",
-                    "commands": ["mkdir -p scratch/profile && printf ready > scratch/profile/ready.txt"],
-                    "artifacts": ["scratch/profile/ready.txt"],
-                }
+            "blueprint_snapshot": {
+                "repos": [{"name": "spindrel", "path": "spindrel", "branch": "development"}],
+                "run_environment_profiles": {
+                    "touch-ready": {
+                        "name": "Touch ready",
+                        "setup_commands": ["mkdir -p scratch/profile && printf ready > scratch/profile/ready.txt"],
+                        "required_artifacts": ["scratch/profile/ready.txt"],
+                    }
+                },
             },
         },
     )
@@ -424,11 +488,13 @@ async def test_project_run_environment_profile_failure_blocks_in_task_runner(db_
         slug="spindrel",
         root_path="common/projects",
         metadata_={
-            "blueprint_snapshot": {"repos": [{"name": "spindrel", "path": "spindrel", "branch": "development"}]},
-            "run_environment_profiles": {
-                "broken": {
-                    "commands": [{"name": "fail-fast", "command": "echo nope >&2; exit 7"}],
-                }
+            "blueprint_snapshot": {
+                "repos": [{"name": "spindrel", "path": "spindrel", "branch": "development"}],
+                "run_environment_profiles": {
+                    "broken": {
+                        "setup_commands": [{"name": "fail-fast", "command": "echo nope >&2; exit 7"}],
+                    }
+                },
             },
         },
     )
@@ -517,15 +583,17 @@ async def test_project_run_environment_profile_success_runs_in_task_runner(db_se
         slug="spindrel",
         root_path="common/projects",
         metadata_={
-            "blueprint_snapshot": {"repos": [{"name": "spindrel", "path": "spindrel", "branch": "development"}]},
-            "run_environment_profiles": {
-                "touch-ready": {
-                    "name": "Touch ready",
-                    "env": {"READY_PATH": "scratch/profile/ready.txt"},
-                    "setup_commands": ["mkdir -p scratch/profile && printf ready > ${READY_PATH}"],
-                    "required_artifacts": ["${READY_PATH}"],
-                    "readiness_checks": ["test -f ${READY_PATH}"],
-                }
+            "blueprint_snapshot": {
+                "repos": [{"name": "spindrel", "path": "spindrel", "branch": "development"}],
+                "run_environment_profiles": {
+                    "touch-ready": {
+                        "name": "Touch ready",
+                        "env": {"READY_PATH": "scratch/profile/ready.txt"},
+                        "setup_commands": ["mkdir -p scratch/profile && printf ready > ${READY_PATH}"],
+                        "required_artifacts": ["${READY_PATH}"],
+                        "readiness_checks": ["test -f ${READY_PATH}"],
+                    }
+                },
             },
         },
     )
@@ -589,6 +657,416 @@ async def test_project_run_environment_profile_success_runs_in_task_runner(db_se
         select(Message).where(Message.session_id == task.session_id).order_by(Message.created_at)
     )).scalars().all())
     assert any("Project run environment prepared before agent start" in (msg.content or "") for msg in messages)
+
+
+@pytest.mark.asyncio
+async def test_repo_file_run_environment_profile_requires_trust_and_approval(db_session, tmp_path):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    run_root = tmp_path / "worktree" / "spindrel"
+    profile_dir = run_root / ".spindrel" / "profiles"
+    profile_dir.mkdir(parents=True)
+    profile_text = """
+name: Repo file profile
+setup_commands:
+  - mkdir -p scratch/profile && printf ready > scratch/profile/repo-ready.txt
+required_artifacts:
+  - scratch/profile/repo-ready.txt
+""".lstrip()
+    profile_path = profile_dir / "repo-ready.yaml"
+    profile_path.write_text(profile_text)
+    profile_hash = hashlib.sha256(profile_text.encode("utf-8")).hexdigest()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects",
+        metadata_={
+            "trust_repo_environment_profiles": True,
+            "run_environment_profile_approvals": {
+                "repo-ready": {"sha256": profile_hash, "approved_by": "admin"},
+            },
+            "blueprint_snapshot": {"repos": [{"name": "spindrel", "path": "spindrel", "branch": "development"}]},
+        },
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+        active_session_id=session_id,
+    )
+    task = Task(
+        id=uuid.uuid4(),
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        session_id=session_id,
+        status="running",
+        task_type="agent",
+        execution_config={
+            "project_coding_run": {
+                "project_id": str(project_id),
+                "branch": "spindrel/test",
+                "base_branch": "development",
+                "run_environment_profile": "repo-ready",
+            }
+        },
+    )
+    env = SessionExecutionEnvironment(
+        session_id=session_id,
+        project_id=project_id,
+        mode="isolated",
+        status="ready",
+        cwd=str(run_root),
+    )
+    db_session.add_all([project, channel, task, env])
+    await db_session.commit()
+
+    from app.agent.task_run_host import _preflight_project_run_environment_if_requested
+
+    ok = await _preflight_project_run_environment_if_requested(
+        db_session,
+        task=task,
+        project_instance=None,
+        prepared=SimpleNamespace(task=task, ecfg=task.execution_config, task_prompt="Run profile."),
+    )
+
+    assert ok is True
+    preflight = task.execution_config["project_coding_run"]["run_environment_preflight"]
+    assert preflight["source_layer"] == "repo_file"
+    assert preflight["profile_path"] == ".spindrel/profiles/repo-ready.yaml"
+    assert preflight["current_hash"] == profile_hash
+    assert (run_root / "scratch" / "profile" / "repo-ready.txt").read_text() == "ready"
+
+
+@pytest.mark.asyncio
+async def test_repo_file_run_environment_profile_change_blocks_before_execution(db_session, tmp_path):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    run_root = tmp_path / "worktree" / "spindrel"
+    profile_dir = run_root / ".spindrel" / "profiles"
+    profile_dir.mkdir(parents=True)
+    (profile_dir / "repo-ready.yaml").write_text(
+        "setup_commands:\n  - mkdir -p scratch/profile && printf ready > scratch/profile/repo-ready.txt\n"
+    )
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects",
+        metadata_={
+            "trust_repo_environment_profiles": True,
+            "run_environment_profile_approvals": {"repo-ready": {"sha256": "oldhash", "approved_by": "admin"}},
+            "blueprint_snapshot": {"repos": [{"name": "spindrel", "path": "spindrel", "branch": "development"}]},
+        },
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+        active_session_id=session_id,
+    )
+    task = Task(
+        id=uuid.uuid4(),
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        session_id=session_id,
+        status="running",
+        task_type="agent",
+        execution_config={
+            "project_coding_run": {
+                "project_id": str(project_id),
+                "branch": "spindrel/test",
+                "base_branch": "development",
+                "run_environment_profile": "repo-ready",
+            }
+        },
+    )
+    env = SessionExecutionEnvironment(
+        session_id=session_id,
+        project_id=project_id,
+        mode="isolated",
+        status="ready",
+        cwd=str(run_root),
+    )
+    db_session.add_all([project, channel, task, env])
+    await db_session.commit()
+
+    from app.agent.task_run_host import _preflight_project_run_environment_if_requested
+
+    ok = await _preflight_project_run_environment_if_requested(
+        db_session,
+        task=task,
+        project_instance=None,
+        prepared=SimpleNamespace(task=task, ecfg=task.execution_config, task_prompt="Run profile."),
+    )
+
+    assert ok is False
+    preflight = task.execution_config["project_coding_run"]["run_environment_preflight"]
+    assert preflight["status"] == "needs_review"
+    assert preflight["approved_hash"] == "oldhash"
+    assert not (run_root / "scratch" / "profile" / "repo-ready.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_shared_repo_non_mutating_profile_runs_without_explicit_mode_opt_in(db_session, tmp_path):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    run_root = tmp_path / "shared" / "spindrel"
+    run_root.mkdir(parents=True)
+    (run_root / "marker.txt").write_text("ready")
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects",
+        metadata_={
+            "blueprint_snapshot": {
+                "repos": [{"name": "spindrel", "path": "spindrel", "branch": "development"}],
+                "run_environment_profiles": {
+                    "shared-check": {
+                        "readiness_checks": ["test -f marker.txt"],
+                        "required_artifacts": ["marker.txt"],
+                    }
+                },
+            },
+        },
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+        active_session_id=session_id,
+    )
+    task = Task(
+        id=uuid.uuid4(),
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        session_id=session_id,
+        status="running",
+        task_type="agent",
+        execution_config={
+            "project_coding_run": {
+                "project_id": str(project_id),
+                "branch": "spindrel/test",
+                "base_branch": "development",
+                "work_surface_mode": "shared_repo",
+                "run_environment_profile": "shared-check",
+            }
+        },
+    )
+    env = SessionExecutionEnvironment(
+        session_id=session_id,
+        project_id=project_id,
+        mode="shared",
+        status="ready",
+        cwd=str(run_root),
+    )
+    db_session.add_all([project, channel, task, env])
+    await db_session.commit()
+
+    from app.agent.task_run_host import _preflight_project_run_environment_if_requested
+
+    ok = await _preflight_project_run_environment_if_requested(
+        db_session,
+        task=task,
+        project_instance=None,
+        prepared=SimpleNamespace(task=task, ecfg=task.execution_config, task_prompt="Run profile."),
+    )
+
+    assert ok is True
+    preflight = task.execution_config["project_coding_run"]["run_environment_preflight"]
+    assert preflight["ok"] is True
+    assert preflight["readiness_checks"][0]["ok"] is True
+    assert preflight["artifacts"] == [{"path": "marker.txt", "exists": True}]
+
+
+@pytest.mark.asyncio
+async def test_run_environment_profile_cleans_background_process_when_later_step_fails(db_session, tmp_path):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    run_root = tmp_path / "worktree" / "spindrel"
+    run_root.mkdir(parents=True)
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects",
+        metadata_={
+            "blueprint_snapshot": {
+                "repos": [{"name": "spindrel", "path": "spindrel", "branch": "development"}],
+                "run_environment_profiles": {
+                    "background-fails": {
+                        "background_processes": [{"name": "sleepy", "command": "sleep 60"}],
+                        "setup_commands": [{"name": "fail-after-start", "command": "exit 9"}],
+                    }
+                },
+            },
+        },
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+        active_session_id=session_id,
+    )
+    task = Task(
+        id=uuid.uuid4(),
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        session_id=session_id,
+        status="running",
+        task_type="agent",
+        execution_config={
+            "project_coding_run": {
+                "project_id": str(project_id),
+                "branch": "spindrel/test",
+                "base_branch": "development",
+                "run_environment_profile": "background-fails",
+            }
+        },
+    )
+    env = SessionExecutionEnvironment(
+        session_id=session_id,
+        project_id=project_id,
+        mode="isolated",
+        status="ready",
+        cwd=str(run_root),
+    )
+    db_session.add_all([project, channel, task, env])
+    await db_session.commit()
+
+    from app.agent.task_run_host import _preflight_project_run_environment_if_requested
+
+    ok = await _preflight_project_run_environment_if_requested(
+        db_session,
+        task=task,
+        project_instance=None,
+        prepared=SimpleNamespace(task=task, ecfg=task.execution_config, task_prompt="Run profile."),
+    )
+
+    assert ok is False
+    preflight = task.execution_config["project_coding_run"]["run_environment_preflight"]
+    process = preflight["background_processes"][0]
+    assert process["terminated"] is True
+    with pytest.raises(ProcessLookupError):
+        os.killpg(int(process["pgid"]), 0)
+
+
+@pytest.mark.asyncio
+async def test_run_environment_profile_redacts_project_runtime_secret_values(db_session, monkeypatch, tmp_path):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    run_root = tmp_path / "worktree" / "spindrel"
+    run_root.mkdir(parents=True)
+    secret_value = "supersecretvalue12345"
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects",
+        metadata_={
+            "blueprint_snapshot": {
+                "repos": [{"name": "spindrel", "path": "spindrel", "branch": "development"}],
+                "run_environment_profiles": {
+                    "secret-echo": {
+                        "setup_commands": [{"name": "echo-secret", "command": "printf \"$MY_SECRET\""}],
+                    }
+                },
+            },
+        },
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+        active_session_id=session_id,
+    )
+    task = Task(
+        id=uuid.uuid4(),
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        session_id=session_id,
+        status="running",
+        task_type="agent",
+        execution_config={
+            "project_coding_run": {
+                "project_id": str(project_id),
+                "branch": "spindrel/test",
+                "base_branch": "development",
+                "run_environment_profile": "secret-echo",
+            }
+        },
+    )
+    env = SessionExecutionEnvironment(
+        session_id=session_id,
+        project_id=project_id,
+        mode="isolated",
+        status="ready",
+        cwd=str(run_root),
+    )
+    db_session.add_all([project, channel, task, env])
+    await db_session.commit()
+
+    fake_runtime = SimpleNamespace(
+        env={"MY_SECRET": secret_value},
+        redact_text=lambda text: str(text).replace(secret_value, "[REDACTED]"),
+    )
+    async def fake_runtime_loader(*_args, **_kwargs):
+        return fake_runtime
+
+    monkeypatch.setattr(
+        "app.services.project_run_environment_profiles.load_project_runtime_environment_for_id",
+        fake_runtime_loader,
+    )
+
+    from app.agent.task_run_host import _preflight_project_run_environment_if_requested
+
+    ok = await _preflight_project_run_environment_if_requested(
+        db_session,
+        task=task,
+        project_instance=None,
+        prepared=SimpleNamespace(task=task, ecfg=task.execution_config, task_prompt="Run profile."),
+    )
+
+    assert ok is True
+    preflight = task.execution_config["project_coding_run"]["run_environment_preflight"]
+    assert preflight["commands"][0]["stdout"] == "[REDACTED]"
+    assert secret_value not in str(preflight)
 
 
 @pytest.mark.asyncio

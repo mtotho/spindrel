@@ -73,12 +73,6 @@ export interface UseChannelChatReturn {
   /** Queue state */
   isQueued: boolean;
   queuedMessageText: string | null;
-  /** Cancel + send immediately (interrupts current response) */
-  handleSendNow: (text: string, files?: PendingFile[]) => void;
-  /** Cancel queued message without sending */
-  cancelQueue: () => void;
-  /** Recall queued message into the composer for editing */
-  editQueue: () => { text: string; files?: PendingFile[] } | null;
 }
 
 type PreparedChatSend = {
@@ -96,6 +90,13 @@ type WorkspaceUploadMetadata = {
   size_bytes: number;
   path: string;
 };
+
+function queuedLocalMessages(messages: Message[]): Message[] {
+  return messages.filter((message) => {
+    const meta = (message.metadata ?? {}) as Record<string, unknown>;
+    return message.role === "user" && meta.local_status === "queued";
+  });
+}
 
 function makeClientLocalId(): string {
   const cryptoObj = globalThis.crypto as Crypto | undefined;
@@ -181,21 +182,6 @@ export function useChannelChat({
     files?: PendingFile[];
   } | null>(null);
   const secretCheck = useSecretCheck();
-
-  // ---- Message queue (send while bot is responding) ----
-  const queuedRequestRef = useRef<{
-    request: ChatRequest;
-    channelId: string;
-    optimisticMsgId: string;
-    clientLocalId: string;
-    text: string;
-    files?: PendingFile[];
-  } | null>(null);
-  const [isQueued, setIsQueued] = useState(false);
-  const [queuedMessageText, setQueuedMessageText] = useState<string | null>(null);
-  // Ref for checking active state inside async callbacks (avoids stale closures).
-  const isActiveRef = useRef(false);
-  isActiveRef.current = turnsCount > 0 || isProcessing;
 
   // ---- Message fetching ----
   const {
@@ -326,6 +312,35 @@ export function useChannelChat({
   const cancelChat = useCancelChat();
   const lastRequestRef = useRef<Record<string, ChatRequest>>({});
 
+  const markOptimisticQueued = useCallback((
+    prepared: PreparedChatSend,
+    result: { task_id?: string; coalesced?: boolean; queued_message_count?: number },
+  ) => {
+    const current = useChatStore.getState().channels[prepared.channelId]?.messages ?? [];
+    const localQueuedCount = current.filter((message) => {
+      const meta = (message.metadata ?? {}) as Record<string, unknown>;
+      return message.role === "user" && (message.id === prepared.optimisticMsgId || meta.local_status === "queued");
+    }).length;
+    const queuedCount = Math.max(result.queued_message_count ?? 0, localQueuedCount);
+    setMessages(prepared.channelId, current.map((message) => {
+      const meta = (message.metadata ?? {}) as Record<string, any>;
+      const isQueuedLocal =
+        message.role === "user" &&
+        (message.id === prepared.optimisticMsgId || meta.local_status === "queued");
+      if (!isQueuedLocal) return message;
+      return {
+        ...message,
+        metadata: {
+          ...meta,
+          local_status: "queued",
+          queued_task_id: result.task_id,
+          queued_message_count: queuedCount,
+          queued_coalesced: result.coalesced ?? queuedCount > 1,
+        },
+      };
+    }));
+  }, [setMessages]);
+
   const removeOptimisticMessage = useCallback((targetChannelId: string, optimisticMsgId: string) => {
     const msgs = useChatStore.getState().channels[targetChannelId]?.messages ?? [];
     setMessages(targetChannelId, msgs.filter((m) => m.id !== optimisticMsgId));
@@ -335,8 +350,11 @@ export function useChannelChat({
     lastRequestRef.current[prepared.channelId] = prepared.request;
     submitChat.mutate(prepared.request, {
       onSuccess: (result) => {
-        if (result.queued && result.task_id) {
-          useChatStore.getState().setProcessing(prepared.channelId, result.task_id);
+        if (result.queued) {
+          markOptimisticQueued(prepared, result);
+          if (result.task_id) {
+            useChatStore.getState().setProcessing(prepared.channelId, result.task_id);
+          }
         }
       },
       onError: (err) => {
@@ -344,26 +362,7 @@ export function useChannelChat({
         setError(prepared.channelId, err instanceof Error ? err.message : "Failed to send message");
       },
     });
-  }, [removeOptimisticMessage, setError, submitChat]);
-
-  // ---- Bus-driven queue advance ----
-  // When the channel's turn count drops to zero AND there's a queued
-  // request, fire it. This replaces the legacy `chatStream.onComplete`
-  // callback hook.
-  const prevTurnsCountRef = useRef(turnsCount);
-  useEffect(() => {
-    const wasActive = prevTurnsCountRef.current > 0;
-    const nowIdle = turnsCount === 0 && !isProcessing;
-    prevTurnsCountRef.current = turnsCount;
-
-    if (wasActive && nowIdle && queuedRequestRef.current) {
-      const queued = queuedRequestRef.current;
-      queuedRequestRef.current = null;
-      setIsQueued(false);
-      setQueuedMessageText(null);
-      submitPrepared(queued);
-    }
-  }, [turnsCount, isProcessing, submitPrepared]);
+  }, [markOptimisticQueued, removeOptimisticMessage, setError, submitChat]);
 
   // When background processing completes, clear state and refetch.
   useEffect(() => {
@@ -407,17 +406,7 @@ export function useChannelChat({
     // even before the bus event arrives.
     syncCancelledState();
 
-    // If there's a queued message, fire it now.
-    const queued = queuedRequestRef.current;
-    if (queued) {
-      queuedRequestRef.current = null;
-      setIsQueued(false);
-      setQueuedMessageText(null);
-      setTimeout(() => {
-        submitPrepared(queued);
-      }, 100);
-    }
-  }, [channel, channelId, cancelChat, submitPrepared, syncCancelledState]);
+  }, [channel, channelId, cancelChat, syncCancelledState]);
 
   const handleRetry = useCallback(() => {
     const req = channelId ? lastRequestRef.current[channelId] : undefined;
@@ -549,44 +538,16 @@ export function useChannelChat({
           if (result.has_secrets) {
             removeOptimisticMessage(prepared.channelId, prepared.optimisticMsgId);
             setSecretWarning({ result, text, files });
-          } else if (isActiveRef.current) {
-            if (queuedRequestRef.current) {
-              removeOptimisticMessage(queuedRequestRef.current.channelId, queuedRequestRef.current.optimisticMsgId);
-            }
-            const msgs = useChatStore.getState().channels[prepared.channelId]?.messages ?? [];
-            setMessages(prepared.channelId, msgs.map((m) => (
-              m.id === prepared.optimisticMsgId
-                ? { ...m, metadata: { ...(m.metadata ?? {}), local_status: "queued" } }
-                : m
-            )));
-            queuedRequestRef.current = prepared;
-            setIsQueued(true);
-            setQueuedMessageText(text);
           } else {
             submitPrepared(prepared);
           }
         },
         onError: () => {
-          if (isActiveRef.current) {
-            if (queuedRequestRef.current) {
-              removeOptimisticMessage(queuedRequestRef.current.channelId, queuedRequestRef.current.optimisticMsgId);
-            }
-            const msgs = useChatStore.getState().channels[prepared.channelId]?.messages ?? [];
-            setMessages(prepared.channelId, msgs.map((m) => (
-              m.id === prepared.optimisticMsgId
-                ? { ...m, metadata: { ...(m.metadata ?? {}), local_status: "queued" } }
-                : m
-            )));
-            queuedRequestRef.current = prepared;
-            setIsQueued(true);
-            setQueuedMessageText(text);
-          } else {
-            submitPrepared(prepared);
-          }
+          submitPrepared(prepared);
         },
       });
     },
-    [channelId, channel, enabled, prepareSend, removeOptimisticMessage, secretCheck, setMessages, submitPrepared]
+    [channelId, channel, enabled, prepareSend, removeOptimisticMessage, secretCheck, submitPrepared]
   );
 
   const handleSendAudio = useCallback(
@@ -619,47 +580,6 @@ export function useChannelChat({
     },
     [channelId, channel, activeFile, addMessage, enabled, submitChat]
   );
-
-  /** Cancel + send immediately (bypasses queue). */
-  const handleSendNow = useCallback(
-    (text: string, files?: PendingFile[]) => {
-      if (!channelId || !channel) return;
-      if (!enabled) return;
-      queuedRequestRef.current = null;
-      setIsQueued(false);
-      setQueuedMessageText(null);
-      handleCancel();
-      setTimeout(() => doSend(text, files), 50);
-    },
-    [channelId, channel, enabled, handleCancel, doSend],
-  );
-
-  /** Cancel the queued message (remove optimistic message, keep current stream running). */
-  const cancelQueue = useCallback(() => {
-    if (!queuedRequestRef.current) return;
-    const { optimisticMsgId, channelId: qCh } = queuedRequestRef.current;
-    queuedRequestRef.current = null;
-    setIsQueued(false);
-    setQueuedMessageText(null);
-    removeOptimisticMessage(qCh, optimisticMsgId);
-  }, [removeOptimisticMessage]);
-
-  const editQueue = useCallback(() => {
-    if (!queuedRequestRef.current) return null;
-    const queued = queuedRequestRef.current;
-    queuedRequestRef.current = null;
-    setIsQueued(false);
-    setQueuedMessageText(null);
-    removeOptimisticMessage(queued.channelId, queued.optimisticMsgId);
-    return { text: queued.text, files: queued.files };
-  }, [removeOptimisticMessage]);
-
-  // Reset queue when channel changes.
-  useEffect(() => {
-    queuedRequestRef.current = null;
-    setIsQueued(false);
-    setQueuedMessageText(null);
-  }, [channelId]);
 
   // Phase 4: pass bot_id so the catalog is intersected with the harness
   // runtime's slash policy server-side. Non-harness bots return the full
@@ -799,6 +719,13 @@ export function useChannelChat({
     [messages],
   );
 
+  const queuedMessages = useMemo(() => queuedLocalMessages(messages), [messages]);
+  const queuedMessageText = useMemo(() => {
+    if (queuedMessages.length === 0) return null;
+    if (queuedMessages.length > 1) return `${queuedMessages.length} follow-ups queued together`;
+    return extractDisplayText(queuedMessages[0].content);
+  }, [queuedMessages]);
+
   const handleLoadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) {
       return fetchNextPage();
@@ -841,10 +768,7 @@ export function useChannelChat({
     setSecretWarning,
     doSend,
     setError,
-    isQueued,
+    isQueued: queuedMessages.length > 0,
     queuedMessageText,
-    handleSendNow,
-    cancelQueue,
-    editQueue,
   };
 }

@@ -102,6 +102,7 @@ async def run_agent_tool_loop(
     skip_tool_policy: bool = False,
     context_profile_name: str | None = None,
     run_control_policy: dict[str, Any] | None = None,
+    late_input_drain_fn: Any | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Single agent tool loop: LLM + tool calls until final response. Caller builds messages and sets context.
     When compaction=True, every yielded event gets "compaction": True.
@@ -208,6 +209,7 @@ async def run_agent_tool_loop(
                 check_prompt_budget_guard_fn=_check_prompt_budget_guard,
                 record_trace_event_fn=_record_trace_event,
                 safe_create_task_fn=safe_create_task,
+                late_input_drain_fn=late_input_drain_fn,
                 sleep_fn=asyncio.sleep,
                 monotonic_fn=_time.monotonic,
                 message_prompt_chars_fn=message_prompt_chars,
@@ -365,6 +367,7 @@ async def run_stream(
     skip_skill_inject: bool = False,
     context_profile_name: str | None = None,
     run_control_policy: dict[str, Any] | None = None,
+    late_input_drain_fn: Any | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Core agent loop as an async generator that yields status events.
 
@@ -476,6 +479,7 @@ async def run_stream(
         run_control_policy=run_control_policy,
         is_outermost_stream=setup.is_outermost_stream,
         delegation_posts=setup.delegation_posts,
+        late_input_drain_fn=late_input_drain_fn,
     ):
         yield event
 
@@ -504,6 +508,7 @@ async def run(
     skip_skill_inject: bool = False,
     context_profile_name: str | None = None,
     run_control_policy: dict[str, Any] | None = None,
+    late_input_drain_fn: Any | None = None,
 ) -> RunResult:
     """Non-streaming wrapper: runs the agent loop and returns the final result."""
     result = RunResult()
@@ -528,6 +533,7 @@ async def run(
         skip_skill_inject=skip_skill_inject,
         context_profile_name=context_profile_name,
         run_control_policy=run_control_policy,
+        late_input_drain_fn=late_input_drain_fn,
     ):
         if event["type"] == "assistant_text":
             _intermediate_texts.append(event["text"])

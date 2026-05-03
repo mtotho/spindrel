@@ -46,6 +46,7 @@ async def stream_loop_pre_llm_iteration(
     check_prompt_budget_guard_fn: Any,
     record_trace_event_fn: Any,
     safe_create_task_fn: Any,
+    late_input_drain_fn: Any | None = None,
     sleep_fn: Any = asyncio.sleep,
     monotonic_fn: Any | None = None,
     message_prompt_chars_fn: Any | None = None,
@@ -106,6 +107,16 @@ async def stream_loop_pre_llm_iteration(
                 event_type="tool_surface_update",
                 data={k: v for k, v in event.items() if k != "type"},
             ))
+
+    if late_input_drain_fn is not None:
+        await _drain_late_chat_burst(
+            ctx=ctx,
+            state=state,
+            iteration=iteration,
+            late_input_drain_fn=late_input_drain_fn,
+            record_trace_event_fn=record_trace_event_fn,
+            safe_create_task_fn=safe_create_task_fn,
+        )
 
     logger.debug("--- Iteration %d ---", iteration + 1)
     logger.debug("Calling LLM (%s) with %d messages", model, len(state.messages))
@@ -184,6 +195,89 @@ async def stream_loop_pre_llm_iteration(
         tools_param=tools_param,
         tool_choice=tool_choice,
     )
+
+
+async def _drain_late_chat_burst(
+    *,
+    ctx: LoopRunContext,
+    state: LoopRunState,
+    iteration: int,
+    late_input_drain_fn: Any,
+    record_trace_event_fn: Any,
+    safe_create_task_fn: Any,
+) -> None:
+    try:
+        absorbed = await late_input_drain_fn(iteration=iteration)
+    except Exception as exc:
+        if ctx.correlation_id is not None:
+            safe_create_task_fn(record_trace_event_fn(
+                correlation_id=ctx.correlation_id,
+                session_id=ctx.session_id,
+                bot_id=ctx.bot.id,
+                client_id=ctx.client_id,
+                event_type="late_chat_burst_absorb_failed",
+                event_name="pre_llm",
+                data={
+                    "iteration": iteration + 1,
+                    "error_type": type(exc).__name__,
+                },
+            ))
+        logger.warning(
+            "Failed to absorb late chat burst before LLM call for session %s",
+            ctx.session_id,
+            exc_info=True,
+        )
+        return
+    if absorbed is None:
+        return
+
+    _append_absorbed_chat_burst(state, absorbed)
+    if ctx.correlation_id is not None:
+        safe_create_task_fn(record_trace_event_fn(
+            correlation_id=ctx.correlation_id,
+            session_id=ctx.session_id,
+            bot_id=ctx.bot.id,
+            client_id=ctx.client_id,
+            event_type="late_chat_burst_absorbed",
+            event_name="pre_llm",
+            count=len(absorbed.message_ids),
+            data={
+                "task_id": str(absorbed.task_id),
+                "message_ids": [str(message_id) for message_id in absorbed.message_ids],
+                "iteration": iteration + 1,
+                "attachment_count": len(absorbed.attachment_payloads),
+                "session_scoped": bool(getattr(absorbed, "session_scoped", False)),
+                "task_scheduled_age_seconds": getattr(absorbed, "task_scheduled_age_seconds", None),
+            },
+        ))
+
+
+def _append_absorbed_chat_burst(state: LoopRunState, absorbed: Any) -> None:
+    state.messages.append({
+        "role": "system",
+        "content": (
+            "The user sent additional messages while this turn was already running. "
+            "Consider the following user messages now and answer them together in order."
+        ),
+    })
+    from app.agent.message_utils import _build_user_message_content
+    from app.services.sessions import normalize_stored_content
+
+    attachments_by_message_id = getattr(absorbed, "attachments_by_message_id", {}) or {}
+    for message in absorbed.messages:
+        raw_content = normalize_stored_content(message.content)
+        attachments = attachments_by_message_id.get(message.id)
+        if isinstance(raw_content, list):
+            content = raw_content
+        else:
+            content = _build_user_message_content(str(raw_content or ""), attachments)
+        state.messages.append({
+            "role": "user",
+            "content": content,
+            "_skip_persist": True,
+            "_internal_kind": "late_chat_burst",
+            "_source_message_id": str(message.id),
+        })
 
 
 async def _stream_pre_llm_pruning(

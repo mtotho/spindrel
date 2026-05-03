@@ -76,6 +76,7 @@ async def _collect(**overrides):
             check_prompt_budget_guard_fn=overrides.pop("check_prompt_budget_guard_fn", lambda **kwargs: PromptBudgetGate([], False, 0)),
             record_trace_event_fn=overrides.pop("record_trace_event_fn", lambda **kwargs: kwargs),
             safe_create_task_fn=overrides.pop("safe_create_task_fn", lambda task: None),
+            late_input_drain_fn=overrides.pop("late_input_drain_fn", None),
             sleep_fn=overrides.pop("sleep_fn", lambda seconds: None),
             monotonic_fn=overrides.pop("monotonic_fn", lambda: 0.0),
             message_prompt_chars_fn=overrides.pop("message_prompt_chars_fn", lambda message: len(str(message.get("content") or ""))),
@@ -265,3 +266,128 @@ async def test_prompt_budget_return_marks_loop_return():
         {"type": "error", "code": "context_window_exceeded"},
         LoopPreLlmIterationDone(tools_param=None, tool_choice=None, return_loop=True),
     ]
+
+
+@pytest.mark.asyncio
+async def test_late_chat_burst_is_appended_before_budget_gate():
+    message_id = uuid4()
+    task_id = uuid4()
+    trace_tasks = []
+    budget_seen = {}
+    absorbed = SimpleNamespace(
+        task_id=task_id,
+        message_ids=[message_id],
+        messages=[SimpleNamespace(id=message_id, content="also check the graph", attachments=[])],
+        attachment_payloads=[],
+        attachments_by_message_id={},
+        session_scoped=False,
+        task_scheduled_age_seconds=1.25,
+    )
+
+    async def _drain(*, iteration):
+        assert iteration == 0
+        return absorbed
+
+    def _budget(**kwargs):
+        budget_seen["messages"] = list(kwargs["messages"])
+        return PromptBudgetGate([], False, 0)
+
+    outputs, state = await _collect(
+        ctx=_ctx(correlation_id=uuid4(), session_id=uuid4()),
+        late_input_drain_fn=_drain,
+        check_prompt_budget_guard_fn=_budget,
+        record_trace_event_fn=lambda **kwargs: kwargs,
+        safe_create_task_fn=trace_tasks.append,
+    )
+
+    assert isinstance(outputs[-1], LoopPreLlmIterationDone)
+    late_user = state.messages[-1]
+    assert late_user["role"] == "user"
+    assert late_user["content"] == "also check the graph"
+    assert late_user["_skip_persist"] is True
+    assert late_user["_internal_kind"] == "late_chat_burst"
+    assert late_user["_source_message_id"] == str(message_id)
+    assert budget_seen["messages"][-1] is late_user
+    trace = [task for task in trace_tasks if task["event_type"] == "late_chat_burst_absorbed"][0]
+    assert trace["event_type"] == "late_chat_burst_absorbed"
+    assert trace["event_name"] == "pre_llm"
+    assert trace["count"] == 1
+    assert trace["data"]["task_id"] == str(task_id)
+    assert trace["data"]["message_ids"] == [str(message_id)]
+    assert "also check" not in str(trace["data"])
+
+
+@pytest.mark.asyncio
+async def test_late_chat_burst_trace_excludes_attachment_content():
+    message_id = uuid4()
+    attachment_id = uuid4()
+    trace_tasks = []
+    absorbed = SimpleNamespace(
+        task_id=uuid4(),
+        message_ids=[message_id],
+        messages=[SimpleNamespace(id=message_id, content="use this image", attachments=[])],
+        attachment_payloads=[{
+            "type": "image",
+            "content": "base64-secret",
+            "attachment_id": str(attachment_id),
+        }],
+        attachments_by_message_id={
+            message_id: [{
+                "type": "image",
+                "content": "base64-secret",
+                "mime_type": "image/png",
+                "attachment_id": str(attachment_id),
+            }]
+        },
+        session_scoped=True,
+        task_scheduled_age_seconds=3.0,
+    )
+
+    async def _drain(*, iteration):
+        return absorbed
+
+    _, state = await _collect(
+        ctx=_ctx(correlation_id=uuid4(), session_id=uuid4()),
+        late_input_drain_fn=_drain,
+        record_trace_event_fn=lambda **kwargs: kwargs,
+        safe_create_task_fn=trace_tasks.append,
+    )
+
+    late_user = state.messages[-1]
+    assert isinstance(late_user["content"], list)
+    assert late_user["content"][0]["text"].startswith("use this image")
+    assert late_user["content"][1]["image_url"]["url"].endswith("base64-secret")
+    trace_data = [
+        task for task in trace_tasks
+        if task["event_type"] == "late_chat_burst_absorbed"
+    ][0]["data"]
+    assert trace_data["attachment_count"] == 1
+    assert trace_data["session_scoped"] is True
+    assert "base64-secret" not in str(trace_data)
+    assert "content" not in trace_data
+
+
+@pytest.mark.asyncio
+async def test_late_chat_burst_failure_records_trace_and_continues():
+    trace_tasks = []
+
+    async def _drain(*, iteration):
+        raise RuntimeError("db unavailable")
+
+    outputs, state = await _collect(
+        ctx=_ctx(correlation_id=uuid4(), session_id=uuid4()),
+        late_input_drain_fn=_drain,
+        record_trace_event_fn=lambda **kwargs: kwargs,
+        safe_create_task_fn=trace_tasks.append,
+    )
+
+    assert isinstance(outputs[-1], LoopPreLlmIterationDone)
+    assert state.messages == [{"role": "user", "content": "hi"}]
+    trace = [
+        task for task in trace_tasks
+        if task["event_type"] == "late_chat_burst_absorb_failed"
+    ][0]
+    assert trace["data"] == {
+        "iteration": 1,
+        "error_type": "RuntimeError",
+    }

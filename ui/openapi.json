@@ -20165,6 +20165,11 @@
             ],
             "title": "Root Task Id"
           },
+          "run_environment_preflight": {
+            "additionalProperties": true,
+            "title": "Run Environment Preflight",
+            "type": "object"
+          },
           "runtime_target": {
             "additionalProperties": true,
             "title": "Runtime Target",
@@ -20736,6 +20741,17 @@
             "title": "Run Count",
             "type": "integer"
           },
+          "run_environment_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Environment Profile"
+          },
           "scheduled_at": {
             "anyOf": [
               {
@@ -20849,6 +20865,17 @@
             ],
             "title": "Request"
           },
+          "run_environment_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Environment Profile"
+          },
           "scheduled_at": {
             "anyOf": [
               {
@@ -20934,6 +20961,17 @@
             "default": "",
             "title": "Request",
             "type": "string"
+          },
+          "run_environment_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Environment Profile"
           },
           "scheduled_at": {
             "anyOf": [
@@ -21156,6 +21194,17 @@
             "default": "",
             "title": "Request",
             "type": "string"
+          },
+          "run_environment_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Environment Profile"
           },
           "source_artifact": {
             "anyOf": [
@@ -22295,6 +22344,59 @@
           "updated_at"
         ],
         "title": "ProjectOut",
+        "type": "object"
+      },
+      "ProjectRunEnvironmentProfileApprovalOut": {
+        "properties": {
+          "approved_at": {
+            "title": "Approved At",
+            "type": "string"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "profile_id": {
+            "title": "Profile Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "profile_id",
+          "sha256",
+          "approved_at"
+        ],
+        "title": "ProjectRunEnvironmentProfileApprovalOut",
+        "type": "object"
+      },
+      "ProjectRunEnvironmentProfileApprovalWrite": {
+        "properties": {
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha256"
+        ],
+        "title": "ProjectRunEnvironmentProfileApprovalWrite",
         "type": "object"
       },
       "ProjectRunLoopPolicyIn": {
@@ -65522,6 +65624,84 @@
           }
         },
         "summary": "Get Project Orchestration Policy Endpoint",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/run-environment-profiles/{profile_id}/approvals": {
+      "post": {
+        "operationId": "approve_project_run_environment_profile_endpoint_api_v1_projects__project_id__run_environment_profiles__profile_id__approvals_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "title": "Profile Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectRunEnvironmentProfileApprovalWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRunEnvironmentProfileApprovalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Approve Project Run Environment Profile Endpoint",
         "tags": [
           "projects"
         ]

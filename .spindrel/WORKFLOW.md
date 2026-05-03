@@ -197,6 +197,31 @@ tool only after a concrete run needs repeatable hook execution.
   env artifacts, app/dev server preparation, and readiness checks. Agent turns
   consume the prepared surface and should not improvise host/bootstrap setup.
 
+### Run Environment Profiles
+
+Profile definitions live in `.spindrel/profiles/<id>.yaml` (or `.yml` /
+`.toml`) inside the Project repo, with the applied Blueprint snapshot's
+`run_environment_profiles[<id>]` as the fallback when no trusted repo file is
+declared. Project metadata may select a default profile with
+`default_run_environment_profile`, but V1 does not allow Project metadata to
+define executable profile bodies.
+
+Repo-file profile execution is opt-in per Project through
+`trust_repo_environment_profiles`. When enabled, the run loads the profile from
+the resolved run work surface and requires the file bytes to match the
+operator-approved hash recorded in Project metadata before any command runs.
+Unapproved profile changes block before the model starts and emit a
+`run_environment_preflight` receipt/message. Admins approve reviewed hashes via
+the Project run-environment profile approval API.
+
+In `shared_repo` mode, profiles are for non-mutating env/readiness/artifact
+checks unless their `work_surface_modes` explicitly includes `shared_repo`.
+Isolated worktree runs are the normal home for setup commands and background
+processes.
+
+Profile YAML must not contain literal secret values. Put secrets in Project
+secret bindings and let profile commands read them from OS env.
+
 ## Runtime Skills Boundary
 
 `skills/` is product behavior for all Spindrel users and their Projects.

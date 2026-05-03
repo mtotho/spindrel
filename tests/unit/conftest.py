@@ -54,6 +54,7 @@ _MODULE_LEVEL_ALIASES = (
     "app.agent.tasks.async_session",
     "app.agent.recording.async_session",
     "app.services.sessions.async_session",
+    "app.services.chat_late_input.async_session",
     "app.db.engine.async_session",
 )
 
@@ -79,6 +80,7 @@ _PATCH_TARGETS = (
     "app.agent.tasks.async_session",
     "app.agent.recording.async_session",
     "app.services.sessions.async_session",
+    "app.services.chat_late_input.async_session",
     "app.tools.local.todos.async_session",
 )
 

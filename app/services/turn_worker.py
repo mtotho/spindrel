@@ -508,6 +508,19 @@ async def _drive_normal_turn_stream(
     att_payload: list[dict] | None,
 ) -> None:
     state.from_index = len(messages)
+
+    async def _drain_late_input(*, iteration: int):
+        if scope.correlation_id is None:
+            return None
+        from app.services.chat_late_input import drain_pending_chat_burst
+
+        return await drain_pending_chat_burst(
+            session_id=scope.session_id,
+            channel_id=scope.channel_id,
+            bot_id=req.bot_id,
+            correlation_id=scope.correlation_id,
+        )
+
     run_stream_iter = run_stream(
         messages,
         bot,
@@ -524,6 +537,7 @@ async def _drive_normal_turn_stream(
         model_override=req.model_override or ctx.model_override,
         provider_id_override=req.model_provider_id_override or ctx.provider_id_override,
         system_preamble=ctx.system_preamble,
+        late_input_drain_fn=_drain_late_input if scope.has_channel else None,
     )
     async for event in emit_run_stream_events(
         run_stream_iter,

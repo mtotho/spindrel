@@ -186,8 +186,9 @@ export function useChannelChatSource(channelId: string): UseChannelChatSourceRet
       if (!channel || !channelId) return;
       setSendError(null);
       const clientLocalId = makeClientLocalId();
+      const optimisticMsgId = `msg-${clientLocalId}`;
       addMessage(channelId, {
-        id: `msg-${clientLocalId}`,
+        id: optimisticMsgId,
         session_id: channel.active_session_id ?? "",
         role: "user",
         content: text,
@@ -212,15 +213,41 @@ export function useChannelChatSource(channelId: string): UseChannelChatSourceRet
       };
       submitChat.mutate(req, {
         onSuccess: (result) => {
-          if (result.queued && result.task_id) {
-            useChatStore.getState().setProcessing(channelId, result.task_id);
+          if (result.queued) {
+            const store = useChatStore.getState();
+            const current = store.channels[channelId]?.messages ?? [];
+            const localQueuedCount = current.filter((message) => {
+              const meta = (message.metadata ?? {}) as Record<string, unknown>;
+              return message.role === "user" && (message.id === optimisticMsgId || meta.local_status === "queued");
+            }).length;
+            const queuedCount = Math.max(result.queued_message_count ?? 0, localQueuedCount);
+            setMessages(channelId, current.map((message) => {
+              const meta = (message.metadata ?? {}) as Record<string, any>;
+              const isQueuedLocal =
+                message.role === "user" &&
+                (message.id === optimisticMsgId || meta.local_status === "queued");
+              if (!isQueuedLocal) return message;
+              return {
+                ...message,
+                metadata: {
+                  ...meta,
+                  local_status: "queued",
+                  queued_task_id: result.task_id,
+                  queued_message_count: queuedCount,
+                  queued_coalesced: result.coalesced ?? queuedCount > 1,
+                },
+              };
+            }));
+            if (result.task_id) {
+              store.setProcessing(channelId, result.task_id);
+            }
           }
         },
         onError: (err) =>
           setSendError(err instanceof Error ? err.message : "Failed to send"),
       });
     },
-    [channel, channelId, addMessage, submitChat],
+    [channel, channelId, addMessage, setMessages, submitChat],
   );
 
   const invertedData = useMemo(

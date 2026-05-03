@@ -165,6 +165,41 @@ show key names and missing bindings only; secret values are not returned by the
 Project API or rendered in the UI. Missing required secrets warn in readiness
 surfaces but do not block general Project runtimes.
 
+## Run Environment Profiles
+
+Project coding runs may select a run environment profile with
+`run_environment_profile`. The selected profile runs before the first model
+turn and can prepare repo-local setup, background dev processes, readiness
+checks, and required artifacts. Failure blocks the run before agent launch and
+publishes `run_environment_preflight` evidence on the run row and receipt.
+
+Profile definition precedence is single-source, not merged:
+
+1. Trusted repo file at `.spindrel/profiles/<id>.yaml` / `.yml` / `.toml`.
+2. Applied Blueprint snapshot `run_environment_profiles[<id>]`.
+
+Repo-file profiles are ignored unless Project metadata sets
+`trust_repo_environment_profiles=true`. When trusted, the file bytes must match
+the operator-approved hash in Project metadata; changed bytes block with
+`needs_review` before commands execute. Admins approve reviewed bytes through
+`POST /api/v1/projects/{project_id}/run-environment-profiles/{profile_id}/approvals`
+with the current SHA-256 hash from the blocked preflight evidence. Project
+metadata may select a default profile id, but it does not define executable
+profile bodies in V1.
+
+`isolated_worktree` is the default and expected mode for mutating setup
+commands and background processes. `shared_repo` runs do not create a private
+worktree or Docker daemon; profile env, readiness checks, and required
+artifacts may still apply against the shared checkout. A profile that wants to
+run setup commands or background processes in `shared_repo` must explicitly
+include `shared_repo` in `work_surface_modes`, because that can race with a
+human using the same checkout.
+
+Do not put literal secret values in profile YAML. Secrets belong in Project
+secret bindings and are exposed to commands only through OS env. Runtime
+redaction knows Project-bound secret values; a hard-coded value in YAML is not
+part of that registry and should be treated as a policy violation.
+
 ## Fresh Instances
 
 Project Instances are temporary roots created from a Project's frozen Blueprint

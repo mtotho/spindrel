@@ -618,8 +618,11 @@ def _filter_messages_to_persist(
     *,
     pre_user_msg_id: uuid.UUID | None,
 ) -> list[dict]:
-    """Drop ephemeral system rows and (when the first user message is already persisted) skip it."""
-    new_messages = [m for m in messages[from_index:] if m.get("role") != "system"]
+    """Drop ephemeral/internal rows and skip already-persisted user rows."""
+    new_messages = [
+        m for m in messages[from_index:]
+        if m.get("role") != "system" and not m.get("_skip_persist")
+    ]
     if pre_user_msg_id:
         _skipped = False
         filtered: list[dict] = []

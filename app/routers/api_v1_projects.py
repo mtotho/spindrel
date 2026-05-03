@@ -62,6 +62,7 @@ from app.services.project_dependency_stacks import (
 )
 from app.services.project_setup import list_project_setup_runs, load_project_setup_plan, run_project_setup
 from app.services.project_runtime import load_project_runtime_environment
+from app.services.project_run_environment_profiles import approve_run_environment_profile_hash
 from app.services.project_factory_state import get_project_factory_state
 from app.services.project_orchestration_policy import get_project_orchestration_policy
 from app.services.projects import (
@@ -427,6 +428,18 @@ class ProjectCodingRunScheduleOut(BaseModel):
     loop_policy: dict | None = None
 
 
+class ProjectRunEnvironmentProfileApprovalWrite(BaseModel):
+    sha256: str
+
+
+class ProjectRunEnvironmentProfileApprovalOut(BaseModel):
+    project_id: uuid.UUID
+    profile_id: str
+    sha256: str
+    approved_by: str | None = None
+    approved_at: str
+
+
 class ProjectCodingRunTaskOut(BaseModel):
     id: uuid.UUID
     status: str
@@ -456,6 +469,7 @@ class ProjectCodingRunOut(BaseModel):
     dev_targets: list[dict] = Field(default_factory=list)
     dependency_stack: dict = Field(default_factory=dict)
     dependency_stack_preflight: dict = Field(default_factory=dict)
+    run_environment_preflight: dict = Field(default_factory=dict)
     execution_environment: dict = Field(default_factory=dict)
     readiness: dict = Field(default_factory=dict)
     work_surface: dict = Field(default_factory=dict)
@@ -1635,6 +1649,34 @@ async def get_project_coding_run_review_sessions(
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
     return await list_project_coding_run_review_sessions(db, project, limit=limit)
+
+
+@router.post(
+    "/{project_id}/run-environment-profiles/{profile_id}/approvals",
+    response_model=ProjectRunEnvironmentProfileApprovalOut,
+)
+async def approve_project_run_environment_profile_endpoint(
+    project_id: uuid.UUID,
+    profile_id: str,
+    body: ProjectRunEnvironmentProfileApprovalWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    user_id = _auth_user_id(_auth)
+    try:
+        approval = approve_run_environment_profile_hash(
+            project,
+            profile_id=profile_id,
+            sha256=body.sha256,
+            approved_by=str(user_id) if user_id is not None else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await db.commit()
+    return {"project_id": project.id, **approval}
 
 
 @router.post("/{project_id}/coding-runs", response_model=ProjectCodingRunOut, status_code=201)

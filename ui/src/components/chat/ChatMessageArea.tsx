@@ -60,6 +60,60 @@ function MessageSkeletons() {
   );
 }
 
+function isQueuedFollowup(message: Message | undefined): boolean {
+  if (!message || message.role !== "user") return false;
+  const meta = (message.metadata ?? {}) as Record<string, unknown>;
+  return meta.local_status === "queued";
+}
+
+function queuedFollowupRunCount(invertedData: Message[], newestQueuedIndex: number): number {
+  let count = 0;
+  for (let index = newestQueuedIndex; index < invertedData.length; index += 1) {
+    if (!isQueuedFollowup(invertedData[index])) break;
+    count += 1;
+  }
+  return count;
+}
+
+function QueuedFollowupNotice({
+  count,
+  t,
+  chatMode,
+}: {
+  count: number;
+  t: ReturnType<typeof useThemeTokens>;
+  chatMode: "default" | "terminal";
+}) {
+  const plural = count > 1;
+  const title = plural
+    ? `${count} follow-ups queued together`
+    : "Follow-up queued";
+  const detail = plural
+    ? "The active response will try to absorb them at the next turn boundary. Otherwise they will be sent after this turn."
+    : "The active response will try to absorb it at the next turn boundary. Otherwise it will be sent after this turn.";
+  const isTerminalMode = chatMode === "terminal";
+  return (
+    <div
+      role="status"
+      className="mx-auto my-2 rounded-md px-3 py-2 text-xs"
+      style={{
+        maxWidth: 520,
+        backgroundColor: isTerminalMode ? `${t.overlayLight}18` : `${t.warning}10`,
+        border: `1px solid ${isTerminalMode ? t.overlayBorder : `${t.warning}35`}`,
+        color: isTerminalMode ? t.textMuted : t.text,
+        overflowWrap: "anywhere",
+      }}
+    >
+      <div style={{ fontWeight: 600, color: isTerminalMode ? t.text : t.warning }}>
+        {title}
+      </div>
+      <div style={{ marginTop: 2, color: t.textMuted, lineHeight: 1.35 }}>
+        {detail}
+      </div>
+    </div>
+  );
+}
+
 export function DateSeparator({ label }: { label: string }) {
   const t = useThemeTokens();
   return (
@@ -498,6 +552,12 @@ export function ChatMessageArea({
               const meta = item.metadata ?? {};
               const stableKey = typeof meta.client_local_id === "string" ? meta.client_local_id : item.id;
               const localStatus = typeof meta.local_status === "string" ? meta.local_status : null;
+              const isQueued = isQueuedFollowup(item);
+              const nextNewerIsQueued = isQueuedFollowup(invertedData[chronIdx - 1]);
+              const queuedNoticeCount =
+                isQueued && !nextNewerIsQueued
+                  ? queuedFollowupRunCount(invertedData, chronIdx)
+                  : 0;
               return (
                 <div
                   key={stableKey}
@@ -506,6 +566,13 @@ export function ChatMessageArea({
                   style={{ userSelect: "text" }}
                 >
                   {renderMessage({ item, index: chronIdx })}
+                  {queuedNoticeCount > 0 && (
+                    <QueuedFollowupNotice
+                      count={queuedNoticeCount}
+                      t={t}
+                      chatMode={chatMode}
+                    />
+                  )}
                 </div>
               );
             })}

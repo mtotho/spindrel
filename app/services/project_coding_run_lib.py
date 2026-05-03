@@ -1090,6 +1090,7 @@ async def _coding_run_row(
         "dev_targets": [t.to_persisted() for t in ctx.dev_targets],
         "dependency_stack": dependency_stack,
         "dependency_stack_preflight": cfg.get("dependency_stack_preflight") or {},
+        "run_environment_preflight": cfg.get("run_environment_preflight") or {},
         "execution_environment": execution_environment,
         "readiness": ctx.readiness_summary(dependency_stack_status=dependency_stack),
         "work_surface": work_surface,

@@ -528,6 +528,7 @@ async def stream_tool_loop_events(
     run_control_policy: dict[str, Any] | None,
     is_outermost_stream: bool,
     delegation_posts: list,
+    late_input_drain_fn: Callable[..., Any] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     loop_kwargs = {
         "session_id": session_id,
@@ -547,6 +548,7 @@ async def stream_tool_loop_events(
         "compaction": compaction,
         "context_profile_name": context_profile_name,
         "run_control_policy": run_control_policy,
+        "late_input_drain_fn": late_input_drain_fn,
     }
     if not is_outermost_stream:
         async for event in run_agent_tool_loop_fn(messages, bot, **loop_kwargs):

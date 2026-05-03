@@ -194,6 +194,43 @@ class TestProjectsApi:
         assert listed.status_code == 200
         assert [row["id"] for row in listed.json()] == [first_body["id"]]
 
+    async def test_project_run_environment_profile_approval_endpoint_records_hash(self, client, db_session):
+        workspace = await _workspace(db_session)
+        created = await client.post(
+            "/api/v1/projects",
+            json={
+                "workspace_id": str(workspace.id),
+                "name": "Profile Approval Project",
+                "root_path": "common/projects/profile-approval",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert created.status_code == 201
+        project_id = created.json()["id"]
+        digest = "a" * 64
+
+        approved = await client.post(
+            f"/api/v1/projects/{project_id}/run-environment-profiles/harness-parity/approvals",
+            json={"sha256": digest},
+            headers=AUTH_HEADERS,
+        )
+
+        assert approved.status_code == 200
+        body = approved.json()
+        assert body["project_id"] == project_id
+        assert body["profile_id"] == "harness-parity"
+        assert body["sha256"] == digest
+        db_session.expire_all()
+        project = await db_session.get(Project, uuid.UUID(project_id))
+        assert project.metadata_["run_environment_profile_approvals"]["harness-parity"]["sha256"] == digest
+
+        rejected = await client.post(
+            f"/api/v1/projects/{project_id}/run-environment-profiles/harness-parity/approvals",
+            json={"sha256": "not-a-hash"},
+            headers=AUTH_HEADERS,
+        )
+        assert rejected.status_code == 422
+
     async def test_project_coding_runs_create_guided_task_and_list_receipt(self, client, db_session):
         workspace = await _workspace(db_session)
         blueprint_resp = await client.post(
