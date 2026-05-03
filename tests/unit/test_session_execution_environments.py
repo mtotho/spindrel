@@ -46,8 +46,8 @@ async def test_prepare_session_worktree_creates_branch_from_canonical_repo(tmp_p
         metadata_={"blueprint_snapshot": {"repos": [{"path": "repo", "branch": "main", "canonical": True}]}},
     )
     monkeypatch.setattr(
-        "app.services.session_execution_environments.project_canonical_repo_host_path",
-        lambda _project: str(source),
+        "app.services.session_execution_environments.project_repo_host_path",
+        lambda _project, **_kwargs: str(source),
     )
     monkeypatch.setattr(
         "app.services.session_execution_environments._project_workspace_host_root",

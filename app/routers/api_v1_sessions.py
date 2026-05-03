@@ -1152,6 +1152,22 @@ async def get_session_execution_environment_endpoint(
     )
 
 
+@router.get("/{session_id}/git-status")
+async def get_session_git_status_endpoint(
+    session_id: uuid.UUID,
+    include_patch: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    from app.services.project_git_status import session_git_status
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await _authorize_session_read(db, session, auth)
+    return await session_git_status(db, session_id, include_patch=include_patch)
+
+
 async def _session_environment_project_context(db: AsyncSession, session: Session, channel: Channel | None):
     project_id = getattr(channel, "project_id", None) if channel is not None else None
     project = await db.get(Project, project_id) if project_id is not None else None

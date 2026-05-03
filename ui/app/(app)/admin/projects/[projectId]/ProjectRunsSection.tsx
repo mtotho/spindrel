@@ -90,6 +90,12 @@ function columnLabel(key: BoardColumnKey) {
   return "Closed";
 }
 
+const WORK_SURFACE_OPTIONS = [
+  { label: "Isolated worktree", value: "isolated_worktree" },
+  { label: "Fresh Project instance", value: "fresh_project_instance" },
+  { label: "Shared repo", value: "shared_repo" },
+];
+
 function DetailRow({ label, value }: { label: string; value?: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-4 border-t border-surface-border/45 pt-2 text-[12px]">
@@ -170,6 +176,7 @@ export function ProjectRunsSection({
 
   const [selectedChannelId, setSelectedChannelId] = useState("");
   const [selectedRepoPath, setSelectedRepoPath] = useState("");
+  const [runWorkSurfaceMode, setRunWorkSurfaceMode] = useState("isolated_worktree");
   const [request, setRequest] = useState("");
   const [selectedItemId, setSelectedItemId] = useState("");
   const [runMachineTargetGrant, setRunMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
@@ -183,6 +190,7 @@ export function ProjectRunsSection({
   const [scheduleRequest, setScheduleRequest] = useState("Review the Project for regressions, stale PRs, missing tests, and architecture issues. If changes are needed, implement them, run tests/screenshots, open a PR, and publish a Project run receipt. If no change is needed, publish a no-change receipt.");
   const [scheduleStart, setScheduleStart] = useState("");
   const [scheduleRecurrence, setScheduleRecurrence] = useState("+1w");
+  const [scheduleWorkSurfaceMode, setScheduleWorkSurfaceMode] = useState("isolated_worktree");
   const [scheduleMachineTargetGrant, setScheduleMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
   const [scheduleLoopEnabled, setScheduleLoopEnabled] = useState(false);
   const [scheduleLoopMaxIterations, setScheduleLoopMaxIterations] = useState(3);
@@ -250,6 +258,8 @@ export function ProjectRunsSection({
     setScheduleRequest(schedule.request || "");
     setScheduleStart(schedule.scheduled_at || "");
     setScheduleRecurrence(schedule.recurrence || "");
+    setSelectedRepoPath(schedule.repo_path || selectedRepoPath);
+    setScheduleWorkSurfaceMode(schedule.work_surface_mode || "isolated_worktree");
     setScheduleMachineTargetGrant((schedule.machine_target_grant as MachineTargetGrant | null) || null);
     setScheduleLoopEnabled(Boolean(loop.enabled));
     setScheduleLoopMaxIterations(Number(loop.max_iterations || 3));
@@ -269,6 +279,7 @@ export function ProjectRunsSection({
         channel_id: selectedChannel.id,
         request: request.trim(),
         repo_path: selectedRepoPath || null,
+        work_surface_mode: runWorkSurfaceMode,
         machine_target_grant: runMachineTargetGrant,
         loop_policy: loopEnabled
           ? {
@@ -296,6 +307,8 @@ export function ProjectRunsSection({
         request: scheduleRequest.trim(),
         scheduled_at: scheduleStart || null,
         recurrence: scheduleRecurrence || "",
+        repo_path: selectedRepoPath || null,
+        work_surface_mode: scheduleWorkSurfaceMode,
         machine_target_grant: scheduleMachineTargetGrant,
         loop_policy: scheduleLoopEnabled
           ? {
@@ -319,6 +332,8 @@ export function ProjectRunsSection({
       request: scheduleRequest.trim(),
       scheduled_at: scheduleStart || null,
       recurrence: scheduleRecurrence || "",
+      repo_path: selectedRepoPath || null,
+      work_surface_mode: scheduleWorkSurfaceMode,
       machine_target_grant: scheduleMachineTargetGrant,
       loop_policy: scheduleLoopEnabled
         ? {
@@ -441,6 +456,8 @@ export function ProjectRunsSection({
             blueprintRepos={blueprintRepos}
             selectedRepoPath={selectedRepoPath}
             setSelectedRepoPath={setSelectedRepoPath}
+            runWorkSurfaceMode={runWorkSurfaceMode}
+            setRunWorkSurfaceMode={setRunWorkSurfaceMode}
             request={request}
             setRequest={setRequest}
             runMachineTargetGrant={runMachineTargetGrant}
@@ -465,6 +482,8 @@ export function ProjectRunsSection({
             setScheduleStart={setScheduleStart}
             scheduleRecurrence={scheduleRecurrence}
             setScheduleRecurrence={setScheduleRecurrence}
+            scheduleWorkSurfaceMode={scheduleWorkSurfaceMode}
+            setScheduleWorkSurfaceMode={setScheduleWorkSurfaceMode}
             scheduleMachineTargetGrant={scheduleMachineTargetGrant}
             setScheduleMachineTargetGrant={setScheduleMachineTargetGrant}
             scheduleLoopEnabled={scheduleLoopEnabled}
@@ -516,6 +535,8 @@ function Inspector({
   blueprintRepos,
   selectedRepoPath,
   setSelectedRepoPath,
+  runWorkSurfaceMode,
+  setRunWorkSurfaceMode,
   request,
   setRequest,
   runMachineTargetGrant,
@@ -540,6 +561,8 @@ function Inspector({
   setScheduleStart,
   scheduleRecurrence,
   setScheduleRecurrence,
+  scheduleWorkSurfaceMode,
+  setScheduleWorkSurfaceMode,
   scheduleMachineTargetGrant,
   setScheduleMachineTargetGrant,
   scheduleLoopEnabled,
@@ -582,6 +605,8 @@ function Inspector({
   blueprintRepos: { label: string; value: string }[];
   selectedRepoPath: string;
   setSelectedRepoPath: (value: string) => void;
+  runWorkSurfaceMode: string;
+  setRunWorkSurfaceMode: (value: string) => void;
   request: string;
   setRequest: (value: string) => void;
   runMachineTargetGrant: MachineTargetGrant | null;
@@ -606,6 +631,8 @@ function Inspector({
   setScheduleStart: (value: string) => void;
   scheduleRecurrence: string;
   setScheduleRecurrence: (value: string) => void;
+  scheduleWorkSurfaceMode: string;
+  setScheduleWorkSurfaceMode: (value: string) => void;
   scheduleMachineTargetGrant: MachineTargetGrant | null;
   setScheduleMachineTargetGrant: (value: MachineTargetGrant | null) => void;
   scheduleLoopEnabled: boolean;
@@ -671,6 +698,9 @@ function Inspector({
                 <SelectInput value={selectedRepoPath} onChange={setSelectedRepoPath} options={blueprintRepos} />
               </FormRow>
             )}
+            <FormRow label="Work surface">
+              <SelectInput value={runWorkSurfaceMode} onChange={setRunWorkSurfaceMode} options={WORK_SURFACE_OPTIONS} />
+            </FormRow>
             <PromptEditor
               value={request}
               onChange={setRequest}
@@ -734,6 +764,14 @@ function Inspector({
             </FormRow>
             <FormRow label="Repeat">
               <SelectInput value={scheduleRecurrence} onChange={setScheduleRecurrence} options={[{ label: "Daily", value: "+1d" }, { label: "Weekly", value: "+1w" }, { label: "Manual", value: "" }]} />
+            </FormRow>
+            {blueprintRepos.length > 1 && (
+              <FormRow label="Repository">
+                <SelectInput value={selectedRepoPath} onChange={setSelectedRepoPath} options={blueprintRepos} />
+              </FormRow>
+            )}
+            <FormRow label="Work surface">
+              <SelectInput value={scheduleWorkSurfaceMode} onChange={setScheduleWorkSurfaceMode} options={WORK_SURFACE_OPTIONS} />
             </FormRow>
             <PromptEditor value={scheduleRequest} onChange={setScheduleRequest} label="Scheduled run prompt" rows={5} fieldType="task_prompt" generateContext={`Project: ${project.name}. Root: /${project.root_path}`} />
             <ExecutionAccessControl value={scheduleMachineTargetGrant} onChange={setScheduleMachineTargetGrant} testId="project-schedule-execution-access" />
@@ -860,6 +898,7 @@ function Inspector({
             <DetailRow label="Status" value={schedule.enabled ? "active" : "paused"} />
             <DetailRow label="Runs" value={schedule.run_count} />
             <DetailRow label="Last run" value={schedule.last_run ? `${schedule.last_run.status || "unknown"} · ${formatRunTime(schedule.last_run.created_at)}` : "none"} />
+            <DetailRow label="Work surface" value={(schedule.work_surface_mode || "isolated_worktree").replaceAll("_", " ")} />
             <DetailRow label="Execution" value={executionAccessLine(schedule.machine_target_grant) || "default"} />
             <DetailRow label="Loop" value={loopPolicy.enabled ? `${loopPolicy.max_iterations || 3} iterations · ${loopPolicy.stop_condition || "bounded"}` : "disabled"} />
           </div>
@@ -885,6 +924,14 @@ function Inspector({
             </FormRow>
             <FormRow label="Repeat">
               <SelectInput value={scheduleRecurrence} onChange={setScheduleRecurrence} options={[{ label: "Daily", value: "+1d" }, { label: "Weekly", value: "+1w" }, { label: "Every 5 days", value: "+5d" }, { label: "Manual", value: "" }]} />
+            </FormRow>
+            {blueprintRepos.length > 1 && (
+              <FormRow label="Repository">
+                <SelectInput value={selectedRepoPath} onChange={setSelectedRepoPath} options={blueprintRepos} />
+              </FormRow>
+            )}
+            <FormRow label="Work surface">
+              <SelectInput value={scheduleWorkSurfaceMode} onChange={setScheduleWorkSurfaceMode} options={WORK_SURFACE_OPTIONS} />
             </FormRow>
             <PromptEditor value={scheduleRequest} onChange={setScheduleRequest} label="Scheduled run prompt" rows={5} fieldType="task_prompt" generateContext={`Project: ${project.name}. Root: /${project.root_path}`} />
             <ExecutionAccessControl value={scheduleMachineTargetGrant} onChange={setScheduleMachineTargetGrant} testId={`project-schedule-${schedule.id}-execution-access`} />

@@ -14,6 +14,7 @@ import type {
   ProjectCodingRunTask,
   ProjectFactoryReviewInbox,
   ProjectFromBlueprintWrite,
+  ProjectGitStatus,
   ProjectInstance,
   ProjectRunReceipt,
   ProjectRuntimeEnv,
@@ -44,6 +45,22 @@ export function useProject(projectId: string | undefined) {
     queryKey: ["projects", projectId],
     queryFn: () => apiFetch<Project>(`/api/v1/projects/${projectId}`),
     enabled: !!projectId,
+  });
+}
+
+export function useProjectGitStatus(
+  projectId: string | undefined,
+  opts: { repoPath?: string | null; includePatch?: boolean; refetchIntervalMs?: number } = {},
+) {
+  const params = new URLSearchParams();
+  if (opts.repoPath) params.set("repo_path", opts.repoPath);
+  if (opts.includePatch) params.set("include_patch", "true");
+  const query = params.toString();
+  return useQuery({
+    queryKey: ["projects", projectId, "git-status", opts.repoPath ?? null, !!opts.includePatch],
+    queryFn: () => apiFetch<ProjectGitStatus>(`/api/v1/projects/${projectId}/git-status${query ? `?${query}` : ""}`),
+    enabled: !!projectId,
+    refetchInterval: opts.refetchIntervalMs ?? 15_000,
   });
 }
 
@@ -112,6 +129,21 @@ export function useSessionExecutionEnvironment(sessionId: string | undefined | n
     queryFn: () => apiFetch<SessionExecutionEnvironment>(`/api/v1/sessions/${sessionId}/execution-environment`),
     enabled: !!sessionId,
     refetchInterval: 10_000,
+  });
+}
+
+export function useSessionGitStatus(
+  sessionId: string | undefined | null,
+  opts: { includePatch?: boolean; refetchIntervalMs?: number } = {},
+) {
+  const params = new URLSearchParams();
+  if (opts.includePatch) params.set("include_patch", "true");
+  const query = params.toString();
+  return useQuery({
+    queryKey: ["sessions", sessionId, "git-status", !!opts.includePatch],
+    queryFn: () => apiFetch<ProjectGitStatus>(`/api/v1/sessions/${sessionId}/git-status${query ? `?${query}` : ""}`),
+    enabled: !!sessionId,
+    refetchInterval: opts.refetchIntervalMs ?? 15_000,
   });
 }
 
@@ -216,6 +248,25 @@ export function useProjectCodingRun(projectId: string | undefined, taskId: strin
   });
 }
 
+export function useProjectCodingRunGitStatus(
+  projectId: string | undefined,
+  taskId: string | undefined,
+  opts: { includePatch?: boolean; refetchIntervalMs?: number } = {},
+) {
+  const params = new URLSearchParams();
+  if (opts.includePatch) params.set("include_patch", "true");
+  const query = params.toString();
+  return useQuery({
+    queryKey: ["projects", projectId, "coding-runs", taskId, "git-status", !!opts.includePatch],
+    queryFn: () =>
+      apiFetch<ProjectGitStatus>(
+        `/api/v1/projects/${projectId}/coding-runs/${taskId}/git-status${query ? `?${query}` : ""}`,
+      ),
+    enabled: !!projectId && !!taskId,
+    refetchInterval: opts.refetchIntervalMs ?? 15_000,
+  });
+}
+
 export function useProjectCodingRunReviewBatches(projectId: string | undefined) {
   return useQuery({
     queryKey: ["projects", projectId, "coding-runs", "review-batches"],
@@ -243,7 +294,7 @@ export function useProjectCodingRunSchedules(projectId: string | undefined) {
 export function useCreateProjectCodingRunSchedule(projectId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { channel_id: string; title?: string; request?: string; scheduled_at?: string | null; recurrence?: string; machine_target_grant?: MachineTargetGrant | null; loop_policy?: ProjectRunLoopPolicyInput | null }) =>
+    mutationFn: (data: { channel_id: string; title?: string; request?: string; scheduled_at?: string | null; recurrence?: string; repo_path?: string | null; work_surface_mode?: string; machine_target_grant?: MachineTargetGrant | null; loop_policy?: ProjectRunLoopPolicyInput | null }) =>
       apiFetch<ProjectCodingRunSchedule>(`/api/v1/projects/${projectId}/coding-run-schedules`, {
         method: "POST",
         body: JSON.stringify(data),
@@ -265,6 +316,8 @@ export function useUpdateProjectCodingRunSchedule(projectId: string | undefined)
       request?: string;
       scheduled_at?: string | null;
       recurrence?: string;
+      repo_path?: string | null;
+      work_surface_mode?: string;
       enabled?: boolean;
       machine_target_grant?: MachineTargetGrant | null;
       loop_policy?: ProjectRunLoopPolicyInput | null;
@@ -314,7 +367,7 @@ export function useDisableProjectCodingRunSchedule(projectId: string | undefined
 export function useCreateProjectCodingRun(projectId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { channel_id: string; request?: string; repo_path?: string | null; machine_target_grant?: MachineTargetGrant | null; source_artifact?: { path: string; section?: string | null; commit_sha?: string | null } | null; loop_policy?: ProjectRunLoopPolicyInput | null }) =>
+    mutationFn: (data: { channel_id: string; request?: string; repo_path?: string | null; work_surface_mode?: string; machine_target_grant?: MachineTargetGrant | null; source_artifact?: { path: string; section?: string | null; commit_sha?: string | null } | null; loop_policy?: ProjectRunLoopPolicyInput | null }) =>
       apiFetch<ProjectCodingRun>(`/api/v1/projects/${projectId}/coding-runs`, {
         method: "POST",
         body: JSON.stringify(data),

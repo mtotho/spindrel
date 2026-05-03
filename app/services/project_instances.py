@@ -86,6 +86,11 @@ def project_instance_cleanup_summary(
 
 
 def task_project_instance_policy(execution_config: dict[str, Any] | None) -> ProjectInstancePolicy:
+    mode = (execution_config or {}).get("work_surface_mode")
+    if mode == "fresh_project_instance":
+        return ProjectInstancePolicy(mode="fresh")
+    if mode in {"isolated_worktree", "shared_repo"}:
+        return ProjectInstancePolicy()
     raw = (execution_config or {}).get("project_instance") or {}
     if isinstance(raw, dict) and raw.get("mode") == "fresh":
         return ProjectInstancePolicy(mode="fresh")

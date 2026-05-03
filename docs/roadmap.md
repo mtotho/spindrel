@@ -1,7 +1,7 @@
 ---
 tags: [spindrel, roadmap, master]
 status: active
-updated: 2026-05-01
+updated: 2026-05-03
 ---
 # Agent Server — Roadmap
 
@@ -69,7 +69,7 @@ Full detail in [[completed-tracks]].
 | Integration Delivery | shipped + remaining | Phases A–G + UI + bus restructure shipped. H acceptance gaps + manual smoke + ~10 polish remain | [[integration-delivery]] |
 | Streaming Architecture | Phase 1 shipped | Bus carries data + seq + replay. Phases 3–5 (split UI cache, transport split, backpressure) planned | [[streaming-architecture]] |
 | Code Quality | ambient track refreshed 2026-04-29 | Ousterhout/deep-module cleanup continues by fresh verify-first scan, not stale cluster numbers. Major shipped waves include indexing, tool dispatch, loop/context/task/turn/heartbeat, startup/runtime, usage, integrations, widgets, chat UI, and context diagnostics. | [[code-quality]] |
-| Architecture Deepening | inventory expanded 2026-05-02 | Rolling candidate list from the `improve-codebase-architecture` skill. 12 candidates open across agent loop, api+services, integrations, and UI. Coverage gap closed; `app/db/` + `integrations/sdk.py` proper + most of `app/services/` confirmed clean. Landed deepenings logged in `docs/deepening-log.md`. | [[architecture-deepening]] |
+| Architecture Deepening | Tool Surface composition shipped 2026-05-03 | Rolling candidate list from the `improve-codebase-architecture` skill. Tool Surface composition (candidate #1) extracted from `context_assembly.py` into `app/agent/tool_surface/` (composer + heartbeat/retrieval/enrollment/finalize); `context_assembly.py` shrunk 3240 → 2401 LOC, 13 tests at the new interface. 11 candidates remain across agent loop, api+services, integrations, and UI. Landed deepenings logged in `docs/deepening-log.md`. | [[architecture-deepening]] |
 | Memory & Knowledge admin | 2026-04-24 | `/admin/learning` reframed; read-first unified search across bot memory + KBs + history + dreaming | (in admin UI) |
 | Wyoming Voice | Phase 1 + 3 + 4 shipped | Scaffold + ESPHome + satellite. Wake-word routing / streaming TTS / ESPHome wake remain |  |
 | Widget SDK | A + B.0–B.6 shipped | iframe SDK + handler bridge (Todo widget); `@on_event` channel subs + `widget_suite.py` shared-DB suites | [[widget-sdk]] |

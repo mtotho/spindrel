@@ -9,6 +9,7 @@ import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useSecretValues } from "@/src/api/hooks/useSecretValues";
 import { useWorkspace } from "@/src/api/hooks/useWorkspaces";
 import { ProjectRunsSection } from "./ProjectRunsSection";
+import { ProjectGitPanel } from "./ProjectGitPanel";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { AnchorSection } from "@/src/components/shared/AnchorSection";
 import { FormRow, Section, SelectInput, TabBar, TextInput } from "@/src/components/shared/FormControls";
@@ -33,12 +34,13 @@ const TerminalPanel = lazy(() =>
   import("@/src/components/terminal/TerminalPanel").then((m) => ({ default: m.TerminalPanel })),
 );
 
-type ProjectTab = "overview" | "runs" | "feed" | "channels" | "setup" | "instances" | "files" | "terminal" | "settings";
+type ProjectTab = "overview" | "runs" | "feed" | "git" | "channels" | "setup" | "instances" | "files" | "terminal" | "settings";
 
 const TABS: Array<{ key: ProjectTab; label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "runs", label: "Runs" },
   { key: "feed", label: "Feed" },
+  { key: "git", label: "Git" },
   { key: "channels", label: "Channels" },
   { key: "setup", label: "Setup" },
   { key: "instances", label: "Instances" },
@@ -1446,6 +1448,12 @@ export default function ProjectDetail() {
         {tab === "feed" && (
           <div className="h-full overflow-auto">
             <ProjectRunsSection project={project} channels={channels} receipts={receipts} mode="feed" />
+          </div>
+        )}
+
+        {tab === "git" && (
+          <div className="h-full overflow-auto">
+            <ProjectGitPanel projectId={project.id} />
           </div>
         )}
 

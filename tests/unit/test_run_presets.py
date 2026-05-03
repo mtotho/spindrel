@@ -59,7 +59,7 @@ def test_list_run_presets_can_filter_by_surface():
     assert list_run_presets("missing_surface") == []
 
 
-def test_project_coding_run_defaults_to_fresh_project_receipt_flow():
+def test_project_coding_run_defaults_to_isolated_worktree_receipt_flow():
     preset = get_run_preset("project_coding_run")
 
     assert preset is not None
@@ -68,7 +68,7 @@ def test_project_coding_run_defaults_to_fresh_project_receipt_flow():
 
     assert payload["surface"] == "project_coding_run"
     assert defaults["session_target"] == {"mode": "new_each_run"}
-    assert defaults["project_instance"] == {"mode": "fresh"}
+    assert defaults["project_instance"] == {"mode": "shared"}
     assert defaults["allow_issue_reporting"] is True
     assert defaults["harness_effort"] == "high"
     assert defaults["max_run_seconds"] == 7200
@@ -97,7 +97,7 @@ def test_project_coding_run_review_defaults_to_selected_run_finalizer():
 
     assert payload["surface"] == "project_coding_run_review"
     assert defaults["session_target"] == {"mode": "new_each_run"}
-    assert defaults["project_instance"] == {"mode": "fresh"}
+    assert defaults["project_instance"] == {"mode": "shared"}
     assert "finalize_project_coding_run_review" in defaults["tools"]
     assert "get_project_coding_run_details" in defaults["tools"]
     assert "get_project_coding_run_review_context" in defaults["tools"]

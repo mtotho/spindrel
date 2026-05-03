@@ -23,9 +23,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Project, ProjectInstance, Session, SessionExecutionEnvironment
 from app.services.project_instances import project_directory_from_instance
 from app.services.projects import (
-    project_canonical_repo_host_path,
     project_canonical_repo_relative_path,
     project_directory_from_project,
+    project_repo_host_path,
 )
 
 
@@ -175,10 +175,11 @@ def _session_worktree_path(
     *,
     source_repo: Path,
     session_id: uuid.UUID,
+    repo_path: str | None = None,
 ) -> Path:
     metadata = project.metadata_ if isinstance(project.metadata_, dict) else {}
     snapshot = metadata.get("blueprint_snapshot") if isinstance(metadata, dict) else None
-    repo_rel = project_canonical_repo_relative_path(snapshot)
+    repo_rel = repo_path or project_canonical_repo_relative_path(snapshot)
     rel = Path(repo_rel) if repo_rel else Path(source_repo.name)
     short = str(session_id).replace("-", "")[:12]
     return (
@@ -205,10 +206,11 @@ def _prepare_session_worktree(
     session_id: uuid.UUID,
     branch: str | None = None,
     base_branch: str | None = None,
+    repo_path: str | None = None,
 ) -> dict[str, Any] | None:
     if project is None:
         return None
-    raw_source = project_canonical_repo_host_path(project)
+    raw_source = project_repo_host_path(project, repo_path=repo_path)
     if not raw_source:
         return None
     source = Path(raw_source).resolve()
@@ -218,7 +220,7 @@ def _prepare_session_worktree(
     if top.returncode != 0:
         return None
     source = Path(top.stdout.strip() or source).resolve()
-    target = _session_worktree_path(project, source_repo=source, session_id=session_id)
+    target = _session_worktree_path(project, source_repo=source, session_id=session_id, repo_path=repo_path)
     resolved_branch = (branch or "").strip() or _default_branch_name(session_id)
     base_ref = (base_branch or "").strip() or "HEAD"
 
@@ -230,6 +232,7 @@ def _prepare_session_worktree(
             "worktree_path": str(target),
             "branch": resolved_branch,
             "base_ref": base_ref,
+            "repo_path": repo_path,
             "created_sha": sha.stdout.strip() if sha.returncode == 0 else None,
             "reused": True,
         }
@@ -255,6 +258,7 @@ def _prepare_session_worktree(
         "worktree_path": str(target),
         "branch": resolved_branch,
         "base_ref": base_ref,
+        "repo_path": repo_path,
         "created_sha": sha.stdout.strip() if sha.returncode == 0 else None,
         "reused": False,
     }
@@ -387,6 +391,7 @@ async def ensure_isolated_session_environment(
     project_instance: ProjectInstance | None = None,
     branch: str | None = None,
     base_branch: str | None = None,
+    repo_path: str | None = None,
     ttl_seconds: int = DEFAULT_ISOLATED_TTL_SECONDS,
 ) -> SessionExecutionEnvironment:
     existing = await get_session_execution_environment(db, session_id)
@@ -411,6 +416,7 @@ async def ensure_isolated_session_environment(
         session_id=session_id,
         branch=branch,
         base_branch=base_branch,
+        repo_path=repo_path,
     )
     cwd = str(worktree["worktree_path"]) if worktree is not None else _session_project_cwd(project_instance, project)
     if not cwd:
@@ -463,6 +469,7 @@ async def record_failed_session_execution_environment(
     error: str,
     branch: str | None = None,
     base_branch: str | None = None,
+    repo_path: str | None = None,
 ) -> SessionExecutionEnvironment:
     """Persist a visible failed environment record without aborting the session.
 
@@ -494,6 +501,7 @@ async def record_failed_session_execution_environment(
         "error": error,
         "requested_branch": branch,
         "requested_base_branch": base_branch,
+        "requested_repo_path": repo_path,
         "isolation": "git_worktree_per_session_docker_daemon",
     }
     env.updated_at = now
@@ -727,6 +735,7 @@ async def manage_session_execution_environment(
     action: str,
     project: Project | None = None,
     project_instance: ProjectInstance | None = None,
+    repo_path: str | None = None,
     pinned: bool | None = None,
     ttl_seconds: int | None = None,
 ) -> dict[str, Any]:
@@ -743,6 +752,7 @@ async def manage_session_execution_environment(
             session_id=sid,
             project=project,
             project_instance=project_instance,
+            repo_path=repo_path,
             ttl_seconds=ttl_seconds or DEFAULT_ISOLATED_TTL_SECONDS,
         )
         return {"ok": True, "environment": session_execution_environment_out(env, session_id=env.session_id)}

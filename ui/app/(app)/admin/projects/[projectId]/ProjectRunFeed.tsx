@@ -4,23 +4,7 @@ import { CalendarClock, CheckCircle2, GitBranch, GitMerge } from "lucide-react";
 import type { ProjectCodingRunSchedule } from "@/src/types/api";
 import { EmptyState, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { formatRunTime } from "./ProjectRunControls";
-import {
-  evidenceLine,
-  type FeedItem,
-  isActiveRun,
-  isClosedRun,
-  itemTimestamp,
-  reviewStatus,
-  runStatus,
-  runTitle,
-  startedTimestamp,
-} from "./ProjectRunsModel";
-
-function feedGroupLabel(group: FeedItem["group"]) {
-  if (group === "upcoming") return "Upcoming";
-  if (group === "active") return "Active / review";
-  return "History";
-}
+import { evidenceLine, type FeedItem, isActiveRun, isClosedRun, itemTimestamp, reviewStatus, runStatus, runTitle, startedTimestamp } from "./ProjectRunsModel";
 
 function runTone(run: FeedItem & { kind: "run" }): "success" | "warning" | "danger" | "neutral" {
   const status = runStatus(run.run);
@@ -113,26 +97,15 @@ export function ProjectRunFeed({
     );
   }
 
-  const groups: FeedItem["group"][] = ["upcoming", "active", "history"];
   return (
-    <div data-testid="project-workspace-feed" className="flex min-h-full flex-col gap-4 px-3 py-3">
-      {groups.map((group) => {
-        const rows = items.filter((item) => item.group === group);
-        if (rows.length === 0) return null;
-        return (
-          <section key={group} className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-2 px-1 text-[10px] font-bold uppercase tracking-[0.08em] text-text-dim/80">
-              <span>{feedGroupLabel(group)}</span>
-              <span className="text-text-dim">{rows.length}</span>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              {rows.map((item) => (
-                <RunFeedRow key={item.id} item={item} projectId={projectId} onSelectSchedule={onSelectSchedule} />
-              ))}
-            </div>
-          </section>
-        );
-      })}
+    <div data-testid="project-workspace-feed" className="flex min-h-full flex-col gap-1.5 px-3 py-3">
+      <div className="flex items-center gap-2 px-1 pb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-text-dim/80">
+        <span>Chronological</span>
+        <span className="text-text-dim">{items.length}</span>
+      </div>
+      {items.map((item) => (
+        <RunFeedRow key={item.id} item={item} projectId={projectId} onSelectSchedule={onSelectSchedule} />
+      ))}
     </div>
   );
 }

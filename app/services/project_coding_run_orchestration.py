@@ -24,6 +24,9 @@ from app.services.project_coding_run_lib import (
     ProjectConcurrencyCapExceeded,
     ProjectMachineTargetGrant,
     ProjectTaskExecutionContext,
+    WORK_SURFACE_FRESH_PROJECT_INSTANCE,
+    WORK_SURFACE_ISOLATED_WORKTREE,
+    WORK_SURFACE_SHARED_REPO,
     _attach_task_machine_grant,
     count_active_project_coding_implementations,
     _latest_run_receipts_by_task,
@@ -35,6 +38,7 @@ from app.services.project_coding_run_lib import (
     _utcnow,
     initial_project_run_loop_state,
     normalize_project_run_loop_policy,
+    normalize_work_surface_mode,
 )
 from app.services.project_runtime import project_snapshot
 
@@ -59,6 +63,7 @@ async def _ensure_project_run_execution_environment(
     project: Project,
     branch: str | None,
     base_branch: str | None,
+    repo_path: str | None,
 ) -> None:
     if task.session_id is None:
         return
@@ -86,6 +91,7 @@ async def _ensure_project_run_execution_environment(
             project=project,
             branch=branch,
             base_branch=base_branch,
+            repo_path=repo_path,
         )
         payload = session_execution_environment_out(env, session_id=env.session_id)
     except Exception as exc:
@@ -96,6 +102,7 @@ async def _ensure_project_run_execution_environment(
             error=str(exc),
             branch=branch,
             base_branch=base_branch,
+            repo_path=repo_path,
         )
         payload = session_execution_environment_out(env, session_id=env.session_id)
 
@@ -105,6 +112,17 @@ async def _ensure_project_run_execution_environment(
     cfg["project_coding_run"] = run_cfg
     task.execution_config = cfg
     await db.flush()
+
+
+def _apply_work_surface_mode(task: Task, mode: str) -> None:
+    normalized = normalize_work_surface_mode(mode)
+    ecfg = dict(task.execution_config or {})
+    ecfg["work_surface_mode"] = normalized
+    if normalized == WORK_SURFACE_FRESH_PROJECT_INSTANCE:
+        ecfg["project_instance"] = {"mode": "fresh"}
+    else:
+        ecfg["project_instance"] = {"mode": "shared"}
+    task.execution_config = ecfg
 
 
 async def _attach_visible_project_run_session(
@@ -175,6 +193,7 @@ def _project_coding_run_prompt(
     runtime_target: dict[str, Any],
     dev_targets: list[dict[str, Any]] | None = None,
     machine_target_grant: ProjectMachineTargetGrant | None = None,
+    work_surface_mode: str = WORK_SURFACE_ISOLATED_WORKTREE,
     continuation: dict[str, Any] | None = None,
     loop_policy: dict[str, Any] | None = None,
     loop_iteration: int = 1,
@@ -183,6 +202,7 @@ def _project_coding_run_prompt(
     branch = defaults.get("branch")
     repo = defaults.get("repo") or {}
     repo_path = repo.get("path") or "the Project root"
+    cwd_line = repo.get("path") or "the Project root"
     configured_keys = ", ".join(runtime_target.get("configured_keys") or []) or "none"
     missing_secrets = ", ".join(runtime_target.get("missing_secrets") or []) or "none"
     dependency_stack = _safe_dependency_stack_target(project)
@@ -249,10 +269,12 @@ def _project_coding_run_prompt(
         f"- Repository path: {repo_path}\n"
         f"- Base branch: {base_branch}\n"
         f"- Work branch: {branch}\n"
+        f"- Work surface mode: {normalize_work_surface_mode(work_surface_mode)}\n"
+        f"- Effective CWD: {cwd_line}\n"
         f"- Runtime/dev/dependency configured keys: {configured_keys}\n"
         f"- Missing runtime secret bindings: {missing_secrets}\n\n"
         "Execution environment:\n"
-        "- Scheduled and Project coding runs use an isolated session work surface when configured by the host.\n"
+        "- Scheduled and Project coding runs use the configured work surface from the run launcher.\n"
         "- Use ordinary shell, test, Docker, and docker compose commands from the current working directory. In isolated runs, Docker commands are routed to this session's private Docker daemon.\n"
         "- Start any app/dev server yourself with native bash on your own unused or assigned port; do not restart another agent's server process.\n\n"
         "Project-run boundary:\n"
@@ -262,7 +284,7 @@ def _project_coding_run_prompt(
         f"{dev_target_block}\n"
         f"{_machine_access_prompt_block(machine_target_grant)}\n"
         "Guided handoff requirements:\n"
-        "1. Before editing, inspect git status and update from the base branch when safe.\n"
+        "1. Before editing, confirm the current directory is the repo root, inspect git status, and update from the base branch when safe.\n"
         f"2. Create or switch to the work branch `{branch}` before making changes.\n"
         "3. Use the Project runtime env, dependency stack env, and assigned dev targets for repo-local tests, app/dev servers, and screenshots.\n"
         "4. If GitHub credentials and gh are available, push the branch and open a draft PR. "
@@ -311,6 +333,7 @@ async def create_project_coding_run(
         schedule_task_id=body.schedule_task_id,
         schedule_run_number=body.schedule_run_number,
     )
+    work_surface_mode = normalize_work_surface_mode(body.work_surface_mode)
     loop_policy = normalize_project_run_loop_policy(body.loop_policy)
     prompt = _project_coding_run_prompt(
         base_prompt=preset.task_defaults.prompt,
@@ -320,6 +343,7 @@ async def create_project_coding_run(
         runtime_target=ctx.runtime_target.to_persisted(),
         dev_targets=[t.to_persisted() for t in ctx.dev_targets],
         machine_target_grant=body.machine_target_grant,
+        work_surface_mode=work_surface_mode,
         loop_policy=loop_policy,
     )
     task = Task(
@@ -332,6 +356,7 @@ async def create_project_coding_run(
         created_at=_utcnow(),
     )
     ctx.apply_to_task(task, channel=channel)
+    _apply_work_surface_mode(task, work_surface_mode)
     run_cfg = task.execution_config.setdefault("project_coding_run", {})
     run_cfg["loop_policy"] = loop_policy
     run_cfg["loop_state"] = initial_project_run_loop_state(loop_policy)
@@ -345,13 +370,15 @@ async def create_project_coding_run(
     )
     db.add(task)
     await db.flush()
-    await _ensure_project_run_execution_environment(
-        db,
-        task=task,
-        project=project,
-        branch=ctx.branch,
-        base_branch=ctx.base_branch,
-    )
+    if work_surface_mode != WORK_SURFACE_SHARED_REPO:
+        await _ensure_project_run_execution_environment(
+            db,
+            task=task,
+            project=project,
+            branch=ctx.branch,
+            base_branch=ctx.base_branch,
+            repo_path=ctx.repo.get("path") if isinstance(ctx.repo, dict) else body.repo_path,
+        )
     await _attach_task_machine_grant(
         db,
         task=task,
@@ -428,6 +455,7 @@ async def continue_project_coding_run(
     parent_cfg = parent.execution_config if isinstance(parent.execution_config, dict) else {}
     parent_run_cfg = parent_cfg.get("project_coding_run") if isinstance(parent_cfg.get("project_coding_run"), dict) else {}
     loop_policy = normalize_project_run_loop_policy(parent_run_cfg.get("loop_policy") if isinstance(parent_run_cfg.get("loop_policy"), dict) else None)
+    work_surface_mode = normalize_work_surface_mode(parent_cfg.get("work_surface_mode"))
     prompt = _project_coding_run_prompt(
         base_prompt=preset.task_defaults.prompt,
         project=project,
@@ -436,6 +464,7 @@ async def continue_project_coding_run(
         runtime_target=ctx.runtime_target.to_persisted(),
         dev_targets=[t.to_persisted() for t in ctx.dev_targets],
         machine_target_grant=None,
+        work_surface_mode=work_surface_mode,
         continuation=continuation_context,
         loop_policy=loop_policy,
         loop_iteration=continuation_index + 1,
@@ -449,6 +478,7 @@ async def continue_project_coding_run(
         created_at=_utcnow(),
     )
     ctx.apply_to_task(task, channel=channel)
+    _apply_work_surface_mode(task, work_surface_mode)
     task.title = f"{preset.task_defaults.title} follow-up {continuation_index}"
     parent_ecfg = parent.execution_config if isinstance(parent.execution_config, dict) else {}
     task_run_cfg = task.execution_config.setdefault("project_coding_run", {})
@@ -462,6 +492,7 @@ async def continue_project_coding_run(
         task.execution_config["session_target"] = dict(parent_ecfg["session_target"])
     if isinstance(parent_ecfg.get("project_instance"), dict):
         task.execution_config["project_instance"] = dict(parent_ecfg["project_instance"])
+    task.execution_config["work_surface_mode"] = work_surface_mode
     await _attach_visible_project_run_session(
         db,
         channel=channel,
@@ -476,13 +507,15 @@ async def continue_project_coding_run(
     }
     db.add(task)
     await db.flush()
-    await _ensure_project_run_execution_environment(
-        db,
-        task=task,
-        project=project,
-        branch=ctx.branch,
-        base_branch=ctx.base_branch,
-    )
+    if work_surface_mode != WORK_SURFACE_SHARED_REPO:
+        await _ensure_project_run_execution_environment(
+            db,
+            task=task,
+            project=project,
+            branch=ctx.branch,
+            base_branch=ctx.base_branch,
+            repo_path=ctx.repo.get("path") if isinstance(ctx.repo, dict) else None,
+        )
     await db.commit()
     await db.refresh(task)
     return task

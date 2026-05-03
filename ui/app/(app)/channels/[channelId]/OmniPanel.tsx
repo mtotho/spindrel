@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   FolderOpen,
+  GitBranch,
   Layers,
   MessageCircle,
   NotebookText,
@@ -21,6 +22,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { FilesTabPanel } from "./FilesTabPanel";
 import { NotesTabPanel } from "./NotesTabPanel";
 import { SessionsTabPanel } from "./SessionsTabPanel";
+import { GitTabPanel } from "./GitTabPanel";
 import type { ChannelSessionSurface } from "@/src/lib/channelSessionSurfaces";
 import { WidgetRailSection } from "./WidgetRailSection";
 import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
@@ -49,6 +51,7 @@ interface OmniPanelProps {
   /** Channel display name — fuels the Breadcrumb humanizer. */
   channelDisplayName?: string | null;
   activeFile: string | null;
+  activeSessionId?: string | null;
   onSelectFile: (path: string, options?: { split?: boolean }) => void;
   onOpenTerminal?: (workspaceRelativePath: string) => void;
   onClose: () => void;
@@ -100,6 +103,7 @@ export function OmniPanel({
   botId,
   channelDisplayName,
   activeFile,
+  activeSessionId,
   onSelectFile,
   onOpenTerminal,
   onClose: _onClose,
@@ -230,15 +234,18 @@ export function OmniPanel({
   );
   useEffect(() => {
     if (!hasWorkspace && selectedTab === "files") setTab("widgets");
+    if (!project && selectedTab === "git") setTab("sessions");
     if (mobileTabs && selectedTab === "notes") setTab("sessions");
-  }, [hasWorkspace, mobileTabs, selectedTab, setTab]);
+  }, [hasWorkspace, mobileTabs, project, selectedTab, setTab]);
 
   const activeTab: OmniPanelTab = hasWorkspace
     ? mobileTabs && selectedTab === "notes"
       ? "sessions"
       : selectedTab
-    : selectedTab === "files" || selectedTab === "notes"
-      ? "widgets"
+    : selectedTab === "git" && project
+      ? "git"
+      : selectedTab === "files" || selectedTab === "notes"
+        ? "widgets"
       : selectedTab;
 
   const activateSessionSurface = useCallback(
@@ -299,6 +306,15 @@ export function OmniPanel({
               priority="secondary"
             />
           )}
+          {project && (
+            <WorkbenchNavButton
+              label="Git"
+              icon={<GitBranch size={13} />}
+              active={activeTab === "git"}
+              onClick={() => setTab("git")}
+              priority="secondary"
+            />
+          )}
         </div>
       </div>
 
@@ -318,6 +334,10 @@ export function OmniPanel({
         </div>
       ) : activeTab === "files" && hasWorkspace ? (
         <div className="flex-1 min-h-0 overflow-hidden">{filesSection}</div>
+      ) : activeTab === "git" && project ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <GitTabPanel project={project} activeSessionId={activeSessionId} />
+        </div>
       ) : (
         <div className="flex flex-col flex-1 min-h-0 overflow-y-auto scroll-subtle px-2 pb-2 pt-2">
           {hasWidgets ? widgetsSection : <EmptyWidgets dashboardHref={resolvedDashboardHref} t={t} />}

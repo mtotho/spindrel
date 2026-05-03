@@ -217,6 +217,22 @@ def project_canonical_repo_host_path(project: Any, snapshot: dict[str, Any] | No
     return str(Path(project_dir.host_path) / rel)
 
 
+def project_repo_host_path(project: Any, repo_path: str | None = None, snapshot: dict[str, Any] | None = None) -> str | None:
+    """Absolute on-disk path for an explicit or canonical Project repo."""
+    if snapshot is None:
+        metadata = getattr(project, "metadata_", None)
+        snapshot = metadata.get("blueprint_snapshot") if isinstance(metadata, dict) else None
+    rel = normalize_project_path(repo_path) if repo_path else project_canonical_repo_relative_path(snapshot)
+    if rel is None:
+        return None
+    project_dir = project_directory_from_project(project)
+    root = Path(project_dir.host_path).resolve()
+    target = (root / rel).resolve()
+    if target != root and root not in target.parents:
+        return None
+    return str(target)
+
+
 def validate_blueprint_repos_canonical(repos: list[dict[str, Any]] | None) -> None:
     """Enforce the at-most-one-canonical invariant on a repos list.
 

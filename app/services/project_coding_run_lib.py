@@ -32,6 +32,31 @@ from app.services.projects import normalize_project_path, project_directory_from
 PROJECT_CODING_RUN_PRESET_ID = "project_coding_run"
 PROJECT_CODING_RUN_REVIEW_PRESET_ID = "project_coding_run_review"
 PROJECT_CODING_RUN_SCHEDULE_PRESET_ID = "project_coding_run_schedule"
+WORK_SURFACE_ISOLATED_WORKTREE = "isolated_worktree"
+WORK_SURFACE_FRESH_PROJECT_INSTANCE = "fresh_project_instance"
+WORK_SURFACE_SHARED_REPO = "shared_repo"
+VALID_WORK_SURFACE_MODES = {
+    WORK_SURFACE_ISOLATED_WORKTREE,
+    WORK_SURFACE_FRESH_PROJECT_INSTANCE,
+    WORK_SURFACE_SHARED_REPO,
+}
+
+
+def normalize_work_surface_mode(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    aliases = {
+        "isolated": WORK_SURFACE_ISOLATED_WORKTREE,
+        "worktree": WORK_SURFACE_ISOLATED_WORKTREE,
+        "git_worktree": WORK_SURFACE_ISOLATED_WORKTREE,
+        "fresh": WORK_SURFACE_FRESH_PROJECT_INSTANCE,
+        "project_instance": WORK_SURFACE_FRESH_PROJECT_INSTANCE,
+        "shared": WORK_SURFACE_SHARED_REPO,
+        "shared_project_root": WORK_SURFACE_SHARED_REPO,
+    }
+    mode = aliases.get(raw, raw or WORK_SURFACE_ISOLATED_WORKTREE)
+    if mode not in VALID_WORK_SURFACE_MODES:
+        raise ValueError(f"work_surface_mode must be one of {', '.join(sorted(VALID_WORK_SURFACE_MODES))}")
+    return mode
 
 
 class ProjectConcurrencyCapExceeded(ValueError):
@@ -219,6 +244,7 @@ class ProjectCodingRunCreate:
     channel_id: uuid.UUID
     request: str = ""
     repo_path: str | None = None
+    work_surface_mode: str = WORK_SURFACE_ISOLATED_WORKTREE
     machine_target_grant: ProjectMachineTargetGrant | None = None
     granted_by_user_id: uuid.UUID | None = None
     source_artifact: dict | None = None
@@ -233,6 +259,7 @@ class ProjectCodingRunScheduleCreate:
     title: str = "Scheduled Project coding run"
     request: str = ""
     repo_path: str | None = None
+    work_surface_mode: str = WORK_SURFACE_ISOLATED_WORKTREE
     scheduled_at: datetime | None = None
     recurrence: str = "+1w"
     machine_target_grant: ProjectMachineTargetGrant | None = None
@@ -245,6 +272,7 @@ class ProjectCodingRunScheduleUpdate:
     title: str | None = None
     request: str | None = None
     repo_path: str | None = None
+    work_surface_mode: str | None = None
     scheduled_at: datetime | None = None
     recurrence: str | None = None
     enabled: bool | None = None
@@ -703,6 +731,8 @@ def _evidence_summary(receipt: ProjectRunReceipt | None) -> dict[str, Any]:
 
 def _task_project_instance_policy(task: Task) -> str:
     ecfg = task.execution_config if isinstance(task.execution_config, dict) else {}
+    if normalize_work_surface_mode(ecfg.get("work_surface_mode")) == WORK_SURFACE_FRESH_PROJECT_INSTANCE:
+        return "fresh"
     raw = ecfg.get("project_instance")
     if isinstance(raw, dict) and raw.get("mode") == "fresh":
         return "fresh"
@@ -734,7 +764,9 @@ def _work_surface_summary(
     instance: ProjectInstance | None,
 ) -> dict[str, Any]:
     policy = _task_project_instance_policy(task)
-    expected = "fresh_project_instance" if policy == "fresh" else "shared_project_root"
+    ecfg = task.execution_config if isinstance(task.execution_config, dict) else {}
+    work_surface_mode = normalize_work_surface_mode(ecfg.get("work_surface_mode"))
+    expected = work_surface_mode
     stall_state = _stall_state_for_task(task)
     stall_overlay: dict[str, Any] = {}
     if stall_state:
@@ -746,6 +778,7 @@ def _work_surface_summary(
             "kind": "project_instance",
             "isolation": "isolated",
             "expected": expected,
+            "work_surface_mode": work_surface_mode,
             "active": active,
             "status": instance.status,
             "display_path": f"/workspace/{instance.root_path.strip('/')}",
@@ -764,6 +797,7 @@ def _work_surface_summary(
             "kind": "project_instance",
             "isolation": "pending",
             "expected": expected,
+            "work_surface_mode": work_surface_mode,
             "active": False,
             "status": "pending",
             "display_path": None,
@@ -777,6 +811,7 @@ def _work_surface_summary(
         "kind": "project",
         "isolation": "shared",
         "expected": expected,
+        "work_surface_mode": work_surface_mode,
         "active": True,
         "status": "ready",
         "display_path": f"/workspace/{project.root_path.strip('/')}",
@@ -798,11 +833,14 @@ def _session_environment_work_surface(
     active = status == "ready"
     cwd = execution_environment.get("cwd")
     metadata = execution_environment.get("metadata") if isinstance(execution_environment.get("metadata"), dict) else {}
+    ecfg = task.execution_config if isinstance(task.execution_config, dict) else {}
+    work_surface_mode = normalize_work_surface_mode(ecfg.get("work_surface_mode"))
     blocker = None if active else (metadata.get("error") or "Session execution environment is not ready.")
     return {
         "kind": "session_execution_environment",
         "isolation": execution_environment.get("mode") or "isolated",
         "expected": "session_execution_environment",
+        "work_surface_mode": work_surface_mode,
         "active": active,
         "status": status,
         "display_path": cwd,

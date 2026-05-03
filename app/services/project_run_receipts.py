@@ -216,6 +216,17 @@ async def create_project_run_receipt(
         commit_sha=normalized_commit_sha,
         session_id=session_uuid,
     )
+    normalized_metadata = _normalize_dict(metadata)
+    if "git" not in normalized_metadata:
+        try:
+            from app.services.project_git_status import project_run_git_status, receipt_git_summary
+
+            if task_uuid is not None:
+                normalized_metadata["git"] = receipt_git_summary(
+                    await project_run_git_status(db, await db.get(Project, project_uuid), task_uuid)
+                )
+        except Exception as exc:
+            normalized_metadata["git_error"] = str(exc)[:512]
 
     receipt: ProjectRunReceipt | None = None
     if normalized_idempotency_key:
@@ -250,7 +261,7 @@ async def create_project_run_receipt(
         tests=tests,
         screenshots=screenshots,
         dev_targets=dev_targets,
-        metadata=metadata,
+        metadata=normalized_metadata,
     )
     db.add(receipt)
     await db.commit()

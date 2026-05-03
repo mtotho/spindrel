@@ -2,7 +2,7 @@
 
 Canonical entry point for any agent (Codex, Claude Code, etc.) working in this repo. **`CLAUDE.md` is a symlink to this file** — both agents read the same rules.
 
-This file is the index, the rule book, and the retrieval contract. Drill into `docs/` for project state and canonical guides. Personal session notes and cross-project context live in the user's vault (`~/personal/vault/Sessions/spindrel/`, etc.) — referenced from here, not duplicated.
+This file is the index, the rule book, and the retrieval contract. Drill into `docs/` and `.spindrel/` for project state, run evidence, and canonical guides.
 
 ## Reading order at session start
 
@@ -10,7 +10,6 @@ This file is the index, the rule book, and the retrieval contract. Drill into `d
 1. This file (`AGENTS.md`).
 2. `docs/roadmap.md` — what's actively in flight.
 3. `.spindrel/WORKFLOW.md` — repo-local workflow contract for artifact boundaries, Project runs, intake, tracks, and runtime-skill boundaries.
-4. The most recent file in `~/personal/vault/Sessions/spindrel/` — last session's notes (vault-private; skip if vault is unavailable).
 
 **Tier 1 — read when relevant to the current task:**
 - `docs/inbox.md` — open bugs / ideas / tech debt / questions. Light schema (`## <date> <time> <slug>` + `**kind:** · **area:** · **status:**` tag line). Replaces the prior `loose-ends.md`.
@@ -25,13 +24,13 @@ This file is the index, the rule book, and the retrieval contract. Drill into `d
 
 - **Phase:** Active Product Buildout. Feature work, structural cleanup, bug fixing all in scope.
 - **Where work is happening:** see `docs/roadmap.md` for the active list with 1-line summaries; open the named track for detail.
-- **Server:** test server is at `10.10.30.208` (SSH alias `spindrel-bot`). Tests, cron, scripts run *on the server* in `/opt/thoth-server/`. Ephemeral instance for personal work is `~/spindrel-e2e/`. See vault `Test Server Operations.md` for credentials and details.
+- **Server:** test server is at `10.10.30.208` (SSH alias `spindrel-bot`). Tests, cron, scripts run *on the server* in `/opt/thoth-server/`. Ephemeral instance for personal work is `~/spindrel-e2e/`. Credentials are operator-provided, never assumed by portable agents.
 
 ## Where to look for what
 
 | Need | File |
 |---|---|
-| Repo-local workflow contract: what belongs in inbox, tracks, plans, audits, receipts, or vault | `.spindrel/WORKFLOW.md` |
+| Repo-local workflow contract: what belongs in inbox, tracks, plans, audits, or receipts | `.spindrel/WORKFLOW.md` |
 | Current active work, status of named tracks | `docs/roadmap.md` |
 | Open bugs, tech debt, things to verify | `docs/inbox.md` |
 | Why does it work this way? | `docs/architecture-decisions.md` |
@@ -42,9 +41,8 @@ This file is the index, the rule book, and the retrieval contract. Drill into `d
 | Track contract — when to create, format, lifecycle | `docs/guides/tracks.md` |
 | Public-facing docs / mkdocs landing | `docs/index.md` (don't confuse with this file) |
 | Canonical contributor guides | `docs/guides/index.md` |
-| Future ideas, parking lot (private) | `~/personal/vault/Projects/spindrel/Ideas & Investigations.md` |
-| Test server credentials, SSH (private) | `~/personal/vault/Projects/spindrel/Test Server Operations.md` |
-| Recent session context (private) | `~/personal/vault/Sessions/spindrel/` |
+| Future ideas, parking lot | `docs/inbox.md` for triage, `docs/plans/` or `.spindrel/prds/` when promoted |
+| Run evidence, receipts, session continuity | `.spindrel/runs/`, `.spindrel/audits/`, Project receipts, and linked source docs |
 | Hot-path memory rules (Claude Code only) | `~/.claude/projects/.../memory/MEMORY.md` |
 
 ## Canonical guides — `docs/guides/`
@@ -125,7 +123,7 @@ updated: YYYY-MM-DD
 - **Untested code changes are suspect.** If you modify logic and no existing tests break, that's not a green light — it means the path has no coverage. Either fix existing tests to match new behavior, or write new tests as part of the change.
 - **God functions are the #1 bug source.** `context_assembly`, `loop`, `tasks`, etc. — when working in those files, look for sub-functions to extract; treat decomposition as part of the task, not a separate cleanup.
 - **Understand the system before writing tests.** Read the code first; reason about actual behavior. Don't write tests from assumptions.
-- **Use hooks for enforcement, not memory rewrites.** When the same mistake happens twice, add a deterministic hook in `~/personal/dotfiles/claude/hooks/`. Memory-based rules get skipped during "task completion" mode; hooks don't.
+- **Use deterministic checks for enforcement.** When the same mistake happens twice, add a repo-local test, lint, script, or documented server-side hook. Do not rely on private machine memory for portable agent behavior.
 - **Split UI files at 1000 lines** — extract into sibling files.
 - **No integration-specific code in `app/`** — must live in `integrations/{name}/`.
 - **Cross-integration helpers live in `integrations/sdk.py`** — before adding a private helper to any `integrations/<id>/`, grep `integrations/sdk.py` for an existing one. Same helper appearing in 2+ integrations is a smell, gated by `tests/unit/test_integration_no_duplicate_helpers.py`.
@@ -137,9 +135,9 @@ updated: YYYY-MM-DD
 
 - Fixing a bug from `docs/inbox.md`: remove it there and add a one-line entry to `docs/fix-log.md` in the **same edit**.
 - Completing a track phase: update the track's `## Status` table immediately. Compress phase prose in place when work ships. See `docs/guides/tracks.md` for the full lifecycle (when to flip `status: complete`, when to supersede, when to split).
-- Do not use tracks as session logs. Tracks carry current state and links; long dated execution history belongs in `docs/audits/`, `docs/plans/`, `.spindrel/audits/`, Project receipts, or the private session vault per `.spindrel/WORKFLOW.md`.
+- Do not use tracks as session logs. Tracks carry current state and links; long dated execution history belongs in `docs/audits/`, `docs/plans/`, `.spindrel/audits/`, Project receipts, or `.spindrel/runs/` per `.spindrel/WORKFLOW.md`.
 - Making a load-bearing decision: add to `docs/architecture-decisions.md`.
-- Discovering a bug or gotcha: add to `docs/inbox.md`. Ideas / speculation go to vault `Ideas & Investigations.md` instead.
+- Discovering a bug or gotcha: add to `docs/inbox.md`. Promote reusable ideas to `docs/plans/` or `.spindrel/prds/` when they become actionable.
 - Architectural change: update the matching `docs/guides/<area>.md` in the same pass.
 
 ## Worktree safety

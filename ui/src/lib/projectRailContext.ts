@@ -1,11 +1,11 @@
-export type ProjectRailChildKey = "overview" | "runs" | "feed" | "files";
+export type ProjectRailChildKey = "overview" | "runs" | "feed" | "git" | "files";
 
 export interface ProjectRailContext {
   projectId: string;
   activeChild: ProjectRailChildKey;
 }
 
-const CHILD_KEYS = new Set<ProjectRailChildKey>(["overview", "runs", "feed", "files"]);
+const CHILD_KEYS = new Set<ProjectRailChildKey>(["overview", "runs", "feed", "git", "files"]);
 
 export function projectRailContextForLocation(pathname: string, hash = ""): ProjectRailContext | null {
   const parts = pathname.split("/").filter(Boolean);

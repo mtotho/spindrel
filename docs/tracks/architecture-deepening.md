@@ -24,32 +24,25 @@ Spindrel's agent surfaces (loop, context assembly, tool dispatch) are the #1 bug
 
 | # | Candidate | Area | Confidence | State | Updated |
 |---|---|---|---|---|---|
-| 1 | ~~Tool Surface composition (extract from context_assembly)~~ | app/agent | high | **done — see deepening-log 2026-05-03** | 2026-05-03 |
-| 2 | Tool Execution Policy gateway | app/agent | high | not started | 2026-05-02 |
-| 3 | Tool Result Envelope vs. invocation | app/agent | medium | not started | 2026-05-02 |
-| 4 | Message Assembly module (consolidate transcript mutation) | app/agent | medium | not started | 2026-05-02 |
-| 5 | Pruning policy vs. mechanics | app/agent | medium-low | not started | 2026-05-02 |
-| 6 | LoopHarness facade | app/agent | low | needs grilling | 2026-05-02 |
-| 7 | Tool Schema Resolver | app/agent + app/tools | low-medium | not started | 2026-05-02 |
-| 8 | Widget envelope + response projection | api + services | high | not started | 2026-05-02 |
-| 9 | Chat handler preflight + audio routing | api | high | not started | 2026-05-02 |
-| 10 | Integration renderer drift / sdk lift | integrations | medium-high | not started | 2026-05-02 |
-| 11 | Read Model Builder (channel/session/pin) | services | high | not started | 2026-05-02 |
-| 12 | Large-screen UI state machines | ui | medium | not started | 2026-05-02 |
+| 1 | Tool Execution Policy gateway | app/agent | high | not started | 2026-05-02 |
+| 2 | Tool Result Envelope vs. invocation | app/agent | medium | not started | 2026-05-02 |
+| 3 | Message Assembly module (consolidate transcript mutation) | app/agent | medium | not started | 2026-05-02 |
+| 4 | Pruning policy vs. mechanics | app/agent | medium-low | not started | 2026-05-02 |
+| 5 | LoopHarness facade | app/agent | low | needs grilling | 2026-05-02 |
+| 6 | Tool Schema Resolver | app/agent + app/tools | low-medium | not started | 2026-05-02 |
+| 7 | Widget envelope + response projection | api + services | high | not started | 2026-05-02 |
+| 8 | Chat handler preflight + audio routing | api | high | not started | 2026-05-02 |
+| 9 | Integration renderer drift / sdk lift | integrations | medium-high | not started | 2026-05-02 |
+| 10 | Read Model Builder (channel/session/pin) | services | high | not started | 2026-05-02 |
+| 11 | Large-screen UI state machines | ui | medium | not started | 2026-05-02 |
 
-**Coverage gap closed on 2026-05-02 follow-up sweep.** Initial pass produced 7 candidates all inside `app/agent/`; follow-up swept `ui/`, `app/services/`, `app/db/`, `app/api/`, `integrations/`, and `app/tools/local/` outside the existing inventory. Five additional candidates surfaced (#8–#12). Areas confirmed clean enough to deprioritize next sweep: `ui/src/hooks/` (focused single-concern hooks), `app/db/` (no ORM leakage), `integrations/sdk.py` proper (clean import boundary), the bulk of `app/services/` and `app/tools/local/`. The next sweep should bias toward `app/agent/` drift detection on landed deepenings rather than fresh discovery.
+**Shipped:** Tool Surface composition (2026-05-03) — see `docs/deepening-log.md`.
+
+**Coverage gap closed on 2026-05-02 follow-up sweep.** Initial pass produced 7 candidates all inside `app/agent/`; follow-up swept `ui/`, `app/services/`, `app/db/`, `app/api/`, `integrations/`, and `app/tools/local/` outside the existing inventory. Five additional non-`app/agent` candidates surfaced (now numbered #7–#11). Areas confirmed clean enough to deprioritize next sweep: `ui/src/hooks/` (focused single-concern hooks), `app/db/` (no ORM leakage), `integrations/sdk.py` proper (clean import boundary), the bulk of `app/services/` and `app/tools/local/`. The next sweep should bias toward `app/agent/` drift detection on landed deepenings rather than fresh discovery.
 
 ## Candidate Inventory
 
-### 1. Tool Surface composition inside `context_assembly` — confidence: **high**
-
-- **Files**: `app/agent/context_assembly.py` (3185 lines, 46 helpers).
-- **Problem**: One file mixes 5 concerns — tool-schema aggregation, skill enrollment, RAG injection, memory/workspace prompts, heartbeat determinism. `test_heartbeat_tool_surface.py` mocks 12 collaborators because the module has no internal interfaces.
-- **Solution sketch**: Pull tool-surface composition into a dedicated module; same for skill enrollment resolution and workspace-context injection. `context_assembly` becomes the orchestrator that streams events from each.
-- **Benefits**: Heartbeat logic concentrates in one module instead of being scattered across four helpers + channel overrides. Each subdomain becomes unit-testable through a real interface.
-- **Domain language**: Tool Surface, Discovery, Enrollment, Context Admission, Memory scheme.
-
-### 2. Tool Execution Policy gateway — confidence: **high**
+### 1. Tool Execution Policy gateway — confidence: **high**
 
 - **Files**: `app/agent/loop_dispatch.py` (664 lines), `app/agent/tool_dispatch.py` (2096 lines), guards `_authorization_guard`, `_execution_policy_guard`, `_policy_and_approval_guard`, `_plan_mode_guard`.
 - **Problem**: Authorization / execution / approval / plan-mode rules are entangled with envelope building and trace emission, split across two modules. Approval-race bugs require cross-module tracing. Adding a new policy layer threads through 4 guards.
@@ -57,7 +50,7 @@ Spindrel's agent surfaces (loop, context assembly, tool dispatch) are the #1 bug
 - **Benefits**: Locality for security-critical rules. New policies (rate limits, cost caps, delegation rules) plug in as new gates, not new branches inside dispatch.
 - **Test seam**: `tests/unit/test_loop_approval_race.py` already exercises this surface.
 
-### 3. Tool Result Envelope vs. tool invocation — confidence: **medium**
+### 2. Tool Result Envelope vs. tool invocation — confidence: **medium**
 
 - **Files**: `app/agent/tool_dispatch.py` — `_build_default_envelope`, `_build_envelope_from_optin`, `_detect_content_type`, `_select_result_envelope`, `_build_tool_event`.
 - **Problem**: ~1080 lines of envelope-building (truncation, plaintext fallback, widget binding, size caps) live alongside execution. Envelope-only tests need full execution context with mocks.
@@ -65,7 +58,7 @@ Spindrel's agent surfaces (loop, context assembly, tool dispatch) are the #1 bug
 - **Benefits**: Presentation concerns decouple from execution. Truncation/widget tests become micro-unit tests with no async, no DB.
 - **Risk**: `_select_result_envelope` reads plan-mode state — needs threading as an explicit parameter.
 
-### 4. Message Assembly module — confidence: **medium**
+### 3. Message Assembly module — confidence: **medium**
 
 - **Files**: `app/agent/loop_helpers.py` (1080 lines), `app/agent/message_utils.py`, `loop_pre_llm.py`, `loop_tool_iteration.py`, sanitization paths in `context_assembly.py`.
 - **Problem**: `_sanitize_messages`, `_sanitize_llm_text`, `_extract_last_user_text`, `_append_transcript_text_entry`, `_collapse_final_assistant_tool_turn`, `_merge_tool_schemas` live in five different files but all mutate the messages array. The contract between them is implicit (e.g., sanitization runs once, callers must not re-sanitize).
@@ -73,7 +66,7 @@ Spindrel's agent surfaces (loop, context assembly, tool dispatch) are the #1 bug
 - **Benefits**: A new mutation (reasoning-trace injection, compaction-summary formatting) changes one file instead of five. Pure-function tests replace event-loop tests.
 - **Risk**: Some operations read context vars (`current_skills_in_context`); those would need to become explicit parameters.
 
-### 5. Pruning policy vs. pruning mechanics — confidence: **medium-low**
+### 4. Pruning policy vs. pruning mechanics — confidence: **medium-low**
 
 - **Files**: `app/agent/context_pruning.py` (478 lines), `_run_context_pruning` in `context_assembly.py`.
 - **Problem**: Two pruning phases — assembly-time (watermark-based) and in-loop (ratio-based) — duplicate the logic with different conditions. New strategies (cost-based, relevance-based) require touching both.
@@ -81,7 +74,7 @@ Spindrel's agent surfaces (loop, context assembly, tool dispatch) are the #1 bug
 - **Benefits**: Strategy experimentation without forking mechanics.
 - **Risk**: In-loop pruning runs every iteration — allocation overhead matters. Payoff depends on whether new policies actually emerge.
 
-### 6. LoopHarness facade — confidence: **low (needs grilling)**
+### 5. LoopHarness facade — confidence: **low (needs grilling)**
 
 - **Files**: 11 `loop*.py` modules under `app/agent/`, 15+ inter-agent imports.
 - **Problem**: The loop is callable but has no interface. Tests mock the whole DAG. Adding a new caller (subagent, batch task) means following the streaming generator through every submodule.
@@ -89,7 +82,7 @@ Spindrel's agent surfaces (loop, context assembly, tool dispatch) are the #1 bug
 - **Benefits**: Callers mock the harness, not the cluster.
 - **Open question for grilling**: are loop variants on the roadmap (parallel tool execution? reasoning mode?), or is the current streaming generator the canonical form? If no variants, this is indirection.
 
-### 7. Tool Schema Resolver — confidence: **low-medium**
+### 6. Tool Schema Resolver — confidence: **low-medium**
 
 - **Files**: `app/agent/tools.py` (678 lines, `retrieve_tools()`), `app/tools/registry.py` (392 lines), schema composition in `context_assembly.py`.
 - **Problem**: Pinned/tagged/enrolled lookup, in-memory registry, and semantic RAG retrieval are three modules with overlapping responsibility. Heartbeat vs. normal vs. fallback retrieval branches in `_run_tool_retrieval`.
@@ -97,7 +90,7 @@ Spindrel's agent surfaces (loop, context assembly, tool dispatch) are the #1 bug
 - **Benefits**: New discovery modes (MCP tool retrieval, plan-mode-restricted surfaces) add a resolver implementation, not branches in three modules.
 - **Caveat**: The taxonomy (Local/MCP/Client/Workspace) is settled in `architecture.md`. This is hygiene more than a load-bearing seam unless new discovery modes are coming.
 
-### 8. Widget envelope + response projection — confidence: **high**
+### 7. Widget envelope + response projection — confidence: **high**
 
 - **Files**: `app/services/widget_templates.py` (1297 lines, 26 functions), inline `model_validate()` chains in `app/routers/api_v1_channels.py` (~900+), `api_v1_sessions.py:491–912`, `api_v1_projects.py` (~900+).
 - **Problem**: Widget contract serialization (envelope transform, rendering-support matrix, rich-result adapter) lives in one dense service module. Channel/session/widget detail routes inline-construct `ChannelOut`, `SessionOut`, `WidgetEnvelopeOut` rather than going through a shared seam. `test_widget_catalog_api.py` (645 lines) mocks 12 collaborators because there's no isolated serializer to test.
@@ -105,7 +98,7 @@ Spindrel's agent surfaces (loop, context assembly, tool dispatch) are the #1 bug
 - **Benefits**: V1 widget shape changes touch one file, not 15. Session detail evolves through one builder, not four. Tests become micro-units instead of integration mocks.
 - **Domain language**: Widget Envelope, Widget Binding Context (existing), Response Projector.
 
-### 9. Chat handler preflight + audio routing — confidence: **high**
+### 8. Chat handler preflight + audio routing — confidence: **high**
 
 - **Files**: `app/routers/chat/_routes.py` (876 lines, 9 `@router.post` handlers), `app/routers/chat/_helpers.py` (323 lines), overlap with `app/services/audio_input.py`.
 - **Problem**: Validation, auth pre-checks, audio transcription (`_transcribe_audio_data`), attachment marshalling, session resolution, turn enqueueing all live inline in handlers. Handlers operate on `Any` for channel/session/bot — no typed pre-flight contract. Audio transcription mode-negotiation (`_resolve_audio_native` vs. `_transcribe_audio_data`) is split between route handler and service layer; same logic in two places.
@@ -113,7 +106,7 @@ Spindrel's agent surfaces (loop, context assembly, tool dispatch) are the #1 bug
 - **Benefits**: Audio mode-negotiation bugs fix in one place. New chat-request fields (RAG hints, embedding overrides) plug into the validator instead of being threaded through handler bodies. Worker tests mock `PreparedChatInput`, not the full handler stack.
 - **Domain language**: Chat Preflight Validator, Prepared Chat Input, Audio Transcription Router.
 
-### 10. Integration renderer drift / `sdk.py` lift — confidence: **medium-high**
+### 9. Integration renderer drift / `sdk.py` lift — confidence: **medium-high**
 
 - **Files**: `integrations/discord/renderer.py` (727 lines, 18 handlers), `integrations/slack/renderer.py` (207 lines), `integrations/arr/tools/_helpers.py` (64 lines), similar patterns in `bluebubbles/`, `github/`. `integrations/sdk.py` (586 lines).
 - **Problem**: Discord is 3.5× Slack despite overlapping delivery concerns — both reimplement streaming-message coalesce, rate-limiting windows, message-ID tracking. ARR + GitHub duplicate entity parsing / state extraction helpers. AGENTS.md and `integrations.md` § Anti-patterns #7 already say "same private helper in 2+ integrations is a smell, lift to `sdk.py`" — that contract has drifted.
@@ -122,15 +115,15 @@ Spindrel's agent surfaces (loop, context assembly, tool dispatch) are the #1 bug
 - **Domain language**: Streaming Delivery Helper, Platform API Adapter.
 - **Cross-ref**: `tests/unit/test_integration_no_duplicate_helpers.py` already gates this contract — drift suggests the gate is missing some helpers.
 
-### 11. Read Model Builder (channel / session / pin) — confidence: **high**
+### 10. Read Model Builder (channel / session / pin) — confidence: **high**
 
 - **Files**: `app/services/channel_read_models.py` (312 lines), `app/services/channel_sessions.py` (450+ lines), `app/services/dashboard_pins.py` (1334 lines).
 - **Problem**: Three modules own overlapping projections from DB rows to response shapes. `dashboard_pins.py` bundles three concepts: pin rendering, widget contract projection, theme resolution. Routes (`api_v1_channels.py`, `api_v1_sessions.py`, `api_v1_projects.py`) import 2–3 of these and combine inline — new fields leak into both query and three builders.
 - **Solution sketch**: A Read Model Builder facade — `builder.channel(row, db)`, `builder.session_detail(row, db)`, `builder.pin_with_widget_envelope(pin, db)`. Dashboard-pin widget logic becomes a sub-concern of the builder rather than its own 1334-line module. All routes call the builder; no inline `model_validate` chains.
-- **Benefits**: New `Channel` / `Session` / `Pin` field = one builder, one query, one test. Heartbeat projection (currently inline) plugs in for free. Cross-overlap with #8 — the builder and the envelope serializer want to share a base; landing #8 first would inform the builder shape.
+- **Benefits**: New `Channel` / `Session` / `Pin` field = one builder, one query, one test. Heartbeat projection (currently inline) plugs in for free. Cross-overlap with #7 — the builder and the envelope serializer want to share a base; landing #7 first would inform the builder shape.
 - **Domain language**: Read Model Builder, Projection Seam.
 
-### 12. Large-screen UI state machines — confidence: **medium**
+### 11. Large-screen UI state machines — confidence: **medium**
 
 - **Files**: `ui/src/components/spatial-canvas/SpatialCanvas.tsx` (1008 lines, 20 hooks), `ui/src/components/attention/AttentionCommandDeck.tsx` (1957 lines, 16 hooks), `ui/app/(app)/channels/[channelId]/index.tsx` (2017 lines, 22 hooks), `ui/src/components/spatial-canvas/useSpatialNavigation.tsx` (753 lines, 15+ props).
 - **Problem**: Modal state, tab selection, sidebar visibility, detail-panel expansion, selection mode all live in scattered `useState` calls with transitions inlined into `useCallback` branches. Expanding the spatial canvas map calls 4 separate setState functions. State invariants (e.g., "detail closed when selection empty") aren't enforced anywhere. Zero unit tests on the canvas state logic. `useSpatialNavigation` takes 15+ props because there's no context seam.

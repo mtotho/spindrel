@@ -1423,6 +1423,7 @@ export default function ChatScreen() {
                       botId={channel?.bot_id}
                       channelDisplayName={channel?.display_name || channel?.name}
                       activeFile={activeFile}
+                      activeSessionId={channel?.active_session_id}
                       onSelectFile={handleSelectFile}
                       onOpenTerminal={openTerminalAtPath}
                       onClose={handleCloseExplorer}

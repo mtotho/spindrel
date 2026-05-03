@@ -22,6 +22,10 @@ explicitly bridged Spindrel tools or skills.
 
 - Claude Code and Codex are implemented harness runtimes in
   `integrations/claude_code/harness.py` and `integrations/codex/harness.py`.
+- Claude's public SDK surface is now branded as the Claude Agent SDK. Spindrel
+  still uses Claude Code as the runtime/operator label where the installed
+  local CLI is the actual execution engine, but docs and UI copy should avoid
+  presenting Spindrel as "Claude Code" itself.
 - The canonical feature-by-feature parity ledger is
   [Claude Code and Codex Harness Parity](../guides/harness-parity.md). Keep
   that guide updated when parity tests, screenshots, runtime support, or SDK
@@ -44,6 +48,10 @@ explicitly bridged Spindrel tools or skills.
 - Project coding runs are expected to use formal session execution
   environments: generated branch/worktree, assigned dev targets, and private
   Docker daemon when provisioned.
+- Current local tested tuple is Codex `codex-cli 0.128.0` and Claude Code
+  `2.1.126`. `prepare-harness-parity`, smoke, SDK, CLI, and the focused native
+  CLI compatibility regressions are green on that tuple; full strict replay is
+  still the next baseline artifact to record.
 
 ## Status
 
@@ -57,6 +65,26 @@ explicitly bridged Spindrel tools or skills.
 | 6. Codex app-server runtime | shipped | 2026-04-27 | Official `codex app-server` JSON-RPC integration, schema guards, app-server notifications, native command surface. |
 | 7. Skill and tool bridge | active | 2026-05-02 | Tagged skills and bridged skill/tool lookup are live. Native skill export/sync remains future work. |
 | 8. Usage, observability, and parity automation | active | 2026-05-03 | Usage rows, auth/version status, replay diagnostics, parity loop substrate. Tested-version drift surfacing remains open. |
+
+## Phase Detail
+
+Phases 1-6 are shipped and compressed here by design. Claude Code established
+the host contract, session persistence, status/auth, approvals, runtime
+settings, native-feel commands, bridge inventory, and transcript replay. Codex
+then proved that the same host contract can drive a different native runtime
+through the official app-server JSON-RPC protocol rather than a Claude-shaped
+adapter.
+
+Phase 7 remains open for bridge shape, not for basic function. Tagged
+Spindrel skills and selected tools can already be exposed to Claude through SDK
+MCP helpers and to Codex through `dynamicTools`. Native registry sync/export is
+deferred until there is a clear user workflow; automatic registry sync would
+blur runtime ownership and make parity harder to reason about.
+
+Phase 8 is the active reliability lane. The next meaningful work is to make
+runtime drift visible, write a tested-runtime manifest from parity batches,
+record a clean full strict replay for the current tuple, and keep app-server
+schema/version checks ahead of runtime upgrades.
 
 ## Current Green Surface
 
@@ -79,15 +107,24 @@ include:
   plugins, programmatic agents/MCP, selected hooks, `TodoWrite`,
   `ToolSearch`, `AskUserQuestion`, and native subagents;
 - Codex app-server surfaces such as dynamic tools, MCP startup/status,
-  account/model/auth lifecycle, terminal interaction notifications, app/config
-  and native inventory summaries, CLI-first resume fallback, and schema drift
-  checks.
+  account/model/auth/rate-limit lifecycle, terminal interaction notifications,
+  app/config/fs/plugin/skill/native inventory summaries, granular permission
+  request handling, CLI-first resume fallback, and schema drift checks.
 
 ## Active Gaps
 
 - **Runtime version drift.** Codex has a minimum-version guard; both runtimes
   still need a tested-runtime manifest surfaced in auth/status/capabilities so
   operators can see "tested on X, installed Y" before parity fails.
+- **Full strict replay baseline.** The current Claude/Codex tuple is green for
+  prepare, smoke, SDK, CLI, focused CLI regressions, and unit coverage, but a
+  full strict parity replay has not yet been recorded as the post-upgrade
+  artifact.
+- **Claude Agent SDK naming and auth boundary.** Upstream docs now call this
+  the Claude Agent SDK, and Anthropic's SDK docs distinguish API-key/provider
+  auth from locally operator-owned claude.ai login. Spindrel should keep the
+  local auth path explicit and avoid product copy that implies Spindrel is
+  itself Claude Code.
 - **Claude SDK asymmetry.** Some public Claude Agent SDK hook/events are
   TypeScript-only. Python adapter claims must stay limited to installed Python
   SDK support.
@@ -97,6 +134,11 @@ include:
 - **Codex experimental app-server APIs.** `dynamicTools` remains experimental;
   Spindrel must keep bridge tools opt-in and degrade clearly on method/schema
   drift.
+- **Codex app-server stable surface follow-up.** Recent docs include account
+  rate-limit updates, granular permission request semantics, fs/watch
+  notifications, and stable-vs-experimental schema generation. Existing support
+  covers the main notifications and permission flow; the track should keep
+  parity rows current as these become user-visible in Spindrel.
 - **Codex native `/context`.** Current app-server support has no read-only
   native context equivalent to Claude SDK `/context`; terminal handoff remains
   the honest result.
@@ -135,12 +177,19 @@ include:
 - [WorkSurface isolation](../guides/worksurface-isolation.md)
 - [Project workflow contract](../../.spindrel/WORKFLOW.md)
 - [Implementation history audit](../audits/harness-sdk-implementation-history.md)
+- Claude Agent SDK overview: <https://code.claude.com/docs/en/agent-sdk/overview>
+- Claude Agent SDK filesystem features: <https://code.claude.com/docs/en/agent-sdk/claude-code-features>
+- Claude Agent SDK hooks: <https://code.claude.com/docs/en/agent-sdk/hooks>
+- Claude Agent SDK checkpointing: <https://code.claude.com/docs/en/agent-sdk/file-checkpointing>
+- Codex app-server protocol: <https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md>
 
 ## Verification Gates
 
 - `tests/unit/test_integration_import_boundary.py` stays green.
 - Claude and Codex harness behavior remains stable in bypass/default/plan
   sessions.
+- `prepare-harness-parity --skip-ui-build`, smoke, SDK, and CLI presets stay
+  green before the tested-runtime manifest is bumped.
 - Two concurrent sessions for one harness bot can hold different model, effort,
   approval, and runtime settings.
 - Approval deny, timeout, stop-turn, approve-rest-of-turn, queued follow-up,

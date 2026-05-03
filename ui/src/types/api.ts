@@ -1620,6 +1620,7 @@ export interface ProjectCodingRun {
   branch?: string | null;
   base_branch?: string | null;
   repo?: Record<string, any>;
+  work_surface_mode?: "isolated_worktree" | "fresh_project_instance" | "shared_repo" | string;
   runtime_target?: Record<string, any>;
   dev_targets?: Array<Record<string, any>>;
   dependency_stack?: ProjectDependencyStackState;
@@ -1644,6 +1645,7 @@ export interface ProjectCodingRun {
   readiness?: Record<string, any>;
   work_surface?: {
     kind?: "project" | "project_instance" | "channel" | string;
+    work_surface_mode?: "isolated_worktree" | "fresh_project_instance" | "shared_repo" | string;
     isolation?: "shared" | "isolated" | "pending" | string;
     expected?: "shared_project_root" | "fresh_project_instance" | string;
     active?: boolean;
@@ -1908,6 +1910,7 @@ export interface ProjectCodingRunSchedule {
   title: string;
   request?: string;
   repo_path?: string | null;
+  work_surface_mode?: "isolated_worktree" | "fresh_project_instance" | "shared_repo" | string;
   status: string;
   enabled: boolean;
   scheduled_at?: string | null;
@@ -1934,6 +1937,31 @@ export interface ProjectCodingRunSchedule {
   created_at?: string | null;
   machine_target_grant?: ProjectCodingRunTask["machine_target_grant"];
   loop_policy?: Record<string, any> | null;
+}
+
+export interface ProjectGitRepoStatus {
+  path: string;
+  display_path?: string;
+  branch?: string | null;
+  head?: string | null;
+  dirty: boolean;
+  staged_count: number;
+  unstaged_count: number;
+  untracked_count: number;
+  ahead?: number;
+  behind?: number;
+  status_lines: string[];
+  diff_stat?: string | null;
+  patch?: string | null;
+  error?: string | null;
+}
+
+export interface ProjectGitStatus {
+  scope: Record<string, any>;
+  repo_count: number;
+  dirty_count: number;
+  repos: ProjectGitRepoStatus[];
+  generated_at?: string;
 }
 
 export interface SessionProjectInstance {

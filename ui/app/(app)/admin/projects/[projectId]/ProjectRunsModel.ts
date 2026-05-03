@@ -192,21 +192,24 @@ export function buildFeedItems({
   runs: ProjectCodingRun[];
   schedules: ProjectCodingRunSchedule[];
 }): FeedItem[] {
-  const upcoming = schedules
-    .map((schedule): FeedItem => ({ id: `schedule:${schedule.id}`, kind: "schedule", group: "upcoming", schedule }))
-    .sort((a, b) => {
-      if (a.kind !== "schedule" || b.kind !== "schedule") return 0;
+  const items: FeedItem[] = [
+    ...schedules
+      .map((schedule): FeedItem => ({ id: `schedule:${schedule.id}`, kind: "schedule", group: "upcoming", schedule })),
+    ...runs.map((run): FeedItem => ({
+      id: `run:${run.id}`,
+      kind: "run",
+      group: isClosedRun(run) ? "history" : "active",
+      run,
+    })),
+  ];
+  return items.sort((a, b) => {
+    if (a.kind === "schedule" && b.kind === "schedule") {
       const rank = scheduleRank(a.schedule) - scheduleRank(b.schedule);
       if (rank !== 0) return rank;
       return toTime(a.schedule.scheduled_at) - toTime(b.schedule.scheduled_at);
-    });
-  const active = runs
-    .filter((run) => !isClosedRun(run))
-    .map((run): FeedItem => ({ id: `run:${run.id}`, kind: "run", group: "active", run }))
-    .sort((a, b) => (b.kind === "run" && a.kind === "run" ? String(itemTimestamp(b.run) || "").localeCompare(String(itemTimestamp(a.run) || "")) : 0));
-  const history = runs
-    .filter(isClosedRun)
-    .map((run): FeedItem => ({ id: `run:${run.id}`, kind: "run", group: "history", run }))
-    .sort((a, b) => (b.kind === "run" && a.kind === "run" ? String(itemTimestamp(b.run) || "").localeCompare(String(itemTimestamp(a.run) || "")) : 0));
-  return [...upcoming, ...active, ...history];
+    }
+    if (a.kind === "schedule") return -1;
+    if (b.kind === "schedule") return 1;
+    return toTime(itemTimestamp(b.run) || startedTimestamp(b.run)) - toTime(itemTimestamp(a.run) || startedTimestamp(a.run));
+  });
 }

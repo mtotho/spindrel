@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -344,6 +344,7 @@ class ProjectCodingRunWrite(BaseModel):
     channel_id: uuid.UUID
     request: str = ""
     repo_path: str | None = None
+    work_surface_mode: str = "isolated_worktree"
     machine_target_grant: ProjectMachineTargetGrantIn | None = None
     source_artifact: SourceArtifactIn | None = None
     loop_policy: ProjectRunLoopPolicyIn | None = None
@@ -381,6 +382,7 @@ class ProjectCodingRunScheduleWrite(BaseModel):
     title: str = "Scheduled Project coding run"
     request: str = ""
     repo_path: str | None = None
+    work_surface_mode: str = "isolated_worktree"
     scheduled_at: datetime | None = None
     recurrence: str = "+1w"
     machine_target_grant: ProjectMachineTargetGrantIn | None = None
@@ -392,6 +394,7 @@ class ProjectCodingRunSchedulePatch(BaseModel):
     title: str | None = None
     request: str | None = None
     repo_path: str | None = None
+    work_surface_mode: str | None = None
     scheduled_at: datetime | None = None
     recurrence: str | None = None
     enabled: bool | None = None
@@ -415,6 +418,7 @@ class ProjectCodingRunScheduleOut(BaseModel):
     recent_runs: list[dict] = Field(default_factory=list)
     created_at: str | None = None
     machine_target_grant: dict | None = None
+    work_surface_mode: str = "isolated_worktree"
     loop_policy: dict | None = None
 
 
@@ -1267,6 +1271,25 @@ async def get_project_orchestration_policy_endpoint(
     return await get_project_orchestration_policy(db, project)
 
 
+@router.get("/{project_id}/git-status")
+async def get_project_git_status_endpoint(
+    project_id: uuid.UUID,
+    repo_path: str | None = Query(None),
+    include_patch: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    from app.services.project_git_status import project_git_status
+
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        return await project_git_status(db, project, repo_path=repo_path, include_patch=include_patch)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/{project_id}", response_model=ProjectOut)
 async def get_project(
     project_id: uuid.UUID,
@@ -1627,6 +1650,7 @@ async def create_project_coding_run_endpoint(
                 channel_id=body.channel_id,
                 request=body.request,
                 repo_path=body.repo_path,
+                work_surface_mode=body.work_surface_mode,
                 machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
                 granted_by_user_id=_auth_user_id(_auth),
                 source_artifact=body.source_artifact.model_dump() if body.source_artifact else None,
@@ -1674,6 +1698,7 @@ async def create_project_coding_run_schedule_endpoint(
                 title=body.title,
                 request=body.request,
                 repo_path=body.repo_path,
+                work_surface_mode=body.work_surface_mode,
                 scheduled_at=body.scheduled_at,
                 recurrence=body.recurrence,
                 machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
@@ -1714,6 +1739,7 @@ async def update_project_coding_run_schedule_endpoint(
                 title=body.title,
                 request=body.request,
                 repo_path=body.repo_path,
+                work_surface_mode=body.work_surface_mode,
                 scheduled_at=body.scheduled_at,
                 recurrence=body.recurrence,
                 enabled=body.enabled,
@@ -1906,6 +1932,28 @@ async def get_project_coding_run_endpoint(
         raise HTTPException(status_code=404, detail="project not found")
     try:
         return await get_project_coding_run(db, project, task_id)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "coding run not found":
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=422, detail=message) from exc
+
+
+@router.get("/{project_id}/coding-runs/{task_id}/git-status")
+async def get_project_coding_run_git_status_endpoint(
+    project_id: uuid.UUID,
+    task_id: uuid.UUID,
+    include_patch: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    from app.services.project_git_status import project_run_git_status
+
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        return await project_run_git_status(db, project, task_id, include_patch=include_patch)
     except ValueError as exc:
         message = str(exc)
         if message == "coding run not found":

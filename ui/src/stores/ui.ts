@@ -34,7 +34,7 @@ export interface RecentPage {
   version?: number;
 }
 
-export type OmniPanelTab = "sessions" | "notes" | "widgets" | "files";
+export type OmniPanelTab = "sessions" | "notes" | "widgets" | "files" | "git";
 
 export type { ChannelSessionPanel };
 export type { ChannelChatPaneLayout };
@@ -459,7 +459,7 @@ export const useUIStore = create<UIState>()(
 );
 
 function normalizeOmniPanelTab(value: unknown): OmniPanelTab | null {
-  if (value === "sessions" || value === "notes" || value === "widgets" || value === "files") return value;
+  if (value === "sessions" || value === "notes" || value === "widgets" || value === "files" || value === "git") return value;
   if (value === "jump") return "sessions";
   return null;
 }

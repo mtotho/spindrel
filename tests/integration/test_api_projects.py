@@ -274,9 +274,8 @@ class TestProjectsApi:
         assert launched_body["repo"]["path"] == "spindrel"
         assert launched_body["runtime_target"]["configured_keys"] == ["SPINDREL_E2E_URL"]
         assert launched_body["runtime_target"]["missing_secrets"] == ["GITHUB_TOKEN"]
-        assert launched_body["work_surface"]["expected"] == "fresh_project_instance"
-        assert launched_body["work_surface"]["isolation"] == "pending"
-        assert launched_body["work_surface"]["active"] is False
+        assert launched_body["work_surface"]["expected"] == "isolated_worktree"
+        assert launched_body["work_surface"]["work_surface_mode"] == "isolated_worktree"
         assert launched_body["review"]["status"] == "pending"
         assert launched_body["review"]["actions"]["can_refresh"] is True
 
@@ -288,7 +287,8 @@ class TestProjectsApi:
         assert task.execution_config["session_target"] == {"mode": "existing", "session_id": str(task.session_id)}
         assert task.execution_config["session_scoped"] is True
         pre_user_msg_id = uuid.UUID(task.execution_config["pre_user_msg_id"])
-        assert task.execution_config["project_instance"] == {"mode": "fresh"}
+        assert task.execution_config["project_instance"] == {"mode": "shared"}
+        assert task.execution_config["work_surface_mode"] == "isolated_worktree"
         assert task.execution_config["project_coding_run"]["branch"] == launched_body["branch"]
         assert "Create or switch to the work branch" in task.prompt
         assert "publish_project_run_receipt" in task.prompt
