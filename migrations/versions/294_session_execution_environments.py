@@ -1,6 +1,6 @@
 """Add session execution environments.
 
-Revision ID: 294_session_execution_environments
+Revision ID: 294_session_exec_envs
 Revises: 293_drop_issue_work_packs
 Create Date: 2026-05-03
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = "294_session_execution_environments"
+revision = "294_session_exec_envs"
 down_revision = "293_drop_issue_work_packs"
 branch_labels = None
 depends_on = None
