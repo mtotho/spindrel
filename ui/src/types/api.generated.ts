@@ -13885,6 +13885,11 @@ export interface components {
              */
             effective_native_context_policy: string;
             /**
+             * Server Native Context Policy Default
+             * @default standard
+             */
+            server_native_context_policy_default: string;
+            /**
              * Header Backdrop Mode
              * @default glass
              */

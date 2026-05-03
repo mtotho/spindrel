@@ -8408,6 +8408,11 @@
             "title": "Effective Native Context Policy",
             "type": "string"
           },
+          "server_native_context_policy_default": {
+            "default": "standard",
+            "title": "Server Native Context Policy Default",
+            "type": "string"
+          },
           "header_backdrop_mode": {
             "default": "glass",
             "title": "Header Backdrop Mode",

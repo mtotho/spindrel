@@ -32,6 +32,20 @@ function resolvedNativeContextPolicy(form: Partial<ChannelSettings>): NativeCont
   return form.effective_native_context_policy ?? "standard";
 }
 
+function replayBudgetLabel(policy?: string | null): string {
+  switch (policy) {
+    case "lean":
+      return "Low Budget";
+    case "rich":
+      return "High Budget";
+    case "manual":
+      return "Manual";
+    case "standard":
+    default:
+      return "Medium Budget";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // History Tab — orchestrator
 // ---------------------------------------------------------------------------
@@ -49,6 +63,10 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
   const effectiveMode = form.history_mode || botHistoryMode || "file";
   const isFileOrStructured = effectiveMode === "file" || effectiveMode === "structured";
   const activeContextPolicy = resolvedNativeContextPolicy(form);
+  const serverContextPolicy = form.server_native_context_policy_default ?? "standard";
+  const activeContextSource = form.native_context_policy && form.native_context_policy !== "default" ? "channel override" : "server default";
+  const effectiveContextLabel = replayBudgetLabel(activeContextPolicy);
+  const serverContextLabel = replayBudgetLabel(serverContextPolicy);
 
   return (
     <>
@@ -59,7 +77,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
         title="Model Replay Budget"
         description="Controls how much recent raw chat normal Spindrel turns try to replay into the model. Replay is token-fit and model-scaled; harness agents and scheduled work use separate policies."
         noDivider
-        action={<QuietPill label={`effective: ${activeContextPolicy}`} />}
+        action={<QuietPill label={`effective: ${effectiveContextLabel}${activeContextSource === "channel override" ? " (channel override)" : ""}`} />}
       >
         <FormRow
           label="Replay budget preset"
@@ -69,7 +87,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
             value={(form.native_context_policy ?? "default") as string}
             onChange={(value) => patch("native_context_policy", value as ChannelSettings["native_context_policy"])}
             options={[
-              { label: "Default — inherit server setting", value: "default" },
+              { label: `Default — inherit server: ${serverContextLabel}`, value: "default" },
               { label: "Low Budget — tight token-fit replay, on-demand context", value: "lean" },
               { label: "Medium Budget — adaptive replay plus selected RAG/context", value: "standard" },
               { label: "High Budget — larger replay and broader ambient context", value: "rich" },

@@ -604,6 +604,8 @@ async def _run_memory_flush(
 
     logger.info("Running memory flush for channel %s (session %s, model=%s)", channel.id, session_id, model)
 
+    from app.agent.context import current_run_origin
+    origin_token = current_run_origin.set("hygiene")
     try:
         result = await run(
             messages=messages,
@@ -616,12 +618,17 @@ async def _run_memory_flush(
             model_override=model,
             provider_id_override=provider_id,
             task_mode=True,
+            compaction=True,
+            context_profile_name="memory_flush",
+            run_control_policy={"tool_surface": "strict"},
         )
         logger.info("Memory flush complete for channel %s", channel.id)
         return result.response
     except Exception:
         logger.warning("Memory flush failed for channel %s", channel.id, exc_info=True)
         return None
+    finally:
+        current_run_origin.reset(origin_token)
 
 
 async def _flush_member_bots(
@@ -1666,7 +1673,7 @@ async def run_compaction_stream(
 
     memory_flush_ran, flush_result = await _run_memory_flush_phase(
         channel=channel, bot=bot, session_id=session_id,
-        messages=messages, correlation_id=correlation_id,
+        messages=to_summarize, correlation_id=correlation_id,
     )
 
     _t0 = _time.monotonic()
@@ -2159,7 +2166,7 @@ async def run_compaction_forced(
 
     memory_flush_ran, flush_result = await _run_memory_flush_phase(
         channel=channel, bot=bot, session_id=session_id,
-        messages=messages, correlation_id=correlation_id,
+        messages=conversation, correlation_id=correlation_id,
     )
 
     _t0 = _time.monotonic()

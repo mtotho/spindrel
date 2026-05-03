@@ -49,6 +49,7 @@ from app.tools.registry import register
     "domains": ["agent_self_inspection"],
     "exposure": "ambient",
     "auto_inject": ["chat_baseline"],
+    "retrieval_policy": "explicit_intent",
 }, returns={
     "type": "object",
         "properties": {
@@ -356,6 +357,7 @@ async def get_agent_status_snapshot(max_runs: int = 10) -> str:
     "domains": ["agent_self_inspection"],
     "exposure": "ambient",
     "auto_inject": ["chat_baseline"],
+    "retrieval_policy": "explicit_intent",
 }, returns={
     "type": "object",
         "properties": {

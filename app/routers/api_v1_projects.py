@@ -24,6 +24,7 @@ from app.services.project_coding_runs import (
     ProjectCodingRunScheduleCreate,
     ProjectCodingRunScheduleUpdate,
     ProjectMachineTargetGrant,
+    cancel_project_coding_run,
     cleanup_project_coding_run_instance,
     continue_project_coding_run,
     create_project_coding_run,
@@ -1985,6 +1986,25 @@ async def mark_project_coding_run_reviewed_endpoint(
         raise HTTPException(status_code=404, detail="project not found")
     try:
         return await mark_project_coding_run_reviewed(db, project, task_id)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "coding run not found":
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=422, detail=message) from exc
+
+
+@router.post("/{project_id}/coding-runs/{task_id}/cancel", response_model=ProjectCodingRunOut)
+async def cancel_project_coding_run_endpoint(
+    project_id: uuid.UUID,
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        return await cancel_project_coding_run(db, project, task_id)
     except ValueError as exc:
         message = str(exc)
         if message == "coding run not found":

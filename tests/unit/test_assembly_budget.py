@@ -9,6 +9,11 @@ from app.agent.bots import BotConfig
 from app.agent.context_assembly import AssemblyResult, assemble_context
 from app.agent.context_budget import ContextBudget, estimate_tokens
 from app.agent.prompt_sizing import estimate_chars_to_tokens
+import app.tools.local.ask_plan_questions  # noqa: F401
+import app.tools.local.file_ops  # noqa: F401
+import app.tools.local.publish_plan  # noqa: F401
+import app.tools.local.record_plan_progress  # noqa: F401
+import app.tools.local.request_plan_replan  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +117,7 @@ class TestAssemblyBudgetGenerous:
         assert budget.consumed_tokens > 0
         assert result.budget_utilization is not None
         assert result.budget_utilization >= 0
-        assert result.context_policy["name"] == "chat"
+        assert result.context_policy["name"] == "chat_standard"
         assert "optional_static_injections" in result.context_policy
 
     @pytest.mark.asyncio
@@ -129,7 +134,14 @@ class TestAssemblyBudgetGenerous:
         for p in patches:
             p.start()
         try:
-            await _drain(_call_assembly(messages, bot, "plan the work", result, budget=budget))
+            await _drain(_call_assembly(
+                messages,
+                bot,
+                "plan the work",
+                result,
+                budget=budget,
+                context_profile_name="planning",
+            ))
         finally:
             for p in patches:
                 p.stop()
@@ -682,12 +694,6 @@ class TestAssemblyBudgetTight:
         assert "exec_command" in exposed
         assert "get_tool_info" not in exposed  # discovery hatch suppressed
         assert "web_search" not in exposed  # retrieval-only, retrieval skipped
-        assert {
-            "ask_plan_questions",
-            "publish_plan",
-            "record_plan_progress",
-            "request_plan_replan",
-        } <= exposed
         assert {
             "ask_plan_questions",
             "publish_plan",

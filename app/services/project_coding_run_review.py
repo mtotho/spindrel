@@ -509,6 +509,39 @@ async def mark_project_coding_runs_reviewed(
     return rows
 
 
+async def cancel_project_coding_run(
+    db: AsyncSession,
+    project: Project,
+    task_id: uuid.UUID,
+) -> dict[str, Any]:
+    from app.services import session_locks
+
+    task = await _load_project_coding_task(db, project, task_id)
+    if task.session_id:
+        session_locks.request_cancel(task.session_id)
+    task.status = "cancelled"
+    task.error = "Cancelled from Project runs."
+    task.completed_at = _utcnow()
+    await create_execution_receipt(
+        db,
+        scope="project_coding_run",
+        action_type="run.cancelled",
+        status="succeeded",
+        summary="Project coding run cancelled by operator.",
+        actor={"kind": "operator"},
+        target={"project_id": str(project.id), "task_id": str(task.id)},
+        result={"outcome": "cancelled"},
+        bot_id=task.bot_id,
+        channel_id=task.channel_id,
+        session_id=task.session_id,
+        task_id=task.id,
+        correlation_id=task.correlation_id,
+        idempotency_key=f"{task.id}:run.cancelled",
+    )
+    await db.commit()
+    return await get_project_coding_run(db, project, task.id)
+
+
 async def _record_review_marked(
     db: AsyncSession,
     *,

@@ -249,12 +249,15 @@ def _tool_metadata_matches(
     domain: str | None = None,
     exposure: str | None = None,
     auto_inject: str | None = None,
+    capability: str | None = None,
 ) -> bool:
     if domain is not None and not _metadata_value_matches(metadata.get("domains"), domain):
         return False
     if exposure is not None and str(metadata.get("exposure") or "ambient") != exposure:
         return False
     if auto_inject is not None and not _metadata_value_matches(metadata.get("auto_inject"), auto_inject):
+        return False
+    if capability is not None and not _metadata_value_matches(metadata.get("capabilities"), capability):
         return False
     return True
 
@@ -264,12 +267,19 @@ def get_local_tool_names_by_metadata(
     domain: str | None = None,
     exposure: str | None = None,
     auto_inject: str | None = None,
+    capability: str | None = None,
 ) -> list[str]:
     """Return local tool names matching generic tool metadata."""
     out: list[str] = []
     for name, entry in _tools.items():
         metadata = entry.get("tool_metadata") or {}
-        if not _tool_metadata_matches(metadata, domain=domain, exposure=exposure, auto_inject=auto_inject):
+        if not _tool_metadata_matches(
+            metadata,
+            domain=domain,
+            exposure=exposure,
+            auto_inject=auto_inject,
+            capability=capability,
+        ):
             continue
         out.append(name)
     return out
@@ -280,6 +290,7 @@ def get_local_tool_schemas_by_metadata(
     domain: str | None = None,
     exposure: str | None = None,
     auto_inject: str | None = None,
+    capability: str | None = None,
 ) -> list[dict]:
     """Return local tool schemas matching generic tool metadata."""
     return [
@@ -288,6 +299,7 @@ def get_local_tool_schemas_by_metadata(
             domain=domain,
             exposure=exposure,
             auto_inject=auto_inject,
+            capability=capability,
         )
     ]
 

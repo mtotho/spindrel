@@ -3,7 +3,7 @@ import type React from "react";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { useContinueProjectCodingRun, useDisableProjectCodingRunLoop, useMarkProjectCodingRunReviewed, useProject, useProjectCodingRun } from "@/src/api/hooks/useProjects";
+import { useCancelProjectCodingRun, useContinueProjectCodingRun, useDisableProjectCodingRunLoop, useMarkProjectCodingRunReviewed, useProject, useProjectCodingRun } from "@/src/api/hooks/useProjects";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { Section } from "@/src/components/shared/FormControls";
 import { ActionButton, EmptyState, SettingsControlRow, StatusBadge } from "@/src/components/shared/SettingsControls";
@@ -190,6 +190,7 @@ export default function ProjectRunDetail() {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const { data: run, isLoading: runLoading, error } = useProjectCodingRun(projectId, taskId);
   const continueRun = useContinueProjectCodingRun(projectId);
+  const cancelRun = useCancelProjectCodingRun(projectId);
   const markReviewed = useMarkProjectCodingRunReviewed(projectId);
   const disableLoop = useDisableProjectCodingRunLoop(projectId);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -227,6 +228,8 @@ export default function ProjectRunDetail() {
   const terminalReviewed = isTerminalReviewed(run);
   const prMerged = Boolean(run.review?.merged_at);
   const implementationSessionPath = run.task.channel_id && run.task.session_id ? `/channels/${run.task.channel_id}/session/${run.task.session_id}` : null;
+  const runStatus = String(run.task.status || run.status || "").toLowerCase();
+  const runActive = runStatus === "pending" || runStatus === "running";
   const submitFollowUp = () => {
     if (!canContinue || continueRun.isPending) return;
     continueRun.mutate(
@@ -355,6 +358,16 @@ export default function ProjectRunDetail() {
                     variant="secondary"
                     onPress={() => navigate(`/admin/projects/${project.id}#runs`)}
                   />
+                  {runActive && (
+                    <ActionButton
+                      label={cancelRun.isPending ? "Stopping" : "Stop run"}
+                      icon={<AlertTriangle size={13} />}
+                      size="small"
+                      variant="danger"
+                      disabled={cancelRun.isPending}
+                      onPress={() => cancelRun.mutate(run.task.id)}
+                    />
+                  )}
                 </div>
               </div>
             </div>

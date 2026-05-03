@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Project Runs Board Mock</title>
+  <style>
+    :root {
+      --surface: #0f1117;
+      --raised: #171921;
+      --overlay: #1e2029;
+      --border: #2e303b;
+      --text: #e5e5e5;
+      --muted: #999;
+      --dim: #666;
+      --accent: #3b82f6;
+      --success: #22c55e;
+      --warning: #eab308;
+      --danger: #ef4444;
+      --input: #111;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--surface);
+      color: var(--text);
+      font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    .page {
+      min-height: 100%;
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr);
+    }
+
+    .rail {
+      border-right: 1px solid var(--border);
+      background: #0d0f15;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      padding: 18px 10px;
+    }
+
+    .rail-dot {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      color: var(--dim);
+    }
+
+    .rail-dot.active {
+      color: var(--accent);
+      background: rgba(59, 130, 246, 0.1);
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+
+    main {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .header {
+      min-height: 118px;
+      padding: 22px 28px 14px;
+      border-bottom: 1px solid rgba(46, 48, 59, 0.75);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 22px;
+      align-items: start;
+    }
+
+    .crumb { color: var(--muted); font-size: 13px; margin-top: 2px; }
+    h1 { margin: 0; font-size: 22px; line-height: 1.2; }
+    .tabs { display: flex; gap: 4px; margin-top: 18px; }
+    .tab {
+      min-height: 34px;
+      border-radius: 7px;
+      padding: 7px 12px;
+      color: var(--muted);
+      font-weight: 650;
+    }
+    .tab.active { color: var(--accent); background: rgba(59, 130, 246, 0.11); }
+
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+    button {
+      border: 0;
+      border-radius: 7px;
+      min-height: 34px;
+      padding: 0 12px;
+      background: rgba(30, 32, 41, 0.7);
+      color: var(--text);
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.primary { background: rgba(59, 130, 246, 0.18); color: #8bb8ff; }
+    button.danger { color: #ff8b8b; background: rgba(239, 68, 68, 0.1); }
+    button.ghost { background: transparent; color: var(--muted); }
+
+    .body {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      overflow: hidden;
+    }
+
+    .board {
+      min-width: 0;
+      overflow: auto;
+      padding: 18px 24px 24px;
+    }
+
+    .stage-strip {
+      display: grid;
+      grid-template-columns: 1.4fr repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .stage {
+      border: 1px solid rgba(46, 48, 59, 0.75);
+      background: rgba(23, 25, 33, 0.55);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 76px;
+    }
+    .stage strong { display: block; font-size: 20px; margin-top: 3px; }
+    .stage span { color: var(--dim); font-size: 11px; text-transform: uppercase; font-weight: 800; }
+    .stage.focus { border-color: rgba(239, 68, 68, 0.55); background: rgba(239, 68, 68, 0.08); }
+    .stage.focus strong { color: #ffb4b4; }
+
+    .columns {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(245px, 1fr));
+      gap: 12px;
+      align-items: start;
+    }
+
+    .column {
+      min-height: 520px;
+      border-radius: 8px;
+      background: rgba(23, 25, 33, 0.45);
+      border: 1px solid rgba(46, 48, 59, 0.6);
+      padding: 10px;
+    }
+
+    .column-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 4px 4px 10px;
+      color: var(--muted);
+      font-weight: 800;
+      text-transform: uppercase;
+      font-size: 11px;
+    }
+    .count {
+      min-width: 22px;
+      height: 22px;
+      border-radius: 99px;
+      background: rgba(30, 32, 41, 0.9);
+      display: grid;
+      place-items: center;
+      color: var(--text);
+    }
+
+    .card {
+      border-radius: 8px;
+      border: 1px solid rgba(46, 48, 59, 0.9);
+      background: #171921;
+      padding: 12px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      position: relative;
+    }
+    .card:hover, .card.selected { border-color: rgba(59, 130, 246, 0.8); }
+    .card.selected { box-shadow: inset 3px 0 0 var(--accent); }
+    .card.stale { border-color: rgba(239, 68, 68, 0.7); }
+    .card.stale.selected { box-shadow: inset 3px 0 0 var(--danger); }
+
+    .card-top { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+    .card-title { font-weight: 750; line-height: 1.25; }
+    .age {
+      flex: 0 0 auto;
+      border-radius: 99px;
+      padding: 2px 7px;
+      font-size: 11px;
+      font-weight: 800;
+      background: rgba(30, 32, 41, 0.9);
+      color: var(--muted);
+    }
+    .age.bad { color: #ff9a9a; background: rgba(239, 68, 68, 0.13); }
+    .age.ok { color: #8beaac; background: rgba(34, 197, 94, 0.12); }
+    .meta { margin-top: 8px; color: var(--muted); font-size: 12px; }
+    .line { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .footer { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    .token {
+      border-radius: 5px;
+      padding: 2px 6px;
+      color: var(--muted);
+      background: rgba(30, 32, 41, 0.8);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .token.red { color: #ffaaa8; }
+    .token.green { color: #88e2a2; }
+    .token.blue { color: #9bc2ff; }
+
+    .lane-action {
+      margin-top: 8px;
+      border: 1px dashed rgba(46, 48, 59, 0.95);
+      border-radius: 8px;
+      min-height: 44px;
+      color: var(--dim);
+      display: grid;
+      place-items: center;
+      font-weight: 750;
+    }
+
+    .inspector {
+      border-left: 1px solid var(--border);
+      background: rgba(15, 17, 23, 0.95);
+      padding: 18px;
+      overflow: auto;
+    }
+
+    .panel {
+      border-radius: 8px;
+      background: rgba(23, 25, 33, 0.72);
+      border: 1px solid rgba(46, 48, 59, 0.8);
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+
+    .panel h2 {
+      font-size: 16px;
+      margin: 0 0 8px;
+      line-height: 1.25;
+    }
+    .panel p { color: var(--muted); margin: 0; }
+    .label {
+      margin-bottom: 5px;
+      color: var(--dim);
+      font-size: 11px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+    .big-status {
+      border-radius: 8px;
+      padding: 12px;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #ffb4b4;
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+    .details {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      border-top: 1px solid rgba(46, 48, 59, 0.55);
+      padding-top: 8px;
+    }
+    .detail-row strong { color: var(--text); text-align: right; }
+    .action-stack { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .action-stack button:first-child { grid-column: 1 / -1; }
+
+    @media (max-width: 1100px) {
+      .body { grid-template-columns: 1fr; }
+      .inspector { border-left: 0; border-top: 1px solid var(--border); }
+      .stage-strip { grid-template-columns: repeat(2, 1fr); }
+      .columns { grid-template-columns: repeat(5, 245px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="rail" aria-label="Navigation">
+      <div class="rail-dot">S</div>
+      <div class="rail-dot">I</div>
+      <div class="rail-dot active">P</div>
+      <div class="rail-dot">T</div>
+      <div style="flex:1"></div>
+      <div class="rail-dot">M</div>
+    </aside>
+
+    <main>
+      <header class="header">
+        <div>
+          <h1>projects</h1>
+          <div class="crumb">/common/projects</div>
+          <nav class="tabs" aria-label="Project tabs">
+            <div class="tab">Overview</div>
+            <div class="tab active">Runs</div>
+            <div class="tab">Channels</div>
+            <div class="tab">Setup</div>
+            <div class="tab">Instances</div>
+            <div class="tab">Files</div>
+            <div class="tab">Settings</div>
+          </nav>
+        </div>
+        <div class="header-actions">
+          <button class="ghost">Files</button>
+          <button class="ghost">Terminal</button>
+          <button class="primary">New run</button>
+        </div>
+      </header>
+
+      <section class="body">
+        <div class="board">
+          <section class="stage-strip" aria-label="Current status">
+            <div class="stage focus">
+              <span>Needs operator</span>
+              <strong>1 stale run</strong>
+              <div class="meta">Started May 2, 8:12 PM. No receipt. Still running.</div>
+            </div>
+            <div class="stage"><span>Running</span><strong>1</strong><div class="meta">1h 47m old</div></div>
+            <div class="stage"><span>Review</span><strong>1</strong><div class="meta">blocked review</div></div>
+            <div class="stage"><span>Schedules</span><strong>2</strong><div class="meta">next tonight 10:00 PM</div></div>
+            <div class="stage"><span>Done</span><strong>2</strong><div class="meta">last complete 6:39 PM</div></div>
+          </section>
+
+          <section class="columns" aria-label="Project run board">
+            <div class="column">
+              <div class="column-head"><span>Backlog / ready</span><span class="count">3</span></div>
+              <div class="card">
+                <div class="card-top"><div class="card-title">Clickable file paths resolve from chat memory</div><span class="age">ready</span></div>
+                <div class="meta line">issue-work-pack · confidence high · source attention</div>
+                <div class="footer"><span class="token blue">spindrel</span><span class="token">UI bug</span></div>
+              </div>
+              <div class="card">
+                <div class="card-top"><div class="card-title">Mission Control review intake lane</div><span class="age">ready</span></div>
+                <div class="meta line">work pack · screenshots required</div>
+                <div class="footer"><span class="token">architecture</span><span class="token">UI</span></div>
+              </div>
+              <div class="lane-action">+ convert note to run</div>
+            </div>
+
+            <div class="column">
+              <div class="column-head"><span>Scheduled</span><span class="count">2</span></div>
+              <div class="card">
+                <div class="card-top"><div class="card-title">Harness parity nightly</div><span class="age ok">active</span></div>
+                <div class="meta line">next May 2, 10:00 PM · Claude Spindrel</div>
+                <div class="footer"><span class="token green">+1d</span><span class="token">last complete</span></div>
+              </div>
+              <div class="card">
+                <div class="card-top"><div class="card-title">Weekly Project review</div><span class="age">paused</span></div>
+                <div class="meta line">next May 9, 8:12 PM · 1 run</div>
+                <div class="footer"><span class="token">+1w</span><span class="token">last running</span></div>
+              </div>
+              <div class="lane-action">+ schedule prompt</div>
+            </div>
+
+            <div class="column">
+              <div class="column-head"><span>Running</span><span class="count">1</span></div>
+              <div class="card stale selected" data-card="stale">
+                <div class="card-top"><div class="card-title">Review Project for regressions and stale PRs</div><span class="age bad">1h 47m</span></div>
+                <div class="meta line">started May 2, 8:12 PM · no receipt · no transcript</div>
+                <div class="footer"><span class="token red">stale</span><span class="token">branch created</span><span class="token">stack running</span></div>
+              </div>
+              <div class="lane-action">+ start run</div>
+            </div>
+
+            <div class="column">
+              <div class="column-head"><span>Human review</span><span class="count">1</span></div>
+              <div class="card">
+                <div class="card-top"><div class="card-title">Project Coding Run Review</div><span class="age bad">blocked</span></div>
+                <div class="meta line">1 run · merge not requested · 3 tests · 4 screenshots</div>
+                <div class="footer"><span class="token red">blocked</span><span class="token">squash</span></div>
+              </div>
+            </div>
+
+            <div class="column">
+              <div class="column-head"><span>Closed</span><span class="count">2</span></div>
+              <div class="card">
+                <div class="card-top"><div class="card-title">Harness parity loop follow-up</div><span class="age ok">complete</span></div>
+                <div class="meta line">May 2, 6:39 PM · receipt published</div>
+                <div class="footer"><span class="token green">receipt</span><span class="token">session</span></div>
+              </div>
+              <div class="card">
+                <div class="card-top"><div class="card-title">Fix clickable file paths</div><span class="age ok">reviewed</span></div>
+                <div class="meta line">PR handoff · batch 002e8da7</div>
+                <div class="footer"><span class="token green">PR</span><span class="token">tests</span></div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="inspector" aria-label="Selected run">
+          <div class="big-status">Stale running run needs a decision</div>
+          <section class="panel">
+            <div class="label">Selected</div>
+            <h2>Review Project for regressions and stale PRs</h2>
+            <p>No transcript or receipt has appeared since launch. This is probably a pre-session-fix run and should be stopped, archived, or marked blocked.</p>
+            <div class="details">
+              <div class="detail-row"><span>Started</span><strong>May 2, 8:12 PM</strong></div>
+              <div class="detail-row"><span>Age</span><strong>1h 47m</strong></div>
+              <div class="detail-row"><span>Session</span><strong>15db8286</strong></div>
+              <div class="detail-row"><span>Branch</span><strong>project-61e390cc</strong></div>
+              <div class="detail-row"><span>Receipt</span><strong>missing</strong></div>
+              <div class="detail-row"><span>Dev target</span><strong>127.0.0.1:32000</strong></div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="label">Primary action</div>
+            <div class="action-stack">
+              <button class="primary">Open session</button>
+              <button>Watch live</button>
+              <button>Review detail</button>
+              <button class="danger">Stop run</button>
+              <button class="danger">Archive stale</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="label">Prompt</div>
+            <p>Review the Project for regressions, stale PRs, missing tests, and architecture issues. If changes are needed, implement them, run tests/screenshots, open a PR, and publish a Project run receipt.</p>
+          </section>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const cards = Array.from(document.querySelectorAll(".card"));
+    cards.forEach((card) => {
+      card.addEventListener("click", () => {
+        cards.forEach((item) => item.classList.remove("selected"));
+        card.classList.add("selected");
+      });
+    });
+  </script>
+</body>
+</html>

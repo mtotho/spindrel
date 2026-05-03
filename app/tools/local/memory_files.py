@@ -146,6 +146,7 @@ def _resolve_memory_path(name: str, memory_root: str) -> str | None:
     },
 }, requires_bot_context=True, tool_metadata={
     "domains": ["memory", "repeated_lookup_tracking"],
+    "capabilities": ["memory.read"],
     "exposure": "ambient",
     "auto_inject": ["workspace_files_memory"],
 }, returns=_SEARCH_RETURNS)
@@ -216,6 +217,7 @@ async def search_memory(query: str) -> str:
     },
 }, requires_bot_context=True, tool_metadata={
     "domains": ["memory"],
+    "capabilities": ["memory.read"],
     "exposure": "ambient",
     "auto_inject": ["workspace_files_memory"],
     "context_policy": {"retention": "sticky_reference"},
@@ -377,6 +379,7 @@ def _memory_diff_stats(diff_text: str) -> tuple[int, int]:
     },
 }, safety_tier="mutating", requires_bot_context=True, tool_metadata={
     "domains": ["memory"],
+    "capabilities": ["memory.read", "memory.write"],
     "exposure": "ambient",
     "auto_inject": ["workspace_files_memory"],
     "context_policy": {

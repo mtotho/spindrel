@@ -119,6 +119,7 @@ function buildChannelSettingsForm(settings: ChannelSettings): Partial<ChannelSet
     chat_mode: settings.chat_mode ?? "default",
     native_context_policy: settings.native_context_policy ?? "default",
     effective_native_context_policy: settings.effective_native_context_policy ?? "standard",
+    server_native_context_policy_default: settings.server_native_context_policy_default ?? "standard",
     native_context_live_history_ratio: settings.native_context_live_history_ratio,
     native_context_min_recent_turns: settings.native_context_min_recent_turns,
     native_context_warning_utilization: settings.native_context_warning_utilization,

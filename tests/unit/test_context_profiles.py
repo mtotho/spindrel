@@ -75,6 +75,18 @@ def test_task_none_overrides_keep_iterations():
     assert get_context_profile("task_none").keep_iterations_override == 8
 
 
+def test_memory_flush_profile_is_internal_and_minimal():
+    profile = get_context_profile("memory_flush")
+
+    assert profile.live_history_turns == 0
+    assert profile.allow_tool_index is False
+    assert profile.allow_skill_index is False
+    assert profile.allow_workspace_rag is False
+    assert profile.allow_bot_knowledge_base is False
+    assert profile.keep_iterations_override == 1
+    assert profile.tool_result_hard_cap == 6000
+
+
 def test_chat_profile_inherits_global_keep_iterations():
     """Chat profile uses a compact native-loop observation window."""
     assert get_context_profile("chat_lean").keep_iterations_override == 2
@@ -184,6 +196,7 @@ def test_profile_policy_matrix_for_restricted_origins():
         "executing": (4, True, True, True),
         "task_recent": (4, True, True, False),
         "task_none": (0, False, False, False),
+        "memory_flush": (0, False, False, False),
         "heartbeat": (0, False, False, False),
     }
 

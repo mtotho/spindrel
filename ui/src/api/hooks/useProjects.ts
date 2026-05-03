@@ -300,7 +300,7 @@ export function useContinueProjectCodingRun(projectId: string | undefined) {
   });
 }
 
-function useProjectCodingRunAction(projectId: string | undefined, action: "refresh" | "reviewed" | "cleanup" | "loop-disable") {
+function useProjectCodingRunAction(projectId: string | undefined, action: "refresh" | "reviewed" | "cleanup" | "loop-disable" | "cancel") {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (taskId: string) =>
@@ -366,6 +366,10 @@ export function useCreateProjectCodingRunReviewSession(projectId: string | undef
 
 export function useCleanupProjectCodingRun(projectId: string | undefined) {
   return useProjectCodingRunAction(projectId, "cleanup");
+}
+
+export function useCancelProjectCodingRun(projectId: string | undefined) {
+  return useProjectCodingRunAction(projectId, "cancel");
 }
 
 export function useDisableProjectCodingRunLoop(projectId: string | undefined) {

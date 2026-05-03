@@ -93,7 +93,7 @@ def _metadata_embed_text(metadata: dict[str, Any] | None) -> str:
     if not isinstance(metadata, dict) or not metadata:
         return ""
     parts: list[str] = []
-    for key in ("domains", "intent_tags", "capabilities", "exposure", "surface"):
+    for key in ("domains", "intent_tags", "capabilities", "exposure", "surface", "retrieval_policy"):
         value = metadata.get(key)
         if value is None:
             continue
@@ -111,6 +111,17 @@ def _tool_exposure(metadata: dict[str, Any] | None) -> str:
         return "ambient"
     value = metadata.get("exposure")
     return str(value or "ambient").strip().lower()
+
+
+def _retrieval_policy(metadata: dict[str, Any] | None) -> str:
+    if not isinstance(metadata, dict):
+        return "auto"
+    value = metadata.get("retrieval_policy")
+    return str(value or "auto").strip().lower()
+
+
+def _allow_automatic_retrieval(metadata: dict[str, Any] | None) -> bool:
+    return _retrieval_policy(metadata) not in {"explicit", "explicit_intent", "manual", "none"}
 
 
 async def _upsert_tool_row(
@@ -422,6 +433,8 @@ def _vector_only_tool_results(
             and _tool_exposure(metadata) == "explicit"
         ):
             continue
+        if not _allow_automatic_retrieval(metadata):
+            continue
         if isinstance(schema_obj, dict):
             out.append(schema_obj)
     return out, top_candidates
@@ -485,6 +498,8 @@ def _fuse_tool_results(
             and tool_name not in declared_names
             and _tool_exposure(metadata_by_name.get(tool_name)) == "explicit"
         ):
+            continue
+        if not _allow_automatic_retrieval(metadata_by_name.get(tool_name)):
             continue
 
         if len(top_candidates) < 5:

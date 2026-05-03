@@ -467,6 +467,26 @@ class TestVectorOnlyToolResults:
         assert math.isfinite(candidates[0]["sim"])
         assert candidates[0]["sim"] == 0.0
 
+    def test_explicit_intent_retrieval_policy_is_not_auto_selected(self):
+        rows = [
+            (
+                {"function": {"name": "doctor"}},
+                "doctor",
+                0.1,
+                {"retrieval_policy": "explicit_intent"},
+            ),
+            (
+                {"function": {"name": "ambient"}},
+                "ambient",
+                0.1,
+                {},
+            ),
+        ]
+
+        out, _ = _vector_only_tool_results(rows, 0.5, {"doctor", "ambient"}, 0.5, False, False)
+
+        assert [tool["function"]["name"] for tool in out] == ["ambient"]
+
 
 class TestFuseToolResults:
     """Test the _fuse_tool_results helper."""
@@ -549,6 +569,28 @@ class TestFuseToolResults:
         out, _ = _fuse_tool_results(vector_rows, [], 0.5, set(), 0.6, True, True)
 
         assert [tool["function"]["name"] for tool in out] == ["ambient_candidate"]
+
+    def test_explicit_intent_retrieval_policy_filters_bm25_rescue(self):
+        vector_rows = [
+            (
+                {"function": {"name": "doctor"}},
+                "doctor",
+                0.9,
+                {"retrieval_policy": "explicit_intent"},
+            ),
+        ]
+        bm25_rows = [
+            (
+                {"function": {"name": "doctor"}},
+                "doctor",
+                0.5,
+                {"retrieval_policy": "explicit_intent"},
+            ),
+        ]
+
+        out, _ = _fuse_tool_results(vector_rows, bm25_rows, 0.5, set(), 0.5, False, False)
+
+        assert out == []
 
 
 class TestRetrieveToolsHybrid:

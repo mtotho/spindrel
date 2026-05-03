@@ -523,6 +523,7 @@ async def stream_tool_loop_events(
     max_iterations: int | None,
     fallback_models: list[dict],
     skip_tool_policy: bool,
+    compaction: bool,
     context_profile_name: str,
     run_control_policy: dict[str, Any] | None,
     is_outermost_stream: bool,
@@ -543,6 +544,7 @@ async def stream_tool_loop_events(
         "max_iterations": max_iterations,
         "fallback_models": fallback_models,
         "skip_tool_policy": skip_tool_policy,
+        "compaction": compaction,
         "context_profile_name": context_profile_name,
         "run_control_policy": run_control_policy,
     }

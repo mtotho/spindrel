@@ -1,52 +1,107 @@
 import { Link } from "react-router-dom";
-import { AlertTriangle, Check, CheckCircle2, FileText, GitBranch, GitMerge, MessageSquarePlus, Play, RefreshCcw, Repeat2, Trash2 } from "lucide-react";
+import {
+  CalendarClock,
+  Check,
+  CheckCircle2,
+  FileText,
+  GitBranch,
+  GitMerge,
+  MessageSquarePlus,
+  Play,
+  RefreshCcw,
+  Repeat2,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  useCancelProjectCodingRun,
   useCleanupProjectCodingRun,
-  useCreateProjectBlueprintFromCurrent,
   useContinueProjectCodingRun,
+  useCreateProjectBlueprintFromCurrent,
   useCreateProjectCodingRun,
+  useCreateProjectCodingRunReviewSession,
+  useCreateProjectCodingRunSchedule,
   useDisableProjectCodingRunLoop,
+  useDisableProjectCodingRunSchedule,
+  useMarkProjectCodingRunReviewed,
   useProjectCodingRunReviewBatches,
   useProjectCodingRunReviewSessions,
-  useCreateProjectCodingRunReviewSession,
-  useMarkProjectCodingRunsReviewed,
-  useMarkProjectCodingRunReviewed,
+  useProjectCodingRunSchedules,
   useProjectCodingRuns,
+  useProjectFactoryReviewInbox,
   useRefreshProjectCodingRun,
+  useRunProjectCodingRunScheduleNow,
+  useUpdateProjectCodingRunSchedule,
 } from "@/src/api/hooks/useProjects";
 import type { MachineTargetGrant } from "@/src/api/hooks/useTasks";
-import { FormRow, Section, SelectInput } from "@/src/components/shared/FormControls";
+import { FormRow, SelectInput } from "@/src/components/shared/FormControls";
 import { PromptEditor } from "@/src/components/shared/LlmPrompt";
-import { ActionButton, EmptyState, SettingsControlRow, StatusBadge } from "@/src/components/shared/SettingsControls";
-import { collapseProjectRunReceiptsForReview } from "@/src/lib/projectRunReceipts";
-import type { Channel, Project, ProjectCodingRun, ProjectCodingRunReviewBatch, ProjectCodingRunReviewSessionLedger, ProjectRunReceipt } from "@/src/types/api";
-import { ExecutionAccessControl, executionAccessLine, formatRunTime, RowLink, statusTone } from "./ProjectRunControls";
-import { ReviewSessionsSection } from "./ReviewSessionsSection";
-import { ProjectScheduledReviewsSection } from "./ProjectScheduledReviewsSection";
+import { ActionButton, EmptyState } from "@/src/components/shared/SettingsControls";
+import type {
+  Channel,
+  Project,
+  ProjectCodingRun,
+  ProjectCodingRunReviewBatch,
+  ProjectCodingRunReviewSessionLedger,
+  ProjectCodingRunSchedule,
+  ProjectFactoryReviewInboxItem,
+  ProjectRunReceipt,
+} from "@/src/types/api";
+import {
+  ExecutionAccessControl,
+  executionAccessLine,
+  formatRunTime,
+  RowLink,
+  scheduledAtForPicker,
+} from "./ProjectRunControls";
 
-function compactEvidence(values?: Array<Record<string, any> | string>) {
-  const items = values ?? [];
-  if (items.length === 0) return "None reported";
-  return items
-    .slice(0, 3)
-    .map((item) => (typeof item === "string" ? item : String(item.name || item.path || item.command || item.status || "record")))
-    .join(", ");
+type BoardColumnKey = "backlog" | "scheduled" | "running" | "review" | "closed";
+type BoardItem =
+  | { id: string; kind: "run"; column: BoardColumnKey; run: ProjectCodingRun }
+  | { id: string; kind: "schedule"; column: "scheduled"; schedule: ProjectCodingRunSchedule }
+  | { id: string; kind: "review_session"; column: "review"; session: ProjectCodingRunReviewSessionLedger }
+  | { id: string; kind: "batch"; column: "backlog"; batch: ProjectCodingRunReviewBatch }
+  | { id: string; kind: "inbox"; column: "backlog"; item: ProjectFactoryReviewInboxItem }
+  | { id: string; kind: "new_run"; column: "backlog" }
+  | { id: string; kind: "new_schedule"; column: "scheduled" };
+
+const TERMINAL_STATUSES = new Set(["complete", "completed", "cancelled", "canceled", "failed"]);
+const STALE_ACTIVE_MS = 30 * 60 * 1000;
+
+function runTitle(run: ProjectCodingRun) {
+  return run.request || run.task.title || "Project coding run";
 }
 
-function activitySummary(run: ProjectCodingRun) {
-  const activity = run.activity ?? [];
-  if (activity.length === 0) return "No recent activity recorded";
-  return activity
-    .slice(0, 3)
-    .map((item) => String(item.summary || item.title || item.name || item.tool_name || item.kind || item.type || "activity"))
-    .join(", ");
+function shortId(value?: string | null) {
+  if (!value) return "";
+  const parts = value.split(":");
+  return (parts[1] || value).slice(0, 8);
 }
 
-function isActiveCodingRun(run: ProjectCodingRun) {
-  const status = String(run.task.status || run.status || "").toLowerCase();
+function runStatus(run: ProjectCodingRun) {
+  return String(run.task?.status || run.status || "").toLowerCase();
+}
+
+function reviewStatus(run: ProjectCodingRun) {
+  return String(run.review_queue_state || run.review?.status || run.status || "").toLowerCase();
+}
+
+function isActiveRun(run: ProjectCodingRun) {
+  const status = runStatus(run);
   return status === "pending" || status === "running";
+}
+
+function isClosedRun(run: ProjectCodingRun) {
+  const status = runStatus(run);
+  const review = reviewStatus(run);
+  return TERMINAL_STATUSES.has(status) || review === "reviewed" || Boolean(run.review?.reviewed);
+}
+
+function isReviewRun(run: ProjectCodingRun) {
+  if (isClosedRun(run)) return false;
+  const review = reviewStatus(run);
+  return ["blocked", "changes_requested", "ready_for_review", "needs_review", "missing_evidence", "pending_evidence", "reviewing", "follow_up_running"].includes(review);
 }
 
 function isActiveReviewSession(session: ProjectCodingRunReviewSessionLedger) {
@@ -54,403 +109,277 @@ function isActiveReviewSession(session: ProjectCodingRunReviewSessionLedger) {
   return Boolean(session.actions?.active) || status === "pending" || status === "running" || status === "active";
 }
 
-function runTitle(run: ProjectCodingRun) {
-  return run.request || run.task.title || "Project coding run";
+function itemTimestamp(run: ProjectCodingRun) {
+  return run.updated_at || run.task.completed_at || run.created_at || run.task.created_at || null;
 }
 
-function activeRunLine(run: ProjectCodingRun) {
-  const pieces = [
-    run.branch ? `Branch ${run.branch}` : null,
-    workSurfaceLine(run),
-    dependencyStackLine(run),
-    devTargetsLine(run.dev_targets) ? `Dev targets: ${devTargetsLine(run.dev_targets)}` : null,
-  ].filter(Boolean);
-  return pieces.length > 0 ? pieces.join(" · ") : activitySummary(run);
+function startedTimestamp(run: ProjectCodingRun) {
+  return run.created_at || run.task.created_at || run.task.run_at || null;
 }
 
-function progressLabel(actionType?: string) {
-  if (actionType === "handoff.prepare_branch") return "Branch";
-  if (actionType === "handoff.push") return "Push";
-  if (actionType === "handoff.open_pr") return "PR";
-  if (actionType === "handoff.status") return "Status";
-  return "Progress";
+function ageMs(value?: string | null) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return 0;
+  return Math.max(0, Date.now() - time);
 }
 
-function statusMark(status?: string, summary?: string) {
-  if (status === "succeeded" || status === "completed") return "ready";
-  if (status === "blocked" || status === "failed") return status;
-  if (status === "needs_review") return "review";
-  if (status === "unknown" && String(summary || "").toLowerCase().includes("ready")) return "ready";
-  return status || "reported";
+function compactAge(value?: string | null) {
+  const ms = ageMs(value);
+  if (ms <= 0) return "now";
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remaining = minutes % 60;
+  if (hours < 48) return remaining ? `${hours}h ${remaining}m` : `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
 }
 
-function handoffProgressSummary(run: ProjectCodingRun) {
-  const steps = run.review?.steps;
-  if (steps) {
-    const items = [
-      ["PR", steps.pr?.status],
-      ["Branch", steps.branch?.status],
-      ["Status", steps.status?.status],
-    ]
-      .filter(([, status]) => status && status !== "missing")
-      .slice(0, 3)
-      .map(([label, status]) => `${label}: ${statusMark(String(status || ""))}`);
-    if (items.length > 0) return items.join(" · ");
-  }
-  const items = (run.activity ?? [])
-    .filter((item) => item.kind === "execution_receipt" && item.source?.scope === "project_coding_run")
-    .slice(0, 3);
-  if (items.length === 0) return null;
-  return items
-    .map((item) => `${progressLabel(String(item.source?.action_type || ""))}: ${statusMark(String(item.status || ""), String(item.summary || ""))}`)
-    .join(" · ");
+function isStaleActive(run: ProjectCodingRun) {
+  return isActiveRun(run) && ageMs(itemTimestamp(run) || startedTimestamp(run)) > STALE_ACTIVE_MS && !run.receipt;
 }
 
-function evidenceSummary(run: ProjectCodingRun) {
-  const lifecycleEvidence = run.lifecycle?.evidence;
-  if (lifecycleEvidence) {
-    return `${lifecycleEvidence.tests ?? 0} tests · ${lifecycleEvidence.screenshots ?? 0} screenshots · ${lifecycleEvidence.files ?? 0} files · ${lifecycleEvidence.dev_targets ?? 0} dev targets`;
-  }
+function evidenceLine(run: ProjectCodingRun) {
   const evidence = run.review?.evidence;
   if (evidence) {
-    return `${evidence.tests_count ?? 0} tests · ${evidence.screenshots_count ?? 0} screenshots · ${evidence.changed_files_count ?? 0} files · ${evidence.dev_targets_count ?? 0} dev targets`;
+    return `${evidence.tests_count ?? 0} tests · ${evidence.screenshots_count ?? 0} screenshots · ${evidence.changed_files_count ?? 0} files`;
   }
-  if (!run.receipt) return "No evidence receipt yet";
-  return `${run.receipt.tests?.length ?? 0} tests · ${run.receipt.screenshots?.length ?? 0} screenshots · ${run.receipt.changed_files?.length ?? 0} files · ${run.receipt.dev_targets?.length ?? 0} dev targets`;
+  if (!run.receipt) return "no receipt";
+  return `${run.receipt.tests?.length ?? 0} tests · ${run.receipt.screenshots?.length ?? 0} screenshots · ${run.receipt.changed_files?.length ?? 0} files`;
 }
 
-function reviewStatusLabel(run: ProjectCodingRun) {
-  return run.review?.status || run.status;
-}
-
-function reviewQueueState(run: ProjectCodingRun) {
-  return run.review_queue_state || reviewStatusLabel(run);
-}
-
-function reviewQueueLabel(state?: string | null) {
-  return String(state || "needs_review").replaceAll("_", " ");
-}
-
-/**
- * Symphony run_phase chip — fine-grained "what is this run doing right now".
- * Reads `lifecycle.run_phase` (4BG.3 / 4BB.5 surface). Renders nothing in the
- * steady-state "reviewed" case; otherwise a compact monochrome chip plus a
- * separate warning badge when the run is stalled.
- */
-function RunPhaseChip({ run }: { run: ProjectCodingRun }) {
-  // `lifecycle` is `Record[str, Any]` server-side, not formally modeled in the
-  // OpenAPI schema. Read `run_phase` (4BG.3) via a narrow accessor.
-  const phase = (run.lifecycle as Record<string, unknown> | undefined)?.run_phase as string | undefined;
-  if (!phase || phase === "reviewed") return null;
-  const stalled = phase === "stalled";
-  const className = stalled
-    ? "inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning"
-    : "inline-flex items-center gap-1 rounded bg-surface-overlay px-1.5 py-0.5 text-[10px] font-medium text-text-muted";
-  return (
-    <span className={className} title={stalled ? "Run has not produced progress recently — load project/runs/recovery." : `Run phase: ${phase}`}>
-      {String(phase).replaceAll("_", " ")}
-    </span>
-  );
-}
-
-function isHumanReviewQueueRun(run: ProjectCodingRun) {
-  const state = String(reviewQueueState(run) || "").toLowerCase();
-  if (state === "reviewed") return false;
-  if (isActiveCodingRun(run) && !["reviewing", "follow_up_running", "changes_requested", "blocked"].includes(state)) {
-    return false;
-  }
-  return true;
-}
-
-function reviewQueueDescription(run: ProjectCodingRun) {
-  return run.lifecycle?.next_action || run.review_next_action || reviewLine(run) || evidenceSummary(run);
-}
-
-function reviewAgentTaskId(run: ProjectCodingRun) {
-  return run.review?.review_task_id || null;
-}
-
-function isAgentReviewRunning(run: ProjectCodingRun) {
-  const state = String(reviewQueueState(run) || "").toLowerCase();
-  return state === "reviewing" || state === "follow_up_running";
-}
-
-function reviewAgentLine(run: ProjectCodingRun) {
-  const taskId = reviewAgentTaskId(run);
-  if (isAgentReviewRunning(run)) {
-    return `Agent review running${taskId ? ` · task ${String(taskId).slice(0, 8)}` : ""}`;
-  }
-  if (taskId) return `Latest agent review task ${String(taskId).slice(0, 8)}`;
-  return null;
-}
-
-function reviewLine(run: ProjectCodingRun) {
-  if (run.lifecycle?.headline) return run.lifecycle.headline;
-  const review = run.review;
-  if (!review) return null;
+function runMetaLine(run: ProjectCodingRun) {
   const pieces = [
-    review.pr?.state ? `PR ${String(review.pr.state).toLowerCase()}` : review.handoff_url ? "PR linked" : null,
-    review.pr?.checks_status ? `checks ${review.pr.checks_status}` : null,
-    review.merge_method ? `merge ${review.merge_method}` : null,
-    review.merged_at ? `merged ${formatRunTime(review.merged_at)}` : null,
-    review.merge_commit_sha ? `commit ${String(review.merge_commit_sha).slice(0, 7)}` : null,
-    review.review_task_id ? `review task ${String(review.review_task_id).slice(0, 8)}` : null,
-    review.instance?.status ? `workspace ${review.instance.status}` : null,
+    startedTimestamp(run) ? `started ${formatRunTime(startedTimestamp(run))}` : null,
+    run.branch ? `branch ${run.branch}` : null,
+    run.repo?.path ? String(run.repo.path) : null,
   ].filter(Boolean);
-  if (review.blocker) return `Blocker: ${review.blocker}`;
-  return pieces.length > 0 ? pieces.join(" · ") : null;
+  return pieces.join(" · ") || "Project coding run";
 }
 
-function lineageLine(run: ProjectCodingRun) {
-  const parts = [];
-  if ((run.continuation_index ?? 0) > 0) parts.push(`Follow-up ${run.continuation_index}`);
-  if ((run.continuation_count ?? 0) > 0) parts.push(`${run.continuation_count} follow-up${run.continuation_count === 1 ? "" : "s"}`);
-  if (run.latest_continuation?.review_status || run.latest_continuation?.status) {
-    parts.push(`latest ${run.latest_continuation.review_status || run.latest_continuation.status}`);
+function sessionPathForRun(run: ProjectCodingRun) {
+  return run.task.channel_id && run.task.session_id ? `/channels/${run.task.channel_id}/session/${run.task.session_id}` : null;
+}
+
+function sessionPathForScheduleRun(run?: ProjectCodingRunSchedule["last_run"] | null) {
+  return run?.channel_id && run.session_id ? `/channels/${run.channel_id}/session/${run.session_id}` : null;
+}
+
+function batchTitle(batch: ProjectCodingRunReviewBatch) {
+  return batch.summary?.title || `Launch batch ${shortId(batch.id)}`;
+}
+
+function scheduleNextLine(schedule: ProjectCodingRunSchedule) {
+  return `${schedule.enabled ? "enabled" : "disabled"} · ${schedule.recurrence || "manual"} · next ${formatRunTime(schedule.scheduled_at)}`;
+}
+
+function classifyRun(run: ProjectCodingRun): BoardColumnKey {
+  if (isClosedRun(run)) return "closed";
+  if (isActiveRun(run)) return "running";
+  if (isReviewRun(run)) return "review";
+  return "backlog";
+}
+
+function itemPriority(item: BoardItem) {
+  if (item.kind === "run") {
+    if (isStaleActive(item.run)) return 0;
+    const review = reviewStatus(item.run);
+    if (review === "blocked" || review === "changes_requested") return 1;
+    if (isActiveRun(item.run)) return 2;
+    if (isReviewRun(item.run)) return 3;
+    if (isClosedRun(item.run)) return 8;
+    return 5;
   }
-  return parts.length > 0 ? parts.join(" · ") : null;
+  if (item.kind === "review_session") return item.session.actions?.active ? 2 : 6;
+  if (item.kind === "schedule") return item.schedule.enabled ? 4 : 7;
+  if (item.kind === "batch") return 5;
+  if (item.kind === "inbox") return 5;
+  return 9;
 }
 
-function loopLine(run: ProjectCodingRun) {
-  const loop = run.loop;
-  if (!loop?.enabled) return null;
-  const pieces = [
-    `Loop ${loop.state || "waiting"}`,
-    `iteration ${loop.iteration || 1}/${loop.max_iterations || 1}`,
-    loop.latest_decision ? `decision ${loop.latest_decision}` : null,
-    loop.stop_reason ? `stop ${loop.stop_reason.replaceAll("_", " ")}` : null,
-  ].filter(Boolean);
-  return pieces.join(" · ");
-}
-
-function dependencyStackLine(run: ProjectCodingRun) {
-  const stack = run.dependency_stack;
-  if (!stack?.configured) return null;
-  const instance = stack.instance;
-  if (!instance) return "Dependency stack: not prepared";
-  const target = instance.source_path || instance.id;
-  const envKeys = Object.keys(instance.env ?? {});
-  return `Dependency stack: ${instance.status}${target ? ` · ${target}` : ""}${envKeys.length ? ` · env ${envKeys.length}` : ""}`;
-}
-
-function workSurfaceLine(run: ProjectCodingRun) {
-  const surface = run.work_surface;
-  if (!surface) return null;
-  if (surface.blocker) return `Work surface: ${surface.blocker}`;
-  if (surface.kind === "project_instance") {
-    const label = surface.project_instance_id ? surface.project_instance_id.slice(0, 8) : "pending";
-    const path = surface.display_path || (surface.root_path ? `/${surface.root_path}` : null);
-    return `Work surface: isolated ${label}${surface.status ? ` · ${surface.status}` : ""}${path ? ` · ${path}` : ""}`;
-  }
-  if (surface.kind === "project") {
-    return `Work surface: shared Project root${surface.display_path ? ` · ${surface.display_path}` : ""}`;
-  }
-  return surface.kind ? `Work surface: ${surface.kind}` : null;
-}
-
-function shortBatchId(value?: string | null) {
-  if (!value) return "";
-  const parts = value.split(":");
-  return (parts[1] || value).slice(0, 8);
-}
-
-function devTargetsLine(targets?: Array<Record<string, any> | string>) {
-  const rows = (targets ?? []).filter(Boolean);
-  if (rows.length === 0) return null;
-  return rows
-    .slice(0, 2)
-    .map((target) => {
-      if (typeof target === "string") return target;
-      const label = target.label || target.key || "dev";
-      const url = target.url || target[target.url_env] || "";
-      const port = target.port || target[target.port_env] || "";
-      return `${label}${url ? ` ${url}` : port ? ` :${port}` : ""}`;
-    })
-    .join(" · ");
-}
-
-function batchEvidenceLine(batch: ProjectCodingRunReviewBatch) {
-  const evidence = batch.evidence ?? {};
-  return `${evidence.tests_count ?? 0} tests · ${evidence.screenshots_count ?? 0} screenshots · ${evidence.changed_files_count ?? 0} files`;
-}
-
-function batchStatusLine(batch: ProjectCodingRunReviewBatch) {
-  const counts = batch.status_counts ?? {};
-  const ordered = ["reviewed", "ready_for_review", "reviewing", "running", "pending", "blocked", "changes_requested", "failed"];
-  const pieces = ordered
-    .filter((key) => counts[key])
-    .map((key) => `${counts[key]} ${key.replaceAll("_", " ")}`);
-  return pieces.length ? pieces.join(" · ") : `${batch.run_count} run${batch.run_count === 1 ? "" : "s"}`;
-}
-
-function batchSourceLine(batch: ProjectCodingRunReviewBatch) {
-  const packs = batch.source_work_packs ?? [];
-  if (packs.length === 0) return "No source work packs linked";
-  return packs.slice(0, 2).map((pack) => pack.title).join(" · ") + (packs.length > 2 ? ` · +${packs.length - 2}` : "");
-}
-
-function RunActionLinks({ run }: { run: ProjectCodingRun }) {
-  const status = String(run.task?.status || run.status || "").toLowerCase();
-  const inFlight = status === "running" || status === "pending" || (run.loop?.enabled && run.loop?.state && run.loop.state !== "stopped");
-  const sessionPath = run.task.channel_id && run.task.session_id ? `/channels/${run.task.channel_id}/session/${run.task.session_id}` : null;
-  return (
-    <div className="flex flex-wrap items-center justify-end gap-1">
-      {inFlight && <RowLink to={`/admin/projects/${run.project_id}/runs/${run.task.id}/live`}>Live view</RowLink>}
-      {sessionPath && <RowLink to={sessionPath}>Open session</RowLink>}
-      <RowLink to={`/admin/projects/${run.project_id}/runs/${run.task.id}`}>Open review page</RowLink>
-      {(run.review?.handoff_url || run.receipt?.handoff_url) && <RowLink href={run.review?.handoff_url || run.receipt?.handoff_url || undefined}>PR / handoff</RowLink>}
-      <RowLink to={`/admin/tasks/${run.task.id}`}>Task log</RowLink>
-    </div>
-  );
-}
-
-type CockpitQueueItem =
-  | { kind: "review"; run: ProjectCodingRun }
-  | { kind: "running"; run: ProjectCodingRun }
-  | { kind: "review_session"; session: ProjectCodingRunReviewSessionLedger };
-
-function queueItemTime(item: CockpitQueueItem) {
+function itemSortTime(item: BoardItem) {
+  if (item.kind === "run") return itemTimestamp(item.run) || "";
   if (item.kind === "review_session") return item.session.latest_activity_at || item.session.created_at || "";
-  return item.run.updated_at || item.run.created_at || "";
+  if (item.kind === "schedule") return item.schedule.scheduled_at || item.schedule.created_at || "";
+  if (item.kind === "inbox") return item.item.updated_at || item.item.created_at || "";
+  return "";
 }
 
-function queueItemPriority(item: CockpitQueueItem) {
-  if (item.kind === "review") {
-    const state = String(reviewQueueState(item.run) || "").toLowerCase();
-    if (state === "blocked" || state === "changes_requested") return 0;
-    if (state === "ready_for_review" || state === "needs_review") return 1;
-    return 2;
-  }
-  if (item.kind === "running") return 3;
-  return 4;
+function columnLabel(key: BoardColumnKey) {
+  if (key === "backlog") return "Backlog / ready";
+  if (key === "scheduled") return "Scheduled";
+  if (key === "running") return "Running";
+  if (key === "review") return "Human review";
+  return "Closed";
 }
 
-function RunReviewActions({
-  projectId,
-  run,
-  onRequestChanges,
+function BoardCard({
+  item,
+  selected,
+  onSelect,
 }: {
-  projectId: string;
-  run: ProjectCodingRun;
-  onRequestChanges: () => void;
+  item: BoardItem;
+  selected: boolean;
+  onSelect: () => void;
 }) {
-  const refreshRun = useRefreshProjectCodingRun(projectId);
-  const markReviewed = useMarkProjectCodingRunReviewed(projectId);
-  const cleanupRun = useCleanupProjectCodingRun(projectId);
-  const disableLoop = useDisableProjectCodingRunLoop(projectId);
-  const busy = refreshRun.isPending || markReviewed.isPending || cleanupRun.isPending || disableLoop.isPending;
+  let title = "";
+  let meta = "";
+  let age = "";
+  let urgent = false;
+  let tokens: { label: string; tone?: "red" | "green" | "blue" }[] = [];
+  let icon: React.ReactNode = null;
+
+  if (item.kind === "run") {
+    const run = item.run;
+    title = runTitle(run);
+    meta = item.column === "running" ? `${runMetaLine(run)} · ${evidenceLine(run)}` : `${formatRunTime(itemTimestamp(run))} · ${evidenceLine(run)}`;
+    age = isActiveRun(run) ? compactAge(itemTimestamp(run) || startedTimestamp(run)) : reviewStatus(run).replaceAll("_", " ") || runStatus(run);
+    urgent = isStaleActive(run) || ["blocked", "changes_requested"].includes(reviewStatus(run));
+    tokens = [
+      urgent ? { label: isStaleActive(run) ? "stale" : reviewStatus(run).replaceAll("_", " "), tone: "red" } : { label: runStatus(run) || "run", tone: isClosedRun(run) ? "green" : undefined },
+      run.receipt ? { label: "receipt", tone: "green" } : { label: "no receipt" },
+      run.task.session_id ? { label: "session", tone: "blue" } : { label: "no session" },
+    ];
+    icon = item.column === "review" ? <GitMerge size={13} /> : item.column === "closed" ? <CheckCircle2 size={13} /> : <GitBranch size={13} />;
+  } else if (item.kind === "schedule") {
+    title = item.schedule.title;
+    meta = scheduleNextLine(item.schedule);
+    age = item.schedule.enabled ? "active" : "paused";
+    tokens = [
+      { label: item.schedule.recurrence || "manual", tone: item.schedule.enabled ? "green" : undefined },
+      { label: `${item.schedule.run_count} runs` },
+      item.schedule.last_run?.session_id ? { label: "last session", tone: "blue" } : { label: "no session" },
+    ];
+    icon = <CalendarClock size={13} />;
+  } else if (item.kind === "review_session") {
+    title = item.session.title || "Project coding-run review";
+    meta = `${item.session.run_count} run${item.session.run_count === 1 ? "" : "s"} · latest ${formatRunTime(item.session.latest_activity_at || item.session.created_at)}`;
+    age = item.session.task_status || item.session.status;
+    urgent = String(item.session.status || "").toLowerCase() === "blocked";
+    tokens = [
+      { label: item.session.status, tone: urgent ? "red" : undefined },
+      { label: "review agent", tone: "blue" },
+    ];
+    icon = <GitMerge size={13} />;
+  } else if (item.kind === "batch") {
+    title = batchTitle(item.batch);
+    meta = `${item.batch.run_count} run${item.batch.run_count === 1 ? "" : "s"} · ready ${item.batch.summary?.ready_count ?? 0} · unreviewed ${item.batch.summary?.unreviewed_count ?? 0}`;
+    age = item.batch.status;
+    tokens = [{ label: "batch", tone: "blue" }, { label: item.batch.status }];
+    icon = <GitMerge size={13} />;
+  } else if (item.kind === "inbox") {
+    title = item.item.title;
+    meta = item.item.summary_line || item.item.next_action || item.item.state;
+    age = item.item.state;
+    tokens = [{ label: item.item.state }, item.item.launch_batch_id ? { label: `batch ${shortId(item.item.launch_batch_id)}` } : { label: "inbox" }];
+    icon = <FileText size={13} />;
+  } else {
+    title = item.kind === "new_run" ? "Start a new run" : "Schedule a prompt";
+    meta = item.kind === "new_run" ? "Launch work into a visible channel session." : "Create a recurring Project run prompt.";
+    age = "new";
+    tokens = [{ label: "launcher", tone: "blue" }];
+    icon = item.kind === "new_run" ? <Play size={13} /> : <CalendarClock size={13} />;
+  }
+
   return (
-    <div className="flex flex-wrap items-center justify-end gap-1">
-      <ActionButton
-        label="Refresh"
-        icon={<RefreshCcw size={13} />}
-        size="small"
-        variant="ghost"
-        disabled={busy || run.review?.actions?.can_refresh === false}
-        onPress={() => refreshRun.mutate(run.task.id)}
-      />
-      {run.review?.actions?.can_mark_reviewed && (
-        <ActionButton
-          label="Close on our side"
-          icon={<Check size={13} />}
-          size="small"
-          variant="secondary"
-          disabled={busy}
-          onPress={() => markReviewed.mutate(run.task.id)}
-        />
-      )}
-      {run.review?.actions?.can_request_changes && (
-        <ActionButton
-          label="Request changes"
-          icon={<MessageSquarePlus size={13} />}
-          size="small"
-          variant="secondary"
-          disabled={busy}
-          onPress={onRequestChanges}
-        />
-      )}
-      {run.review?.actions?.can_cleanup_instance && (
-        <ActionButton
-          label="Clean up"
-          icon={<Trash2 size={13} />}
-          size="small"
-          variant="danger"
-          disabled={busy}
-          onPress={() => cleanupRun.mutate(run.task.id)}
-        />
-      )}
-      {run.loop?.enabled && (
-        <ActionButton
-          label="Stop loop"
-          icon={<Repeat2 size={13} />}
-          size="small"
-          variant="secondary"
-          disabled={busy}
-          onPress={() => disableLoop.mutate(run.task.id)}
-        />
-      )}
-      <RunActionLinks run={run} />
+    <button
+      type="button"
+      onClick={onSelect}
+      className={[
+        "w-full rounded-lg border bg-surface-raised/80 p-3 text-left transition-colors hover:border-accent/70",
+        selected ? "border-accent shadow-[inset_3px_0_0_rgb(var(--color-accent))]" : urgent ? "border-danger/60" : "border-surface-border/80",
+        urgent && selected ? "shadow-[inset_3px_0_0_rgb(var(--color-danger))]" : "",
+      ].join(" ")}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-start gap-2">
+          <span className="mt-0.5 text-text-dim">{icon}</span>
+          <span className="min-w-0 text-[13px] font-semibold leading-5 text-text">{title}</span>
+        </div>
+        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${urgent ? "bg-danger/10 text-danger-muted" : "bg-surface-overlay text-text-muted"}`}>
+          {age}
+        </span>
+      </div>
+      <div className="mt-2 truncate text-[12px] text-text-muted">{meta}</div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {tokens.filter(Boolean).slice(0, 4).map((token) => (
+          <span
+            key={token.label}
+            className={[
+              "rounded px-1.5 py-0.5 text-[11px] font-semibold",
+              token.tone === "red" ? "bg-danger/10 text-danger-muted" : token.tone === "green" ? "bg-success/10 text-success" : token.tone === "blue" ? "bg-accent/10 text-accent" : "bg-surface-overlay text-text-muted",
+            ].join(" ")}
+          >
+            {token.label}
+          </span>
+        ))}
+      </div>
+    </button>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value?: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4 border-t border-surface-border/60 pt-2 text-[12px]">
+      <span className="text-text-dim">{label}</span>
+      <span className="min-w-0 text-right font-semibold text-text-muted">{value || "none"}</span>
     </div>
   );
 }
 
-function EmptyRunsAnchor({
-  hasBlueprintSnapshot,
-  onNewRun,
-}: {
-  hasBlueprintSnapshot: boolean;
-  onNewRun: () => void;
-}) {
+function InspectorPanel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <Section
-      title="Project work"
-      description="No runs need review and no agents are currently working."
-      action={<ActionButton label="New run" icon={<Play size={14} />} size="small" onPress={onNewRun} />}
-    >
-      <SettingsControlRow
-        leading={<CheckCircle2 size={14} />}
-        title="Nothing waiting"
-        description="Start a new agent coding run when you have a ready story, bug, or follow-up."
-        meta={hasBlueprintSnapshot ? <StatusBadge label="ready" variant="success" /> : <StatusBadge label="setup needed" variant="warning" />}
-      />
-    </Section>
+    <div className="rounded-lg border border-surface-border/80 bg-surface-raised/55 p-3">
+      <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-text-dim">{title}</div>
+      {children}
+    </div>
   );
 }
 
 export function ProjectRunsSection({
   project,
   channels,
-  receipts,
 }: {
   project: Project;
   channels?: Pick<Channel, "id" | "name" | "bot_id">[];
   receipts?: ProjectRunReceipt[];
 }) {
   const { data: runs = [] } = useProjectCodingRuns(project.id);
+  const { data: schedules = [] } = useProjectCodingRunSchedules(project.id);
   const { data: reviewBatches = [] } = useProjectCodingRunReviewBatches(project.id);
   const { data: reviewSessions = [] } = useProjectCodingRunReviewSessions(project.id);
+  const { data: reviewInbox } = useProjectFactoryReviewInbox(50);
+
   const createRun = useCreateProjectCodingRun(project.id);
   const createBlueprint = useCreateProjectBlueprintFromCurrent(project.id);
   const continueRun = useContinueProjectCodingRun(project.id);
-  const markReviewedBatch = useMarkProjectCodingRunsReviewed(project.id);
+  const refreshRun = useRefreshProjectCodingRun(project.id);
+  const markReviewed = useMarkProjectCodingRunReviewed(project.id);
+  const cleanupRun = useCleanupProjectCodingRun(project.id);
+  const cancelRun = useCancelProjectCodingRun(project.id);
+  const disableLoop = useDisableProjectCodingRunLoop(project.id);
   const createReviewSession = useCreateProjectCodingRunReviewSession(project.id);
+  const createSchedule = useCreateProjectCodingRunSchedule(project.id);
+  const updateSchedule = useUpdateProjectCodingRunSchedule(project.id);
+  const runScheduleNow = useRunProjectCodingRunScheduleNow(project.id);
+  const disableSchedule = useDisableProjectCodingRunSchedule(project.id);
+
   const [selectedChannelId, setSelectedChannelId] = useState("");
   const [selectedRepoPath, setSelectedRepoPath] = useState("");
   const [request, setRequest] = useState("");
-  const [createdRunId, setCreatedRunId] = useState<string | null>(null);
-  const [showRunLauncher, setShowRunLauncher] = useState(false);
+  const [selectedItemId, setSelectedItemId] = useState("");
   const [runMachineTargetGrant, setRunMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
   const [loopEnabled, setLoopEnabled] = useState(false);
   const [loopMaxIterations, setLoopMaxIterations] = useState(3);
   const [loopStopCondition, setLoopStopCondition] = useState("Stop when the requested work is implemented, verified, and ready for human review.");
-  const [changeRunId, setChangeRunId] = useState<string | null>(null);
-  const [changeFeedback, setChangeFeedback] = useState("");
-  const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
-  const [batchMode, setBatchMode] = useState(false);
   const [reviewPrompt, setReviewPrompt] = useState("Review the selected PRs. Merge only accepted work to development, then mark those runs reviewed with links and blockers.");
   const [reviewMachineTargetGrant, setReviewMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
-  const [reviewTaskId, setReviewTaskId] = useState<string | null>(null);
-  const visibleReceipts = useMemo(() => collapseProjectRunReceiptsForReview(receipts), [receipts]);
+  const [changeFeedback, setChangeFeedback] = useState("");
+  const [scheduleTitle, setScheduleTitle] = useState("Weekly Project review");
+  const [scheduleRequest, setScheduleRequest] = useState("Review the Project for regressions, stale PRs, missing tests, and architecture issues. If changes are needed, implement them, run tests/screenshots, open a PR, and publish a Project run receipt. If no change is needed, publish a no-change receipt.");
+  const [scheduleStart, setScheduleStart] = useState("");
+  const [scheduleRecurrence, setScheduleRecurrence] = useState("+1w");
+  const [scheduleMachineTargetGrant, setScheduleMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
 
   useEffect(() => {
     if (!selectedChannelId && channels && channels.length > 0) {
@@ -471,65 +400,61 @@ export function ProjectRunsSection({
       }))
       .filter((repo) => repo.value);
   }, [project.metadata_]);
+
   useEffect(() => {
     if (!selectedRepoPath && blueprintRepos.length > 0) {
       setSelectedRepoPath(blueprintRepos[0].value);
     }
   }, [blueprintRepos, selectedRepoPath]);
-  const activeRuns = useMemo(() => runs.filter(isActiveCodingRun), [runs]);
-  const activeReviewSessions = useMemo(() => reviewSessions.filter(isActiveReviewSession), [reviewSessions]);
-  const historicalReviewSessions = useMemo(() => reviewSessions.filter((session) => !isActiveReviewSession(session)), [reviewSessions]);
-  const createdRun = runs.find((run) => run.id === createdRunId);
-  const changeRun = runs.find((run) => run.id === changeRunId);
-  const selectedRuns = runs.filter((run) => selectedRunIds.includes(run.id));
-  const selectedTaskIds = selectedRuns.map((run) => run.task.id);
-  const reviewQueueRuns = useMemo(() => {
-    return runs
-      .filter(isHumanReviewQueueRun)
-      .sort((a, b) => {
-        const left = a.review_queue_priority ?? 99;
-        const right = b.review_queue_priority ?? 99;
-        if (left !== right) return left - right;
-        return String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || ""));
-      });
-  }, [runs]);
-  const actionQueue = useMemo<CockpitQueueItem[]>(() => {
-    const reviewIds = new Set(reviewQueueRuns.map((run) => run.id));
-    const items: CockpitQueueItem[] = [
-      ...reviewQueueRuns.map((run) => ({ kind: "review" as const, run })),
-      ...activeRuns
-        .filter((run) => !reviewIds.has(run.id))
-        .map((run) => ({ kind: "running" as const, run })),
-      ...activeReviewSessions.map((session) => ({ kind: "review_session" as const, session })),
+
+  const inboxItems = useMemo(() => {
+    const runTaskIds = new Set(runs.map((run) => run.task.id));
+    return (reviewInbox?.items ?? [])
+      .filter((item) => item.project_id === project.id)
+      .filter((item) => !runTaskIds.has(item.task_id))
+      .slice(0, 8);
+  }, [project.id, reviewInbox?.items, runs]);
+
+  const boardItems = useMemo<BoardItem[]>(() => {
+    const items: BoardItem[] = [
+      { id: "action:new-run", kind: "new_run", column: "backlog" },
+      { id: "action:new-schedule", kind: "new_schedule", column: "scheduled" },
+      ...schedules.map((schedule) => ({ id: `schedule:${schedule.id}`, kind: "schedule" as const, column: "scheduled" as const, schedule })),
+      ...reviewSessions.filter(isActiveReviewSession).map((session) => ({ id: `review-session:${session.id}`, kind: "review_session" as const, column: "review" as const, session })),
+      ...runs.map((run) => ({ id: `run:${run.id}`, kind: "run" as const, column: classifyRun(run), run })),
+      ...reviewBatches.filter((batch) => batch.status !== "reviewed").map((batch) => ({ id: `batch:${batch.id}`, kind: "batch" as const, column: "backlog" as const, batch })),
+      ...inboxItems.map((item) => ({ id: `inbox:${item.id}`, kind: "inbox" as const, column: "backlog" as const, item })),
     ];
     return items.sort((a, b) => {
-      const priority = queueItemPriority(a) - queueItemPriority(b);
+      const priority = itemPriority(a) - itemPriority(b);
       if (priority !== 0) return priority;
-      return queueItemTime(b).localeCompare(queueItemTime(a));
+      return itemSortTime(b).localeCompare(itemSortTime(a));
     });
-  }, [activeReviewSessions, activeRuns, reviewQueueRuns]);
-  const launchBatchGroups = useMemo(() => {
-    const groups = new Map<string, ProjectCodingRun[]>();
-    for (const run of runs) {
-      if (!run.launch_batch_id) continue;
-      const current = groups.get(run.launch_batch_id) ?? [];
-      current.push(run);
-      groups.set(run.launch_batch_id, current);
-    }
-    return Array.from(groups.entries())
-      .map(([id, batchRuns]) => ({ id, runs: batchRuns }))
-      .filter((group) => group.runs.length > 1)
-      .sort((a, b) => String(b.runs[0]?.created_at || "").localeCompare(String(a.runs[0]?.created_at || "")));
-  }, [runs]);
-  const batchBusy = markReviewedBatch.isPending || createReviewSession.isPending;
-  const launchedReviewRuns = reviewTaskId ? selectedRuns : [];
-  const toggleRun = (runId: string) => {
-    setSelectedRunIds((current) => (
-      current.includes(runId)
-        ? current.filter((id) => id !== runId)
-        : [...current, runId]
-    ));
-  };
+  }, [inboxItems, reviewBatches, reviewSessions, runs, schedules]);
+
+  const columns = useMemo(() => {
+    const map: Record<BoardColumnKey, BoardItem[]> = { backlog: [], scheduled: [], running: [], review: [], closed: [] };
+    for (const item of boardItems) map[item.column].push(item);
+    return map;
+  }, [boardItems]);
+
+  useEffect(() => {
+    if (boardItems.some((item) => item.id === selectedItemId)) return;
+    const next = boardItems.find((item) => item.kind === "run" && isStaleActive(item.run))
+      || boardItems.find((item) => item.kind === "run" && reviewStatus(item.run) === "blocked")
+      || boardItems.find((item) => item.column === "running")
+      || boardItems.find((item) => item.column === "review")
+      || boardItems[0];
+    if (next) setSelectedItemId(next.id);
+  }, [boardItems, selectedItemId]);
+
+  const selectedItem = boardItems.find((item) => item.id === selectedItemId) || boardItems[0];
+  const activeRuns = columns.running.filter((item) => item.kind === "run").length;
+  const staleRuns = columns.running.filter((item) => item.kind === "run" && isStaleActive(item.run)).length;
+  const reviewCount = columns.review.length;
+  const scheduleCount = columns.scheduled.filter((item) => item.kind === "schedule").length;
+  const closedCount = columns.closed.length;
+
   const startRun = () => {
     if (!selectedChannel || !hasBlueprintSnapshot || createRun.isPending) return;
     createRun.mutate(
@@ -548,771 +473,539 @@ export function ProjectRunsSection({
       },
       {
         onSuccess: (run) => {
-          setCreatedRunId(run.id);
+          setSelectedItemId(`run:${run.id}`);
           setRequest("");
         },
       },
     );
   };
-  const submitChanges = () => {
-    if (!changeRun || continueRun.isPending) return;
-    continueRun.mutate(
-      { taskId: changeRun.task.id, feedback: changeFeedback.trim() },
-      {
-        onSuccess: () => {
-          setChangeRunId(null);
-          setChangeFeedback("");
-        },
-      },
-    );
-  };
-  const markSelectedReviewed = () => {
-    if (selectedTaskIds.length === 0 || batchBusy) return;
-    markReviewedBatch.mutate(
-      { task_ids: selectedTaskIds, note: "Batch marked reviewed from Project Runs." },
-      { onSuccess: () => setSelectedRunIds([]) },
-    );
-  };
-  const launchReviewSession = () => {
-    if (!selectedChannel || selectedTaskIds.length === 0 || batchBusy) return;
-    createReviewSession.mutate(
+
+  const startSchedule = () => {
+    if (!selectedChannel || createSchedule.isPending) return;
+    createSchedule.mutate(
       {
         channel_id: selectedChannel.id,
-        task_ids: selectedTaskIds,
-        prompt: reviewPrompt.trim(),
-        merge_method: "squash",
-        machine_target_grant: reviewMachineTargetGrant,
+        title: scheduleTitle.trim() || "Scheduled Project coding run",
+        request: scheduleRequest.trim(),
+        scheduled_at: scheduleStart || null,
+        recurrence: scheduleRecurrence || "+1w",
+        machine_target_grant: scheduleMachineTargetGrant,
       },
-      {
-        onSuccess: (task) => {
-          setReviewTaskId(task.id);
-        },
-      },
-    );
-  };
-  const launchReviewForBatch = (batchRuns: ProjectCodingRun[]) => {
-    if (!selectedChannel || batchRuns.length === 0 || batchBusy) return;
-    const taskIds = batchRuns.map((run) => run.task.id);
-    const batchId = batchRuns[0]?.launch_batch_id;
-    setSelectedRunIds(batchRuns.map((run) => run.id));
-    createReviewSession.mutate(
-      {
-        channel_id: selectedChannel.id,
-        task_ids: taskIds,
-        prompt: `${reviewPrompt.trim()}\n\nReview launch batch ${batchId}. Keep finalization provenance linked to this batch.`,
-        merge_method: "squash",
-        machine_target_grant: reviewMachineTargetGrant,
-      },
-      {
-        onSuccess: (task) => {
-          setReviewTaskId(task.id);
-        },
-      },
-    );
-  };
-  const launchReviewForRuns = (batchRuns: ProjectCodingRun[], promptSuffix: string) => {
-    if (!selectedChannel || batchRuns.length === 0 || batchBusy) return;
-    const taskIds = batchRuns.map((run) => run.task.id);
-    setSelectedRunIds(batchRuns.map((run) => run.id));
-    createReviewSession.mutate(
-      {
-        channel_id: selectedChannel.id,
-        task_ids: taskIds,
-        prompt: `${reviewPrompt.trim()}\n\n${promptSuffix}`,
-        merge_method: "squash",
-        machine_target_grant: reviewMachineTargetGrant,
-      },
-      {
-        onSuccess: (task) => {
-          setReviewTaskId(task.id);
-        },
-      },
-    );
-  };
-  const launchReviewForInboxBatch = (batch: ProjectCodingRunReviewBatch) => {
-    if (!selectedChannel || !batch.task_ids?.length || batchBusy) return;
-    setSelectedRunIds(batch.run_ids ?? []);
-    createReviewSession.mutate(
-      {
-        channel_id: selectedChannel.id,
-        task_ids: batch.task_ids,
-        prompt: `${reviewPrompt.trim()}\n\nReview launch batch ${batch.id}. Keep finalization provenance linked to this batch.`,
-        merge_method: "squash",
-        machine_target_grant: reviewMachineTargetGrant,
-      },
-      {
-        onSuccess: (task) => {
-          setReviewTaskId(task.id);
-        },
-      },
+      { onSuccess: (schedule) => setSelectedItemId(`schedule:${schedule.id}`) },
     );
   };
 
-  useEffect(() => {
-    const liveIds = new Set(runs.map((run) => run.id));
-    setSelectedRunIds((current) => {
-      const next = current.filter((id) => liveIds.has(id));
-      return next.length === current.length ? current : next;
+  const launchReviewForRun = (run: ProjectCodingRun) => {
+    if (!selectedChannel || createReviewSession.isPending) return;
+    createReviewSession.mutate({
+      channel_id: selectedChannel.id,
+      task_ids: [run.task.id],
+      prompt: `${reviewPrompt.trim()}\n\nReview Project coding run ${run.task.id}. Preserve receipt, screenshot, PR, and follow-up provenance.`,
+      merge_method: "squash",
+      machine_target_grant: reviewMachineTargetGrant,
     });
-  }, [runs]);
+  };
+
+  const launchReviewForBatch = (batch: ProjectCodingRunReviewBatch) => {
+    if (!selectedChannel || !batch.task_ids?.length || createReviewSession.isPending) return;
+    createReviewSession.mutate({
+      channel_id: selectedChannel.id,
+      task_ids: batch.task_ids,
+      prompt: `${reviewPrompt.trim()}\n\nReview launch batch ${batch.id}. Keep finalization provenance linked to this batch.`,
+      merge_method: "squash",
+      machine_target_grant: reviewMachineTargetGrant,
+    });
+  };
+
+  const submitFollowUp = (run: ProjectCodingRun) => {
+    if (continueRun.isPending || !changeFeedback.trim()) return;
+    continueRun.mutate(
+      { taskId: run.task.id, feedback: changeFeedback.trim() },
+      { onSuccess: (next) => {
+        setChangeFeedback("");
+        setSelectedItemId(`run:${next.id}`);
+      } },
+    );
+  };
 
   return (
-    <div data-testid="project-workspace-runs" className="mx-auto flex w-full max-w-[1120px] flex-col gap-7 px-5 py-5 md:px-6">
-      <Section
-        title="Runs cockpit"
-        description="The queue below is ordered by what needs attention first. Start with the first row."
-        action={<ActionButton label="New run" icon={<Play size={14} />} size="small" variant="secondary" onPress={() => setShowRunLauncher(true)} />}
-      >
-        <div className="mb-3 grid gap-2 md:grid-cols-4">
-          <div className="rounded-md bg-surface-overlay/35 px-3 py-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">Needs action</div>
-            <div className="mt-1 text-xl font-semibold text-text">{reviewQueueRuns.length}</div>
-          </div>
-          <div className="rounded-md bg-surface-overlay/35 px-3 py-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">Running</div>
-            <div className="mt-1 text-xl font-semibold text-text">{activeRuns.length}</div>
-          </div>
-          <div className="rounded-md bg-surface-overlay/35 px-3 py-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">Review agents</div>
-            <div className="mt-1 text-xl font-semibold text-text">{activeReviewSessions.length}</div>
-          </div>
-          <div className="rounded-md bg-surface-overlay/35 px-3 py-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">History</div>
-            <div className="mt-1 text-xl font-semibold text-text">{runs.length}</div>
-          </div>
+    <div data-testid="project-workspace-runs" className="flex h-full min-h-[calc(100vh-150px)] w-full flex-col overflow-hidden px-4 py-4">
+      <div className="mb-3 grid gap-2 lg:grid-cols-[1.4fr_repeat(4,1fr)]">
+        <div className={`rounded-lg border px-3 py-3 ${staleRuns > 0 ? "border-danger/50 bg-danger/10" : "border-surface-border bg-surface-raised/45"}`}>
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-dim">Needs operator</div>
+          <div className={`mt-1 text-xl font-semibold ${staleRuns > 0 ? "text-danger-muted" : "text-text"}`}>{staleRuns > 0 ? `${staleRuns} stale run${staleRuns === 1 ? "" : "s"}` : "Clear"}</div>
+          <div className="mt-1 truncate text-[12px] text-text-muted">{staleRuns > 0 ? "Open the selected run and decide whether to stop, review, or recover." : "No stale runs detected."}</div>
         </div>
-        <div className="flex flex-col gap-2">
-          {actionQueue.length === 0 ? (
-            <SettingsControlRow
-              leading={<CheckCircle2 size={14} />}
-              title="Nothing waiting"
-              description="No runs need review and no agents are currently working. Start a new run when you have a ready task."
-              meta={hasBlueprintSnapshot ? <StatusBadge label="ready" variant="success" /> : <StatusBadge label="setup needed" variant="warning" />}
-              action={<ActionButton label="New run" icon={<Play size={13} />} size="small" variant="secondary" onPress={() => setShowRunLauncher(true)} />}
-            />
-          ) : actionQueue.map((item) => {
-            if (item.kind === "review_session") {
-              const session = item.session;
-              return (
-                <SettingsControlRow
-                  key={`review-session-${session.id}`}
-                  leading={<GitMerge size={14} />}
-                  title={session.title || "Review agent running"}
-                  description={
-                    <span className="flex min-w-0 flex-col gap-0.5">
-                      <span className="truncate text-[11px] text-text-dim">
-                        Agent review · {session.run_count} run{session.run_count === 1 ? "" : "s"} · latest {formatRunTime(session.latest_activity_at || session.created_at)}
-                      </span>
-                      {session.latest_summary && <span className="truncate text-[11px] text-text-dim">{session.latest_summary}</span>}
-                      {(session.selected_run_ids?.length ?? 0) > 0 && (
-                        <span className="truncate text-[11px] text-text-dim">Selected runs: {session.selected_run_ids?.map((id) => id.slice(0, 8)).join(", ")}</span>
-                      )}
-                    </span>
-                  }
-                  meta={<StatusBadge label={session.task_status || session.status} variant={statusTone(session.task_status || session.status)} />}
-                  action={
-                    <div className="flex flex-wrap items-center justify-end gap-1">
-                      <ActionButton
-                        label="Select reviewed runs"
-                        size="small"
-                        variant="ghost"
-                        disabled={batchBusy || !(session.selected_run_ids?.length)}
-                        onPress={() => setSelectedRunIds(session.selected_run_ids ?? [])}
-                      />
-                      {session.channel_id && session.session_id && <RowLink to={`/channels/${session.channel_id}/session/${session.session_id}`}>Open session</RowLink>}
-                      <RowLink to={`/admin/tasks/${session.task_id}`}>Task log</RowLink>
-                    </div>
-                  }
-                />
-              );
-            }
-            const run = item.run;
-            if (item.kind === "running") {
-              return (
-                <SettingsControlRow
-                  key={`running-${run.id}`}
-                  leading={<Play size={14} />}
-                  title={runTitle(run)}
-                  description={
-                    <span className="flex min-w-0 flex-col gap-0.5">
-                      <span className="truncate text-[11px] text-text-dim">{activeRunLine(run)}</span>
-                      <span className="truncate text-[11px] text-text-dim">
-                        Started {formatRunTime(run.created_at)} · {run.task.bot_id}
-                      </span>
-                      {loopLine(run) && <span className="truncate text-[11px] text-text-dim">{loopLine(run)}</span>}
-                    </span>
-                  }
-                  meta={<StatusBadge label={run.task.status || run.status} variant={statusTone(run.task.status || run.status)} />}
-                  action={<RunActionLinks run={run} />}
-                />
-              );
-            }
-            return (
-              <SettingsControlRow
-                key={`review-${run.id}`}
-                leading={<GitMerge size={14} />}
-                title={run.request || run.task.title || "Project coding run"}
-                description={
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span>{reviewQueueDescription(run)}</span>
-                    <span className="truncate text-[11px] text-text-dim">
-                      Evidence: {evidenceSummary(run)}
-                    </span>
-                    {run.branch && (
-                      <span className="truncate font-mono text-[11px] text-text-dim">{run.branch}</span>
-                    )}
-                    {run.launch_batch_id && (
-                      <span className="truncate text-[11px] text-text-dim">Launch batch: {shortBatchId(run.launch_batch_id)}</span>
-                    )}
-                    {lineageLine(run) && (
-                      <span className="truncate text-[11px] text-text-dim">Continuation: {lineageLine(run)}</span>
-                    )}
-                    {loopLine(run) && (
-                      <span className="truncate text-[11px] text-text-dim">{loopLine(run)}</span>
-                    )}
-                    {reviewAgentLine(run) && (
-                      <span className="truncate text-[11px] font-semibold text-text-muted">{reviewAgentLine(run)}</span>
-                    )}
-                  </span>
-                }
-                meta={<StatusBadge label={reviewQueueLabel(reviewQueueState(run))} variant={statusTone(reviewQueueState(run))} />}
-                action={
-                  <div className="flex flex-wrap justify-end gap-1">
-                    <RowLink to={`/admin/projects/${run.project_id}/runs/${run.task.id}`}>Open review page</RowLink>
-                    {isAgentReviewRunning(run) && reviewAgentTaskId(run) ? (
-                      <RowLink to={`/admin/tasks/${reviewAgentTaskId(run)}`}>Review agent log</RowLink>
-                    ) : (
-                      <ActionButton
-                        label={createReviewSession.isPending ? "Starting" : "Ask agent to review"}
-                        icon={<GitMerge size={13} />}
-                        size="small"
-                        variant="secondary"
-                        disabled={!selectedChannel || batchBusy || isAgentReviewRunning(run)}
-                        onPress={() => launchReviewForRuns([run], `Review Project coding run ${run.task.id}. Preserve receipt, screenshot, PR, and follow-up provenance.`)}
-                      />
-                    )}
-                    {(run.review?.handoff_url || run.receipt?.handoff_url) && <RowLink href={run.review?.handoff_url || run.receipt?.handoff_url || undefined}>PR / handoff</RowLink>}
-                    <RowLink to={`/admin/tasks/${run.task.id}`}>Task log</RowLink>
-                  </div>
-                }
-              />
-            );
-          })}
-          {reviewBatches.length > 0 && (
-            <div className="mt-2 flex flex-col gap-2">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">Batch review shortcuts</div>
-              {reviewBatches.slice(0, 4).map((batch) => (
-                <SettingsControlRow
-                  key={batch.id}
-                  leading={<GitMerge size={14} />}
-                  title={batch.summary?.title || `Launch batch ${shortBatchId(batch.id)}`}
-                  description={
-                    <span className="flex min-w-0 flex-col gap-0.5">
-                    <span>
-                      Batch {shortBatchId(batch.id)} · {batch.run_count} run{batch.run_count === 1 ? "" : "s"} · {batchStatusLine(batch)}
-                    </span>
-                    <span className="truncate text-[11px] text-text-dim">
-                      Sources: {batchSourceLine(batch)}
-                    </span>
-                    <span className="truncate text-[11px] text-text-dim">
-                      Evidence: {batchEvidenceLine(batch)} · ready {batch.summary?.ready_count ?? 0} · unreviewed {batch.summary?.unreviewed_count ?? 0}
-                    </span>
-                    {batch.active_review_task?.task_id && (
-                      <span className="truncate text-[11px] text-text-dim">
-                        Active review: {String(batch.active_review_task.task_id).slice(0, 8)} · {batch.active_review_task.status}
-                      </span>
-                    )}
-                    {!batch.active_review_task && batch.latest_review_task?.task_id && (
-                      <span className="truncate text-[11px] text-text-dim">
-                        Latest review: {String(batch.latest_review_task.task_id).slice(0, 8)} · {batch.latest_review_task.status}
-                      </span>
-                    )}
-                    </span>
-                  }
-                  meta={<StatusBadge label={batch.status} variant={statusTone(batch.status)} />}
-                  action={
-                    <div className="flex flex-wrap justify-end gap-1">
-                      <ActionButton
-                        label="Select batch"
-                        size="small"
-                        variant="ghost"
-                        disabled={batchBusy}
-                        onPress={() => setSelectedRunIds(batch.run_ids ?? [])}
-                      />
-                      {batch.active_review_task?.task_id ? (
-                        <RowLink to={`/admin/tasks/${batch.active_review_task.task_id}`}>Review agent log</RowLink>
-                      ) : (
-                        <ActionButton
-                          label={createReviewSession.isPending ? "Starting" : "Ask agent to review batch"}
-                          icon={<GitMerge size={13} />}
-                          size="small"
-                          variant="secondary"
-                          disabled={!selectedChannel || batchBusy || !batch.actions?.can_start_review}
-                          onPress={() => launchReviewForInboxBatch(batch)}
-                        />
-                      )}
-                    </div>
-                  }
-                />
-              ))}
-            </div>
-          )}
+        <div className="rounded-lg border border-surface-border bg-surface-raised/45 px-3 py-3">
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-dim">Running</div>
+          <div className="mt-1 text-xl font-semibold text-text">{activeRuns}</div>
+          <div className="mt-1 text-[12px] text-text-muted">implementation agents</div>
         </div>
-      </Section>
+        <div className="rounded-lg border border-surface-border bg-surface-raised/45 px-3 py-3">
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-dim">Review</div>
+          <div className="mt-1 text-xl font-semibold text-text">{reviewCount}</div>
+          <div className="mt-1 text-[12px] text-text-muted">waiting or blocked</div>
+        </div>
+        <div className="rounded-lg border border-surface-border bg-surface-raised/45 px-3 py-3">
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-dim">Schedules</div>
+          <div className="mt-1 text-xl font-semibold text-text">{scheduleCount}</div>
+          <div className="mt-1 text-[12px] text-text-muted">recurring prompts</div>
+        </div>
+        <div className="rounded-lg border border-surface-border bg-surface-raised/45 px-3 py-3">
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-dim">Closed</div>
+          <div className="mt-1 text-xl font-semibold text-text">{closedCount}</div>
+          <div className="mt-1 text-[12px] text-text-muted">recent completed work</div>
+        </div>
+      </div>
 
-      {reviewTaskId && (
-        <Section
-          title="Review agent started"
-          description="A normal task was created for the selected review. Open it to watch or steer the agent."
-        >
-          <SettingsControlRow
-            leading={<GitMerge size={14} />}
-            title="Review agent task created"
-            description={
-              <span className="flex min-w-0 flex-col gap-0.5">
-                <span className="truncate font-mono text-[11px] text-text-dim">{reviewTaskId}</span>
-                <span className="truncate text-[11px] text-text-dim">
-                  {launchedReviewRuns.length} selected run{launchedReviewRuns.length === 1 ? "" : "s"}
-                  {selectedChannel ? ` · ${selectedChannel.name}` : ""}
-                </span>
-                {launchedReviewRuns[0] && (
-                  <span className="truncate text-[11px] text-text-dim">First run: {runTitle(launchedReviewRuns[0])}</span>
-                )}
-              </span>
-            }
-            meta={<StatusBadge label="started" variant="info" />}
-            action={
-              <div className="flex flex-wrap items-center justify-end gap-1">
-                {launchedReviewRuns[0] && <RowLink to={`/admin/projects/${project.id}/runs/${launchedReviewRuns[0].task.id}`}>Open review page</RowLink>}
-                <RowLink to={`/admin/tasks/${reviewTaskId}`}>Review agent log</RowLink>
+      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="min-w-0 overflow-auto">
+          <div className="grid min-w-[1220px] grid-cols-5 gap-3">
+            {(["backlog", "scheduled", "running", "review", "closed"] as BoardColumnKey[]).map((column) => (
+              <div key={column} className="min-h-[560px] rounded-lg border border-surface-border/70 bg-surface-raised/35 p-2">
+                <div className="flex items-center justify-between gap-2 px-1 pb-2">
+                  <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-dim">{columnLabel(column)}</div>
+                  <div className="grid h-6 min-w-6 place-items-center rounded-full bg-surface-overlay px-1.5 text-[11px] font-bold text-text-muted">{columns[column].length}</div>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {columns[column].length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-surface-border/70 px-3 py-8 text-center text-[12px] text-text-dim">No items</div>
+                  ) : (
+                    columns[column].map((item) => (
+                      <BoardCard
+                        key={item.id}
+                        item={item}
+                        selected={item.id === selectedItem?.id}
+                        onSelect={() => setSelectedItemId(item.id)}
+                      />
+                    ))
+                  )}
+                </div>
               </div>
-            }
-          />
-        </Section>
-      )}
+            ))}
+          </div>
+        </div>
 
-      <Section
-        title="Start new work"
-        description="Launch a new implementation agent only when you are ready to start more work."
-        action={
-          <ActionButton
-            label={!showRunLauncher ? "New run" : createRun.isPending ? "Starting" : "Start run"}
-            icon={<Play size={14} />}
-            disabled={showRunLauncher && (!selectedChannel || !hasBlueprintSnapshot || createRun.isPending)}
-            onPress={() => {
-              if (!showRunLauncher) {
-                setShowRunLauncher(true);
-                return;
-              }
-              startRun();
-            }}
+        <div className="min-h-0 overflow-auto border-t border-surface-border pt-3 xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0">
+          <Inspector
+            project={project}
+            item={selectedItem}
+            channels={channels}
+            selectedChannelId={selectedChannelId}
+            setSelectedChannelId={setSelectedChannelId}
+            blueprintRepos={blueprintRepos}
+            selectedRepoPath={selectedRepoPath}
+            setSelectedRepoPath={setSelectedRepoPath}
+            request={request}
+            setRequest={setRequest}
+            runMachineTargetGrant={runMachineTargetGrant}
+            setRunMachineTargetGrant={setRunMachineTargetGrant}
+            loopEnabled={loopEnabled}
+            setLoopEnabled={setLoopEnabled}
+            loopMaxIterations={loopMaxIterations}
+            setLoopMaxIterations={setLoopMaxIterations}
+            loopStopCondition={loopStopCondition}
+            setLoopStopCondition={setLoopStopCondition}
+            hasBlueprintSnapshot={hasBlueprintSnapshot}
+            createBlueprintPending={createBlueprint.isPending}
+            onCreateBlueprint={() => createBlueprint.mutate({ apply_to_project: true })}
+            createRunPending={createRun.isPending}
+            onStartRun={startRun}
+            createRunError={createRun.error}
+            scheduleTitle={scheduleTitle}
+            setScheduleTitle={setScheduleTitle}
+            scheduleRequest={scheduleRequest}
+            setScheduleRequest={setScheduleRequest}
+            scheduleStart={scheduleStart}
+            setScheduleStart={setScheduleStart}
+            scheduleRecurrence={scheduleRecurrence}
+            setScheduleRecurrence={setScheduleRecurrence}
+            scheduleMachineTargetGrant={scheduleMachineTargetGrant}
+            setScheduleMachineTargetGrant={setScheduleMachineTargetGrant}
+            createSchedulePending={createSchedule.isPending}
+            onStartSchedule={startSchedule}
+            runBusy={refreshRun.isPending || markReviewed.isPending || cleanupRun.isPending || cancelRun.isPending || disableLoop.isPending || continueRun.isPending}
+            onRefreshRun={(run) => refreshRun.mutate(run.task.id)}
+            onCancelRun={(run) => cancelRun.mutate(run.task.id)}
+            onCleanupRun={(run) => cleanupRun.mutate(run.task.id)}
+            onMarkReviewed={(run) => markReviewed.mutate(run.task.id)}
+            onDisableLoop={(run) => disableLoop.mutate(run.task.id)}
+            onLaunchReviewForRun={launchReviewForRun}
+            reviewPrompt={reviewPrompt}
+            setReviewPrompt={setReviewPrompt}
+            reviewMachineTargetGrant={reviewMachineTargetGrant}
+            setReviewMachineTargetGrant={setReviewMachineTargetGrant}
+            reviewBusy={createReviewSession.isPending}
+            changeFeedback={changeFeedback}
+            setChangeFeedback={setChangeFeedback}
+            onSubmitFollowUp={submitFollowUp}
+            onLaunchReviewForBatch={launchReviewForBatch}
+            scheduleBusy={createSchedule.isPending || updateSchedule.isPending || runScheduleNow.isPending || disableSchedule.isPending}
+            onRunScheduleNow={(schedule) => runScheduleNow.mutate(schedule.id)}
+            onDisableSchedule={(schedule) => disableSchedule.mutate(schedule.id)}
+            onResumeSchedule={(schedule) => updateSchedule.mutate({ scheduleId: schedule.id, enabled: true })}
           />
-        }
-      >
-        {showRunLauncher ? (
-          <>
-        <div className="grid gap-3 md:grid-cols-[minmax(240px,0.85fr)_minmax(0,1.15fr)]">
-          <FormRow label="Channel">
-            <SelectInput
-              value={selectedChannelId}
-              onChange={(value) => setSelectedChannelId(value)}
-              options={
-                channels && channels.length > 0
-                  ? channels.map((channel) => ({
-                    label: `${channel.name} · ${channel.bot_id}`,
-                    value: channel.id,
-                  }))
-                  : [{ label: "Attach a Project channel first", value: "" }]
-              }
-            />
-          </FormRow>
-          {blueprintRepos.length > 1 && (
-            <FormRow label="Repository" description="The declared repo this run should branch, test, and hand off.">
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Inspector({
+  project,
+  item,
+  channels,
+  selectedChannelId,
+  setSelectedChannelId,
+  blueprintRepos,
+  selectedRepoPath,
+  setSelectedRepoPath,
+  request,
+  setRequest,
+  runMachineTargetGrant,
+  setRunMachineTargetGrant,
+  loopEnabled,
+  setLoopEnabled,
+  loopMaxIterations,
+  setLoopMaxIterations,
+  loopStopCondition,
+  setLoopStopCondition,
+  hasBlueprintSnapshot,
+  createBlueprintPending,
+  onCreateBlueprint,
+  createRunPending,
+  onStartRun,
+  createRunError,
+  scheduleTitle,
+  setScheduleTitle,
+  scheduleRequest,
+  setScheduleRequest,
+  scheduleStart,
+  setScheduleStart,
+  scheduleRecurrence,
+  setScheduleRecurrence,
+  scheduleMachineTargetGrant,
+  setScheduleMachineTargetGrant,
+  createSchedulePending,
+  onStartSchedule,
+  runBusy,
+  onRefreshRun,
+  onCancelRun,
+  onCleanupRun,
+  onMarkReviewed,
+  onDisableLoop,
+  onLaunchReviewForRun,
+  reviewPrompt,
+  setReviewPrompt,
+  reviewMachineTargetGrant,
+  setReviewMachineTargetGrant,
+  reviewBusy,
+  changeFeedback,
+  setChangeFeedback,
+  onSubmitFollowUp,
+  onLaunchReviewForBatch,
+  scheduleBusy,
+  onRunScheduleNow,
+  onDisableSchedule,
+  onResumeSchedule,
+}: {
+  project: Project;
+  item?: BoardItem;
+  channels?: Pick<Channel, "id" | "name" | "bot_id">[];
+  selectedChannelId: string;
+  setSelectedChannelId: (value: string) => void;
+  blueprintRepos: { label: string; value: string }[];
+  selectedRepoPath: string;
+  setSelectedRepoPath: (value: string) => void;
+  request: string;
+  setRequest: (value: string) => void;
+  runMachineTargetGrant: MachineTargetGrant | null;
+  setRunMachineTargetGrant: (value: MachineTargetGrant | null) => void;
+  loopEnabled: boolean;
+  setLoopEnabled: (value: boolean) => void;
+  loopMaxIterations: number;
+  setLoopMaxIterations: (value: number) => void;
+  loopStopCondition: string;
+  setLoopStopCondition: (value: string) => void;
+  hasBlueprintSnapshot: boolean;
+  createBlueprintPending: boolean;
+  onCreateBlueprint: () => void;
+  createRunPending: boolean;
+  onStartRun: () => void;
+  createRunError: unknown;
+  scheduleTitle: string;
+  setScheduleTitle: (value: string) => void;
+  scheduleRequest: string;
+  setScheduleRequest: (value: string) => void;
+  scheduleStart: string;
+  setScheduleStart: (value: string) => void;
+  scheduleRecurrence: string;
+  setScheduleRecurrence: (value: string) => void;
+  scheduleMachineTargetGrant: MachineTargetGrant | null;
+  setScheduleMachineTargetGrant: (value: MachineTargetGrant | null) => void;
+  createSchedulePending: boolean;
+  onStartSchedule: () => void;
+  runBusy: boolean;
+  onRefreshRun: (run: ProjectCodingRun) => void;
+  onCancelRun: (run: ProjectCodingRun) => void;
+  onCleanupRun: (run: ProjectCodingRun) => void;
+  onMarkReviewed: (run: ProjectCodingRun) => void;
+  onDisableLoop: (run: ProjectCodingRun) => void;
+  onLaunchReviewForRun: (run: ProjectCodingRun) => void;
+  reviewPrompt: string;
+  setReviewPrompt: (value: string) => void;
+  reviewMachineTargetGrant: MachineTargetGrant | null;
+  setReviewMachineTargetGrant: (value: MachineTargetGrant | null) => void;
+  reviewBusy: boolean;
+  changeFeedback: string;
+  setChangeFeedback: (value: string) => void;
+  onSubmitFollowUp: (run: ProjectCodingRun) => void;
+  onLaunchReviewForBatch: (batch: ProjectCodingRunReviewBatch) => void;
+  scheduleBusy: boolean;
+  onRunScheduleNow: (schedule: ProjectCodingRunSchedule) => void;
+  onDisableSchedule: (schedule: ProjectCodingRunSchedule) => void;
+  onResumeSchedule: (schedule: ProjectCodingRunSchedule) => void;
+}) {
+  if (!item) return <EmptyState message="No Project run items are available." />;
+
+  if (item.kind === "new_run") {
+    return (
+      <div className="flex flex-col gap-3">
+        <InspectorPanel title="Start run">
+          <div className="text-base font-semibold text-text">Start a new agent coding run</div>
+          <p className="mt-1 text-[13px] text-text-muted">The run will create a visible channel session immediately.</p>
+        </InspectorPanel>
+        <InspectorPanel title="Request">
+          <div className="flex flex-col gap-3">
+            <FormRow label="Channel">
               <SelectInput
-                value={selectedRepoPath}
-                onChange={(value) => setSelectedRepoPath(value)}
-                options={blueprintRepos}
+                value={selectedChannelId}
+                onChange={setSelectedChannelId}
+                options={
+                  channels && channels.length > 0
+                    ? channels.map((channel) => ({ label: `${channel.name} · ${channel.bot_id}`, value: channel.id }))
+                    : [{ label: "Attach a Project channel first", value: "" }]
+                }
               />
             </FormRow>
-          )}
-          <FormRow label="Project request" description="A concise bug, feature, or review task for the selected Project channel.">
+            {blueprintRepos.length > 1 && (
+              <FormRow label="Repository">
+                <SelectInput value={selectedRepoPath} onChange={setSelectedRepoPath} options={blueprintRepos} />
+              </FormRow>
+            )}
             <PromptEditor
               value={request}
               onChange={setRequest}
               label="Run request"
-              placeholder="Implement the next issue, run tests, capture e2e screenshots, and publish a handoff receipt..."
+              placeholder="Implement the next issue, run tests, capture screenshots, and publish a handoff receipt..."
               rows={5}
               fieldType="task_prompt"
               generateContext={`Project: ${project.name}. Root: /${project.root_path}`}
             />
-          </FormRow>
-        </div>
-        <div className="mt-3">
-          <ExecutionAccessControl
-            value={runMachineTargetGrant}
-            onChange={setRunMachineTargetGrant}
-            testId="project-run-execution-access"
-          />
-        </div>
-        <div className="mt-3 rounded-md bg-surface-raised/30 p-3">
-          <label className="flex items-center gap-2 text-[12px] font-semibold text-text">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-input-border bg-input"
-              checked={loopEnabled}
-              onChange={(event) => setLoopEnabled(event.target.checked)}
-            />
-            Bounded loop
-          </label>
-          {loopEnabled && (
-            <div className="mt-3 grid gap-3 md:grid-cols-[160px_minmax(0,1fr)]">
-              <FormRow label="Max iterations">
-                <SelectInput
-                  value={String(loopMaxIterations)}
-                  onChange={(value) => setLoopMaxIterations(Number(value))}
-                  options={[2, 3, 4, 5, 6, 7, 8].map((value) => ({ label: String(value), value: String(value) }))}
-                />
-              </FormRow>
-              <FormRow label="Stop condition">
-                <textarea
-                  value={loopStopCondition}
-                  onChange={(event) => setLoopStopCondition(event.target.value)}
-                  rows={2}
-                  className="min-h-[58px] w-full resize-y rounded-md border border-input-border bg-input px-3 py-2 text-[13px] text-text outline-none focus:border-accent"
-                />
-              </FormRow>
-            </div>
-          )}
-        </div>
-        {!hasBlueprintSnapshot && (
-          <div className="mt-3">
-            <SettingsControlRow
-              leading={<AlertTriangle size={14} />}
-              title="Blueprint recipe required"
-              description="Create a durable Blueprint from this Project before launching isolated coding runs."
-              meta={<StatusBadge label="setup needed" variant="warning" />}
-              action={
-                <ActionButton
-                  label={createBlueprint.isPending ? "Creating" : "Create Blueprint"}
-                  icon={<FileText size={13} />}
-                  size="small"
-                  disabled={createBlueprint.isPending}
-                  onPress={() => createBlueprint.mutate({ apply_to_project: true })}
-                />
-              }
-            />
-          </div>
-        )}
-        {createdRun && (
-          <div className="mt-3">
-            <SettingsControlRow
-              leading={<CheckCircle2 size={14} />}
-              title="Coding run created"
-              description={
-                <span className="flex min-w-0 flex-col gap-0.5">
-                  <span className="truncate font-mono text-[11px] text-text-dim">{createdRun.branch}</span>
-                  <span>{createdRun.base_branch ? `Base ${createdRun.base_branch}` : "Base repository default"}</span>
-                  {executionAccessLine(createdRun.task.machine_target_grant) && (
-                    <span>{executionAccessLine(createdRun.task.machine_target_grant)}</span>
-                  )}
-                </span>
-              }
-              meta={<StatusBadge label={createdRun.status} variant={statusTone(createdRun.status)} />}
-              action={<RunActionLinks run={createdRun} />}
-            />
-          </div>
-        )}
-        {createRun.error && (
-          <div className="mt-3">
-            <SettingsControlRow
-              leading={<AlertTriangle size={14} />}
-              title="Run did not start"
-              description={createRun.error instanceof Error ? createRun.error.message : "The coding-run request failed."}
-              meta={<StatusBadge label="failed" variant="danger" />}
-            />
-          </div>
-        )}
-          </>
-        ) : (
-          <SettingsControlRow
-            leading={<Play size={14} />}
-            title="Start a new agent coding run"
-            description="Use this for fresh work. Existing active runs, human review, and agent review sessions stay visible on the page."
-            meta={hasBlueprintSnapshot ? <StatusBadge label="ready" variant="success" /> : <StatusBadge label="setup needed" variant="warning" />}
-            action={
-              <ActionButton
-                label="New run"
-                icon={<Play size={13} />}
-                size="small"
-                variant="secondary"
-                onPress={() => setShowRunLauncher(true)}
-              />
-            }
-          />
-        )}
-      </Section>
-
-      {historicalReviewSessions.length > 0 && (
-        <ReviewSessionsSection
-          sessions={historicalReviewSessions}
-          disabled={batchBusy}
-          onSelectRuns={(runIds) => setSelectedRunIds(runIds)}
-        />
-      )}
-
-      <ProjectScheduledReviewsSection project={project} channels={channels} selectedChannelId={selectedChannelId} />
-
-      <Section
-        title="Run history"
-        description="Audit trail for every Project coding run. Batch controls stay hidden until you need them."
-        action={
-          runs.length > 0 ? (
-            <ActionButton
-              label={batchMode ? "Done selecting" : "Batch tools"}
-              icon={<GitMerge size={13} />}
-              size="small"
-              variant="secondary"
-              onPress={() => {
-                setBatchMode((current) => !current);
-                if (batchMode) setSelectedRunIds([]);
-              }}
-            />
-          ) : undefined
-        }
-      >
-        {batchMode && (
-          <div className="mb-3 grid gap-3 rounded-md bg-surface-raised/30 p-3 md:grid-cols-[minmax(0,1fr)_auto]">
-            <div className="flex min-w-0 flex-col gap-2">
-              <label className="inline-flex items-center gap-2 text-[12px] font-semibold text-text">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-input-border bg-input"
-                  checked={selectedRunIds.length > 0 && selectedRunIds.length === runs.length}
-                  ref={(input) => {
-                    if (input) input.indeterminate = selectedRunIds.length > 0 && selectedRunIds.length < runs.length;
-                  }}
-                  onChange={(event) => setSelectedRunIds(event.target.checked ? runs.map((run) => run.id) : [])}
-                />
-                {selectedRunIds.length === 0 ? "Select runs to review together" : `${selectedRunIds.length} selected`}
-              </label>
-              {selectedRunIds.length > 0 && (
-                <>
-                  <PromptEditor
-                    value={reviewPrompt}
-                    onChange={setReviewPrompt}
-                    label="Agent review prompt"
-                    rows={3}
-                    fieldType="task_prompt"
-                    generateContext={`Project: ${project.name}. Selected runs: ${selectedRunIds.length}`}
-                  />
-                  <ExecutionAccessControl
-                    value={reviewMachineTargetGrant}
-                    onChange={setReviewMachineTargetGrant}
-                    testId="project-review-execution-access"
-                  />
-                </>
-              )}
-              {launchBatchGroups.length > 0 && (
-                <div className="flex flex-col gap-1 pt-1">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">Launch batches</span>
-                  {launchBatchGroups.slice(0, 4).map((group) => (
-                    <div key={group.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-raised/40 px-2.5 py-2">
-                      <span className="min-w-0 truncate text-[12px] text-text-muted">
-                        Batch {shortBatchId(group.id)} · {group.runs.length} run{group.runs.length === 1 ? "" : "s"}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <ActionButton
-                          label="Select"
-                          size="small"
-                          variant="ghost"
-                          disabled={batchBusy}
-                          onPress={() => setSelectedRunIds(group.runs.map((run) => run.id))}
-                        />
-                        <ActionButton
-                          label={createReviewSession.isPending ? "Starting" : "Ask agent to review batch"}
-                          icon={<GitMerge size={13} />}
-                          size="small"
-                          variant="secondary"
-                          disabled={!selectedChannel || batchBusy}
-                          onPress={() => launchReviewForBatch(group.runs)}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="flex items-start justify-end gap-1">
-              <ActionButton
-                label="Close on our side"
-                icon={<Check size={13} />}
-                size="small"
-                variant="secondary"
-                disabled={selectedTaskIds.length === 0 || batchBusy}
-                onPress={markSelectedReviewed}
-              />
-              <ActionButton
-                label={createReviewSession.isPending ? "Starting" : "Ask agent to review"}
-                icon={<GitMerge size={13} />}
-                size="small"
-                disabled={!selectedChannel || selectedTaskIds.length === 0 || batchBusy}
-                onPress={launchReviewSession}
-              />
-            </div>
-          </div>
-        )}
-        <div className="flex flex-col gap-2">
-          {runs.length === 0 ? (
-            <EmptyState message="No Project coding runs have been started yet." />
-          ) : (
-            runs.map((run) => (
-              <div key={run.id} className="flex flex-col gap-2">
-                <SettingsControlRow
-                  leading={
-                    <span className="inline-flex items-center gap-2">
-                      {batchMode && (
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 rounded border-input-border bg-input"
-                          checked={selectedRunIds.includes(run.id)}
-                          onChange={() => toggleRun(run.id)}
-                          aria-label={`Select ${run.request || run.task.title || "Project coding run"}`}
-                        />
-                      )}
-                      <GitBranch size={14} />
-                    </span>
-                  }
-                  title={run.request || run.task.title || "Project coding run"}
-                  description={
-                    <span className="flex min-w-0 flex-col gap-0.5">
-                      <span className="truncate font-mono text-[11px] text-text-dim">{run.branch ?? "No branch recorded"}</span>
-                      <span>
-                        {formatRunTime(run.updated_at ?? run.created_at)}
-                        {run.base_branch ? ` · base ${run.base_branch}` : ""}
-                        {run.repo?.path ? ` · ${run.repo.path}` : ""}
-                      </span>
-                      <span className="truncate text-[11px] text-text-dim">
-                        Review: {reviewStatusLabel(run)} · Evidence: {evidenceSummary(run)}
-                      </span>
-                      {run.launch_batch_id && (
-                        <span className="truncate text-[11px] text-text-dim">Launch batch: {shortBatchId(run.launch_batch_id)}</span>
-                      )}
-                      {lineageLine(run) && (
-                        <span className="truncate text-[11px] text-text-dim">Continuation: {lineageLine(run)}</span>
-                      )}
-                      {loopLine(run) && (
-                        <span className="truncate text-[11px] text-text-dim">{loopLine(run)}</span>
-                      )}
-                      {reviewLine(run) && (
-                        <span className="truncate text-[11px] text-text-dim">{reviewLine(run)}</span>
-                      )}
-                      {executionAccessLine(run.task.machine_target_grant) && (
-                        <span className="truncate text-[11px] text-text-dim">Execution access: {executionAccessLine(run.task.machine_target_grant)}</span>
-                      )}
-                      {workSurfaceLine(run) && (
-                        <span className="truncate text-[11px] text-text-dim">{workSurfaceLine(run)}</span>
-                      )}
-                      {dependencyStackLine(run) && (
-                        <span className="truncate text-[11px] text-text-dim">{dependencyStackLine(run)}</span>
-                      )}
-                      {devTargetsLine(run.dev_targets) && (
-                        <span className="truncate text-[11px] text-text-dim">Dev targets: {devTargetsLine(run.dev_targets)}</span>
-                      )}
-                      <span className="truncate text-[11px] text-text-dim">
-                        {handoffProgressSummary(run) ? `Progress: ${handoffProgressSummary(run)}` : `Activity: ${activitySummary(run)}`}
-                      </span>
-                      {run.receipt && (
-                        <span className="truncate text-[11px] text-text-dim">
-                          Receipt: {run.receipt.summary}
-                        </span>
-                      )}
-                    </span>
-                  }
-                  meta={<StatusBadge label={reviewStatusLabel(run)} variant={statusTone(reviewStatusLabel(run))} />}
-                  action={
-                    batchMode ? (
-                      <RunActionLinks run={run} />
-                    ) : (
-                      <RunReviewActions projectId={project.id} run={run} onRequestChanges={() => {
-                        setChangeRunId(run.id);
-                        setChangeFeedback(run.continuation_feedback || "");
-                      }} />
-                    )
-                  }
-                />
-                {changeRunId === run.id && (
-                  <div className="rounded-md bg-surface-raised/40 px-3 py-3">
-                    <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">
-                      Reviewer feedback
-                    </label>
-                    <textarea
-                      value={changeFeedback}
-                      onChange={(event) => setChangeFeedback(event.target.value)}
-                      rows={3}
-                      className="min-h-[84px] w-full resize-y rounded-md border border-input-border bg-input px-3 py-2 text-[13px] text-text outline-none focus:border-accent"
-                      placeholder="Describe the changes needed on this PR..."
-                    />
-                    <div className="mt-2 flex items-center justify-end gap-1">
-                      <ActionButton
-                        label="Cancel"
-                        size="small"
-                        variant="ghost"
-                        disabled={continueRun.isPending}
-                        onPress={() => {
-                          setChangeRunId(null);
-                          setChangeFeedback("");
-                        }}
-                      />
-                      <ActionButton
-                        label={continueRun.isPending ? "Starting" : "Start follow-up"}
-                        icon={<MessageSquarePlus size={13} />}
-                        size="small"
-                        disabled={continueRun.isPending}
-                        onPress={submitChanges}
-                      />
-                    </div>
-                  </div>
-                )}
+            <ExecutionAccessControl value={runMachineTargetGrant} onChange={setRunMachineTargetGrant} testId="project-run-execution-access" />
+            <label className="flex items-center gap-2 text-[12px] font-semibold text-text">
+              <input type="checkbox" className="h-4 w-4 rounded border-input-border bg-input" checked={loopEnabled} onChange={(event) => setLoopEnabled(event.target.checked)} />
+              Bounded loop
+            </label>
+            {loopEnabled && (
+              <div className="grid gap-2">
+                <FormRow label="Max iterations">
+                  <SelectInput value={String(loopMaxIterations)} onChange={(value) => setLoopMaxIterations(Number(value))} options={[2, 3, 4, 5, 6, 7, 8].map((value) => ({ label: String(value), value: String(value) }))} />
+                </FormRow>
+                <FormRow label="Stop condition">
+                  <textarea value={loopStopCondition} onChange={(event) => setLoopStopCondition(event.target.value)} rows={3} className="min-h-[72px] w-full resize-y rounded-md border border-input-border bg-input px-3 py-2 text-[13px] text-text outline-none focus:border-accent" />
+                </FormRow>
               </div>
-            ))
-          )}
-        </div>
-      </Section>
+            )}
+            {!hasBlueprintSnapshot && (
+              <ActionButton label={createBlueprintPending ? "Creating Blueprint" : "Create Blueprint"} icon={<FileText size={13} />} disabled={createBlueprintPending} onPress={onCreateBlueprint} />
+            )}
+            <ActionButton label={createRunPending ? "Starting" : "Start run"} icon={<Play size={13} />} disabled={!selectedChannelId || !hasBlueprintSnapshot || createRunPending} onPress={onStartRun} />
+            {Boolean(createRunError) && <div className="text-[12px] text-danger-muted">{createRunError instanceof Error ? createRunError.message : String(createRunError || "The run could not be started.")}</div>}
+          </div>
+        </InspectorPanel>
+      </div>
+    );
+  }
 
-      <Section title="Run Receipts" description="Implementation summaries, tests, screenshots, and handoff links published by coding agents.">
-        <div className="flex flex-col gap-2">
-          {visibleReceipts.length === 0 ? (
-            <EmptyState message="No coding-run receipts have been published for this Project." />
-          ) : (
-            visibleReceipts.map((receipt) => (
-              <SettingsControlRow
-                key={receipt.id}
-                leading={<FileText size={14} />}
-                title={receipt.summary}
-                description={
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span>{formatRunTime(receipt.created_at)} · {receipt.bot_id ?? "unknown bot"}</span>
-                    {(receipt.duplicate_count ?? 1) > 1 && (
-                      <span className="text-[11px] text-text-dim">{receipt.duplicate_count} receipt updates collapsed</span>
-                    )}
-                    <span className="truncate font-mono text-[11px] text-text-dim">Files: {compactEvidence(receipt.changed_files)}</span>
-                    <span className="truncate text-[11px] text-text-dim">Tests: {compactEvidence(receipt.tests)}</span>
-                    <span className="truncate text-[11px] text-text-dim">Screenshots: {compactEvidence(receipt.screenshots)}</span>
-                    <span className="truncate text-[11px] text-text-dim">Dev targets: {devTargetsLine(receipt.dev_targets) || "none reported"}</span>
-                  </span>
-                }
-                meta={<StatusBadge label={receipt.status} variant={statusTone(receipt.status)} />}
-                action={
-                  <div className="flex flex-wrap items-center justify-end gap-1">
-                    {receipt.task_id && <RowLink to={`/admin/projects/${receipt.project_id}/runs/${receipt.task_id}`}>Open review page</RowLink>}
-                    {receipt.handoff_url && <RowLink href={receipt.handoff_url}>PR / handoff</RowLink>}
-                  </div>
+  if (item.kind === "new_schedule") {
+    return (
+      <div className="flex flex-col gap-3">
+        <InspectorPanel title="Schedule prompt">
+          <div className="text-base font-semibold text-text">Create a recurring Project run</div>
+          <p className="mt-1 text-[13px] text-text-muted">Scheduled runs launch visible channel sessions just like manual runs.</p>
+        </InspectorPanel>
+        <InspectorPanel title="Schedule">
+          <div className="flex flex-col gap-3">
+            <FormRow label="Channel">
+              <SelectInput
+                value={selectedChannelId}
+                onChange={setSelectedChannelId}
+                options={
+                  channels && channels.length > 0
+                    ? channels.map((channel) => ({ label: `${channel.name} · ${channel.bot_id}`, value: channel.id }))
+                    : [{ label: "Attach a Project channel first", value: "" }]
                 }
               />
-            ))
-          )}
+            </FormRow>
+            <FormRow label="Title">
+              <input value={scheduleTitle} onChange={(event) => setScheduleTitle(event.target.value)} className="w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none focus:border-accent" />
+            </FormRow>
+            <FormRow label="Start">
+              <input type="datetime-local" value={scheduleStart} onChange={(event) => setScheduleStart(scheduledAtForPicker(event.target.value))} className="w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none focus:border-accent" />
+            </FormRow>
+            <FormRow label="Repeat">
+              <SelectInput value={scheduleRecurrence} onChange={setScheduleRecurrence} options={[{ label: "Daily", value: "+1d" }, { label: "Weekly", value: "+1w" }, { label: "Manual", value: "" }]} />
+            </FormRow>
+            <PromptEditor value={scheduleRequest} onChange={setScheduleRequest} label="Scheduled run prompt" rows={5} fieldType="task_prompt" generateContext={`Project: ${project.name}. Root: /${project.root_path}`} />
+            <ExecutionAccessControl value={scheduleMachineTargetGrant} onChange={setScheduleMachineTargetGrant} testId="project-schedule-execution-access" />
+            <ActionButton label={createSchedulePending ? "Saving" : "Create schedule"} icon={<CalendarClock size={13} />} disabled={!selectedChannelId || createSchedulePending} onPress={onStartSchedule} />
+          </div>
+        </InspectorPanel>
+      </div>
+    );
+  }
+
+  if (item.kind === "run") {
+    const run = item.run;
+    const sessionPath = sessionPathForRun(run);
+    const handoffUrl = run.review?.handoff_url || run.receipt?.handoff_url || null;
+    const active = isActiveRun(run);
+    const stale = isStaleActive(run);
+    return (
+      <div className="flex flex-col gap-3">
+        {stale && <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-3 text-[13px] font-semibold text-danger-muted">Stale running run needs a decision</div>}
+        <InspectorPanel title="Selected run">
+          <div className="text-base font-semibold leading-6 text-text">{runTitle(run)}</div>
+          <p className="mt-1 text-[13px] text-text-muted">{run.lifecycle?.next_action || run.review_next_action || evidenceLine(run)}</p>
+          <div className="mt-3 grid gap-2">
+            <DetailRow label="Started" value={formatRunTime(startedTimestamp(run))} />
+            <DetailRow label="Last activity" value={formatRunTime(itemTimestamp(run))} />
+            <DetailRow label="Age" value={compactAge(itemTimestamp(run) || startedTimestamp(run))} />
+            <DetailRow label="Status" value={runStatus(run)} />
+            <DetailRow label="Review" value={reviewStatus(run).replaceAll("_", " ")} />
+            <DetailRow label="Session" value={run.task.session_id ? String(run.task.session_id).slice(0, 8) : "missing"} />
+            <DetailRow label="Branch" value={run.branch || "none"} />
+            <DetailRow label="Evidence" value={evidenceLine(run)} />
+            <DetailRow label="Dev target" value={run.dev_targets?.length ? run.dev_targets.map((target) => typeof target === "string" ? target : target.url || target.label || target.key).filter(Boolean).slice(0, 2).join(" · ") : "none"} />
+          </div>
+        </InspectorPanel>
+        <InspectorPanel title="Actions">
+          <div className="grid grid-cols-2 gap-2">
+            {sessionPath && <Link className="col-span-2 inline-flex min-h-[38px] items-center justify-center rounded-md bg-accent/10 text-[13px] font-semibold text-accent hover:bg-accent/15" to={sessionPath}>Open session</Link>}
+            {active && <RowLink to={`/admin/projects/${project.id}/runs/${run.task.id}/live`}>Live view</RowLink>}
+            <RowLink to={`/admin/projects/${project.id}/runs/${run.task.id}`}>Review detail</RowLink>
+            {handoffUrl && <RowLink href={handoffUrl}>PR / handoff</RowLink>}
+            <ActionButton label="Refresh" icon={<RefreshCcw size={13} />} size="small" variant="secondary" disabled={runBusy} onPress={() => onRefreshRun(run)} />
+            {active && <ActionButton label="Stop run" icon={<Trash2 size={13} />} size="small" variant="danger" disabled={runBusy} onPress={() => onCancelRun(run)} />}
+            {run.review?.actions?.can_mark_reviewed && <ActionButton label="Close reviewed" icon={<Check size={13} />} size="small" variant="secondary" disabled={runBusy} onPress={() => onMarkReviewed(run)} />}
+            {run.review?.actions?.can_cleanup_instance && <ActionButton label="Clean up" icon={<Trash2 size={13} />} size="small" variant="danger" disabled={runBusy} onPress={() => onCleanupRun(run)} />}
+            {run.loop?.enabled && <ActionButton label="Stop loop" icon={<Repeat2 size={13} />} size="small" variant="secondary" disabled={runBusy} onPress={() => onDisableLoop(run)} />}
+            {item.column === "review" && <ActionButton label={reviewBusy ? "Starting" : "Ask agent"} icon={<GitMerge size={13} />} size="small" disabled={reviewBusy} onPress={() => onLaunchReviewForRun(run)} />}
+          </div>
+        </InspectorPanel>
+        {item.column === "review" && (
+          <InspectorPanel title="Review agent prompt">
+            <div className="flex flex-col gap-3">
+              <PromptEditor value={reviewPrompt} onChange={setReviewPrompt} label="Review prompt" rows={3} fieldType="task_prompt" generateContext={`Project: ${project.name}. Run: ${run.task.id}`} />
+              <ExecutionAccessControl value={reviewMachineTargetGrant} onChange={setReviewMachineTargetGrant} testId="project-review-execution-access" />
+            </div>
+          </InspectorPanel>
+        )}
+        {run.review?.actions?.can_request_changes && (
+          <InspectorPanel title="Follow-up">
+            <div className="flex flex-col gap-2">
+              <textarea value={changeFeedback} onChange={(event) => setChangeFeedback(event.target.value)} rows={3} className="min-h-[84px] w-full resize-y rounded-md border border-input-border bg-input px-3 py-2 text-[13px] text-text outline-none focus:border-accent" placeholder="Describe what the follow-up agent should fix..." />
+              <ActionButton label="Start follow-up" icon={<MessageSquarePlus size={13} />} size="small" disabled={runBusy || !changeFeedback.trim()} onPress={() => onSubmitFollowUp(run)} />
+            </div>
+          </InspectorPanel>
+        )}
+      </div>
+    );
+  }
+
+  if (item.kind === "schedule") {
+    const schedule = item.schedule;
+    const lastSessionPath = sessionPathForScheduleRun(schedule.last_run);
+    return (
+      <div className="flex flex-col gap-3">
+        <InspectorPanel title="Scheduled run">
+          <div className="text-base font-semibold text-text">{schedule.title}</div>
+          <p className="mt-1 text-[13px] text-text-muted">{scheduleNextLine(schedule)}</p>
+          <div className="mt-3 grid gap-2">
+            <DetailRow label="Status" value={schedule.enabled ? "active" : "paused"} />
+            <DetailRow label="Runs" value={schedule.run_count} />
+            <DetailRow label="Last run" value={schedule.last_run ? `${schedule.last_run.status || "unknown"} · ${formatRunTime(schedule.last_run.created_at)}` : "none"} />
+            <DetailRow label="Execution" value={executionAccessLine(schedule.machine_target_grant) || "default"} />
+          </div>
+        </InspectorPanel>
+        <InspectorPanel title="Actions">
+          <div className="grid grid-cols-2 gap-2">
+            <ActionButton label={scheduleBusy ? "Starting" : "Run now"} icon={<Play size={13} />} size="small" disabled={scheduleBusy || !schedule.enabled} onPress={() => onRunScheduleNow(schedule)} />
+            {schedule.enabled ? (
+              <ActionButton label="Disable" size="small" variant="secondary" disabled={scheduleBusy} onPress={() => onDisableSchedule(schedule)} />
+            ) : (
+              <ActionButton label="Resume" size="small" variant="secondary" disabled={scheduleBusy} onPress={() => onResumeSchedule(schedule)} />
+            )}
+            {lastSessionPath && <RowLink to={lastSessionPath}>Last session</RowLink>}
+          </div>
+        </InspectorPanel>
+        <InspectorPanel title="Prompt">
+          <p className="whitespace-pre-wrap text-[13px] text-text-muted">{schedule.request || "No prompt recorded."}</p>
+        </InspectorPanel>
+      </div>
+    );
+  }
+
+  if (item.kind === "review_session") {
+    const sessionPath = item.session.channel_id && item.session.session_id ? `/channels/${item.session.channel_id}/session/${item.session.session_id}` : null;
+    return (
+      <div className="flex flex-col gap-3">
+        <InspectorPanel title="Review agent">
+          <div className="text-base font-semibold text-text">{item.session.title || "Project coding-run review"}</div>
+          <p className="mt-1 text-[13px] text-text-muted">{item.session.latest_summary || `${item.session.run_count} selected run${item.session.run_count === 1 ? "" : "s"}`}</p>
+          <div className="mt-3 grid gap-2">
+            <DetailRow label="Status" value={item.session.task_status || item.session.status} />
+            <DetailRow label="Latest activity" value={formatRunTime(item.session.latest_activity_at || item.session.created_at)} />
+            <DetailRow label="Session" value={item.session.session_id ? item.session.session_id.slice(0, 8) : "missing"} />
+          </div>
+        </InspectorPanel>
+        <InspectorPanel title="Actions">
+          <div className="grid grid-cols-2 gap-2">
+            {sessionPath && <RowLink to={sessionPath}>Open session</RowLink>}
+            <RowLink to={`/admin/tasks/${item.session.task_id}`}>Task log</RowLink>
+          </div>
+        </InspectorPanel>
+      </div>
+    );
+  }
+
+  if (item.kind === "batch") {
+    return (
+      <div className="flex flex-col gap-3">
+        <InspectorPanel title="Launch batch">
+          <div className="text-base font-semibold text-text">{batchTitle(item.batch)}</div>
+          <p className="mt-1 text-[13px] text-text-muted">{item.batch.run_count} run{item.batch.run_count === 1 ? "" : "s"} · {item.batch.status}</p>
+        </InspectorPanel>
+        <InspectorPanel title="Actions">
+          <ActionButton label={reviewBusy ? "Starting" : "Ask agent to review batch"} icon={<GitMerge size={13} />} disabled={reviewBusy || !item.batch.actions?.can_start_review} onPress={() => onLaunchReviewForBatch(item.batch)} />
+        </InspectorPanel>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <InspectorPanel title="Inbox item">
+        <div className="text-base font-semibold text-text">{item.item.title}</div>
+        <p className="mt-1 text-[13px] text-text-muted">{item.item.summary_line || item.item.next_action || item.item.state}</p>
+      </InspectorPanel>
+      <InspectorPanel title="Actions">
+        <div className="grid grid-cols-2 gap-2">
+          {item.item.links?.run_url && <RowLink href={item.item.links.run_url}>Open run</RowLink>}
+          {item.item.links?.handoff_url && <RowLink href={item.item.links.handoff_url}>PR / handoff</RowLink>}
         </div>
-      </Section>
+      </InspectorPanel>
     </div>
   );
 }

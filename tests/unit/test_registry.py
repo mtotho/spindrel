@@ -143,6 +143,10 @@ class TestRegister:
             {"type": "function", "function": {"name": "explicit_admin", "parameters": {}}},
             tool_metadata={"domains": ["system_admin"], "exposure": "explicit"},
         )(_f)
+        registry.register(
+            {"type": "function", "function": {"name": "memory_writer", "parameters": {}}},
+            tool_metadata={"domains": ["memory"], "capabilities": ["memory.write"]},
+        )(_f)
         schemas = registry.get_local_tool_schemas_by_metadata(
             domain="tool_discovery",
             exposure="ambient",
@@ -150,6 +154,8 @@ class TestRegister:
         names = [s["function"]["name"] for s in schemas]
         assert "ambient_discovery" in names
         assert "explicit_admin" not in names
+        memory_writers = registry.get_local_tool_names_by_metadata(capability="memory.write")
+        assert "memory_writer" in memory_writers
 
 
 # ---------------------------------------------------------------------------

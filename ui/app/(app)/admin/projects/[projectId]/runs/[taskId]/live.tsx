@@ -111,7 +111,7 @@ export default function ProjectRunLive() {
         chrome="flow"
         title={run.task?.title || run.request || "Project coding run"}
         subtitle={`${project.name} · live · ${formatRunTime(run.updated_at || run.created_at)}`}
-        backTo={`/admin/projects/${project.id}#runs`}
+        backTo={`/admin/projects/${project.id}/runs/${run.task.id}`}
         right={
           <div className="flex flex-wrap items-center justify-end gap-1.5">
             <StatusBadge label={status || "unknown"} variant={statusTone(status)} />

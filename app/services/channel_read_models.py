@@ -265,10 +265,16 @@ async def build_admin_channel_settings_out(
     out.chat_mode = cfg.get("chat_mode") or "default"
     out.native_context_policy = cfg.get("native_context_policy") or "default"
     try:
-        from app.agent.context_profiles import resolve_native_context_policy
+        from app.agent.context_profiles import normalize_native_context_policy, resolve_native_context_policy
+        from app.config import settings
 
+        out.server_native_context_policy_default = (
+            normalize_native_context_policy(getattr(settings, "NATIVE_CONTEXT_POLICY_DEFAULT", "standard"))
+            or "standard"
+        )
         out.effective_native_context_policy = resolve_native_context_policy(channel=channel)
     except Exception:
+        out.server_native_context_policy_default = "standard"
         out.effective_native_context_policy = "standard"
     out.native_context_live_history_ratio = cfg.get("native_context_live_history_ratio")
     out.native_context_min_recent_turns = cfg.get("native_context_min_recent_turns")

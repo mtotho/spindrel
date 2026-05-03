@@ -362,6 +362,8 @@ export interface Channel {
     native_context_policy?: "default" | "lean" | "standard" | "rich" | "manual";
     /** Resolved native context diet after channel/global defaults. */
     effective_native_context_policy?: "lean" | "standard" | "rich" | "manual";
+    /** Server default used when native_context_policy is "default". */
+    server_native_context_policy_default?: "lean" | "standard" | "rich" | "manual";
     native_context_live_history_ratio?: number | null;
     native_context_min_recent_turns?: number | null;
     /** Top-center header strip shell treatment for header-zone widgets. */
@@ -893,6 +895,8 @@ export interface ChannelSettings {
   native_context_policy?: "default" | "lean" | "standard" | "rich" | "manual";
   /** Resolved native context diet after channel/global defaults. */
   effective_native_context_policy?: "lean" | "standard" | "rich" | "manual";
+  /** Server default used when native_context_policy is "default". */
+  server_native_context_policy_default?: "lean" | "standard" | "rich" | "manual";
   native_context_live_history_ratio?: number | null;
   native_context_min_recent_turns?: number | null;
   native_context_warning_utilization?: number | null;

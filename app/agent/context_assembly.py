@@ -49,7 +49,11 @@ from app.agent.tools import retrieve_tools
 from app.config import settings
 from app.tools.client_tools import get_client_tool_schemas
 from app.tools.mcp import get_mcp_server_for_tool
-from app.tools.registry import get_local_tool_schemas, get_local_tool_schemas_by_metadata
+from app.tools.registry import (
+    get_local_tool_names_by_metadata,
+    get_local_tool_schemas,
+    get_local_tool_schemas_by_metadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +66,11 @@ _AGENT_SELF_INSPECTION_PROMPT = (
     "are not exposed, use the loaded task tools and report/propose a narrow config "
     "change if a required tool or scope is missing. If skills.recommended_now is "
     "present, follow its first_action before procedural work."
+)
+_MEMORY_FLUSH_TOOL_CAPABILITIES = (
+    "memory.read",
+    "memory.write",
+    "workspace_memory.write",
 )
 
 
@@ -1742,6 +1751,52 @@ async def _run_tool_retrieval(
             "best_similarity": _safe_sim(tool_sim),
             "unretrieved_count": 0,
             "heartbeat_surface": heartbeat_trace,
+        }
+        out_state["pre_selected_tools"] = pre_selected_tools
+        return
+
+    is_memory_flush_surface = getattr(context_profile, "name", None) == "memory_flush"
+    if is_memory_flush_surface and by_name:
+        allowed_names = _dedupe_tool_names(*(
+            get_local_tool_names_by_metadata(capability=capability)
+            for capability in _MEMORY_FLUSH_TOOL_CAPABILITIES
+        ))
+        pre_selected_tools = [by_name[name] for name in allowed_names if name in by_name]
+        _authorized_names = {tool["function"]["name"] for tool in pre_selected_tools}
+        out_state["authorized_names"] = _authorized_names
+        if correlation_id is not None:
+            asyncio.create_task(_record_trace_event(
+                correlation_id=correlation_id,
+                session_id=session_id,
+                bot_id=bot.id,
+                client_id=client_id,
+                event_type="tool_retrieval",
+                count=0,
+                data={
+                    "best_similarity": None,
+                    "threshold": th,
+                    "selected": [],
+                    "skipped": "memory_flush_metadata_surface",
+                    "metadata_capabilities": list(_MEMORY_FLUSH_TOOL_CAPABILITIES),
+                },
+            ))
+        out_state["tool_discovery_info"] = {
+            "tool_retrieval_enabled": False,
+            "tool_discovery_enabled": False,
+            "threshold": th,
+            "pool_total": len(by_name),
+            "pinned": list(bot.pinned_tools or []),
+            "required_tools": list(required_tool_names or []),
+            "required_tools_missing": [],
+            "included": sorted(by_name.keys()),
+            "enrolled_working_set": list(_enrolled_tool_names),
+            "retrieved": [],
+            "retrieved_count": 0,
+            "tool_surface": "memory_flush",
+            "metadata_capabilities": list(_MEMORY_FLUSH_TOOL_CAPABILITIES),
+            "top_candidates": [],
+            "best_similarity": None,
+            "unretrieved_count": max(0, len(by_name) - len(_authorized_names)),
         }
         out_state["pre_selected_tools"] = pre_selected_tools
         return
