@@ -36,6 +36,10 @@ async def test_prepare_session_worktree_creates_branch_from_canonical_repo(tmp_p
     _git(source, "add", "README.md")
     _git(source, "commit", "-m", "init")
     _git(source, "branch", "-M", "main")
+    origin = tmp_path / "origin.git"
+    _git(tmp_path, "init", "--bare", str(origin))
+    _git(source, "remote", "add", "origin", str(origin))
+    _git(source, "push", "-u", "origin", "main")
     workspace_root = tmp_path / "workspace"
     project = Project(
         id=uuid.uuid4(),
@@ -65,6 +69,7 @@ async def test_prepare_session_worktree_creates_branch_from_canonical_repo(tmp_p
     assert worktree is not None
     assert worktree["kind"] == "git_worktree"
     assert worktree["branch"] == "spindrel/test-worktree"
+    assert worktree["base_ref"] == "origin/main"
     assert (workspace_root / "common/session-worktrees/worktree-project").exists()
     assert (Path(worktree["worktree_path"]) / "README.md").read_text() == "hello\n"
 
@@ -132,6 +137,7 @@ async def test_isolated_session_environment_sets_private_docker_env(db_session, 
             "port": 39001,
         },
     )
+    monkeypatch.setattr("app.services.session_execution_environments._docker_endpoint_reachable", lambda _endpoint, **_kwargs: True)
 
     env = await ensure_isolated_session_environment(
         db_session,
@@ -159,6 +165,7 @@ async def test_project_run_sessions_are_visible_with_origin_badges(db_session, m
             "port": 39002,
         },
     )
+    monkeypatch.setattr("app.services.session_execution_environments._docker_endpoint_reachable", lambda _endpoint, **_kwargs: True)
     await ensure_isolated_session_environment(
         db_session,
         session_id=session.id,
@@ -172,6 +179,30 @@ async def test_project_run_sessions_are_visible_with_origin_badges(db_session, m
     assert rows[0].origin == "scheduled_run"
     assert rows[0].execution_environment == "isolated"
     assert rows[0].execution_environment_status == "ready"
+
+
+async def test_isolated_session_environment_fails_when_docker_endpoint_unreachable(db_session, monkeypatch):
+    project, _channel, instance, session = await _seed_project_session(db_session)
+    monkeypatch.setattr(
+        "app.services.session_execution_environments._start_docker_daemon",
+        lambda session_id: {
+            "endpoint": "tcp://127.0.0.1:39005",
+            "container_id": "abc",
+            "container_name": "spindrel-session-docker-abc",
+            "state_volume": "state",
+            "port": 39005,
+            "state": "running",
+        },
+    )
+    monkeypatch.setattr("app.services.session_execution_environments._docker_endpoint_reachable", lambda _endpoint, **_kwargs: False)
+
+    with pytest.raises(RuntimeError, match="private Docker daemon is unreachable"):
+        await ensure_isolated_session_environment(
+            db_session,
+            session_id=session.id,
+            project=project,
+            project_instance=instance,
+        )
 
 
 async def test_session_environment_lifecycle_stops_starts_pins_and_cleans(db_session, monkeypatch):
@@ -199,6 +230,7 @@ async def test_session_environment_lifecycle_stops_starts_pins_and_cleans(db_ses
         "app.services.session_execution_environments._start_docker_daemon",
         lambda _session_id: docker_payloads.pop(0),
     )
+    monkeypatch.setattr("app.services.session_execution_environments._docker_endpoint_reachable", lambda _endpoint, **_kwargs: True)
     monkeypatch.setattr(
         "app.services.session_execution_environments._run",
         lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, "", ""),

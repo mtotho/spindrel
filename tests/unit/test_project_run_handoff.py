@@ -180,6 +180,38 @@ async def test_prepare_project_run_handoff_blocks_branch_switch_when_dirty(db_se
     assert receipt.status == "blocked"
 
 
+async def test_prepare_project_run_handoff_uses_isolated_session_worktree(db_session, monkeypatch, tmp_path):
+    _project, channel, task, _repo_dir = await _seed_project_run(db_session, monkeypatch, tmp_path)
+    isolated_repo = tmp_path / "session-worktrees" / "spindrel" / "repo"
+    isolated_repo.mkdir(parents=True)
+    task.execution_config = {
+        **task.execution_config,
+        "work_surface_mode": "isolated_worktree",
+        "project_coding_run": {
+            **task.execution_config["project_coding_run"],
+            "session_environment": {
+                "mode": "isolated",
+                "status": "ready",
+                "cwd": str(isolated_repo),
+            },
+        },
+    }
+    await db_session.commit()
+    runner = FakeGitRunner(current_branch="spindrel/project-12345678-demo")
+
+    payload = await prepare_project_run_handoff(
+        db_session,
+        task_id=task.id,
+        channel_id=channel.id,
+        bot_id="agent",
+        command_runner=runner,
+    )
+
+    assert payload["ok"] is True
+    assert payload["repo_root"] == str(isolated_repo)
+    assert runner.calls[0] == ("git", "rev-parse", "--show-toplevel")
+
+
 async def test_open_pr_pushes_branch_and_returns_handoff(db_session, monkeypatch, tmp_path):
     _project, channel, task, _repo_dir = await _seed_project_run(db_session, monkeypatch, tmp_path)
     runner = FakeGitRunner(current_branch="spindrel/project-12345678-demo")

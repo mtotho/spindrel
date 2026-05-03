@@ -37,11 +37,13 @@ from app.services.channel_throttle import is_throttled as _channel_throttled, re
 from app.services.sessions import (
     store_passive_message,
 )
-from app.services.recent_attachments import recent_inline_image_payloads
+from app.services.recent_attachments import RecentInlineImageContext, recent_inline_image_context
 from app.services.channel_member_turns import maybe_route_to_member_bot
 from app.services.turn_context import prepare_bot_context
 from app.services.turns import SessionBusyError, TurnHandle, start_turn
 from app.services.audio_input import AudioInputError, decode_base64_audio
+from app.agent.recording import _record_trace_event
+from app.utils import safe_create_task
 
 from ._helpers import (
     _create_attachments_from_metadata,
@@ -71,6 +73,7 @@ class _PreparedChatInput:
     audio_data: str | None
     audio_format: str | None
     att_payload: list[dict] | None
+    recent_image_context: RecentInlineImageContext | None = None
 
 
 @dataclass
@@ -472,13 +475,38 @@ async def _carry_forward_recent_image_context(
 ) -> None:
     if prepared.att_payload:
         return
-    recent_images = await recent_inline_image_payloads(
+    recent_context = await recent_inline_image_context(
         db,
         session_id=run.session_id,
         before_message_id=pre_user_msg_id,
     )
-    if recent_images:
-        prepared.att_payload = recent_images
+    if recent_context:
+        prepared.att_payload = recent_context.payloads
+        prepared.recent_image_context = recent_context
+
+
+def _emit_recent_attachment_context_trace(
+    *,
+    run: _NormalChatRun,
+    correlation_id: uuid.UUID,
+    current_message_id: uuid.UUID | None,
+    recent_context: RecentInlineImageContext | None,
+) -> None:
+    if recent_context is None:
+        return
+    safe_create_task(
+        _record_trace_event(
+            correlation_id=correlation_id,
+            session_id=run.session_id,
+            bot_id=getattr(run.bot, "id", None),
+            client_id=None,
+            event_type="recent_attachment_context",
+            event_name="recent_chat_image",
+            count=len(recent_context.payloads),
+            data=recent_context.trace_data(current_message_id=current_message_id),
+        ),
+        name=f"recent-attachment-context:{correlation_id}",
+    )
 
 
 async def _start_or_queue_normal_turn(
@@ -544,6 +572,12 @@ async def _start_or_queue_normal_turn(
             status_code=202,
         ), False
 
+    _emit_recent_attachment_context_trace(
+        run=run,
+        correlation_id=handle.turn_id,
+        current_message_id=pre_user_msg_id,
+        recent_context=prepared.recent_image_context,
+    )
     return JSONResponse(
         {
             "session_id": str(handle.session_id),

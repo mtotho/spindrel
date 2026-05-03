@@ -124,10 +124,14 @@ def _extract_exposed_tools(trace_rows: list[TraceEvent]) -> set[str]:
 
 def _trace_feature_had_image(trace_rows: list[TraceEvent]) -> bool:
     for event in trace_rows:
-        if event.event_type != "attachment_vision_routing":
-            continue
         data = event.data or {}
-        for key in ("source_image_count", "admitted_image_count", "image_count"):
+        if event.event_type == "attachment_vision_routing":
+            keys = ("source_image_count", "admitted_image_count", "image_count")
+        elif event.event_type == "recent_attachment_context":
+            keys = ("admitted_count",)
+        else:
+            continue
+        for key in keys:
             try:
                 if int(data.get(key) or 0) > 0:
                     return True

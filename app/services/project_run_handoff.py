@@ -78,6 +78,24 @@ def _task_project_run_config(task: Task | None) -> dict[str, Any]:
     return dict(raw) if isinstance(raw, dict) else {}
 
 
+def _task_execution_config(task: Task | None) -> dict[str, Any]:
+    if task is None or not isinstance(task.execution_config, dict):
+        return {}
+    return dict(task.execution_config)
+
+
+def _task_session_environment_cwd(task: Task | None) -> str | None:
+    cfg = _task_execution_config(task)
+    mode = str(cfg.get("work_surface_mode") or "")
+    if mode not in {"isolated_worktree", "fresh_project_instance"}:
+        return None
+    env = _task_project_run_config(task).get("session_environment")
+    if not isinstance(env, dict):
+        return None
+    cwd = str(env.get("cwd") or "").strip()
+    return cwd or None
+
+
 def _repo_path_from_config(config: dict[str, Any]) -> str | None:
     repo = config.get("repo")
     if isinstance(repo, dict):
@@ -85,6 +103,10 @@ def _repo_path_from_config(config: dict[str, Any]) -> str | None:
         if value:
             return str(value)
     return None
+
+
+def _resolve_session_cwd(cwd: str) -> str:
+    return os.path.realpath(cwd)
 
 
 def _resolve_repo_cwd(surface_root: str, repo_path: str | None) -> str:
@@ -289,7 +311,9 @@ async def prepare_project_run_handoff(
             raise ValueError("Project not found")
         surface = work_surface_from_project_directory(project_directory_from_project(project))
 
-    cwd = _resolve_repo_cwd(surface.root_host_path, resolved_repo_path)
+    session_cwd = _task_session_environment_cwd(task)
+    cwd = _resolve_session_cwd(session_cwd) if session_cwd else _resolve_repo_cwd(surface.root_host_path, resolved_repo_path)
+    allowed_root = Path(cwd).resolve() if session_cwd else Path(surface.root_host_path).resolve()
     runtime = await load_project_runtime_environment_for_id(db, project_uuid, task_id=task_uuid)
     env = os.environ.copy()
     if runtime is not None:
@@ -327,7 +351,7 @@ async def prepare_project_run_handoff(
         }
 
     repo_root = os.path.realpath(repo_root_result.stdout.strip() or cwd)
-    if Path(surface.root_host_path).resolve() not in {Path(repo_root).resolve(), *Path(repo_root).resolve().parents}:
+    if allowed_root not in {Path(repo_root).resolve(), *Path(repo_root).resolve().parents}:
         blocker = "Resolved git repository is outside the Project work surface."
         blockers.append(blocker)
         receipts.append(await _record_progress(

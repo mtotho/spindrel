@@ -11,6 +11,7 @@ import re
 import shutil
 import socket
 import subprocess
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -223,6 +224,7 @@ def _prepare_session_worktree(
     target = _session_worktree_path(project, source_repo=source, session_id=session_id, repo_path=repo_path)
     resolved_branch = (branch or "").strip() or _default_branch_name(session_id)
     base_ref = (base_branch or "").strip() or "HEAD"
+    remote_base_ref = f"origin/{base_ref}" if base_ref != "HEAD" else "HEAD"
 
     if target.exists() and (target / ".git").exists():
         sha = _git(target, "rev-parse", "HEAD")
@@ -231,7 +233,7 @@ def _prepare_session_worktree(
             "source_repo": str(source),
             "worktree_path": str(target),
             "branch": resolved_branch,
-            "base_ref": base_ref,
+            "base_ref": remote_base_ref,
             "repo_path": repo_path,
             "created_sha": sha.stdout.strip() if sha.returncode == 0 else None,
             "reused": True,
@@ -239,15 +241,18 @@ def _prepare_session_worktree(
 
     target.parent.mkdir(parents=True, exist_ok=True)
     if base_branch:
-        _git(source, "fetch", "--quiet", "origin", base_branch, timeout=180)
+        fetch = _git(source, "fetch", "--quiet", "origin", base_branch, timeout=180)
+        if fetch.returncode != 0:
+            detail = (fetch.stderr or fetch.stdout or "").strip()
+            raise RuntimeError(detail or f"git fetch origin {base_branch} exited with {fetch.returncode}")
     branch_exists = _git(source, "show-ref", "--verify", f"refs/heads/{resolved_branch}")
     if branch_exists.returncode == 0:
         add = _git(source, "worktree", "add", str(target), resolved_branch, timeout=180)
     else:
-        add = _git(source, "worktree", "add", "-b", resolved_branch, str(target), base_ref, timeout=180)
-        if add.returncode != 0 and base_ref != "HEAD":
+        add = _git(source, "worktree", "add", "-b", resolved_branch, str(target), remote_base_ref, timeout=180)
+        if add.returncode != 0 and remote_base_ref != "HEAD":
             add = _git(source, "worktree", "add", "-b", resolved_branch, str(target), "HEAD", timeout=180)
-            base_ref = "HEAD"
+            remote_base_ref = "HEAD"
     if add.returncode != 0:
         detail = (add.stderr or add.stdout or "").strip()
         raise RuntimeError(detail or f"git worktree add exited with {add.returncode}")
@@ -257,7 +262,7 @@ def _prepare_session_worktree(
         "source_repo": str(source),
         "worktree_path": str(target),
         "branch": resolved_branch,
-        "base_ref": base_ref,
+        "base_ref": remote_base_ref,
         "repo_path": repo_path,
         "created_sha": sha.stdout.strip() if sha.returncode == 0 else None,
         "reused": False,
@@ -306,6 +311,23 @@ def _docker_payload_from_inspect(session_id: uuid.UUID, info: dict[str, Any]) ->
         "port": port,
         "state": "running" if state.get("Running") else (state.get("Status") or "unknown"),
     }
+
+
+def _docker_endpoint_reachable(endpoint: str | None, *, timeout: int = 5) -> bool:
+    if not endpoint:
+        return False
+    proc = _run(["docker", "-H", endpoint, "info", "--format", "{{json .ServerVersion}}"], timeout=timeout)
+    return proc.returncode == 0
+
+
+def _wait_for_docker_endpoint(endpoint: str | None, *, attempts: int = 12, timeout: int = 5) -> bool:
+    if not endpoint:
+        return False
+    for _ in range(max(1, attempts)):
+        if _docker_endpoint_reachable(endpoint, timeout=timeout):
+            return True
+        time.sleep(1)
+    return False
 
 
 def _run_new_docker_daemon(session_id: uuid.UUID) -> dict[str, Any]:
@@ -396,6 +418,16 @@ async def ensure_isolated_session_environment(
 ) -> SessionExecutionEnvironment:
     existing = await get_session_execution_environment(db, session_id)
     if existing is not None and existing.mode == MODE_ISOLATED and existing.status == STATUS_READY:
+        if existing.docker_endpoint and not _docker_endpoint_reachable(existing.docker_endpoint):
+            existing.status = STATUS_FAILED
+            existing.docker_status = "unreachable"
+            existing.metadata_ = {
+                **dict(existing.metadata_ or {}),
+                "error": f"private Docker daemon is unreachable at {existing.docker_endpoint}",
+            }
+            existing.updated_at = _utcnow()
+            await db.commit()
+            raise RuntimeError(existing.metadata_["error"])
         return existing
     if existing is not None and existing.mode != MODE_ISOLATED:
         raise ValueError("session already has a non-isolated execution environment")
@@ -440,6 +472,8 @@ async def ensure_isolated_session_environment(
 
     try:
         docker = _start_docker_daemon(session_id)
+        if not _wait_for_docker_endpoint(docker.get("endpoint")):
+            raise RuntimeError(f"private Docker daemon is unreachable at {docker.get('endpoint')}")
         env.cwd = cwd
         env.metadata_ = {
             **dict(env.metadata_ or {}),
@@ -608,16 +642,22 @@ async def doctor_session_execution_environment(db: AsyncSession, session_id: uui
             endpoint = docker.get("endpoint") or endpoint
         checks.append({
             "name": "docker_daemon",
-            "status": "ok" if docker_status == "running" and endpoint else docker_status,
+            "status": "ok" if docker_status == "running" and _docker_endpoint_reachable(endpoint) else (
+                "unreachable" if docker_status == "running" and endpoint else docker_status
+            ),
             "container": env.docker_container_name,
             "endpoint": endpoint,
         })
         if docker_status != "running":
             findings.append({"severity": "warning", "code": "session_docker_not_running", "message": "The private Docker daemon is not running."})
+        elif endpoint and not _docker_endpoint_reachable(endpoint):
+            findings.append({"severity": "error", "code": "session_docker_unreachable", "message": "The private Docker daemon endpoint is not reachable."})
     ok = not any(item.get("severity") == "error" for item in findings)
     next_actions: list[str] = []
     if any(item.get("code") == "session_docker_not_running" for item in findings):
         next_actions.append("start")
+    if any(item.get("code") == "session_docker_unreachable" for item in findings):
+        next_actions.append("restart")
     if any(item.get("code") == "session_env_cwd_missing" for item in findings):
         next_actions.append("cleanup")
     if not next_actions:

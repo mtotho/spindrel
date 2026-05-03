@@ -108,14 +108,15 @@ async def test_text_followup_carries_recent_image_payload(monkeypatch):
         "attachment_id": str(uuid.uuid4()),
         "source": "recent_chat_image",
     }]
+    recent_context = SimpleNamespace(payloads=recent)
 
-    async def fake_recent_inline_image_payloads(db, *, session_id, before_message_id=None):
-        return recent
+    async def fake_recent_inline_image_context(db, *, session_id, before_message_id=None):
+        return recent_context
 
     monkeypatch.setattr(
         _routes,
-        "recent_inline_image_payloads",
-        fake_recent_inline_image_payloads,
+        "recent_inline_image_context",
+        fake_recent_inline_image_context,
     )
 
     prepared = _PreparedChatInput(
@@ -134,6 +135,7 @@ async def test_text_followup_carries_recent_image_payload(monkeypatch):
     )
 
     assert prepared.att_payload == recent
+    assert prepared.recent_image_context is recent_context
 
 
 async def test_text_followup_does_not_replace_current_attachments(monkeypatch):
@@ -146,7 +148,7 @@ async def test_text_followup_does_not_replace_current_attachments(monkeypatch):
     async def fail_if_called(*args, **kwargs):
         raise AssertionError("should not fetch recent images when current attachments exist")
 
-    monkeypatch.setattr(_routes, "recent_inline_image_payloads", fail_if_called)
+    monkeypatch.setattr(_routes, "recent_inline_image_context", fail_if_called)
 
     current = [{"type": "image", "content": "current"}]
     prepared = _PreparedChatInput(
@@ -165,3 +167,60 @@ async def test_text_followup_does_not_replace_current_attachments(monkeypatch):
     )
 
     assert prepared.att_payload == current
+
+
+async def test_recent_attachment_context_trace_contains_metadata_without_content(monkeypatch):
+    from app.routers.chat import _routes
+    from app.routers.chat._routes import _emit_recent_attachment_context_trace
+
+    correlation_id = uuid.uuid4()
+    current_message_id = uuid.uuid4()
+    payload = {"type": "image", "content": "base64", "attachment_id": str(uuid.uuid4())}
+    trace_data = {
+        "source": "recent_chat_image",
+        "admitted_count": 1,
+        "content_included": False,
+        "attachment_ids": [payload["attachment_id"]],
+    }
+    recent_context = SimpleNamespace(
+        payloads=[payload],
+        trace_data=lambda *, current_message_id=None: {
+            **trace_data,
+            "current_message_id": str(current_message_id),
+        },
+    )
+    run = SimpleNamespace(
+        session_id=uuid.uuid4(),
+        bot=SimpleNamespace(id="sprout"),
+    )
+
+    scheduled = []
+    recorded = []
+
+    def fake_safe_create_task(coro, *, name=None):
+        scheduled.append((coro, name))
+
+    async def fake_record_trace_event(**kwargs):
+        recorded.append(kwargs)
+
+    monkeypatch.setattr(_routes, "safe_create_task", fake_safe_create_task)
+    monkeypatch.setattr(_routes, "_record_trace_event", fake_record_trace_event)
+
+    _emit_recent_attachment_context_trace(
+        run=run,
+        correlation_id=correlation_id,
+        current_message_id=current_message_id,
+        recent_context=recent_context,
+    )
+    assert len(scheduled) == 1
+    await scheduled[0][0]
+
+    assert recorded[0]["correlation_id"] == correlation_id
+    assert recorded[0]["session_id"] == run.session_id
+    assert recorded[0]["bot_id"] == "sprout"
+    assert recorded[0]["event_type"] == "recent_attachment_context"
+    assert recorded[0]["event_name"] == "recent_chat_image"
+    assert recorded[0]["count"] == 1
+    assert recorded[0]["data"]["current_message_id"] == str(current_message_id)
+    assert recorded[0]["data"]["content_included"] is False
+    assert "content" not in recorded[0]["data"]

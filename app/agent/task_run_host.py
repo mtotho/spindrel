@@ -657,22 +657,37 @@ async def _run_normal_agent_task(
     current_run_origin.set(_task_run_origin(task))
 
     carried_attachments = None
+    carried_context = None
+    pre_user_msg_id = None
     if task.task_type == "api" and task.session_id is not None:
         pre_user_msg_id_str = (task.execution_config or {}).get("pre_user_msg_id")
-        pre_user_msg_id = None
         if pre_user_msg_id_str:
             try:
                 pre_user_msg_id = uuid.UUID(str(pre_user_msg_id_str))
             except (ValueError, TypeError):
                 pre_user_msg_id = None
         if pre_user_msg_id is not None:
-            from app.services.recent_attachments import recent_inline_image_payloads
+            from app.services.recent_attachments import recent_inline_image_context
             async with deps.async_session() as attach_db:
-                carried_attachments = await recent_inline_image_payloads(
+                carried_context = await recent_inline_image_context(
                     attach_db,
                     session_id=task.session_id,
                     before_message_id=pre_user_msg_id,
                 )
+                carried_attachments = carried_context.payloads if carried_context else None
+
+    if carried_context is not None:
+        from app.agent.recording import _record_trace_event
+        await _record_trace_event(
+            correlation_id=prepared.correlation_id,
+            session_id=task.session_id,
+            bot_id=bot.id,
+            client_id=task.client_id or "task",
+            event_type="recent_attachment_context",
+            event_name="recent_chat_image",
+            count=len(carried_context.payloads),
+            data=carried_context.trace_data(current_message_id=pre_user_msg_id),
+        )
 
     run_result = await asyncio.wait_for(
         run(

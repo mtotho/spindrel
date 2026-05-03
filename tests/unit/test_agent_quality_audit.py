@@ -123,6 +123,31 @@ async def test_audit_flags_inline_image_refusal_and_is_idempotent(db_session):
 
 
 @pytest.mark.asyncio
+async def test_audit_treats_recent_attachment_context_as_inline_image(db_session):
+    correlation_id = await _seed_turn(
+        db_session,
+        user='4" pot for reference',
+        assistant="I can't see the image attached here.",
+    )
+    db_session.add(TraceEvent(
+        correlation_id=correlation_id,
+        event_type="recent_attachment_context",
+        event_name="recent_chat_image",
+        count=1,
+        data={
+            "source": "recent_chat_image",
+            "admitted_count": 1,
+            "content_included": False,
+        },
+    ))
+    await db_session.commit()
+
+    payload = await audit_turn_quality(db_session, correlation_id, turn_kind="chat")
+
+    assert [f["code"] for f in payload["findings"]] == ["current_inline_image_missed"]
+
+
+@pytest.mark.asyncio
 async def test_audit_flags_current_fact_without_lookup(db_session):
     correlation_id = await _seed_turn(
         db_session,
