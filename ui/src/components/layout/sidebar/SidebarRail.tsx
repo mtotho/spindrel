@@ -58,10 +58,9 @@ interface RailLinkProps {
    * instead of blending into the nav icons around it.
   */
   pinned?: boolean;
-  child?: boolean;
 }
 
-function RailLink({ href, active, title, children, badge, pinned, child }: RailLinkProps) {
+function RailLink({ href, active, title, children, badge, pinned }: RailLinkProps) {
   return (
     <Link
       to={href}
@@ -69,13 +68,10 @@ function RailLink({ href, active, title, children, badge, pinned, child }: RailL
       aria-label={title}
       aria-current={active ? "page" : undefined}
       className={cn(
-        child ? "sidebar-rail-child-btn relative bg-transparent border-none p-0" : "sidebar-rail-btn relative bg-transparent border-none p-0",
+        "sidebar-rail-btn relative bg-transparent border-none p-0",
         pinned && !active && "ring-1 ring-inset ring-surface-border/50 hover:ring-surface-border/80",
-        child && "text-text-dim",
         active &&
-          (child
-            ? "bg-surface-overlay/75 text-accent before:content-[''] before:absolute before:left-[-7px] before:top-1/2 before:-translate-y-1/2 before:w-[3px] before:h-4 before:rounded-full before:bg-accent"
-            : "bg-accent/[0.12] before:content-[''] before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-[3px] before:h-4 before:rounded-full before:bg-accent"),
+          "bg-accent/[0.12] before:content-[''] before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-[3px] before:h-4 before:rounded-full before:bg-accent",
       )}
     >
       {children}
@@ -296,12 +292,11 @@ export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: Si
             </RailLink>
 
             {projectRailContext && (
-              <div className="relative ml-2 flex flex-col items-center gap-1 border-l border-surface-border/70 py-1 pl-2">
+              <div className="flex flex-col items-center gap-1 rounded-md bg-surface-raised/45 px-1 py-1">
                 <RailLink
                   href={`/admin/projects/${projectRailContext.projectId}#overview`}
                   active={projectRailContext.activeChild === "overview"}
                   title="Project overview"
-                  child
                 >
                   <LayoutDashboard size={15} className={projectRailContext.activeChild === "overview" ? "text-accent" : "text-text-dim"} />
                 </RailLink>
@@ -309,7 +304,6 @@ export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: Si
                   href={`/admin/projects/${projectRailContext.projectId}#runs`}
                   active={projectRailContext.activeChild === "runs"}
                   title="Project runs"
-                  child
                 >
                   <Columns3 size={15} className={projectRailContext.activeChild === "runs" ? "text-accent" : "text-text-dim"} />
                 </RailLink>
@@ -317,7 +311,6 @@ export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: Si
                   href={`/admin/projects/${projectRailContext.projectId}#feed`}
                   active={projectRailContext.activeChild === "feed"}
                   title="Project feed"
-                  child
                 >
                   <List size={15} className={projectRailContext.activeChild === "feed" ? "text-accent" : "text-text-dim"} />
                 </RailLink>
@@ -325,7 +318,6 @@ export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: Si
                   href={`/admin/projects/${projectRailContext.projectId}#git`}
                   active={projectRailContext.activeChild === "git"}
                   title="Project Git"
-                  child
                 >
                   <GitBranch size={15} className={projectRailContext.activeChild === "git" ? "text-accent" : "text-text-dim"} />
                 </RailLink>
@@ -333,7 +325,6 @@ export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: Si
                   href={`/admin/projects/${projectRailContext.projectId}#files`}
                   active={projectRailContext.activeChild === "files"}
                   title="Project files"
-                  child
                 >
                   <FolderOpen size={15} className={projectRailContext.activeChild === "files" ? "text-accent" : "text-text-dim"} />
                 </RailLink>

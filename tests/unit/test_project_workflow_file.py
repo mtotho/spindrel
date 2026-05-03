@@ -22,7 +22,14 @@ def test_workflow_relative_path_is_dotspindrel_workflow_md():
 def test_standard_sections_match_documented_contract():
     # If this changes, the get_project_factory_state surface (4BE.1) must be
     # updated in lockstep so consumers don't silently lose a section.
-    assert STANDARD_SECTIONS == ("policy", "intake", "runs", "hooks", "dependencies")
+    assert STANDARD_SECTIONS == (
+        "policy",
+        "artifacts",
+        "intake",
+        "runs",
+        "hooks",
+        "dependencies",
+    )
 
 
 def test_parse_workflow_file_with_frontmatter_and_sections():
@@ -189,7 +196,14 @@ def test_write_workflow_starter_creates_file_when_absent(tmp_path, monkeypatch):
     assert result.host_path == str(canonical / WORKFLOW_RELATIVE_PATH)
     written = (canonical / WORKFLOW_RELATIVE_PATH).read_text(encoding="utf-8")
     assert "name: DemoProject" in written, "frontmatter seeds the project name"
-    for section in ("## Policy", "## Intake", "## Runs", "## Hooks", "## Dependencies"):
+    for section in (
+        "## Policy",
+        "## Artifacts",
+        "## Intake",
+        "## Runs",
+        "## Hooks",
+        "## Dependencies",
+    ):
         assert section in written, f"starter must scaffold the {section!r} section"
 
 

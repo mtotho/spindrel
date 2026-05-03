@@ -1,7 +1,13 @@
-# Track - Notifications
+---
+title: Notifications
+summary: Reusable notification targets plus durable per-user/session unread state, shared by bots, pipeline steps, channel UI, and integrations.
+status: active
+tags: [spindrel, track, notifications]
+created: 2026-04-26
+updated: 2026-04-27
+---
 
-Status: active
-Updated: 2026-04-27
+# Notifications
 
 ## Goal
 

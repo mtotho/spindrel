@@ -11,8 +11,10 @@ It is intentionally source-controlled so local CLI agents, Spindrel
 Project-bound chat sessions, scheduled Project runs, and looped Project runs
 share the same artifact boundaries.
 
-`AGENTS.md` remains the session-start index and repo rule book. This file
-answers: "where does this kind of project state belong?"
+`AGENTS.md` remains the session-start index and repo rule book. This file is
+the Spindrel-owned Project contract for this repo: artifact homes, run policy,
+intake rules, hooks, and dependency expectations. Runtime `skills/project/*`
+are fallback recipes; this file wins for repo-specific workflow.
 
 ## Start Here
 
@@ -23,7 +25,21 @@ answers: "where does this kind of project state belong?"
 5. For Project coding runs, also follow the runtime `project/*` skills and
    the run's injected readiness/environment data.
 
-## Artifact Map
+## Policy
+
+- Work from repo-local source state. Do not require private vault notes for
+  startup, planning, execution, or handoff.
+- Read `AGENTS.md`, this file, `docs/roadmap.md`, and the relevant guide or
+  track before changing a subsystem.
+- Keep roadmap rows short. Durable detail belongs in tracks, plans, audits,
+  receipts, or run artifacts.
+- Use deterministic repo checks when a rule needs enforcement. Do not rely on
+  private operator memory for portable agent behavior.
+- Spindrel reads this file but does not silently rewrite it. The only automatic
+  write path is the explicit starter creation for Projects that do not already
+  have a `.spindrel/WORKFLOW.md`.
+
+## Artifacts
 
 Use the smallest durable artifact that fits the work:
 
@@ -95,7 +111,30 @@ Run Packs are optional published batches of Run Briefs. Use them when the user
 needs to review or launch multiple PR-sized slices together. Do not require a
 Run Pack file for a single flexible run from a track or plan.
 
-## Project Runs
+## Conversational Planning
+
+When a user starts dumping ideas in a Project-bound channel, keep the
+conversation lightweight until the shape is clear. Do not immediately create a
+track or launch a coding run.
+
+Use this routing:
+
+- rough bug, idea, tech debt, or question -> capture in `docs/inbox.md` or the
+  Project's configured intake home;
+- coherent feature or design discussion -> draft or update a plan in
+  `docs/plans/` or `.spindrel/prds/`;
+- broad investigation, parity check, security/performance sweep, or evidence
+  ledger -> write an audit in `docs/audits/` or `.spindrel/audits/`;
+- multi-session product/architecture effort with durable status -> update the
+  owning `docs/tracks/<slug>.md`;
+- implementation-ready slice -> frame a Run Brief and launch or schedule a
+  Project coding run only after the user asks to launch.
+
+If an existing track owns the area, update that track's current state, status
+table, active gaps, or links instead of creating a sibling track. Ask one
+clarifying question when the right artifact home is ambiguous.
+
+## Runs
 
 Formal Project coding runs should behave like normal Claude/Codex sessions
 with orchestration around them:
@@ -113,6 +152,22 @@ with orchestration around them:
 Receipts, run logs, and captured Git summaries are evidence. They should link
 back to the plan, track, or audit that owns the durable state instead of
 expanding the track.
+
+## Hooks
+
+There is no required automatic hook runner for this repo. If a run prompt or
+operator asks for a named phase hook, execute the documented repo-local command
+with normal shell tools and record the result in the receipt. Add a typed hook
+tool only after a concrete run needs repeatable hook execution.
+
+## Dependencies
+
+- Unit tests run from the native repo environment; do not wrap unit tests in
+  Docker.
+- Project coding runs use their assigned work surface, execution environment,
+  private Docker daemon, and dev target ports when provided.
+- Spindrel-managed dependency stacks are for backing services. App/dev servers
+  are started by the agent from source on assigned or unused ports.
 
 ## Runtime Skills Boundary
 

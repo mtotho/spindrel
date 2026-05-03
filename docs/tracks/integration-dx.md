@@ -1,7 +1,15 @@
-# Track: Integration DX Review
+---
+title: Integration DX Review
+summary: Completed integration cleanup pass that removed dispatcher-era docs/code, migrated integrations to YAML, expanded SDK imports, and standardized config patterns.
+status: complete
+tags: [spindrel, track, integrations, dx]
+created: 2026-04-15
+updated: 2026-04-15
+---
 
-**Status**: Active (2026-04-15)
-**Plan**: `~/.claude/plans/jiggly-shimmying-cupcake.md`
+# Integration DX Review
+
+Plan: `~/.claude/plans/jiggly-shimmying-cupcake.md`
 
 ## Problem
 

@@ -1,6 +1,6 @@
 ---
 tags: [spindrel, track, integrations, architecture]
-status: polish
+status: complete
 created: 2026-04-11
 updated: 2026-04-26
 ---

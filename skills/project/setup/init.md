@@ -24,9 +24,7 @@ surface:
   branches; no credentials embedded in remote URLs.
 - Project channels have the relevant runtime skills enrolled.
 - Project has the single repo-owned contract at `.spindrel/WORKFLOW.md`
-  carrying policy / intake / runs / hooks / dependencies sections. If
-  `.spindrel/project-runbook.md` exists, it should just point readers at
-  `.spindrel/WORKFLOW.md`.
+  carrying policy / artifacts / intake / runs / hooks / dependencies sections.
 - Session execution environments are ready for formal runs. Dependency Stack is
   declared only when the Project intentionally wants Spindrel-managed backing
   services rather than the run's private Docker daemon.
@@ -58,10 +56,7 @@ surface:
 4. Check `repo_workflow.present` from `get_project_factory_state`. When the
    file is missing, offer to write a starter via
    `write_project_workflow_starter` (asks first; never silently overwrites).
-   When the file is present, treat its sections as authoritative. If
-   `.spindrel/project-runbook.md` has policy content, fold that content into
-   WORKFLOW.md's `## Policy` section by hand and reduce the runbook to a
-   one-line pointer.
+   When the file is present, treat its sections as authoritative.
 5. If there is no applied Blueprint, create one from the current Project:
    `POST /api/v1/projects/{project_id}/blueprint-from-current` with
    `{"apply_to_project": true}`. For end-to-end recipe details, load
@@ -102,9 +97,7 @@ surface:
     - `unset` -> ask the user where issues should live and persist the answer
       with `update_project_intake_config`. Choices:
       - **A file in this repo** -> ask for a relative path. If the user has no
-        preference, suggest `docs/inbox.md` and mention that an existing
-        repo-local `.agents/skills/<repo>-issues/SKILL.md` may name a
-        different file.
+        preference, suggest `docs/inbox.md`.
       - **A folder in this repo** -> ask for a relative path. Suggest
         `docs/inbox/` if no preference.
       - **GitHub / Linear / Notion / other tracker** -> ask for the canonical

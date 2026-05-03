@@ -188,6 +188,7 @@ async def test_get_project_factory_state_unconfigured_for_brand_new_project(db_s
     assert repo_workflow["host_path"] is None
     assert repo_workflow["sections"] == {
         "policy": None,
+        "artifacts": None,
         "intake": None,
         "runs": None,
         "hooks": None,

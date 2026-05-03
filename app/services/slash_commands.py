@@ -1549,7 +1549,7 @@ Use the project/setup/init skill.
 
 Do this end to end:
 1. Inspect the Project root as a normal checkout. Read repo instructions, setup docs, env examples, compose files, test scripts, and child git remotes.
-2. Create or update `.spindrel/project-runbook.md` as the repo-owned Project Runbook: branch policy, test commands, dependency stack usage, dev targets, screenshot/e2e expectations, receipt evidence, and GitHub/Linear handoff rules.
+2. Create or update `.spindrel/WORKFLOW.md` as the repo-owned Project workflow contract: artifact homes, branch policy, test commands, dependency stack usage, dev targets, screenshot/e2e expectations, receipt evidence, and GitHub/Linear handoff rules.
 3. Check Project readiness with the Project APIs/tools: setup, runtime env, dependency stack, attached channels, and enrolled skills.
 4. If there is no applied Blueprint, create one from the current Project and apply it.
 5. Sanitize Blueprint repo declarations: no tokens in remote URLs, correct repo paths, intended base branches.

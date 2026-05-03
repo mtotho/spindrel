@@ -24,11 +24,12 @@ from app.services.projects import project_canonical_repo_host_path
 
 WORKFLOW_RELATIVE_PATH = ".spindrel/WORKFLOW.md"
 
-# The five sections every consumer of the parsed file is allowed to assume
+# The sections every consumer of the parsed file is allowed to assume
 # *may* exist. Authors can add more; consumers should not error on extras.
 # Surface code (4BE.1) iterates this tuple to emit a stable key set.
 STANDARD_SECTIONS: tuple[str, ...] = (
     "policy",
+    "artifacts",
     "intake",
     "runs",
     "hooks",
@@ -173,6 +174,15 @@ location, PR conventions go here. Example:
 
 > Branch from `master`. Open PRs via `gh`. Repo-local tests:
 > `pytest tests/unit -q`. Screenshots land in `tests/screenshots/`.
+
+## Artifacts
+
+Where durable Project state belongs. Example:
+
+> Rough notes go to `docs/inbox.md`; multi-session work goes to
+> `docs/tracks/<slug>.md`; implementation plans go to `docs/plans/`;
+> audits and evidence history go to `docs/audits/`; run-local receipts and
+> scratch artifacts go to `.spindrel/runs/`.
 
 ## Intake
 

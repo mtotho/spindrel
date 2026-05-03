@@ -73,7 +73,7 @@ Constraints we won't violate. Things to remember when picking up this track cold
 ## Pruning
 
 - **Compression cadence**: phase prose older than 30 days post-ship → compress to a one-paragraph summary in place.
-- **History extraction**: dated implementation diaries, command logs, screenshot ledgers, parity rerun notes, and session references belong in `docs/audits/`, `docs/plans/`, `.spindrel/audits/`, Project receipts, or the private session vault. Link them from the track.
+- **History extraction**: dated implementation diaries, command logs, screenshot ledgers, parity rerun notes, and session references belong in `docs/audits/`, `docs/plans/`, `.spindrel/audits/`, `.spindrel/runs/`, or Project receipts. Link them from the track.
 - **Split**: tracks > 500 lines or covering 2+ unrelated themes → split into multiple tracks. Cross-link the new tracks; mark the original `status: superseded`.
 - **Closed tracks**: closed tracks > 6 months old can be left alone unless they're actively misleading.
 
@@ -88,6 +88,6 @@ Constraints we won't violate. Things to remember when picking up this track cold
 
 - **Don't spawn a new track for ongoing work in an existing track's domain.** Closed tracks are closed; if a follow-up is meaningfully new scope, that's a new track. If it's continuation, reopen the existing track (set `status: active` if it had been complete) and add a phase. Living tracks can stay open indefinitely.
 - **Don't put implementation detail in `docs/roadmap.md`.** Roadmap rows are 1–2 lines + link to track. Detail belongs in the track.
-- **Don't use tracks as session logs.** Tracks summarize current state and link to evidence. Session-by-session execution records belong in audits, receipts, plans, or the private session vault.
+- **Don't use tracks as session logs.** Tracks summarize current state and link to evidence. Session-by-session execution records belong in audits, receipts, plans, or `.spindrel/runs/`.
 - **Don't duplicate Architecture Decisions in tracks.** A decision goes in `docs/architecture-decisions.md` once; the track references it.
 - **Don't track bugs as tracks.** Bugs go in `docs/inbox.md` (active; see schema there) or `docs/fix-log.md` (resolved).

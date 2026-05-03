@@ -1,6 +1,6 @@
 ---
 tags: [spindrel, track, streaming, architecture]
-status: partial-complete
+status: complete
 updated: 2026-04-15
 ---
 # Track — Streaming Architecture Rectification
@@ -136,5 +136,4 @@ CLI/voice/other pathways are not actively tested — issues with them get noted,
 - Session log: `vault/Sessions/spindrel/2026-04-10-9-chat-ui-network-bloat.md` — the session that surfaced the symptom
 - Session log: `vault/Sessions/spindrel/2026-04-10-11-streaming-architecture-audit.md` — the audit that produced this track
 - [[architecture-decisions]] — to be updated with the "bus is source of truth" decision once Phase 1 ships
-
 

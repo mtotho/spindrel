@@ -1,6 +1,6 @@
 ---
 tags: [spindrel, track, ui, polish]
-status: in-progress
+status: active
 updated: 2026-04-29 (channel tabs, harness terminal polish)
 ---
 # Track — UI Polish
