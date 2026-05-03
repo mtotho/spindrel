@@ -257,6 +257,7 @@ _MULTI_CHANNEL_CAP = 10
 
 @register(_LIST_SCHEMA, requires_channel_context=True, tool_metadata={
     "domains": ["context_navigation"],
+    "capabilities": ["subsessions.read"],
     "exposure": "ambient",
     "auto_inject": ["chat_baseline"],
 })
@@ -374,6 +375,7 @@ _READ_SCHEMA = {
 
 @register(_READ_SCHEMA, tool_metadata={
     "domains": ["context_navigation"],
+    "capabilities": ["subsessions.read"],
     "exposure": "ambient",
     "auto_inject": ["chat_baseline"],
 })

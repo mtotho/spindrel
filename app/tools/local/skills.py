@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
     },
 }, requires_bot_context=True, tool_metadata={
     "domains": ["skill_access"],
+    "capabilities": ["skill.read"],
     "intent_tags": ["load skill", "skill body", "procedural knowledge"],
     "exposure": "ambient",
     "auto_inject": ["chat_baseline"],
@@ -368,6 +369,7 @@ async def prune_enrolled_skills(skill_ids: list[str], overrides: dict[str, str] 
     },
 }, tool_metadata={
     "domains": ["skill_access"],
+    "capabilities": ["skill.read"],
     "intent_tags": ["list skills", "skill discovery"],
     "exposure": "ambient",
     "auto_inject": ["chat_baseline"],

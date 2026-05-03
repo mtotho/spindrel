@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAuthStore, getAuthToken } from "../../stores/auth";
+import { getAuthToken } from "../../stores/auth";
+import { getApiBase, isApiConfigured } from "../client";
 import { useChatStore } from "../../stores/chat";
 import { useBots } from "./useBots";
 import type { Message } from "../../types/api";
@@ -235,8 +236,7 @@ export function useChannelEvents(
   useEffect(() => {
     if (!channelId) return;
 
-    const { serverUrl } = useAuthStore.getState();
-    if (!serverUrl) return;
+    if (!isApiConfigured()) return;
 
     let retryCount = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -298,7 +298,7 @@ export function useChannelEvents(
         }
       }
 
-      fetch(`${serverUrl}/api/v1/${subscribePathRef.current}/${channelId}/events${sinceParam}`, {
+      fetch(`${getApiBase()}/api/v1/${subscribePathRef.current}/${channelId}/events${sinceParam}`, {
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
           Accept: "text/event-stream",

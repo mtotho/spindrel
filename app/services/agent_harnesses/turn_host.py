@@ -233,8 +233,8 @@ async def _project_dependencies_context_hint(
 
     lines = [
         "The user selected the active Project Dependency Stack context for this turn.",
-        "For Docker-backed databases, caches, search services, or similar dependencies, use the bridged tools `get_project_dependency_stack` and `manage_project_dependency_stack`.",
-        "Do not assume raw Docker access from the harness shell. Start app/dev servers yourself with native shell commands on an unused or assigned port.",
+        "Use the bridged tools `get_project_dependency_stack` and `manage_project_dependency_stack` only for this legacy Project dependency stack.",
+        "If this session has an isolated execution environment, ordinary docker/docker compose commands are routed to the private session Docker daemon.",
     ]
     project_id = getattr(work_surface, "project_id", None)
     if not project_id:
@@ -466,11 +466,17 @@ async def run_harness_turn(
 
     async with async_session_factory() as db:
         try:
-            harness_paths = await resolve_harness_paths(db, channel_id=channel_id, bot=bot)
+            harness_paths = await resolve_harness_paths(
+                db,
+                channel_id=channel_id,
+                bot=bot,
+                session_id=session_id,
+            )
         except Exception as exc:
             return "", f"could not resolve harness workspace for bot: {exc}"
         workdir = harness_paths.workdir
         runtime_env = None
+        session_runtime_env = None
         work_surface = getattr(harness_paths, "work_surface", None)
         from app.services.projects import is_project_like_surface
 
@@ -482,6 +488,11 @@ async def run_harness_turn(
                 work_surface.project_id,
                 task_id=current_task_id.get(),
             )
+        from app.services.session_execution_environments import load_session_execution_runtime
+
+        session_runtime_env = await load_session_execution_runtime(db, session_id)
+        if session_runtime_env.cwd:
+            workdir = session_runtime_env.cwd
         session_permission_mode = await load_session_mode(db, session_id)
         permission_mode = harness_permission_mode_override or session_permission_mode
         harness_settings = await load_session_settings(db, session_id)
@@ -587,6 +598,16 @@ async def run_harness_turn(
     memory_hint = build_workspace_files_memory_hint(bot, harness_paths.bot_workspace_dir)
     if memory_hint is not None:
         context_hints.append(memory_hint)
+    if session_runtime_env is not None and session_runtime_env.hint:
+        context_hints.append(
+            HarnessContextHint(
+                kind="session_execution_environment",
+                source="spindrel",
+                text=session_runtime_env.hint,
+                created_at=datetime.now(timezone.utc).isoformat(),
+                consume_after_next_turn=False,
+            )
+        )
 
     emitter = ChannelEventEmitter(
         channel_id=bus_key,
@@ -602,7 +623,10 @@ async def run_harness_turn(
         bot_id=bot.id,
         turn_id=turn_id,
         workdir=workdir,
-        env=dict(runtime_env.env) if runtime_env is not None else None,
+        env={
+            **(dict(runtime_env.env) if runtime_env is not None else {}),
+            **(dict(session_runtime_env.env) if session_runtime_env is not None else {}),
+        },
         harness_session_id=prior_session_id,
         permission_mode=permission_mode,
         db_session_factory=async_session_factory,

@@ -116,6 +116,23 @@ class JobConfig:
     extra_instructions: str | None
 
 
+def _build_runtime_budget_guardrail(job_type: JobType) -> str:
+    if job_type == "skill_review":
+        return (
+            "## Runtime Budget Guardrail\n"
+            "This scheduled review has a strict loop budget. Use appended snapshots first, "
+            "avoid broad channel sweeps, and stop once you have made the highest-value "
+            "skill updates or determined that no update is needed."
+        )
+    return (
+        "## Runtime Budget Guardrail\n"
+        "This scheduled hygiene pass is a real nightly audit with a strict loop budget. "
+        "Use the full audit workflow, but prioritize changed channels from the compact "
+        "snapshot and avoid repeated reads, repeated exact-string edit retries, or "
+        "unnecessary skill hydration."
+    )
+
+
 def _col(bot_row: BotRow, col_name: str):
     """Safe attribute access that returns None for missing columns.
 
@@ -693,7 +710,12 @@ async def _build_discovery_audit_snapshot(bot_id: str, db: AsyncSession) -> str:
     return "\n".join(lines)
 
 
-async def _build_channel_snapshot(bot_id: str, db: AsyncSession) -> str:
+async def _build_channel_snapshot(
+    bot_id: str,
+    db: AsyncSession,
+    *,
+    since: datetime | None = None,
+) -> str:
     """Build a markdown snapshot of the bot's channels with last activity.
 
     Injected into the hygiene prompt so the bot doesn't need to call
@@ -743,10 +765,29 @@ async def _build_channel_snapshot(bot_id: str, db: AsyncSession) -> str:
     )).all()
     msg_counts = {r.channel_id: r.msg_count for r in msg_count_rows}
 
+    changed_counts: dict[uuid.UUID, int] = {}
+    if since is not None:
+        since_utc = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
+        changed_rows = (await db.execute(
+            select(
+                SessionRow.channel_id,
+                func.count(Message.id).label("msg_count"),
+            )
+            .join(SessionRow, Message.session_id == SessionRow.id)
+            .where(
+                SessionRow.channel_id.in_(ch_ids),
+                Message.role == "user",
+                Message.created_at >= since_utc,
+            )
+            .group_by(SessionRow.channel_id)
+        )).all()
+        changed_counts = {r.channel_id: r.msg_count for r in changed_rows}
+
     lines = [
         "## Channels",
         "",
-        f"You have {len(channels)} channel(s). Use `read_conversation_history(section=\"index\", channel_id=\"<id>\")` to review recent activity in any channel.",
+        f"You have {len(channels)} channel(s). This is a compact activity map, not a mandate to read every channel.",
+        "Only inspect channels with `changed_since_last_run` > 0, and only when the count suggests durable new memory.",
         "",
     ]
     for ch in channels:
@@ -761,9 +802,15 @@ async def _build_channel_snapshot(bot_id: str, db: AsyncSession) -> str:
         else:
             active_str = "never"
         msgs_7d = msg_counts.get(ch.id, 0)
+        changed = changed_counts.get(ch.id, 0) if since is not None else None
+        changed_part = (
+            f", changed_since_last_run: {changed} user msg(s)"
+            if changed is not None
+            else ""
+        )
         lines.append(
             f"- **{label}** ({role}) — last active: {active_str}, "
-            f"{msgs_7d} user msg(s) last 7d — `{ch.id}`"
+            f"{msgs_7d} user msg(s) last 7d{changed_part} — `{ch.id}`"
         )
 
     return "\n".join(lines)
@@ -955,10 +1002,15 @@ async def create_hygiene_task(
     meta = _JOB_META[job_type]
     cfg = resolve_config(bot_row, job_type)
     prompt = cfg.prompt
+    now_utc = datetime.now(timezone.utc)
+    last_run = getattr(bot_row, meta["col_last_run"], None)
+    activity_since = last_run or (now_utc - timedelta(hours=cfg.interval_hours))
 
     # Append extra instructions if present
     if cfg.extra_instructions:
         prompt = f"{prompt}\n\n## Additional Instructions\n{cfg.extra_instructions}"
+
+    prompt = f"{prompt}\n\n{_build_runtime_budget_guardrail(job_type)}"
 
     # Inject stable core-skill bodies BEFORE the dynamic snapshots. This is
     # static task context (same content every run), so it belongs with the
@@ -978,7 +1030,7 @@ async def create_hygiene_task(
 
     # Append live snapshots — both job types get the channel snapshot
     try:
-        ch_snapshot = await _build_channel_snapshot(bot_id, db)
+        ch_snapshot = await _build_channel_snapshot(bot_id, db, since=activity_since)
         prompt = f"{prompt}\n\n{ch_snapshot}"
     except Exception:
         logger.warning("Failed to build channel snapshot for %s %s", job_type, bot_id, exc_info=True)

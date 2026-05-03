@@ -3,7 +3,7 @@ title: Track - Projects
 summary: First-class Project roots inside the singleton Workspace plus the Project Factory Vision — Blueprints, fresh instances, dev targets, dependency stacks, coding runs, review sessions, and the canonical execution context Module.
 tags: [spindrel, track, projects]
 status: active
-updated: 2026-05-02 (cohesion pass: 4AZ + 4BA + 4AY-a + 4BB.1-4 + 4BC + 4BD.0-6 + 4BE.0-5 + 4BF.1-6 + 4BG.2-3 + 4BH.1-3 shipped; 4BB.5 / 4BD.7 / 4BG.1 / 4BH.4-5 queued; 4AY-b superseded by 4BE; original 4BD.7 superseded by 4BE — number reused for the e2e scenario rewrite that 4BD.6 deferred)
+updated: 2026-05-02 (cohesion pass: 4AZ + 4BA + 4AY-a + 4BB.1-4 + 4BC + 4BD.0-6 + 4BE.0-5 + 4BF.1-6 + 4BG.2-3 + 4BH.1-3 shipped; 4BB.5 / 4BD.7 / 4BG.1 / 4BH.4-5 / 4BI queued; 4AY-b superseded by 4BE; original 4BD.7 superseded by 4BE — number reused for the e2e scenario rewrite that 4BD.6 deferred)
 ---
 
 # Track - Projects
@@ -181,6 +181,10 @@ them together, no slash command for status, and no narrative in the docs.
 - **4BH.5 - Saturated-cap banner + ready-for-review badge** in the Project channel cockpit. Renders `concurrency.saturated` and `runs.ready_for_review > 0` from the existing payloads. Combines with 4BB.5 (stalled badge + run_phase chip).
 
 **Dogfood acceptance:** brand-new Project-bound channel, "I want to build X" -> Blueprint + PRD + 3 proposed Run Packs in <=6 messages, none launched without explicit go. Day later, "the Y page is slow" recognized as intake, piled, then "triage" groups into Run Packs. Both flows work without the user naming a skill. **Audit acceptance (4BH):** "do a deep security audit and fix everything" in a Project-bound channel routes to `project/plan/audit_to_runs`, lands a findings artifact, proposes Run Packs against it, refuses to auto-launch over the cap, and recovers stuck runs via the four-mode recovery skill.
+
+### Phase 4BI - Project Runs taskboard swimlanes *(queued)*
+
+The Runs cockpit should grow from a temporary queue into a source-aware taskboard. First pass stays UI-only and groups existing cards by `source_artifact.path + source_artifact.section`, then `launch_batch_id`, then scheduled/ad hoc fallbacks. Later passes may read repo-owned `.spindrel` artifacts and `.spindrel/WORKFLOW.md` to show planned-but-not-launched Run Packs as vertical swimlanes, but should not guess from markdown client-side.
 
 ## Queued Follow-Ups
 

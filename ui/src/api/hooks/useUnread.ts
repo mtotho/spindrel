@@ -2,7 +2,8 @@ import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../client";
-import { getAuthToken, useAuthStore } from "../../stores/auth";
+import { getAuthToken } from "../../stores/auth";
+import { getApiBase, isApiConfigured } from "../client";
 import { useChannelReadStore } from "../../stores/channelRead";
 import { toast } from "../../stores/toast";
 import { mergeUnreadStateUpdates } from "../../lib/unreadStateCache";
@@ -184,8 +185,7 @@ export function useUnreadEvents() {
   const lastToastAtBySession = useRef<Record<string, number>>({});
 
   useEffect(() => {
-    const { serverUrl, isConfigured } = useAuthStore.getState();
-    if (!serverUrl || !isConfigured) return;
+    if (!isApiConfigured()) return;
 
     let stopped = false;
     let retryCount = 0;
@@ -197,7 +197,7 @@ export function useUnreadEvents() {
       const token = getAuthToken();
       ctrl = new AbortController();
       const since = lastSeqRef.current != null ? `?since=${lastSeqRef.current}` : "";
-      fetch(`${serverUrl}/api/v1/unread/events${since}`, {
+      fetch(`${getApiBase()}/api/v1/unread/events${since}`, {
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
           Accept: "text/event-stream",

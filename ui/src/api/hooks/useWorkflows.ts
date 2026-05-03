@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getApiBase } from "../client";
 import { apiFetch } from "../client";
 import type { Workflow, WorkflowRun, WorkflowConnection } from "../../types/api";
 import type { TasksResponse } from "../../components/shared/TaskConstants";
@@ -234,7 +235,7 @@ export function useExportWorkflow(workflowId: string) {
       const { serverUrl } = useAuthStore.getState();
       if (!serverUrl) throw new Error("Server not configured");
       const token = getAuthToken();
-      const resp = await fetch(`${serverUrl}/api/v1/admin/workflows/${workflowId}/export`, {
+      const resp = await fetch(`${getApiBase()}/api/v1/admin/workflows/${workflowId}/export`, {
         method: "POST",
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),

@@ -116,6 +116,11 @@ export interface ChannelSessionCatalogItem {
   section_count: number;
   is_active: boolean;
   is_current: boolean;
+  origin?: "project_run" | "scheduled_run" | "loop_iteration" | "inbox_run" | "review" | string | null;
+  source_task_id?: string | null;
+  project_id?: string | null;
+  execution_environment?: "shared" | "isolated" | string | null;
+  execution_environment_status?: string | null;
   matches?: ChannelSessionSearchMatch[];
 }
 
@@ -862,6 +867,10 @@ export function getChannelSessionMeta(session: ChannelSessionCatalogItem): strin
     `${session.message_count ?? 0} msg${session.message_count === 1 ? "" : "s"}`,
     typeof session.section_count === "number"
       ? `${session.section_count} section${session.section_count === 1 ? "" : "s"}`
+      : null,
+    session.origin === "scheduled_run" ? "Run" : session.origin === "project_run" ? "Run" : null,
+    session.execution_environment === "isolated"
+      ? `Isolated${session.execution_environment_status ? ` ${session.execution_environment_status}` : ""}`
       : null,
   ].filter(Boolean);
   return bits.join(" · ");

@@ -11,8 +11,8 @@ category: project
 
 Use this skill when a Project coding run prompt declares a bounded loop is
 enabled. A loop is **not** a separate orchestrator - it reuses the existing
-Project coding-run continuation path: same branch/PR, same Project instance,
-same Dependency Stack, one receipt per iteration.
+Project coding-run continuation path: same branch/PR, same session execution
+environment when available, one receipt per iteration.
 
 ## `loop_decision` Receipt Field
 
@@ -54,7 +54,8 @@ iterations - hand off to review or report blockers.
 ## Boundaries
 
 - Do not start a loop without an explicit prompt instruction enabling it.
-- Do not change the branch, Project instance, or Dependency Stack mid-loop.
+- Do not change the branch or replace the session execution environment
+  mid-loop unless the user explicitly asks for a retry with a fresh run.
 - Do not skip publishing a receipt - the loop scheduler reads it to decide
   whether to continue.
 - Do not use the loop to do work the user did not approve.

@@ -1,3 +1,5 @@
+import { getApiBase } from "@/src/api/client";
+
 export function resolveMachineControlServerUrl(origin?: string | null): string {
   const trimmed = String(origin || "").trim();
   if (!trimmed) return "";
@@ -26,7 +28,7 @@ export function buildRemoteEnrollCommand(args: {
     "curl -sS -X POST",
     `  -H ${shellSingleQuote(`Authorization: Bearer ${args.apiKey}`)}`,
     `  -H ${shellSingleQuote("Content-Type: application/json")}`,
-    `  ${shellSingleQuote(`${serverUrl}/api/v1/admin/machines/providers/${providerId}/enroll`)}`,
+    `  ${shellSingleQuote(`${getApiBase()}/api/v1/admin/machines/providers/${providerId}/enroll`)}`,
     `  -d ${shellSingleQuote(body)}`,
   ].join(" \\\n");
 }

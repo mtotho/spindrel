@@ -368,6 +368,66 @@ class Session(Base):
     )
 
 
+class SessionExecutionEnvironment(Base):
+    __tablename__ = "session_execution_environments"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    project_instance_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("project_instances.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    mode: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'shared'"))
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'preparing'"))
+    cwd: Mapped[str | None] = mapped_column(Text, nullable=True)
+    docker_endpoint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    docker_container_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    docker_container_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    docker_state_volume: Mapped[str | None] = mapped_column(Text, nullable=True)
+    docker_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    session: Mapped["Session"] = relationship("Session")
+    project: Mapped[Optional["Project"]] = relationship("Project")
+    project_instance: Mapped[Optional["ProjectInstance"]] = relationship("ProjectInstance")
+
+    __table_args__ = (
+        CheckConstraint("mode in ('shared', 'isolated')", name="ck_session_execution_environments_mode"),
+        CheckConstraint("status in ('preparing', 'ready', 'stopped', 'failed', 'deleted')", name="ck_session_execution_environments_status"),
+        Index(
+            "uq_session_execution_environments_active_session",
+            "session_id",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+        Index("ix_session_execution_environments_status_updated", "status", updated_at.desc()),
+        Index("ix_session_execution_environments_expires_at", "expires_at"),
+    )
+
+
 class MachineTargetLease(Base):
     __tablename__ = "machine_target_leases"
 

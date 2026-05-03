@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -85,8 +86,12 @@ def _heartbeat_should_post(task: Task, deps: TaskRunHostDeps) -> bool:
     return deps.heartbeat_execution_meta(task).get("dispatch_results", True) is not False
 
 
-def _task_run_control_policy(ecfg: dict) -> dict | None:
-    policy = dict(ecfg.get("run_control_policy") or {})
+def _task_run_control_policy(ecfg: dict, *, task_type: str | None = None) -> dict | None:
+    from app.services.task_run_policy import resolve_task_run_policy
+
+    effective_task_type = task_type or str(ecfg.get("_task_type") or "")
+    policy = dict((resolve_task_run_policy(effective_task_type).run_control_policy or {}))
+    policy.update(dict(ecfg.get("run_control_policy") or {}))
     configured_tools = [str(name) for name in (ecfg.get("tools") or []) if name]
     if configured_tools:
         existing = [str(name) for name in (policy.get("required_tools") or []) if name]
@@ -510,6 +515,17 @@ async def _bind_project_instance_if_requested(
     task: Task,
     execution_config: dict[str, Any],
 ) -> Any | None:
+    run_cfg = execution_config.get("project_coding_run") if isinstance(execution_config, dict) else None
+    if isinstance(run_cfg, dict) and task.channel_id is not None:
+        from app.db.models import Project
+        from app.services.projects import project_canonical_repo_host_path
+
+        channel = await db.get(Channel, task.channel_id)
+        project_id = getattr(channel, "project_id", None) if channel is not None else None
+        project = await db.get(Project, project_id) if project_id is not None else None
+        repo_path = project_canonical_repo_host_path(project) if project is not None else None
+        if repo_path and os.path.exists(os.path.join(repo_path, ".git")):
+            return None
     from app.services.project_instances import bind_fresh_project_instance_for_task
 
     return await bind_fresh_project_instance_for_task(
@@ -591,6 +607,36 @@ async def _preflight_project_dependency_stack_if_requested(
     return preflight
 
 
+async def _ensure_session_environment_if_requested(
+    db: Any,
+    *,
+    task: Task,
+    project_instance: Any | None,
+) -> Any | None:
+    if task.session_id is None:
+        return None
+    ecfg = task.execution_config if isinstance(task.execution_config, dict) else {}
+    run_cfg = ecfg.get("project_coding_run")
+    if not isinstance(run_cfg, dict):
+        return None
+    from app.db.models import Project
+    from app.services.session_execution_environments import ensure_isolated_session_environment
+
+    project = await db.get(Project, project_instance.project_id) if project_instance is not None else None
+    if project is None and task.channel_id is not None:
+        channel = await db.get(Channel, task.channel_id)
+        project_id = getattr(channel, "project_id", None) if channel is not None else None
+        project = await db.get(Project, project_id) if project_id is not None else None
+    return await ensure_isolated_session_environment(
+        db,
+        session_id=task.session_id,
+        project=project,
+        project_instance=project_instance,
+        branch=str(run_cfg.get("branch") or "") or None,
+        base_branch=str(run_cfg.get("base_branch") or "") or None,
+    )
+
+
 async def _run_normal_agent_task(
     prepared: _PreparedTaskRun,
     *,
@@ -628,7 +674,10 @@ async def _run_normal_agent_task(
             task_mode=True,
             skip_skill_inject=skip_skill_inject,
             context_profile_name=prepared.context_profile_name,
-            run_control_policy=_task_run_control_policy(prepared.ecfg),
+            run_control_policy=_task_run_control_policy(
+                prepared.ecfg,
+                task_type=task.task_type,
+            ),
         ),
         timeout=prepared.task_timeout,
     )
@@ -1012,6 +1061,11 @@ async def run_task(task: Task, *, deps: TaskRunHostDeps) -> None:
                 instance_db,
                 task=task,
                 execution_config=prepared.ecfg,
+            )
+            await _ensure_session_environment_if_requested(
+                instance_db,
+                task=task,
+                project_instance=project_instance,
             )
             await _preflight_project_dependency_stack_if_requested(
                 instance_db,

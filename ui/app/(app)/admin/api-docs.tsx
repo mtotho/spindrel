@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { getApiBase } from "@/src/api/client";
 import { useQuery } from "@tanstack/react-query";
 import { Spinner } from "@/src/components/shared/Spinner";
 import { FileCode, Search, Copy, Check } from "lucide-react";
@@ -15,7 +16,7 @@ function useApiDocs() {
       const { serverUrl } = useAuthStore.getState();
       if (!serverUrl) throw new Error("Server not configured");
       const token = getAuthToken();
-      const res = await fetch(`${serverUrl}/api/v1/discover?detail=true`, {
+      const res = await fetch(`${getApiBase()}/api/v1/discover?detail=true`, {
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },

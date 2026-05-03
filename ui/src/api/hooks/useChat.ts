@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { getApiBase } from "../client";
 import { useAuthStore, getAuthToken } from "../../stores/auth";
 import { apiFetch } from "../client";
 import type { ChatRequest } from "../../types/api";
@@ -21,7 +22,7 @@ export function useCancelChat() {
       const { serverUrl } = useAuthStore.getState();
       if (!serverUrl) throw new Error("Server not configured");
       const token = getAuthToken();
-      const res = await fetch(`${serverUrl}/chat/cancel`, {
+      const res = await fetch(`${getApiBase()}/chat/cancel`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -58,7 +59,7 @@ export function useSubmitChat() {
       const { serverUrl } = useAuthStore.getState();
       if (!serverUrl) throw new Error("Server not configured");
       const token = getAuthToken();
-      const res = await fetch(`${serverUrl}/chat`, {
+      const res = await fetch(`${getApiBase()}/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

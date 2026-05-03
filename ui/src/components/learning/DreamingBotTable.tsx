@@ -13,7 +13,6 @@ import type { BotConfig } from "@/src/types/api";
 import {
   ActionButton,
   EmptyState,
-  QuietPill,
   StatusBadge,
 } from "@/src/components/shared/SettingsControls";
 
@@ -132,46 +131,30 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div
+      className="grid gap-1.5"
+      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(520px, 1fr))" }}
+    >
       {bots.map((bot) => {
         const cfg = botConfigMap?.[bot.bot_id];
         const maintenanceState = cfg ? resolveState(cfg.memory_hygiene_enabled) : "inherit";
         const skillsState = cfg ? resolveState(cfg.skill_review_enabled) : "inherit";
 
         return (
-          <div key={bot.bot_id} className="rounded-md bg-surface-raised/40 px-3 py-2">
-            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-              <button
-                type="button"
-                onClick={() => navigate(`/admin/bots/${bot.bot_id}#memory`)}
-                className="min-w-0 bg-transparent p-0 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-[13px] font-semibold text-text transition-colors hover:text-accent">
-                    {bot.bot_name}
-                  </span>
-                  <JobDot enabled={bot.enabled} flavor="maintenance" />
-                  <JobDot enabled={bot.skill_review_enabled} flavor="skills" />
-                </div>
-                <div className="mt-0.5 text-[11px] text-text-dim">
-                  Workspace-files memory background jobs
-                </div>
-              </button>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <QuietPill
-                  label={`${bot.enabled ? "maint on" : "maint off"}`}
-                  className={bot.enabled ? "bg-warning/[0.06] text-warning-muted" : ""}
-                  maxWidthClass="max-w-none"
-                />
-                <QuietPill
-                  label={`${bot.skill_review_enabled ? "skills on" : "skills off"}`}
-                  className={bot.skill_review_enabled ? "bg-purple/[0.06] text-purple" : ""}
-                  maxWidthClass="max-w-none"
-                />
-              </div>
-            </div>
+          <div key={bot.bot_id} className="rounded-md bg-surface-raised/40 px-2.5 py-1.5">
+            <button
+              type="button"
+              onClick={() => navigate(`/admin/bots/${bot.bot_id}#memory`)}
+              className="flex min-w-0 items-center gap-2 bg-transparent p-0 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
+            >
+              <span className="truncate text-[12px] font-semibold text-text transition-colors hover:text-accent">
+                {bot.bot_name}
+              </span>
+              <JobDot enabled={bot.enabled} flavor="maintenance" />
+              <JobDot enabled={bot.skill_review_enabled} flavor="skills" />
+            </button>
 
-            <div className="mt-2 grid gap-1.5 lg:grid-cols-2">
+            <div className="mt-1 flex flex-col gap-0.5">
               <DreamingJobLane
                 flavor="maintenance"
                 enabled={bot.enabled}
@@ -249,53 +232,42 @@ function DreamingJobLane({
 }) {
   const style = JOB_STYLE[flavor];
   return (
-    <div className={cn("rounded-md px-2.5 py-1.5", style.panel)}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <JobDot enabled={enabled} flavor={flavor} />
-          <span className={cn("text-[12px] font-semibold", style.text)}>
-            {style.label}
-          </span>
-          <StatusBadge label={enabled ? "enabled" : "off"} variant={enabled ? (flavor === "skills" ? "purple" : "warning") : "neutral"} />
-        </div>
-        {mode === "manage" && (
-          <div className="flex items-center gap-1.5">
-            <StateToggle
-              state={state}
-              flavor={flavor}
-              disabled={pending}
-              onClick={onCycle}
-            />
-            <ActionButton
-              label="Run"
-              size="small"
-              variant="secondary"
-              disabled={!enabled || pending}
-              icon={<Play size={11} />}
-              onPress={onRun}
-            />
-          </div>
+    <div className={cn("flex w-full items-center gap-x-3 rounded px-2 py-1 text-[11px]", style.panel)}>
+      <div className="flex w-[112px] shrink-0 items-center gap-1.5">
+        <JobDot enabled={enabled} flavor={flavor} />
+        <span className={cn("text-[11px] font-semibold", style.text)}>
+          {style.label}
+        </span>
+      </div>
+      <span className="w-[58px] shrink-0 truncate text-text-muted">{fmtRelative(lastRunAt)}</span>
+      <span className="w-[72px] shrink-0">
+        {lastStatus ? (
+          <StatusBadge label={lastStatus} variant={statusVariant(lastStatus)} />
+        ) : (
+          <span className="text-text-dim">—</span>
         )}
-      </div>
-      <div className="mt-1.5 grid grid-cols-3 gap-2 text-[11px]">
-        <Metric label="Last" value={fmtRelative(lastRunAt)} />
-        <Metric
-          label="Result"
-          value={lastStatus ? <StatusBadge label={lastStatus} variant={statusVariant(lastStatus)} /> : "none"}
-        />
-        <Metric label="Next" value={fmtRelative(nextRunAt)} />
-      </div>
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
-        {label}
-      </div>
-      <div className="mt-0.5 min-h-[16px] truncate text-text-muted">{value}</div>
+      </span>
+      <span className="w-[88px] shrink-0 truncate text-text-dim">
+        next {fmtRelative(nextRunAt)}
+      </span>
+      {mode === "manage" && (
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <StateToggle
+            state={state}
+            flavor={flavor}
+            disabled={pending}
+            onClick={onCycle}
+          />
+          <ActionButton
+            label="Run"
+            size="small"
+            variant="ghost"
+            disabled={!enabled || pending}
+            icon={<Play size={11} />}
+            onPress={onRun}
+          />
+        </div>
+      )}
     </div>
   );
 }

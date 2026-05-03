@@ -288,7 +288,6 @@ async def load_project_runtime_environment_for_id(
         return runtime
     task = await db.get(Task, task_uuid)
     extra_env: dict[str, str] = {}
-    extra_env["SPINDREL_PROJECT_RUN_GUARD"] = "1"
     extra_env["SPINDREL_PROJECT_TASK_ID"] = str(task_uuid)
     extra_env.update(await _task_dependency_stack_env(db, task))
     extra_env.update(_task_dev_target_env(task))

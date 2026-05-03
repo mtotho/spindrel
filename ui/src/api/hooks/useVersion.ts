@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { getApiBase } from "../client";
 import { useAuthStore } from "../../stores/auth";
 
 interface HealthResponse {
@@ -12,7 +13,7 @@ export function useVersion() {
   return useQuery({
     queryKey: ["health-version"],
     queryFn: async () => {
-      const res = await fetch(`${serverUrl}/health`);
+      const res = await fetch(`${getApiBase()}/health`);
       if (!res.ok) throw new Error("Health check failed");
       const data: HealthResponse = await res.json();
       return data.version;

@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getApiBase } from "../client";
 import { apiFetch } from "../client";
 import type {
   SharedWorkspace,
@@ -191,7 +192,7 @@ export function useUploadWorkspaceFile(workspaceId: string) {
 
       const token = getAuthToken();
       const res = await fetch(
-        `${serverUrl}/api/v1/workspaces/${workspaceId}/files/upload`,
+        `${getApiBase()}/api/v1/workspaces/${workspaceId}/files/upload`,
         {
           method: "POST",
           headers: token ? { Authorization: `Bearer ${token}` } : {},

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { getApiBase } from "@/src/api/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/src/api/client";
 import { getAuthToken, useAuthStore } from "@/src/stores/auth";
@@ -245,6 +246,22 @@ export interface SessionPlanState {
 const stateQueryKeyFor = (sessionId: string | undefined) => ["session-plan-state", sessionId];
 const planQueryKeyFor = (sessionId: string | undefined) => ["session-plan", sessionId];
 
+// Module-level ref-counted SSE registry. `useSessionPlanMode` is called from
+// multiple places for the same sessionId (e.g. channel `index.tsx` AND the
+// `<FixedSessionChatSession>` mounted on the `/session/<sid>` route both
+// subscribe). Without dedup, each mount opens its own
+// `/sessions/<sid>/events` SSE — every long-lived SSE consumes one of the
+// browser's 6 HTTP/1.1 connection slots per origin, and once the budget is
+// exhausted *every* other fetch on the page queues forever (the
+// "page just stalls, only the page request in Network" symptom).
+//
+// One shared connection per sessionId, ref-counted across mounts.
+interface PlanSseConn {
+  refCount: number;
+  abort: () => void;
+}
+const planSseRegistry = new Map<string, PlanSseConn>();
+
 export function useSessionPlanMode(sessionId: string | undefined) {
   const queryClient = useQueryClient();
   const [staleConflict, setStaleConflict] = useState<string | null>(null);
@@ -280,10 +297,35 @@ export function useSessionPlanMode(sessionId: string | undefined) {
     const { serverUrl } = useAuthStore.getState();
     if (!serverUrl) return;
 
+    // Acquire (or reuse) a shared SSE for this sessionId.
+    const existing = planSseRegistry.get(sessionId);
+    if (existing) {
+      existing.refCount += 1;
+      return () => {
+        const conn = planSseRegistry.get(sessionId);
+        if (!conn) return;
+        conn.refCount -= 1;
+        if (conn.refCount <= 0) {
+          conn.abort();
+          planSseRegistry.delete(sessionId);
+        }
+      };
+    }
+
     let retryCount = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let stopped = false;
     let abortController: AbortController | null = null;
+
+    const conn: PlanSseConn = {
+      refCount: 1,
+      abort: () => {
+        stopped = true;
+        abortController?.abort();
+        if (retryTimer) clearTimeout(retryTimer);
+      },
+    };
+    planSseRegistry.set(sessionId, conn);
 
     function connect() {
       if (stopped) return;
@@ -291,7 +333,7 @@ export function useSessionPlanMode(sessionId: string | undefined) {
       const since = lastSeqRef.current != null ? `?since=${lastSeqRef.current}` : "";
       abortController = new AbortController();
 
-      fetch(`${serverUrl}/api/v1/sessions/${sessionId}/events${since}`, {
+      fetch(`${getApiBase()}/api/v1/sessions/${sessionId}/events${since}`, {
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
           Accept: "text/event-stream",
@@ -362,9 +404,13 @@ export function useSessionPlanMode(sessionId: string | undefined) {
 
     connect();
     return () => {
-      stopped = true;
-      abortController?.abort();
-      if (retryTimer) clearTimeout(retryTimer);
+      const current = planSseRegistry.get(sessionId);
+      if (!current) return;
+      current.refCount -= 1;
+      if (current.refCount <= 0) {
+        current.abort();
+        planSseRegistry.delete(sessionId);
+      }
     };
   }, [queryClient, sessionId]);
 

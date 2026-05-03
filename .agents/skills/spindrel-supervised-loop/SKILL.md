@@ -52,10 +52,8 @@ review-heavy gate, because there green tests can pass while the UX is wrong.
 1. **Confirm the loop is allowed to run here.** Read the child skill's
    prerequisites. For loops that need a local e2e stack, defer to whatever
    repo-dev guidance the child skill names; never re-derive that lifecycle.
-   If `SPINDREL_PROJECT_RUN_GUARD=1` is set (or the project's equivalent
-   "we are inside a task agent" signal), this loop is being invoked from
-   inside a Project task — refuse, and instruct the caller to schedule the
-   loop from outside the harness instead.
+   If the child skill requires a pre-seeded env file or dev target and it is
+   missing, publish a blocked receipt instead of bootstrapping host services.
 2. **Read state.** Call `get_project_factory_state` and
    `get_project_orchestration_policy`. Confirm canonical repo resolves and
    `concurrency.headroom > 0`. If `concurrency.saturated`, stop with

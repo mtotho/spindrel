@@ -207,13 +207,21 @@ async def create_harness_native_terminal_session(
     work_surface = getattr(harness_paths, "work_surface", None)
     if is_project_like_surface(work_surface) and work_surface.project_id:
         runtime_env = await load_project_runtime_environment_for_id(db, work_surface.project_id)
+    from app.services.session_execution_environments import load_session_execution_runtime
+
+    session_runtime_env = await load_session_execution_runtime(db, session_id)
     harness_meta, _last_turn_at = await load_latest_harness_metadata(db, session_id)
     native_session_id = None
     if isinstance(harness_meta, dict):
         raw_native_session_id = harness_meta.get("session_id")
         if isinstance(raw_native_session_id, str) and raw_native_session_id.strip():
             native_session_id = raw_native_session_id.strip()
-    native_cwd = harness_paths.workdir
+    if not native_session_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Native CLI cannot resume yet because this session has no recorded native Claude/Codex session id. Send at least one harness turn and wait for it to start before opening Native CLI.",
+        )
+    native_cwd = session_runtime_env.cwd or harness_paths.workdir
     native_warning = None
     if isinstance(harness_meta, dict):
         raw_effective_cwd = harness_meta.get("effective_cwd")
@@ -253,7 +261,10 @@ async def create_harness_native_terminal_session(
             user_key,
             seed_command=command,
             cwd=native_cwd,
-            extra_env=dict(runtime_env.env) if runtime_env is not None else None,
+            extra_env={
+                **(dict(runtime_env.env) if runtime_env is not None else {}),
+                **dict(session_runtime_env.env),
+            },
         )
     except TerminalSessionLimitError as exc:
         raise HTTPException(status_code=429, detail=str(exc))

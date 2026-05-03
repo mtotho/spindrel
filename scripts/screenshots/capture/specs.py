@@ -4092,13 +4092,14 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         output="project-workspace-detail.png",
         color_scheme="dark",
         assert_js=(
-            "const text = document.body.innerText;"
-            "return { ok: text.includes('Needs human review') "
-            "&& text.includes('Running now') "
-            "&& text.includes('Issue intake') "
-            "&& text.includes('Attached channels') "
-            "&& text.includes('Runtime env') "
-            "&& text.includes('Work surface') "
+            "const text = document.body.innerText.toLowerCase();"
+            "return { ok: text.includes('needs human review') "
+            "&& text.includes('running now') "
+            "&& text.includes('agent work') "
+            "&& text.includes('project channels') "
+            "&& text.includes('review work is waiting') "
+            "&& text.includes('runtime and instances') "
+            "&& text.includes('work surface') "
             "&& text.includes('common/projects/spindrel-screenshot'), "
             "detail: 'Project detail did not show the Project work hub overview' };"
         ),
@@ -4310,9 +4311,10 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         wait_kind="function",
         wait_arg=(
             "!!document.querySelector('[data-testid=\"project-workspace-runs\"]') "
-            "&& document.body.innerText.includes('Start new work') "
-            "&& document.body.innerText.includes('Prepare the Project workspace screenshot receipt') "
-            "&& document.body.innerText.includes('Screenshot Project coding run receipt')"
+            "&& document.body.innerText.toLowerCase().includes('backlog / ready') "
+            "&& document.body.innerText.toLowerCase().includes('scheduled') "
+            "&& document.body.innerText.includes('Start a new run') "
+            "&& document.body.innerText.includes('Schedule a prompt')"
         ),
         output="project-workspace-runs.png",
         color_scheme="dark",
@@ -4321,16 +4323,17 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         pre_capture_js="window.scrollTo(0, 0); await new Promise((resolve) => setTimeout(resolve, 120));",
         assert_js=(
             "const text = document.body.innerText.toLowerCase();"
-            "return { ok: text.includes('needs your review') "
-            "&& text.includes('batch review shortcuts') "
-            "&& text.includes('ask agent to review batch') "
-            "&& text.includes('prepare the project workspace screenshot receipt') "
-            "&& text.includes('add batch launch proof for overnight packs') "
-            "&& text.includes('sources: prepare the project workspace screenshot receipt') "
-            "&& text.includes('work surface:') "
-            "&& text.includes('launch batch:') "
-            "&& text.includes('run receipts'), "
-            "detail: 'Project Runs tab did not expose human-review queue, launch-batch context, and receipt evidence' };"
+            "return { ok: text.includes('backlog / ready') "
+            "&& text.includes('scheduled') "
+            "&& text.includes('running') "
+            "&& text.includes('human review') "
+            "&& text.includes('closed') "
+            "&& text.includes('start a new run') "
+            "&& text.includes('schedule a prompt') "
+            "&& text.includes('prepare the project') "
+            "&& text.includes('ready for review') "
+            "&& text.includes('weekly project review'), "
+            "detail: 'Project Runs taskboard did not expose workflow lanes, launchers, schedules, and review-ready work' };"
         ),
     ),
     ScreenshotSpec(
@@ -4340,8 +4343,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         wait_kind="function",
         wait_arg=(
             "!!document.querySelector('[data-testid=\"project-workspace-runs\"]') "
-            "&& document.body.innerText.includes('Needs your review') "
-            "&& document.body.innerText.includes('Sources: Prepare the Project workspace screenshot receipt')"
+            "&& document.body.innerText.toLowerCase().includes('backlog / ready')"
         ),
         output="project-workspace-review-inbox.png",
         color_scheme="dark",
@@ -4349,19 +4351,17 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
         pre_capture_js=(
             "const root = document.querySelector('[data-testid=\"project-workspace-runs\"]');"
-            "const inbox = [...root.querySelectorAll('*')].find((el) => /^Needs your review$/.test((el.textContent || '').trim()));"
-            "if (inbox) inbox.scrollIntoView({ block: 'start' });"
+            "const runCard = [...root.querySelectorAll('button')].find((button) => /Prepare the Project workspace screenshot receipt/.test(button.textContent || ''));"
+            "if (runCard) { runCard.scrollIntoView({ block: 'center' }); await new Promise((resolve) => setTimeout(resolve, 80)); runCard.click(); }"
             "await new Promise((resolve) => setTimeout(resolve, 160));"
         ),
         assert_js=(
-            "const text = document.body.innerText;"
-            "return { ok: text.includes('Needs your review') "
-            "&& text.includes('Open the review page first') "
-            "&& text.includes('Sources: Prepare the Project workspace screenshot receipt') "
-            "&& text.includes('Evidence: 4 tests') "
-            "&& text.includes('Select batch') "
-            "&& text.includes('Ask agent to review batch'), "
-            "detail: 'Project Runs tab did not show the human-review queue and batch context' };"
+            "const text = document.body.innerText.toLowerCase();"
+            "return { ok: text.includes('launch batch') "
+            "&& text.includes('prepare the project workspace screenshot receipt') "
+            "&& text.includes('actions') "
+            "&& text.includes('ask agent to review batch'), "
+            "detail: 'Project Runs taskboard did not open launch-batch review controls' };"
         ),
     ),
     ScreenshotSpec(
@@ -4434,9 +4434,8 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         viewport={"width": 1440, "height": 1000},
         wait_kind="function",
         wait_arg=(
-            "!!document.querySelector('[data-testid=\"project-workspace-review-ledger\"]') "
-            "&& document.body.innerText.includes('Agent Review Sessions') "
-            "&& document.body.innerText.includes('Review Project coding runs')"
+            "!!document.querySelector('[data-testid=\"project-workspace-runs\"]') "
+            "&& document.body.innerText.toLowerCase().includes('backlog / ready')"
         ),
         output="project-workspace-review-ledger.png",
         color_scheme="dark",
@@ -4444,19 +4443,18 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         extra_init_scripts=["window.__PROJECT_REVIEW_FINALIZED__ = true;", _PROJECT_CODING_RUN_ENDPOINT_INIT],
         pre_capture_js=(
             "const root = document.querySelector('[data-testid=\"project-workspace-runs\"]');"
-            "const ledger = [...root.querySelectorAll('*')].find((el) => /^Agent Review Sessions$/.test((el.textContent || '').trim()));"
-            "if (ledger) ledger.scrollIntoView({ block: 'start' });"
+            "const reviewCard = [...root.querySelectorAll('button')].find((button) => /Review Project coding runs/.test(button.textContent || ''));"
+            "if (reviewCard) { reviewCard.scrollIntoView({ block: 'center' }); await new Promise((resolve) => setTimeout(resolve, 80)); reviewCard.click(); }"
             "await new Promise((resolve) => setTimeout(resolve, 180));"
         ),
         assert_js=(
-            "const text = document.body.innerText;"
-            "return { ok: text.includes('Agent Review Sessions') "
-            "&& text.includes('Review Project coding runs') "
-            "&& text.includes('2 accepted') "
-            "&& text.includes('squash merge 2/2') "
-            "&& text.includes('Sources: Prepare the Project workspace screenshot receipt') "
-            "&& text.includes('View summary'), "
-            "detail: 'Project Runs tab did not show the review-session ledger' };"
+            "const text = document.body.innerText.toLowerCase();"
+            "return { ok: text.includes('closed') "
+            "&& text.includes('reviewed') "
+            "&& text.includes('prepare the project workspace') "
+            "&& text.includes('receipt') "
+            "&& text.includes('session'), "
+            "detail: 'Project Runs taskboard did not expose finalized review work in the closed lane' };"
         ),
     ),
     ScreenshotSpec(
@@ -4466,9 +4464,9 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         wait_kind="function",
         wait_arg=(
             "!!document.querySelector('[data-testid=\"project-workspace-runs\"]') "
-            "&& document.body.innerText.includes('Scheduled Reviews') "
+            "&& document.body.innerText.toLowerCase().includes('scheduled') "
             "&& document.body.innerText.includes('Weekly Project review') "
-            "&& document.body.innerText.includes('Run now')"
+            "&& document.body.innerText.includes('Schedule a prompt')"
         ),
         output="project-workspace-scheduled-reviews.png",
         color_scheme="dark",
@@ -4476,26 +4474,20 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
         pre_capture_js=(
             "const root = document.querySelector('[data-testid=\"project-workspace-runs\"]');"
-            "const scheduled = [...root.querySelectorAll('*')].find((el) => /^Scheduled Reviews$/.test((el.textContent || '').trim()));"
-            "if (scheduled) scheduled.scrollIntoView({ block: 'start' });"
+            "const scheduleCard = [...root.querySelectorAll('button')].find((button) => /Weekly Project review/.test(button.textContent || ''));"
+            "if (scheduleCard) { scheduleCard.scrollIntoView({ block: 'center' }); await new Promise((resolve) => setTimeout(resolve, 80)); scheduleCard.click(); }"
             "await new Promise((resolve) => setTimeout(resolve, 160));"
         ),
         assert_js=(
-            "const text = document.body.innerText;"
-            "return { ok: text.includes('Scheduled Reviews') "
-            "&& text.includes('Recurring Project coding runs') "
-            "&& text.includes('Weekly Project review') "
+            "const text = document.body.innerText.toLowerCase();"
+            "return { ok: text.includes('scheduled run') "
+            "&& text.includes('weekly project review') "
             "&& text.includes('+1w') "
-            "&& text.includes('3 runs') "
-            "&& text.includes('Last run: complete') "
-            "&& text.includes('RECENT RUNS') "
-            "&& text.includes('Paused dependency sweep') "
-            "&& text.includes('Resume') "
-            "&& text.includes('Edit') "
-            "&& text.includes('Execution access: E2E Codex Target') "
-            "&& text.includes('Run now') "
-            "&& text.includes('Disable'), "
-            "detail: 'Project Runs tab did not expose scheduled review controls and provenance' };"
+            "&& text.includes('last run') "
+            "&& text.includes('prompt') "
+            "&& text.includes('disable') "
+            "&& text.includes('run now'), "
+            "detail: 'Project Runs taskboard did not expose scheduled-run controls and prompt provenance' };"
         ),
     ),
     ScreenshotSpec(
@@ -4505,8 +4497,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         wait_kind="function",
         wait_arg=(
             "!!document.querySelector('[data-testid=\"project-workspace-runs\"]') "
-            "&& document.body.innerText.includes('Start new work') "
-            "&& document.body.innerText.includes('New run')"
+            "&& document.body.innerText.includes('Start a new run')"
         ),
         output="project-workspace-execution-access.png",
         color_scheme="dark",
@@ -4514,7 +4505,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
         pre_capture_js=(
             "const pageRoot = document.querySelector('[data-testid=\"project-workspace-runs\"]');"
-            "const newRun = pageRoot && [...pageRoot.querySelectorAll('button')].find((button) => /^New run$/.test((button.textContent || '').trim()));"
+            "const newRun = pageRoot && [...pageRoot.querySelectorAll('button')].find((button) => /Start a new run/.test(button.textContent || ''));"
             "if (newRun) newRun.click();"
             "await new Promise((resolve) => setTimeout(resolve, 180));"
             "const root = document.querySelector('[data-testid=\"project-run-execution-access\"]');"
@@ -4528,11 +4519,11 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         assert_js=(
             "const text = document.body.innerText;"
             "return { ok: text.includes('Execution access') "
-            "&& text.includes('Spindrel e2e target') "
+            "&& text.includes('E2E Codex Target') "
             "&& text.includes('inspect') "
             "&& text.includes('exec') "
             "&& text.includes('Agent tools') "
-            "&& text.includes('Grant is attached only to the task being launched.'), "
+            "&& text.includes('Start run'), "
             "detail: 'Project coding-run launch did not expose task-scoped e2e machine access' };"
         ),
     ),
@@ -4543,8 +4534,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         wait_kind="function",
         wait_arg=(
             "!!document.querySelector('[data-testid=\"project-workspace-runs\"]') "
-            "&& document.body.innerText.includes('Prepare the Project workspace screenshot receipt') "
-            "&& document.body.innerText.includes('Ask agent to review')"
+            "&& document.body.innerText.toLowerCase().includes('backlog / ready')"
         ),
         output="project-workspace-review-launched.png",
         color_scheme="dark",
@@ -4552,10 +4542,10 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
         pre_capture_js=(
             "const root = document.querySelector('[data-testid=\"project-workspace-runs\"]');"
-            "const box = [...root.querySelectorAll('input[type=\"checkbox\"]')].find((input) => input.getAttribute('aria-label'));"
-            "if (box && !box.checked) { box.scrollIntoView({ block: 'center' }); await new Promise((resolve) => setTimeout(resolve, 80)); box.click(); }"
-            "await new Promise((resolve) => setTimeout(resolve, 120));"
-            "const start = [...root.querySelectorAll('button')].find((button) => /Ask agent to review/.test(button.textContent || ''));"
+            "const runCard = [...root.querySelectorAll('button')].find((button) => /Prepare the Project workspace screenshot receipt/.test(button.textContent || ''));"
+            "if (runCard) { runCard.scrollIntoView({ block: 'center' }); await new Promise((resolve) => setTimeout(resolve, 80)); runCard.click(); }"
+            "await new Promise((resolve) => setTimeout(resolve, 160));"
+            "const start = [...document.querySelectorAll('button')].find((button) => /Ask agent to review batch/.test(button.textContent || ''));"
             "if (start) start.click();"
             "await new Promise((resolve) => setTimeout(resolve, 350));"
             "const launched = [...root.querySelectorAll('*')].find((el) => /Review agent started/.test(el.textContent || ''));"
@@ -4563,14 +4553,12 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "await new Promise((resolve) => setTimeout(resolve, 120));"
         ),
         assert_js=(
-            "const text = document.body.innerText;"
-            "return { ok: /\\d+ selected/.test(text) "
-            "&& text.includes('Review agent started') "
-            "&& text.includes('Review agent task created') "
-            "&& text.includes('screenshot') "
-            "&& text.includes('Ask agent to review') "
-            "&& text.includes('Close on our side'), "
-            "detail: 'Project Runs tab did not show a launched agent review session' };"
+            "const text = document.body.innerText.toLowerCase();"
+            "return { ok: text.includes('launch batch') "
+            "&& text.includes('actions') "
+            "&& text.includes('ask agent to review batch') "
+            "&& text.includes('prepare the project workspace screenshot receipt'), "
+            "detail: 'Project Runs taskboard did not show batch review launch controls' };"
         ),
     ),
     ScreenshotSpec(
@@ -4580,7 +4568,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         wait_kind="function",
         wait_arg=(
             "!!document.querySelector('[data-testid=\"project-workspace-runs\"]') "
-            "&& document.body.innerText.includes('Prepare the Project workspace screenshot receipt')"
+            "&& document.body.innerText.toLowerCase().includes('backlog / ready')"
         ),
         output="project-workspace-review-execution-access.png",
         color_scheme="dark",
@@ -4588,12 +4576,8 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
         pre_capture_js=(
             "const root = document.querySelector('[data-testid=\"project-workspace-runs\"]');"
-            "window.scrollTo(0, document.body.scrollHeight);"
-            "await new Promise((resolve) => setTimeout(resolve, 160));"
-            "const batchTools = [...root.querySelectorAll('button')].find((button) => /^Batch tools$/.test((button.textContent || '').trim()));"
-            "if (batchTools) { batchTools.click(); await new Promise((resolve) => setTimeout(resolve, 160)); }"
-            "const box = [...root.querySelectorAll('input[type=\"checkbox\"]')].find((input) => input.getAttribute('aria-label'));"
-            "if (box && !box.checked) { box.scrollIntoView({ block: 'center' }); await new Promise((resolve) => setTimeout(resolve, 80)); box.click(); }"
+            "const runCard = [...root.querySelectorAll('button')].find((button) => /Review Project coding runs/.test(button.textContent || ''));"
+            "if (runCard) { runCard.scrollIntoView({ block: 'center' }); await new Promise((resolve) => setTimeout(resolve, 80)); runCard.click(); }"
             "await new Promise((resolve) => setTimeout(resolve, 220));"
             "const access = document.querySelector('[data-testid=\"project-review-execution-access\"]');"
             "const trigger = access && access.querySelector('button[aria-haspopup=\"listbox\"]');"
@@ -4605,14 +4589,12 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "await new Promise((resolve) => setTimeout(resolve, 160));"
         ),
         assert_js=(
-            "const text = document.body.innerText;"
-            "return { ok: text.includes('1 selected') "
-            "&& text.includes('Agent review prompt') "
-            "&& text.includes('Execution access') "
-            "&& text.includes('Spindrel e2e target') "
-            "&& text.includes('Task-scoped existing target grant') "
-            "&& text.includes('Ask agent to review'), "
-            "detail: 'Project review launch did not expose task-scoped e2e machine access' };"
+            "const text = document.body.innerText.toLowerCase();"
+            "return { ok: text.includes('review agent') "
+            "&& text.includes('review project coding runs') "
+            "&& text.includes('open session') "
+            "&& text.includes('task log'), "
+            "detail: 'Project review drawer did not expose session visibility actions' };"
         ),
     ),
     ScreenshotSpec(
@@ -4622,8 +4604,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         wait_kind="function",
         wait_arg=(
             "!!document.querySelector('[data-testid=\"project-workspace-runs\"]') "
-            "&& document.body.innerText.includes('Prepare the Project workspace screenshot receipt') "
-            "&& document.body.innerText.includes('PR merged')"
+            "&& document.body.innerText.toLowerCase().includes('backlog / ready')"
         ),
         output="project-workspace-review-finalized.png",
         color_scheme="dark",
@@ -4634,21 +4615,18 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         ],
         pre_capture_js=(
             "const root = document.querySelector('[data-testid=\"project-workspace-runs\"]');"
-            "const runRow = root && [...root.querySelectorAll('*')].reverse().find((el) => /Prepare the Project workspace screenshot receipt/.test(el.textContent || '') && /PR merged/.test(el.textContent || ''));"
-            "if (runRow) runRow.scrollIntoView({ block: 'center' });"
+            "const runCard = root && [...root.querySelectorAll('button')].reverse().find((button) => /Prepare the Project/.test(button.textContent || ''));"
+            "if (runCard) { runCard.scrollIntoView({ block: 'center' }); await new Promise((resolve) => setTimeout(resolve, 80)); runCard.click(); }"
             "await new Promise((resolve) => setTimeout(resolve, 120));"
         ),
         assert_js=(
-            "const text = document.body.innerText;"
-            "return { ok: text.includes('Review: reviewed') "
-            "&& text.includes('PR merged') "
-            "&& text.includes('checks passed') "
-            "&& text.includes('merge squash') "
-            "&& text.includes('commit abc1234') "
-            "&& text.includes('review task screensh') "
-            "&& text.includes('Progress: PR: ready') "
-            "&& text.includes('PR / handoff'), "
-            "detail: 'Project Runs tab did not expose finalized review and merge provenance' };"
+            "const text = document.body.innerText.toLowerCase();"
+            "return { ok: text.includes('closed') "
+            "&& text.includes('prepare the project workspace') "
+            "&& text.includes('reviewed') "
+            "&& text.includes('receipt') "
+            "&& text.includes('session'), "
+            "detail: 'Project Runs taskboard did not expose finalized review and handoff actions' };"
         ),
     ),
     ScreenshotSpec(
@@ -4782,17 +4760,18 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
-            "document.body.innerText.includes('Project factory dogfood planning') "
-            "&& document.body.innerText.includes('Created 2 proposed Work Packs') "
-            "&& document.body.innerText.includes('Dogfood code pack')"
+            "document.body.innerText.includes('Project factory dogfood planning')"
         ),
         output="project-factory-dogfood-planning.png",
         color_scheme="dark",
+        pre_capture_js="await new Promise((resolve) => setTimeout(resolve, 800));",
         assert_js=(
-            "const text = document.body.innerText;"
+            "const text = document.body.innerText.toLowerCase();"
             "return { ok: text.includes('@file:.spindrel/factory-plan.md') "
             "&& text.includes('@project:dependencies') "
-            "&& text.includes('Triage receipt') "
+            "&& text.includes('propose_run_packs') "
+            "&& text.includes('wrote 2 run pack proposals') "
+            "&& text.includes('triage receipt') "
             "&& text.includes('needs-info'), "
             "detail: 'Dogfood planning transcript did not show explicit context and Work Pack creation' };"
         ),

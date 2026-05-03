@@ -87,6 +87,24 @@ def test_memory_flush_profile_is_internal_and_minimal():
     assert profile.tool_result_hard_cap == 6000
 
 
+def test_maintenance_profiles_are_internal_and_minimal():
+    hygiene = get_context_profile("memory_hygiene")
+    review = get_context_profile("skill_review")
+
+    for profile in (hygiene, review):
+        assert profile.live_history_turns == 0
+        assert profile.allow_tool_index is False
+        assert profile.allow_skill_index is False
+        assert profile.allow_workspace_rag is False
+        assert profile.allow_bot_knowledge_base is False
+        assert "context_profile_note" in profile.optional_static_injections
+
+    assert hygiene.keep_iterations_override == 1
+    assert hygiene.tool_result_hard_cap == 6000
+    assert review.keep_iterations_override == 2
+    assert review.tool_result_hard_cap == 8000
+
+
 def test_chat_profile_inherits_global_keep_iterations():
     """Chat profile uses a compact native-loop observation window."""
     assert get_context_profile("chat_lean").keep_iterations_override == 2
@@ -161,6 +179,8 @@ def test_restricted_profiles_expose_context_profile_note_as_optional_injection()
     assert "context_profile_note" in get_context_profile("executing").optional_static_injections
     assert "context_profile_note" in get_context_profile("task_recent").optional_static_injections
     assert "context_profile_note" in get_context_profile("task_none").optional_static_injections
+    assert "context_profile_note" in get_context_profile("memory_hygiene").optional_static_injections
+    assert "context_profile_note" in get_context_profile("skill_review").optional_static_injections
     assert "context_profile_note" in get_context_profile("heartbeat").optional_static_injections
 
 

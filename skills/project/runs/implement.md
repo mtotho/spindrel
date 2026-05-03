@@ -2,7 +2,7 @@
 name: Project Implementation Runs
 description: >
   How to execute a Project coding run - branch prep, focused edits, repo-local
-  verification, dev target lifecycle, dependency stack use, and a review-ready
+  verification, session environment lifecycle, dev targets, and a review-ready
   receipt.
 triggers: project coding run, implement, run pack, launch run, finish run, project handoff, screenshots, publish receipt
 category: project
@@ -21,13 +21,16 @@ through composer mentions (`@file:<path>`, `@project:dependencies`).
 
 ## Work Surface
 
-1. Confirm you are in the Project work surface. Formal coding runs use a fresh
-   Project instance, generated branch, run-scoped Dependency Stack, and assigned
-   dev target ports.
-2. To verify, call `list_agent_capabilities` and read `project.work_surface`.
-   Formal runs report `kind="project_instance"` and `isolation="isolated"`. If
-   a formal run reports a missing/blocked/deleted/shared work surface, **stop**
-   and report the readiness blocker - do not edit the shared root.
+1. Confirm you are in the Project work surface. Formal coding runs use a normal
+   session plus a session execution environment: usually a generated branch,
+   per-session git worktree, private Docker daemon, and assigned dev target
+   ports.
+2. To verify, call `list_agent_capabilities` and read
+   `execution_environment` plus `project.work_surface`. Formal isolated runs
+   report `execution_environment.mode="isolated"` and a ready cwd/worktree. If
+   the environment is missing, stopped, failed, deleted, or points at the shared
+   root, **stop** and report the readiness blocker - do not edit the shared
+   root.
 
 ## Procedure
 
@@ -53,12 +56,12 @@ through composer mentions (`@file:<path>`, `@project:dependencies`).
 4. Make focused changes with native harness file/shell tools inside the Project
    work surface. Treat `SPINDREL_DEV_*_PORT` values as Project app leases (not
    the host Spindrel API/UI port).
-5. If the Project declares a Dependency Stack, call
-   `get_project_dependency_stack` before Docker-backed work. Use
-   `manage_project_dependency_stack` for prepare/reload/restart/rebuild,
-   logs, service commands, and health. Do not call raw `docker` or
-   `docker compose`; edit the Project compose file and reload through the tool
-   when the stack shape changes.
+5. For Docker-backed dependencies in an isolated run, use ordinary `docker` and
+   `docker compose` commands from the Project worktree. They should target the
+   session's private daemon through `DOCKER_HOST`. If Docker is stopped or
+   unhealthy, load `project/runs/environment` and inspect before retrying.
+   Dependency Stack tools are only for Projects that explicitly declare a
+   Project-managed stack.
 6. Run the smallest useful repo-local tests first with the native Project
    shell/runtime env. Do not wrap unit tests in Docker, Dockerfile.test, or
    docker compose. For UI work, run typecheck, start the Project app/dev
@@ -93,9 +96,8 @@ to decide your next move:
 - `stalled` - background sweep flagged no activity past `stall_timeout`. Re-
   engage explicitly or hand off; do not silently restart.
 
-`lifecycle.phase` is the legacy operator-headline state (`needs_review`,
-`running`, etc.) and is preserved for the UI. Prefer `run_phase` for in-loop
-decisions.
+`lifecycle.phase` is the broad operator-headline state (`needs_review`,
+`running`, etc.) used by the UI. Prefer `run_phase` for in-loop decisions.
 
 ## Loop-Enabled Runs
 
@@ -110,9 +112,11 @@ contract and stop conditions.
 - Handoff evidence includes the branch and PR URL when available.
 - If tests or screenshot capture are unavailable, **record the blocker**
   instead of claiming verification.
-- Dependency Stack evidence includes health, service command results,
-  exported env keys, and any reload/restart blockers. App server URLs and
-  screenshots belong to the native server process you started for the run.
+- Environment evidence includes cwd/worktree, branch, Docker status/endpoint,
+  and any stop/restart blockers. If a Dependency Stack is explicitly
+  configured, include its health, service command results, exported env keys,
+  and any reload/restart blockers. App server URLs and screenshots belong to
+  the native server process you started for the run.
 - Dev target evidence includes each assigned key, URL, port, and whether the
   source-run server was started, checked, blocked, or stopped.
 
@@ -125,9 +129,8 @@ contract and stop conditions.
 - Do not write secrets or paste secret values into receipts.
 - Do not create replacement PRs for continuation runs unless the handoff tool
   reports reuse is impossible.
-- Do not rely on ambient Docker access from a harness shell. Dependency Stack
-  Docker control must go through Spindrel tools and is for backing services,
-  not for running unit tests.
+- Do not touch host/shared Docker from an isolated run. Use the session
+  Docker daemon surfaced through `DOCKER_HOST`.
 - Do not run repository bootstrap helpers meant for an outer development
   operator from an ordinary Project coding run.
 - Do not use or restart fixed host ports from examples - they are not Project

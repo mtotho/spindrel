@@ -1,4 +1,5 @@
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -10,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment, Attachment as AttachmentModel, Channel, ConversationSection, Message, Project, Session, Task, ToolApproval, ToolCall
+from app.db.models import Attachment, Attachment as AttachmentModel, Channel, ConversationSection, Message, Project, ProjectInstance, Session, Task, ToolApproval, ToolCall
 from app.domain.errors import DomainError
 from app.dependencies import ApiKeyAuth, get_db, require_scopes, verify_auth_or_user, verify_user
 from app.services.api_keys import has_scope
@@ -254,6 +255,36 @@ class SessionProjectInstanceOut(BaseModel):
     root_path: str | None = None
     expires_at: datetime | None = None
     created_at: datetime | None = None
+
+
+class SessionExecutionEnvironmentOut(BaseModel):
+    session_id: uuid.UUID
+    mode: str
+    status: str
+    cwd: str | None = None
+    docker_status: str | None = None
+    docker_endpoint: str | None = None
+    project_id: uuid.UUID | None = None
+    project_instance_id: uuid.UUID | None = None
+    pinned: bool = False
+    expires_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    worktree: dict[str, Any] | None = None
+    docker: dict[str, Any] | None = None
+    runtime_env: dict[str, str] = Field(default_factory=dict)
+
+
+class SessionExecutionEnvironmentListOut(BaseModel):
+    capacity: dict[str, Any] = Field(default_factory=dict)
+    environments: list[SessionExecutionEnvironmentOut] = Field(default_factory=list)
+
+
+class SessionExecutionEnvironmentActionIn(BaseModel):
+    action: str
+    pinned: bool | None = None
+    ttl_seconds: int | None = Field(default=None, ge=60)
 
 
 class SessionSummaryOut(BaseModel):
@@ -1086,6 +1117,145 @@ async def clear_session_project_instance(
     return await _session_project_instance_out(db, session, channel=channel)
 
 
+@router.get("/execution-environments", response_model=SessionExecutionEnvironmentListOut)
+async def list_session_execution_environments_endpoint(
+    status: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:read")),
+):
+    from app.services.session_execution_environments import list_session_execution_environments
+
+    return SessionExecutionEnvironmentListOut.model_validate(
+        await list_session_execution_environments(db, status=status, limit=limit)
+    )
+
+
+@router.get("/{session_id}/execution-environment", response_model=SessionExecutionEnvironmentOut)
+async def get_session_execution_environment_endpoint(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    from app.services.session_execution_environments import (
+        get_session_execution_environment,
+        session_execution_environment_out,
+    )
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await _authorize_session_read(db, session, auth)
+    env = await get_session_execution_environment(db, session_id)
+    return SessionExecutionEnvironmentOut.model_validate(
+        session_execution_environment_out(env, session_id=session_id)
+    )
+
+
+async def _session_environment_project_context(db: AsyncSession, session: Session, channel: Channel | None):
+    project_id = getattr(channel, "project_id", None) if channel is not None else None
+    project = await db.get(Project, project_id) if project_id is not None else None
+    instance = await db.get(ProjectInstance, session.project_instance_id) if session.project_instance_id else None
+    return project, instance
+
+
+@router.post("/{session_id}/execution-environment/isolated", response_model=SessionExecutionEnvironmentOut, status_code=201)
+async def create_isolated_session_execution_environment(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    from app.services.project_instances import bind_fresh_project_instance_to_session
+    from app.services.session_execution_environments import (
+        ensure_isolated_session_environment,
+        session_execution_environment_out,
+    )
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    channel, _ = await _authorize_session_project_instance_write(db, session, auth)
+    project_id = getattr(channel, "project_id", None) if channel is not None else None
+    if project_id is None:
+        raise HTTPException(status_code=422, detail="Session is not attached to a Project-bound channel")
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        from app.services.projects import project_canonical_repo_host_path
+
+        repo_path = project_canonical_repo_host_path(project)
+        has_canonical_git = bool(repo_path and os.path.exists(os.path.join(repo_path, ".git")))
+        if session.project_instance_id is None and not has_canonical_git:
+            instance = await bind_fresh_project_instance_to_session(db, session=session, project=project)
+        else:
+            instance = await db.get(ProjectInstance, session.project_instance_id) if session.project_instance_id else None
+        env = await ensure_isolated_session_environment(
+            db,
+            session_id=session.id,
+            project=project,
+            project_instance=instance,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return SessionExecutionEnvironmentOut.model_validate(
+        session_execution_environment_out(env, session_id=session_id)
+    )
+
+
+@router.post("/{session_id}/execution-environment/actions", response_model=dict[str, Any])
+async def manage_session_execution_environment_endpoint(
+    session_id: uuid.UUID,
+    body: SessionExecutionEnvironmentActionIn,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    from app.services.session_execution_environments import manage_session_execution_environment
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    channel, _ = await _authorize_session_project_instance_write(db, session, auth)
+    project, instance = await _session_environment_project_context(db, session, channel)
+    try:
+        return await manage_session_execution_environment(
+            db,
+            session_id,
+            action=body.action,
+            project=project,
+            project_instance=instance,
+            pinned=body.pinned,
+            ttl_seconds=body.ttl_seconds,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.delete("/{session_id}/execution-environment", response_model=SessionExecutionEnvironmentOut)
+async def cleanup_session_execution_environment_endpoint(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    from app.services.session_execution_environments import (
+        cleanup_session_execution_environment,
+        session_execution_environment_out,
+    )
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await _authorize_session_project_instance_write(db, session, auth)
+    env = await cleanup_session_execution_environment(db, session_id)
+    return SessionExecutionEnvironmentOut.model_validate(
+        session_execution_environment_out(env, session_id=session_id)
+    )
+
+
 class ApprovalModeOut(BaseModel):
     mode: str
 
@@ -1362,6 +1532,7 @@ async def get_harness_status(
         db,
         channel_id=session.channel_id or session.parent_channel_id,
         bot=bot,
+        session_id=session_id,
     )
     computed_hints = []
     memory_hint = build_workspace_files_memory_hint(bot, harness_paths.bot_workspace_dir)

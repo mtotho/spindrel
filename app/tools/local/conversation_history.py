@@ -725,6 +725,7 @@ async def _read_multi_channel_history(section: str, channel_ids: list[str]) -> s
 
 @register(_SCHEMA, requires_bot_context=True, requires_channel_context=True, tool_metadata={
     "domains": ["context_navigation"],
+    "capabilities": ["conversation_history.read"],
     "exposure": "ambient",
     "auto_inject": ["chat_baseline"],
     "context_policy": {

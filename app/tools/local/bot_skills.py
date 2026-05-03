@@ -1165,6 +1165,7 @@ async def _handle_delete_script(ctx: _SkillActionContext, *, name: str, script_n
     ],
 }, safety_tier="control_plane", requires_bot_context=True, tool_metadata={
     "domains": ["skill_authoring"],
+    "capabilities": ["skill.read", "skill.write"],
     "exposure": "ambient",
     "auto_inject": ["workspace_files_memory"],
     "context_policy": {

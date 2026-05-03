@@ -72,6 +72,23 @@ _MEMORY_FLUSH_TOOL_CAPABILITIES = (
     "memory.write",
     "workspace_memory.write",
 )
+_MEMORY_HYGIENE_TOOL_CAPABILITIES = (
+    "memory.read",
+    "memory.write",
+    "workspace_memory.write",
+    "conversation_history.read",
+    "subsessions.read",
+    "skill.write",
+)
+_SKILL_REVIEW_TOOL_CAPABILITIES = (
+    "memory.read",
+    "memory.write",
+    "workspace_memory.write",
+    "conversation_history.read",
+    "subsessions.read",
+    "skill.read",
+    "skill.write",
+)
 
 
 def _safe_sim(value: float) -> float | None:
@@ -1677,6 +1694,17 @@ async def _run_tool_retrieval(
         if tool_surface_policy in {"focused_escape", "strict", "full"}
         else "focused_escape"
     )
+    deterministic_capability_surfaces = {
+        "memory_flush": _MEMORY_FLUSH_TOOL_CAPABILITIES,
+        "memory_hygiene": _MEMORY_HYGIENE_TOOL_CAPABILITIES,
+        "skill_review": _SKILL_REVIEW_TOOL_CAPABILITIES,
+    }
+    profile_surface_name = getattr(context_profile, "name", None)
+    surface_capabilities = deterministic_capability_surfaces.get(profile_surface_name)
+    if surface_capabilities:
+        for capability in surface_capabilities:
+            for _schema in get_local_tool_schemas_by_metadata(capability=capability):
+                by_name[_schema["function"]["name"]] = _schema
     _authorized_names: set[str] = set(by_name.keys())
     out_state["authorized_names"] = _authorized_names
 
@@ -1755,11 +1783,10 @@ async def _run_tool_retrieval(
         out_state["pre_selected_tools"] = pre_selected_tools
         return
 
-    is_memory_flush_surface = getattr(context_profile, "name", None) == "memory_flush"
-    if is_memory_flush_surface and by_name:
+    if surface_capabilities and by_name:
         allowed_names = _dedupe_tool_names(*(
             get_local_tool_names_by_metadata(capability=capability)
-            for capability in _MEMORY_FLUSH_TOOL_CAPABILITIES
+            for capability in surface_capabilities
         ))
         pre_selected_tools = [by_name[name] for name in allowed_names if name in by_name]
         _authorized_names = {tool["function"]["name"] for tool in pre_selected_tools}
@@ -1776,8 +1803,8 @@ async def _run_tool_retrieval(
                     "best_similarity": None,
                     "threshold": th,
                     "selected": [],
-                    "skipped": "memory_flush_metadata_surface",
-                    "metadata_capabilities": list(_MEMORY_FLUSH_TOOL_CAPABILITIES),
+                    "skipped": f"{profile_surface_name}_metadata_surface",
+                    "metadata_capabilities": list(surface_capabilities),
                 },
             ))
         out_state["tool_discovery_info"] = {
@@ -1792,8 +1819,8 @@ async def _run_tool_retrieval(
             "enrolled_working_set": list(_enrolled_tool_names),
             "retrieved": [],
             "retrieved_count": 0,
-            "tool_surface": "memory_flush",
-            "metadata_capabilities": list(_MEMORY_FLUSH_TOOL_CAPABILITIES),
+            "tool_surface": str(profile_surface_name),
+            "metadata_capabilities": list(surface_capabilities),
             "top_candidates": [],
             "best_similarity": None,
             "unretrieved_count": max(0, len(by_name) - len(_authorized_names)),
@@ -3006,7 +3033,11 @@ async def assemble_context(
     # --- tool retrieval (tool RAG) ---
     pre_selected_tools: list[dict[str, Any]] | None = None
     _authorized_names: set[str] | None = None
-    if bot.tool_retrieval:
+    if bot.tool_retrieval or getattr(context_profile, "name", None) in {
+        "memory_flush",
+        "memory_hygiene",
+        "skill_review",
+    }:
         async for _evt in _run_tool_retrieval(
             messages=messages,
             bot=bot,

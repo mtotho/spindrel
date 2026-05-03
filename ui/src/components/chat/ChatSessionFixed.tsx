@@ -18,11 +18,12 @@ import {
 } from "@/src/api/hooks/useChannelSessions";
 import { useSessionConfigOverhead } from "@/src/api/hooks/useSessionConfigOverhead";
 import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
+import { useSessionHarnessStatus } from "@/src/api/hooks/useApprovals";
 import { useSpawnThread, useThreadInfo } from "@/src/api/hooks/useThreads";
 import { ThreadParentAnchor } from "./ThreadParentAnchor";
 import { useChannel, useChannelConfigOverhead } from "@/src/api/hooks/useChannels";
 import { useChannelChatSource } from "@/src/api/hooks/useChannelChatSource";
-import { selectIsStreaming, useChatStore } from "@/src/stores/chat";
+import { useChatStore } from "@/src/stores/chat";
 import { useUIStore } from "@/src/stores/ui";
 import { BotPicker } from "@/src/components/shared/BotPicker";
 import { ChatSessionModal } from "./ChatSessionModal";
@@ -104,8 +105,12 @@ export function FixedSessionChatSession({
   const botId = source.botId ?? bots?.[0]?.id ?? "";
   const sessionBot = useMemo(() => bots?.find((b) => b.id === botId), [bots, botId]);
   const harnessComposerProps = useHarnessComposerProps(sessionBot, sessionId);
-  const chatState = useChatStore((s) => s.getChannel(sessionId));
-  const turnActive = selectIsStreaming(chatState);
+  // Narrow boolean read: flips at turn boundaries, NOT per text_delta.
+  // Subscribing to the full channel state here would re-render this entire
+  // session chat surface ~50×/sec during streaming.
+  const turnActive = useChatStore(
+    (s) => Object.keys(s.getChannel(sessionId).turns).length > 0,
+  );
   const isSending = submitChat.isPending || turnActive;
   const [sendError, setSendError] = useState<string | null>(null);
   const [modelOverride, setModelOverrideState] = useState<string | undefined>(undefined);
@@ -118,6 +123,11 @@ export function FixedSessionChatSession({
   const [nativeCliStarted, setNativeCliStarted] = useState(false);
   const [nativeCliRevision, setNativeCliRevision] = useState(0);
   const isHarnessSession = !!sessionBot?.harness_runtime;
+  const { data: harnessStatus } = useSessionHarnessStatus(sessionId, isHarnessSession);
+  const nativeSessionId = typeof harnessStatus?.run_inspector?.native_session_id === "string"
+    ? harnessStatus.run_inspector.native_session_id
+    : null;
+  const nativeCliAvailable = Boolean(nativeSessionId);
 
   const [dockExpanded, setDockExpanded] = useState(
     shape === "dock" && (initiallyExpanded ?? false),
@@ -363,9 +373,9 @@ export function FixedSessionChatSession({
               setNativeCliStarted(true);
               setNativeCliOpen(true);
             }}
-            disabled={isSending}
+            disabled={isSending || !nativeCliAvailable}
             className={`absolute right-3 top-3 z-[8] inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium backdrop-blur ${
-              isSending
+              isSending || !nativeCliAvailable
                 ? "cursor-not-allowed bg-surface-overlay/50 text-text-dim/60"
                 : nativeCliStarted
                   ? "bg-accent/15 text-accent hover:bg-accent/20"
@@ -373,7 +383,9 @@ export function FixedSessionChatSession({
             }`}
             title={
               isSending
-                ? "Native CLI resumes after the active Spindrel turn finishes"
+                ? "Native CLI is available after the active Spindrel turn records a native session id"
+                : !nativeCliAvailable
+                  ? "Native CLI is unavailable until this harness session records a resumable native session id"
                 : nativeCliStarted
                   ? "Return to the running native CLI for this session"
                   : "Open the runtime's native CLI for this session"
@@ -381,7 +393,7 @@ export function FixedSessionChatSession({
             aria-pressed={nativeCliStarted}
           >
             <TerminalIcon size={13} />
-            {isSending ? "Native CLI syncing" : nativeCliStarted ? "Native CLI running" : "Native CLI"}
+            {isSending ? "CLI after turn" : !nativeCliAvailable ? "CLI unavailable" : nativeCliStarted ? "Native CLI running" : "Native CLI"}
           </button>
         )}
         <div

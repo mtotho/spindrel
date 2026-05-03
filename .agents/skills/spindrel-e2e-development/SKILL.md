@@ -32,17 +32,18 @@ the runtime skill `project/runs/implement` (review work uses `project/runs/revie
   channel or Project coding run. It uses native shell/edit tools for
   Project-root code work only, and it should treat this file as selected
   Project-local guidance rather than global runtime behavior.
-- Harness agents must use task-granted Spindrel tools for e2e, screenshots,
-  server/machine actions, Docker/compose dependency control, and receipts.
+- Harness agents must use task-granted Spindrel tools for screenshots,
+  server/machine actions, and receipts. For Docker/compose work inside an
+  isolated Project run, use ordinary Docker commands; Spindrel routes them to
+  the session's private Docker daemon.
 - In Spindrel dev mode, if Docker-backed dependencies, dev-target ports,
   screenshot access, secrets, or execution grants are missing, ask the user to
   configure the Project settings or launch a run with the needed access. Do not
   assume the local repo-dev helper commands are available.
-- Project Dependency Stacks are the normal Docker path for Project coding runs:
-  agents edit source/compose files in the Project root, then use
-  `get_project_dependency_stack` and `manage_project_dependency_stack` to prepare,
-  reload, restart, inspect logs, run service commands, check health, and read
-  dependency connection env. Agents still start app/dev servers themselves.
+- Isolated Project coding runs are the normal Docker path for scheduled/loop
+  work: agents edit source/compose files in the Project root and use ordinary
+  `docker` / `docker compose` commands against the session daemon. Agents still
+  start app/dev servers themselves.
 - Project coding runs may include assigned dev targets such as
   `SPINDREL_DEV_API_PORT` / `SPINDREL_DEV_API_URL`. Use those for source-run
   servers and report their status in `publish_project_run_receipt`.
@@ -55,8 +56,8 @@ the runtime skill `project/runs/implement` (review work uses `project/runs/revie
   repo-dev bootstrap helpers such as `scripts/agent_e2e_dev.py prepare`,
   `start-api`, or `prepare-harness-parity`. Those commands are for the outer
   repo-dev operator setting up the host test server. Inside the Project run,
-  use injected env, Dependency Stack tools, and your own source-run dev process
-  on the assigned port.
+  use injected env, the session Docker daemon, and your own source-run dev
+  process on the assigned port.
 
 ## Port Ownership
 
@@ -88,12 +89,11 @@ Keep these ports distinct:
   coding runs for the app/server being developed. A Project agent must use its
   assigned dev target port and must not restart the host Spindrel API/UI port.
 
-Fresh Project Instances are disposable Project roots. Dependency Stack instances
-are run-scoped Docker stacks attached to those roots when the Project declares a
-stack spec. Project coding runs preflight the task-scoped stack before the
-first agent turn when a stack is configured, then inject the dependency env
-into the task runtime from the start. Do not use raw Docker from a harness
-shell, and do not use dependency stacks to run unit tests.
+Fresh Project coding runs use a normal session plus an optional isolated
+session environment: a per-session git worktree and a private Docker daemon
+exposed through `DOCKER_HOST`. Dependency Stack instances are only for Projects
+that explicitly declare a stack spec. Do not use dependency stacks to run unit
+tests.
 
 ## Commands
 

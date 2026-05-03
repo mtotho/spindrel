@@ -57,14 +57,18 @@ PROJECT_CODING_RUN_TOOLS = (
     "file",
     "exec_command",
     "get_project_factory_state",
-    "get_project_dependency_stack",
-    "manage_project_dependency_stack",
+    "get_session_execution_environment",
     "prepare_project_run_handoff",
     "schedule_project_coding_run",
     "get_project_coding_run_details",
     "get_project_coding_run_review_context",
     "finalize_project_coding_run_review",
     "publish_project_run_receipt",
+)
+
+SESSION_EXECUTION_ENVIRONMENT_TOOLS = (
+    "get_session_execution_environment",
+    "manage_session_execution_environment",
 )
 
 WIDGET_AUTHORING_TOOLS = (
@@ -118,6 +122,7 @@ SKILL_OPPORTUNITY_SKILL_LABELS: dict[str, str] = {
     "project/runs/review": "Project run review",
     "project/runs/scheduled": "Project scheduled runs",
     "project/runs/loop": "Project run loop",
+    "project/runs/environment": "Project run environment",
     "workspace/member": "Workspace member",
     "context_mastery": "Context mastery",
     "history_and_memory/session_history": "Session history",
@@ -181,7 +186,7 @@ RUNTIME_SKILL_COVERAGE_AUDIT: dict[str, dict[str, Any]] = {
             "workspace/files",
             "workspace/member",
         ],
-        "why_skill_shaped": "Project coding runs are ordered implementation/review workflows over Project work surfaces, repo-local commands, dependency stacks, dev targets, screenshots, handoff receipts, and finalization tools.",
+        "why_skill_shaped": "Project coding runs are ordered implementation/review workflows over session worktrees, private Docker daemons, repo-local commands, dev targets, screenshots, handoff receipts, and finalization tools.",
         "small_model_reason": "Smaller models need the Project run procedure and review manifest before editing a Project root or finalizing PRs.",
         "suggested_owner": "existing_runtime_skill",
     },
@@ -1052,6 +1057,14 @@ def _doctor_findings(manifest: dict[str, Any]) -> list[dict[str, str]]:
             "message": f"Missing Project coding-run tools: {', '.join(coding_run.get('missing_tools') or [])}.",
             "next_action": "Restart/reload local tools and verify coding-run helper modules import cleanly.",
         })
+    execution_environment = manifest.get("execution_environment") or {}
+    if execution_environment.get("status") in {"failed", "stopped"}:
+        findings.append({
+            "severity": "warning",
+            "code": "session_execution_environment_attention",
+            "message": f"Session execution environment is {execution_environment.get('status')}.",
+            "next_action": "Use get_session_execution_environment(doctor=true), then manage_session_execution_environment if repair is needed.",
+        })
     if manifest["harness"].get("runtime") and not manifest["project"].get("attached") and not manifest["harness"].get("workdir"):
         findings.append({
             "severity": "warning",
@@ -1760,22 +1773,64 @@ def _coding_run_payload(manifest: dict[str, Any]) -> dict[str, Any]:
         "run_details": "available" if "get_project_coding_run_details" in _local_tools else "missing",
         "review_context": "available" if "get_project_coding_run_review_context" in _local_tools else "missing",
         "review_finalizer": "available" if "finalize_project_coding_run_review" in _local_tools else "missing",
-        "dependency_stack": "available" if "manage_project_dependency_stack" in _local_tools else "missing",
+        "session_environment": "available" if "get_session_execution_environment" in _local_tools else "missing",
+        "dependency_stack": "optional_available" if "manage_project_dependency_stack" in _local_tools else "optional_missing",
         "required_tools": list(PROJECT_CODING_RUN_TOOLS),
         "available_tools": available_tools,
         "missing_tools": missing_tools,
         "default_flow": [
             "start Project coding run",
-            "bind fresh Project instance",
+            "use the session execution environment assigned to the run",
             "prepare_project_run_handoff",
-            "prepare/reload Project dependency stack when Docker-backed services are required",
-            "edit and test in Project root",
+            "edit and test in the session worktree",
+            "use ordinary docker/docker compose; isolated runs route Docker to the private session daemon",
             "capture screenshots when UI changes",
             "prepare_project_run_handoff(open_pr)",
             "publish_project_run_receipt",
             "get_project_coding_run_details for latest run or review questions",
             "for review sessions, call get_project_coding_run_review_context before finalize_project_coding_run_review",
         ],
+    }
+
+
+async def _execution_environment_payload(db: AsyncSession, session: Session | None) -> dict[str, Any]:
+    available_tools = [name for name in SESSION_EXECUTION_ENVIRONMENT_TOOLS if name in _local_tools]
+    missing_tools = [name for name in SESSION_EXECUTION_ENVIRONMENT_TOOLS if name not in _local_tools]
+    if session is None:
+        return {
+            "available_tools": available_tools,
+            "missing_tools": missing_tools,
+            "mode": "unknown",
+            "status": "no_session",
+            "readiness": "no_session",
+        }
+    try:
+        from app.services.session_execution_environments import (
+            get_session_execution_environment,
+            session_execution_environment_out,
+        )
+
+        env = await get_session_execution_environment(db, session.id)
+        payload = session_execution_environment_out(env, session_id=session.id)
+    except Exception as exc:
+        return {
+            "available_tools": available_tools,
+            "missing_tools": missing_tools,
+            "mode": "unknown",
+            "status": "failed",
+            "readiness": "needs_attention",
+            "error": str(exc),
+        }
+    status = payload.get("status")
+    readiness = "ready" if status == "ready" and not missing_tools else "needs_attention"
+    if payload.get("mode") == "shared":
+        readiness = "shared"
+    return {
+        **payload,
+        "available_tools": available_tools,
+        "missing_tools": missing_tools,
+        "readiness": readiness,
+        "management": "tool_enrolled" if "manage_session_execution_environment" in _local_tools else "tool_missing",
     }
 
 
@@ -1975,8 +2030,8 @@ def _skill_opportunity_payload(manifest: dict[str, Any]) -> dict[str, Any]:
         recommendations.append(_skill_recommendation(
             feature_id="project_coding_run",
             feature_label="Project coding run",
-            skill_ids=["project", "project/runs/implement", "project/runs/review"],
-            reason="Project coding runs and reviews need a repeatable procedure for Project roots, repo-local verification, dependency stacks, evidence, handoffs, and finalization.",
+            skill_ids=["project", "project/runs/implement", "project/runs/review", "project/runs/environment"],
+            reason="Project coding runs and reviews need a repeatable procedure for Project roots, session environments, repo-local verification, evidence, handoffs, and finalization.",
             when_to_load="Before starting, continuing, reviewing, merging, or finalizing Project coding runs.",
             enrolled=enrolled,
         ))
@@ -2081,6 +2136,7 @@ async def build_agent_capability_manifest(
             "bridge_status": "native" if bot and bot.harness_runtime else "not_configured",
         },
     }
+    manifest["execution_environment"] = await _execution_environment_payload(db, session)
     manifest["coding_run"] = _coding_run_payload(manifest)
     manifest["widgets"] = _widget_payload(manifest)
     manifest["integrations"] = await _integration_payload(db, channel)

@@ -87,6 +87,49 @@ export function useProjectDependencyStack(projectId: string | undefined) {
   });
 }
 
+export interface SessionExecutionEnvironment {
+  session_id: string;
+  mode: string;
+  status: string;
+  cwd?: string | null;
+  docker_status?: string | null;
+  docker_endpoint?: string | null;
+  project_id?: string | null;
+  project_instance_id?: string | null;
+  pinned?: boolean;
+  expires_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  metadata?: Record<string, any>;
+  worktree?: Record<string, any> | null;
+  docker?: Record<string, any> | null;
+  runtime_env?: Record<string, string>;
+}
+
+export function useSessionExecutionEnvironment(sessionId: string | undefined | null) {
+  return useQuery({
+    queryKey: ["session-execution-environment", sessionId],
+    queryFn: () => apiFetch<SessionExecutionEnvironment>(`/api/v1/sessions/${sessionId}/execution-environment`),
+    enabled: !!sessionId,
+    refetchInterval: 10_000,
+  });
+}
+
+export function useManageSessionExecutionEnvironment(sessionId: string | undefined | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { action: string; pinned?: boolean | null; ttl_seconds?: number | null }) =>
+      apiFetch<Record<string, any>>(`/api/v1/sessions/${sessionId}/execution-environment/actions`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["session-execution-environment", sessionId] });
+      qc.invalidateQueries({ queryKey: ["recent-sessions"] });
+    },
+  });
+}
+
 // Generated types from openapi.json. The FastAPI models declare nested
 // dict fields as `dict[str, Any]`, so the generated shapes carry
 // `Record<string, unknown>` for `concurrency`, `intake`, `runs`, etc.
@@ -244,9 +287,13 @@ export function useRunProjectCodingRunScheduleNow(projectId: string | undefined)
       apiFetch<ProjectCodingRun>(`/api/v1/projects/${projectId}/coding-run-schedules/${scheduleId}/run-now`, {
         method: "POST",
       }),
-    onSuccess: () => {
+    onSuccess: (run) => {
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-run-schedules"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+      qc.invalidateQueries({ queryKey: ["recent-sessions"] });
+      if (run.task?.channel_id) {
+        qc.invalidateQueries({ queryKey: ["channel-session-catalog", run.task.channel_id] });
+      }
     },
   });
 }

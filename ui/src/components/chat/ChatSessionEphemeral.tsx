@@ -22,7 +22,7 @@ import { useSpawnThread, useThreadInfo } from "@/src/api/hooks/useThreads";
 import { ThreadParentAnchor } from "./ThreadParentAnchor";
 import { useChannel, useChannelConfigOverhead } from "@/src/api/hooks/useChannels";
 import { useChannelChatSource } from "@/src/api/hooks/useChannelChatSource";
-import { selectIsStreaming, useChatStore } from "@/src/stores/chat";
+import { useChatStore } from "@/src/stores/chat";
 import { useUIStore } from "@/src/stores/ui";
 import { BotPicker } from "@/src/components/shared/BotPicker";
 import { ChatSessionModal } from "./ChatSessionModal";
@@ -221,8 +221,10 @@ export function EphemeralChatSession({
   const submitChat = useSubmitChat();
   const cancelChat = useCancelChat();
   const [sendError, setSendError] = useState<string | null>(null);
-  const chatState = useChatStore((s) => (sessionId ? s.getChannel(sessionId) : null));
-  const turnActive = chatState ? selectIsStreaming(chatState) : false;
+  // Narrow boolean read: flips at turn boundaries, NOT per text_delta.
+  const turnActive = useChatStore(
+    (s) => (sessionId ? Object.keys(s.getChannel(sessionId).turns).length > 0 : false),
+  );
   const isSending = submitChat.isPending || turnActive;
 
   const { data: overheadData } = useSessionConfigOverhead(sessionId ?? undefined);

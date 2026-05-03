@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getApiBase } from "../client";
 import { apiFetch } from "../client";
 
 // ---------------------------------------------------------------------------
@@ -186,7 +187,7 @@ export function useUploadAttachment() {
       formData.append("channel_id", channelId);
 
       const token = getAuthToken();
-      const res = await fetch(`${serverUrl}/api/v1/attachments/upload`, {
+      const res = await fetch(`${getApiBase()}/api/v1/attachments/upload`, {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,

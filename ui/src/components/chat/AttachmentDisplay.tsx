@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import { FileText } from "lucide-react";
 import { useAuthStore, getAuthToken } from "../../stores/auth";
+import { getApiBase } from "../../api/client";
 import type { AttachmentBrief } from "../../types/api";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
@@ -244,7 +245,7 @@ export function AttachmentImages({
       {optimistic.map((item) => {
         if (item.mime_type.startsWith("image/")) {
           const fileHref = item.path && channelId
-            ? `${serverUrl}/api/v1/channels/${channelId}/workspace/files/raw?path=${encodeURIComponent(item.path)}${token ? `&token=${token}` : ""}`
+            ? `${getApiBase()}/api/v1/channels/${channelId}/workspace/files/raw?path=${encodeURIComponent(item.path)}${token ? `&token=${token}` : ""}`
             : undefined;
           const previewSrc = item.preview_url ?? fileHref;
           if (!previewSrc) {
@@ -274,7 +275,7 @@ export function AttachmentImages({
           );
         }
         const href = item.path && channelId
-          ? `${serverUrl}/api/v1/channels/${channelId}/workspace/files/raw?path=${encodeURIComponent(item.path)}${token ? `&token=${token}` : ""}`
+          ? `${getApiBase()}/api/v1/channels/${channelId}/workspace/files/raw?path=${encodeURIComponent(item.path)}${token ? `&token=${token}` : ""}`
           : undefined;
         return (
           <FileReceiptRow
@@ -289,7 +290,7 @@ export function AttachmentImages({
         );
       })}
       {images.map((img) => {
-        const url = `${serverUrl}/api/v1/attachments/${img.id}/file${token ? `?token=${token}` : ""}`;
+        const url = `${getApiBase()}/api/v1/attachments/${img.id}/file${token ? `?token=${token}` : ""}`;
         if (chatMode === "terminal") {
           return (
             <AttachmentThumbReceipt
@@ -314,7 +315,7 @@ export function AttachmentImages({
       })}
       {files.map((f) => {
         // Always generate a download link -- let the server return 404 if data was purged
-        const href = `${serverUrl}/api/v1/attachments/${f.id}/file${token ? `?token=${token}` : ""}`;
+        const href = `${getApiBase()}/api/v1/attachments/${f.id}/file${token ? `?token=${token}` : ""}`;
         return (
           <FileReceiptRow
             key={f.id}
@@ -328,7 +329,7 @@ export function AttachmentImages({
       })}
       {uploaded.map((item) => {
         const href = channelId
-          ? `${serverUrl}/api/v1/channels/${channelId}/workspace/files/raw?path=${encodeURIComponent(item.path)}${token ? `&token=${token}` : ""}`
+          ? `${getApiBase()}/api/v1/channels/${channelId}/workspace/files/raw?path=${encodeURIComponent(item.path)}${token ? `&token=${token}` : ""}`
           : undefined;
         return (
           <FileReceiptRow

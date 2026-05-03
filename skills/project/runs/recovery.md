@@ -27,7 +27,7 @@ If none of those apply, this is a normal review - load
 
 | Mode | When to pick it | What actually happens |
 |---|---|---|
-| `continue` | The run hit a recoverable transient (tool error, dependency restart, single failing test that just needs a fix). `recovery.can_continue` is `true` and `latest_continuation_id` is empty. | Open the continuation path with concrete feedback. Same branch, same Project instance, same Dependency Stack, same PR. Spindrel does not create a replacement PR. |
+| `continue` | The run hit a recoverable transient (tool error, dependency restart, single failing test that just needs a fix). `recovery.can_continue` is `true` and `latest_continuation_id` is empty. | Open the continuation path with concrete feedback. Same branch, same session environment when available, same PR. Spindrel does not create a replacement PR. |
 | `retry` | The run failed before producing any artifact (process died, sandbox preflight blocked, secret missing). The work was not partially done. | Re-launch from the same Run Pack source. Treat the prior attempt as a no-op for review purposes; the next attempt's receipt is the one of record. |
 | `hand_off` | The run produced partial work that is correct as far as it went, but the remaining work needs a human decision (new requirement, ambiguous spec, scope split). | Publish a `needs_review` decision via `finalize_project_coding_run_review` with reviewer feedback. Do not silently continue. |
 | `abandon` | The Run Pack itself is wrong (duplicate, superseded, no longer wanted). The run cannot succeed because the work should not happen. | Mark the source artifact stale and publish a `rejected` decision. Do not auto-launch a follow-up. |

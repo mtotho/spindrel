@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getApiBase } from "../client";
 import { apiFetch } from "../client";
 import type { Channel, ChannelBotMember, ChannelBotMemberConfig, ChannelSettings, ContextBreakdown, EffectiveTools, IntegrationBinding, ActivatableIntegration, ActivationResult, ConfigField } from "../../types/api";
 import { useChatStore } from "../../stores/chat";
@@ -654,7 +655,7 @@ export async function uploadChannelWorkspaceFile(
   formData.append("file", file);
 
   const token = getAuthToken();
-  const url = `${serverUrl}/api/v1/channels/${channelId}/workspace/files/upload?path=${encodeURIComponent(targetDir)}`;
+  const url = `${getApiBase()}/api/v1/channels/${channelId}/workspace/files/upload?path=${encodeURIComponent(targetDir)}`;
   const res = await fetch(url, {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},

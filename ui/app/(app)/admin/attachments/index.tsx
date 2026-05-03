@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { getApiBase } from "@/src/api/client";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { Link } from "react-router-dom";
@@ -30,7 +31,7 @@ import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 function getFileUrl(id: string): string {
   const { serverUrl } = useAuthStore.getState();
   const token = getAuthToken();
-  return `${serverUrl}/api/v1/attachments/${id}/file${token ? `?token=${token}` : ""}`;
+  return `${getApiBase()}/api/v1/attachments/${id}/file${token ? `?token=${token}` : ""}`;
 }
 
 function canPreview(mime: string): boolean {

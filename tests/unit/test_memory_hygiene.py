@@ -804,21 +804,20 @@ class TestHygienePromptContent:
         assert "Archive maintenance" in DEFAULT_MEMORY_HYGIENE_PROMPT
         assert "14 days" in DEFAULT_MEMORY_HYGIENE_PROMPT
 
-    def test_has_archive_path_guidance(self):
+    def test_has_changed_channel_prioritization(self):
         from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
-        assert "memory/logs/archive" in DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "changed_since_last_run" in DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "prioritize changed channels" in DEFAULT_MEMORY_HYGIENE_PROMPT
 
     def test_has_archive_tool_guidance(self):
         from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
-        # Prompt guides bots to the idempotent single-call archive op
-        # instead of the old per-file mkdir + move dance.
         assert 'operation="archive_older_than"' in DEFAULT_MEMORY_HYGIENE_PROMPT
         assert 'older_than_days=14' in DEFAULT_MEMORY_HYGIENE_PROMPT
 
-    def test_maintenance_does_not_have_skill_hygiene(self):
+    def test_maintenance_promotes_reusable_patterns_to_skills(self):
         from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
-        assert "Skill hygiene" not in DEFAULT_MEMORY_HYGIENE_PROMPT
-        assert "prune_enrolled_skills" not in DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "manage_bot_skill" in DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "Reusable procedures or patterns" in DEFAULT_MEMORY_HYGIENE_PROMPT
 
 
 class TestSkillReviewPromptContent:
@@ -1595,9 +1594,7 @@ class TestInjectedSkillsSnapshot:
 
 
 class TestCreateHygieneTaskPreloadsSkills:
-    """create_hygiene_task must inline the configured skill bodies for each
-    job type, so the bot gets them at t=0 instead of spending iter 2 on
-    parallel get_skill() calls."""
+    """Scheduled jobs inline the skills they deterministically need."""
 
     @pytest.mark.asyncio
     async def test_memory_hygiene_task_inlines_core_skills(
@@ -1628,7 +1625,9 @@ class TestCreateHygieneTaskPreloadsSkills:
         assert "WF body present" in task.prompt
         assert "MH body present" in task.prompt
         assert "CM body present" in task.prompt
-        # Injected skills sit before dynamic per-run snapshots.
+        assert "## Runtime Budget Guardrail" in task.prompt
+        assert "## Channels" in task.prompt
+        assert task.prompt.index("## Runtime Budget Guardrail") < task.prompt.index("## Pre-Loaded Skills")
         assert task.prompt.index("## Pre-Loaded Skills") < task.prompt.index("## Channels")
 
     @pytest.mark.asyncio

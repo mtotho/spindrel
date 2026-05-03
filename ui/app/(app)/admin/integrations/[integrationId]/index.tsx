@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getApiBase } from "@/src/api/client";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Check,
@@ -349,7 +350,7 @@ function OAuthSection({ item }: { item: IntegrationItem }) {
 
   const handleConnect = () => {
     const { serverUrl } = useAuthStore.getState();
-    window.open(`${serverUrl}${oauth.auth_start}?scopes=${selectedScopes.join(",")}`, "_blank");
+    window.open(`${getApiBase()}${oauth.auth_start}?scopes=${selectedScopes.join(",")}`, "_blank");
   };
 
   if (status?.connected) {

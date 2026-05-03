@@ -60,6 +60,8 @@ function RecentSessionRow({ row, index }: { row: RecentSessionItem; index: numbe
           </span>
           <span>{sessionMeta(row)}</span>
           {row.surface_kind === "scratch" ? <span>Scratch</span> : null}
+          {row.origin === "scheduled_run" || row.origin === "project_run" ? <span>Run</span> : null}
+          {row.execution_environment === "isolated" ? <span>Isolated</span> : null}
         </span>
         <span className="mt-1.5 line-clamp-1 text-xs text-text-dim">
           {row.preview || row.summary || "No messages yet"}

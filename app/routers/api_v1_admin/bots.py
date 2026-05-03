@@ -771,6 +771,9 @@ async def admin_bot_create(
 
     # Default memory_scheme to workspace-files for new bots
     fields.setdefault("memory_scheme", "workspace-files")
+    # New bots opt into dreaming by default (global toggles stay off, per-bot is on).
+    fields.setdefault("memory_hygiene_enabled", True)
+    fields.setdefault("skill_review_enabled", True)
 
     row = BotRow(
         id=fields.pop("id"),

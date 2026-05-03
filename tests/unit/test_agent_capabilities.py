@@ -376,11 +376,13 @@ def test_skill_opportunities_recommend_project_coding_run_runtime_skill():
         "project",
         "project/runs/implement",
         "project/runs/review",
+        "project/runs/environment",
     ]
     assert project["first_action"] == 'get_skill("project")'
     assert project["labels"]["project"] == "Project (cluster index)"
     assert project["labels"]["project/runs/implement"] == "Project implementation runs"
     assert project["labels"]["project/runs/review"] == "Project run review"
+    assert project["labels"]["project/runs/environment"] == "Project run environment"
     assert project["coverage_status"] == "covered"
 
 
@@ -389,8 +391,7 @@ def test_project_coding_run_payload_includes_review_tools(monkeypatch):
         "file": {},
         "exec_command": {},
         "get_project_factory_state": {},
-        "get_project_dependency_stack": {},
-        "manage_project_dependency_stack": {},
+        "get_session_execution_environment": {},
         "prepare_project_run_handoff": {},
         "schedule_project_coding_run": {},
         "get_project_coding_run_details": {},
@@ -408,10 +409,12 @@ def test_project_coding_run_payload_includes_review_tools(monkeypatch):
     assert payload["run_details"] == "available"
     assert payload["review_context"] == "available"
     assert payload["review_finalizer"] == "available"
+    assert payload["session_environment"] == "available"
     assert payload["missing_tools"] == []
     assert "get_project_coding_run_review_context" in payload["required_tools"]
     assert "get_project_coding_run_details" in payload["required_tools"]
     assert "finalize_project_coding_run_review" in payload["required_tools"]
+    assert "manage_project_dependency_stack" not in payload["required_tools"]
 
 
 def test_work_surface_payload_names_project_instance_isolation():

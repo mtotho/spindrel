@@ -72,9 +72,10 @@ Every project skill in this cluster shares the same starting boundary:
    that as the Project root. Never assume `pwd` equals the Project root - the
    user may run from a workspace root such as `/common/projects` that holds
    several repo siblings.
-3. Formal coding runs report `kind="project_instance"` and `isolation="isolated"`.
-   If a formal run reports a missing/blocked/deleted/shared work surface, stop
-   and report that readiness blocker; do not edit the shared root.
+3. Formal coding runs should expose `execution_environment.mode="isolated"`
+   with a ready cwd/worktree. If a formal run reports a missing, stopped,
+   failed, deleted, or shared execution environment, stop and report that
+   readiness blocker; do not edit the shared root.
 
 ## Operating Rules
 

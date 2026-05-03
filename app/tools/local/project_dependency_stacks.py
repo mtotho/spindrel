@@ -60,7 +60,7 @@ async def _resolve_project_dependencies_context(db, project_id: str | None = Non
         "name": "get_project_dependency_stack",
         "description": (
             "Inspect the Project Dependency Stack spec and current stack instance for this Project/task. "
-            "Use this before Docker-backed databases or other dependency services."
+            "Use when a Project explicitly configures a dependency_stack."
         ),
         "parameters": {
             "type": "object",
@@ -99,7 +99,7 @@ async def get_project_dependency_stack(project_id: str | None = None, task_id: s
             "Manage the scoped Project Dependency Stack through Spindrel. "
             "Actions: prepare/reload creates or reapplies the stack from the Project compose file; "
             "restart, rebuild, stop, status, logs, exec, health, destroy operate on dependency services. "
-            "Use this instead of raw docker or docker compose from a harness shell. Start app/dev servers yourself with native bash."
+            "Use only for Projects that explicitly configure a dependency_stack. In isolated Project runs, ordinary docker/docker compose commands should target the session's private Docker daemon."
         ),
         "parameters": {
             "type": "object",

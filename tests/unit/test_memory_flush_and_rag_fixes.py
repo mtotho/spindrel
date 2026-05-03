@@ -8,6 +8,7 @@ Covers:
 - Head+tail truncation for tool result summarization
 """
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -58,6 +59,99 @@ def _make_channel(**overrides):
     ch.memory_flush_workspace_file_path = overrides.get("memory_flush_workspace_file_path", None)
     ch.memory_flush_workspace_id = overrides.get("memory_flush_workspace_id", None)
     return ch
+
+
+class TestMaintenanceToolSurfaces:
+    @pytest.mark.asyncio
+    async def test_memory_hygiene_surface_is_metadata_selected_without_semantic_retrieval(self):
+        from app.agent.context_assembly import (
+            AssemblyLedger,
+            AssemblyStageState,
+            _run_tool_retrieval,
+        )
+
+        def schema(name: str) -> dict:
+            return {
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": name,
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+
+        by_capability = {
+            "memory.read": [schema("get_memory_file")],
+            "memory.write": [schema("memory")],
+            "workspace_memory.write": [schema("file")],
+            "conversation_history.read": [schema("read_conversation_history")],
+            "subsessions.read": [schema("list_sub_sessions"), schema("read_sub_session")],
+            "skill.write": [schema("manage_bot_skill")],
+        }
+
+        def schemas_by_metadata(*, capability=None, **kwargs):
+            return list(by_capability.get(capability, []))
+
+        def names_by_metadata(*, capability=None, **kwargs):
+            return [
+                item["function"]["name"]
+                for item in by_capability.get(capability, [])
+            ]
+
+        bot = _make_bot(id="", tool_retrieval=False, local_tools=[])
+        state = AssemblyStageState()
+        retrieve_tools = AsyncMock(return_value=([schema("web_search")], 0.9, []))
+
+        with (
+            patch(
+                "app.agent.context_assembly._all_tool_schemas_by_name",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "app.agent.context_assembly.get_local_tool_schemas_by_metadata",
+                side_effect=schemas_by_metadata,
+            ),
+            patch(
+                "app.agent.context_assembly.get_local_tool_names_by_metadata",
+                side_effect=names_by_metadata,
+            ),
+            patch("app.agent.context_assembly.retrieve_tools", retrieve_tools),
+        ):
+            events = [
+                event async for event in _run_tool_retrieval(
+                    messages=[],
+                    bot=bot,
+                    user_message="scheduled hygiene",
+                    ch_row=None,
+                    state=state,
+                    correlation_id=None,
+                    session_id=None,
+                    client_id=None,
+                    context_profile=SimpleNamespace(name="memory_hygiene"),
+                    tool_surface_policy="strict",
+                    required_tool_names=None,
+                    ledger=AssemblyLedger(),
+                )
+            ]
+
+        exposed_names = {
+            tool["function"]["name"] for tool in (state.pre_selected_tools or [])
+        }
+        assert exposed_names == {
+            "get_memory_file",
+            "memory",
+            "file",
+            "read_conversation_history",
+            "list_sub_sessions",
+            "read_sub_session",
+            "manage_bot_skill",
+        }
+        assert state.authorized_names == exposed_names
+        assert state.tool_discovery_info["tool_surface"] == "memory_hygiene"
+        assert state.tool_discovery_info["tool_retrieval_enabled"] is False
+        assert events == []
+        retrieve_tools.assert_not_awaited()
 
 
 # ===================================================================

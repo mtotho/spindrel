@@ -1,4 +1,5 @@
 import { Spinner } from "@/src/components/shared/Spinner";
+import { getApiBase } from "@/src/api/client";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ArrowLeft, Save, RotateCw, Columns2, ChevronRight, History as HistoryIcon, Hash, Lock, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -93,9 +94,9 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
     setImageLoading(true);
     const token = getAuthToken();
     const url = useChannelEndpoint
-      ? `${serverUrl}/api/v1/channels/${channelId}/workspace/files/raw?path=${encodeURIComponent(channelRelPath!)}`
+      ? `${getApiBase()}/api/v1/channels/${channelId}/workspace/files/raw?path=${encodeURIComponent(channelRelPath!)}`
       : workspaceId
-        ? `${serverUrl}/api/v1/workspaces/${workspaceId}/files/raw?path=${encodeURIComponent(workspacePath)}`
+        ? `${getApiBase()}/api/v1/workspaces/${workspaceId}/files/raw?path=${encodeURIComponent(workspacePath)}`
         : null;
     if (!url) { setImageLoading(false); return; }
     fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })

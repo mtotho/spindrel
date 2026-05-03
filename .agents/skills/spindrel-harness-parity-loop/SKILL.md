@@ -12,21 +12,18 @@ category: project
 
 # Harness Parity Loop
 
-This skill is the **infrastructure-task** case the e2e bootstrap escape hatch
-was designed for. It runs **inside** a Project coding-run (which gives you the
-cloned working surface, the private dependency stack on a leased Postgres port,
-and a leased dev-target port from the Blueprint range). Project Factory does
-not auto-start the Spindrel API or seed the parity bots — that is your job
-on iteration entry, via `prepare-harness-parity`.
+This skill runs inside a normal Project coding-run session. The session should
+already have its isolated work surface and private Docker daemon prepared by
+Spindrel before the first turn starts. Do not bootstrap or restart the host
+Spindrel API from inside the iteration agent.
 
 It is a concrete configuration of `.agents/skills/spindrel-supervised-loop/SKILL.md` —
 read that parent recipe before running this; it owns the procedure shape,
 the mode matrix, and the stop conditions.
 
-**Prerequisite**: `.agents/skills/spindrel-e2e-development/SKILL.md` is the
-canonical guide for bringing up the Spindrel e2e stack on a leased port and
-seeding `scratch/agent-e2e/harness-parity.env`. Read it before running the
-bootstrap step below.
+**Prerequisite**: `scratch/agent-e2e/harness-parity.env` exists in this
+session work surface. If it is missing, publish a blocked receipt that says
+the parity harness was not pre-seeded; do not run repo-dev bootstrap helpers.
 
 ## Slot-in declarations
 
@@ -58,23 +55,10 @@ Per the supervised-iteration contract:
 
 ## First action
 
-1. **Authorize the bootstrap escape hatch for this iteration**:
-   `export SPINDREL_ALLOW_REPO_DEV_BOOTSTRAP=1`. Project task agents export
-   `SPINDREL_PROJECT_RUN_GUARD=1` to refuse stray repo-dev e2e bootstrap by
-   default; harness parity is the documented infrastructure-task case for
-   the escape (see `scripts/agent_e2e_dev.py:_reject_project_run_bootstrap`).
-2. Bring up the leased Spindrel API and seed the parity bots into the
-   project-instance Postgres. Use the leased dev-target port that Project
-   Factory injected (read `SPINDREL_DEV_APP_PORT` / `SPINDREL_DEV_APP_URL`).
-   Follow `.agents/skills/spindrel-e2e-development/SKILL.md` for the exact
-   commands; at minimum:
-   ```bash
-   python scripts/agent_e2e_dev.py write-env --port "$SPINDREL_DEV_APP_PORT"
-   python scripts/agent_e2e_dev.py start-api --build-ui
-   python scripts/agent_e2e_dev.py prepare-harness-parity
-   ```
-   Confirm `scratch/agent-e2e/harness-parity.env` lands.
-4. Hand off to the supervised-iteration procedure with the slot-ins above.
+1. Confirm `scratch/agent-e2e/harness-parity.env` exists.
+2. If it is missing, publish a blocked loop receipt and stop.
+3. If it exists, hand off to the supervised-iteration procedure with the
+   slot-ins above.
 
 ## Default budget
 
@@ -106,5 +90,6 @@ In addition to the parent skill's stop list:
   separate edit per the parent skill's "no spec edits" boundary.
 - Auto-merging the per-iteration PR. Merges happen in the morning review
   pass.
-- Running `prepare-harness-parity` from inside the loop. Stack lifecycle
-  belongs to the human or the schedule firer, not to the iteration agent.
+- Running `prepare-harness-parity`, `start-api`, or other repo-dev bootstrap
+  helpers from inside the loop. Harness lifecycle belongs to the host/session
+  provisioner, not to the iteration agent.

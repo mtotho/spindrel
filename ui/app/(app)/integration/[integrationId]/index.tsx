@@ -1,4 +1,5 @@
 
+import { getApiBase } from "@/src/api/client";
 import { useParams } from "react-router-dom";
 import { useAuthStore } from "@/src/stores/auth";
 import { IntegrationFrame } from "@/src/components/integration/IntegrationFrame";
@@ -11,7 +12,7 @@ export default function IntegrationIndex() {
   const { integrationId } = useParams<{ integrationId: string }>();
   const serverUrl = useAuthStore((s) => s.serverUrl);
 
-  const src = `${serverUrl}/integrations/${integrationId}/ui/`;
+  const src = `${getApiBase()}/integrations/${integrationId}/ui/`;
 
   return (
     <div style={{ flex: 1 }}>

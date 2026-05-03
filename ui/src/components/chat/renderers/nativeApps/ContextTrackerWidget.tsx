@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { getApiBase } from "@/src/api/client";
 import type { ToolResultEnvelope } from "@/src/types/api";
 import type { ThemeTokens } from "@/src/theme/tokens";
 import { apiFetch } from "@/src/api/client";
@@ -381,7 +382,7 @@ export function ContextTrackerWidget({
       qs.set("channel_id", streamChannelId);
       qs.set("kinds", "context_budget,turn_started,turn_ended,turn_stream_tool_start");
       if (lastSeq != null) qs.set("since", String(lastSeq));
-      fetch(`${serverUrl}/api/v1/widget-actions/stream?${qs}`, {
+      fetch(`${getApiBase()}/api/v1/widget-actions/stream?${qs}`, {
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
           Accept: "text/event-stream",

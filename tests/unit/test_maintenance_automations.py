@@ -124,15 +124,20 @@ class TestMaintenanceAutomationReadModel:
 
 
 class TestTaskKindPolicy:
-    @pytest.mark.parametrize("task_type", ["memory_hygiene", "skill_review"])
-    def test_maintenance_tasks_use_hygiene_runtime_policy(self, task_type):
+    @pytest.mark.parametrize(
+        ("task_type", "profile", "hard_cap"),
+        [("memory_hygiene", "memory_hygiene", 12), ("skill_review", "skill_review", 8)],
+    )
+    def test_maintenance_tasks_use_hygiene_runtime_policy(self, task_type, profile, hard_cap):
         from app.services.task_run_policy import resolve_task_run_policy
 
         policy = resolve_task_run_policy(task_type)
 
-        assert policy.context_profile == "task_none"
+        assert policy.context_profile == profile
         assert policy.origin == "hygiene"
         assert policy.skip_skill_inject is True
+        assert policy.run_control_policy["tool_surface"] == "strict"
+        assert policy.run_control_policy["hard_max_llm_calls"] == hard_cap
 
     def test_heartbeat_and_default_task_policies_remain_distinct(self):
         from app.services.task_run_policy import resolve_task_run_policy
@@ -145,3 +150,23 @@ class TestTaskKindPolicy:
         assert scheduled.context_profile is None
         assert scheduled.origin == "task"
         assert scheduled.skip_skill_inject is False
+
+    def test_task_run_control_policy_applies_maintenance_caps(self):
+        from app.agent.task_run_host import _task_run_control_policy
+
+        policy = _task_run_control_policy({}, task_type="memory_hygiene")
+
+        assert policy["tool_surface"] == "strict"
+        assert policy["hard_max_llm_calls"] == 12
+        assert policy["soft_max_llm_calls"] == 8
+
+    def test_task_run_control_policy_allows_explicit_overrides(self):
+        from app.agent.task_run_host import _task_run_control_policy
+
+        policy = _task_run_control_policy(
+            {"run_control_policy": {"hard_max_llm_calls": 2}},
+            task_type="memory_hygiene",
+        )
+
+        assert policy["tool_surface"] == "strict"
+        assert policy["hard_max_llm_calls"] == 2

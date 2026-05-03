@@ -1,6 +1,6 @@
 ---
 name: Project Init
-description: Inspect a Project and bring it to agent-ready state - applied Blueprint, runtime env, dependency stack, channel skill enrollment, and the repo-resident `.spindrel/WORKFLOW.md` contract.
+description: Inspect a Project and bring it to agent-ready state - applied Blueprint, runtime env, session environment readiness, channel skill enrollment, and the repo-resident `.spindrel/WORKFLOW.md` contract.
 triggers: project init, initialize project, setup project, project setup audit, configure project, project readiness, blueprint from current
 category: project
 ---
@@ -24,11 +24,12 @@ surface:
   branches; no credentials embedded in remote URLs.
 - Project channels have the relevant runtime skills enrolled.
 - Project has the single repo-owned contract at `.spindrel/WORKFLOW.md`
-  carrying policy / intake / runs / hooks / dependencies sections. (The
-  legacy `.spindrel/project-runbook.md` is now a redirect stub - its policy
-  content lives in WORKFLOW.md's `## Policy` section.)
-- Dependency Stack declared only if Docker-backed services (Postgres, Redis,
-  search index, queues) are needed; pointed at a Project-local compose file.
+  carrying policy / intake / runs / hooks / dependencies sections. If
+  `.spindrel/project-runbook.md` exists, it should just point readers at
+  `.spindrel/WORKFLOW.md`.
+- Session execution environments are ready for formal runs. Dependency Stack is
+  declared only when the Project intentionally wants Spindrel-managed backing
+  services rather than the run's private Docker daemon.
 - Runtime env keys, required secret slots, dev targets, and setup commands are
   declared only when repo evidence supports them.
 
@@ -57,10 +58,10 @@ surface:
 4. Check `repo_workflow.present` from `get_project_factory_state`. When the
    file is missing, offer to write a starter via
    `write_project_workflow_starter` (asks first; never silently overwrites).
-   When the file is present, treat its sections as authoritative. Migration
-   note: any legacy `.spindrel/project-runbook.md` content should be folded
-   into WORKFLOW.md's `## Policy` section by hand and the runbook reduced to
-   a one-line redirect stub.
+   When the file is present, treat its sections as authoritative. If
+   `.spindrel/project-runbook.md` has policy content, fold that content into
+   WORKFLOW.md's `## Policy` section by hand and reduce the runbook to a
+   one-line pointer.
 5. If there is no applied Blueprint, create one from the current Project:
    `POST /api/v1/projects/{project_id}/blueprint-from-current` with
    `{"apply_to_project": true}`. For end-to-end recipe details, load
@@ -70,11 +71,13 @@ surface:
    credentials.
 7. Enroll only the skills the channels need. For typical software-factory work:
    `project`, `project/intake`, `project/runs/implement`,
-   `workspace/docker_stacks`, and `agent_readiness/operator` when relevant.
-8. If the repo needs Docker-backed services, add or identify a Project-local
-   compose file for backing services only. App/dev servers stay native to
-   source on assigned or unused ports.
-9. Update the applied Blueprint snapshot with `dependency_stack`:
+   `project/runs/environment`, and `agent_readiness/operator` when relevant.
+8. If the repo needs Docker-backed services, prefer a Project-local compose
+   file that agents can run with ordinary `docker compose` inside each isolated
+   session environment. App/dev servers stay native to source on assigned or
+   unused ports.
+9. Only when the user explicitly wants Spindrel-managed backing services,
+   update the applied Blueprint snapshot with `dependency_stack`:
 
 ```json
 {
@@ -121,7 +124,7 @@ surface:
 - Do not paste secret values into Project metadata, Blueprint repos, channel
   prompts, receipts, or compose files.
 - Do not copy repo-local `.agents` skills into runtime skills.
-- Do not put the app server in the dependency stack. Stacks are for backing
-  services; agents run app/dev servers from source.
-- Do not use raw Docker from harness shells when Project Dependency Stack tools
-  are available.
+- Do not put the app server in a dependency stack. Agents run app/dev servers
+  from source.
+- In isolated Project runs, ordinary Docker commands should target the session
+  private daemon. Do not touch host/shared Docker.

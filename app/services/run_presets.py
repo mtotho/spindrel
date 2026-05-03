@@ -37,8 +37,7 @@ PROJECT_CODING_RUN_PROMPT = """Implement the requested Project task in this Proj
 
 Before editing, load the `project/runs/implement` runtime skill if it is not already loaded.
 Before changing files, inspect the workspace state and get latest from the Project's configured development branch when it is safe to do so. Use the Project root as the working directory for file, exec, harness, and screenshot work. If this run is in a fresh Project instance, keep changes inside that instance.
-If you are running through a Codex or Claude Code harness, use native tools for repo-local file edits, shell commands, tests, and app/dev server processes. Do not wrap unit tests in Docker, Dockerfile.test, or docker compose. Docker-backed dependencies must use the task-granted Project Dependency Stack tools; do not rely on ambient Docker/socket access from the native shell.
-If the Project declares a Dependency Stack, use get_project_dependency_stack and manage_project_dependency_stack for Docker-backed databases/dependencies, logs, restarts, rebuilds, and service commands. Use the returned/injected dependency env in repo-local scripts. Start app/dev servers yourself with native bash on your own unused or assigned port. Do not run raw docker or docker compose in the harness shell, and do not use dependency stacks to run unit tests.
+If you are running through a Codex or Claude Code harness, use native tools for repo-local file edits, shell commands, tests, Docker-backed dependencies, and app/dev server processes. Isolated scheduled/project runs receive their own working directory and Docker daemon; do not touch host/shared Docker state.
 
 Expected workflow:
 1. Understand the bug or feature request and read the relevant code before editing.
@@ -54,8 +53,7 @@ PROJECT_CODING_RUN_REVIEW_PROMPT = """Review the selected Project coding runs an
 
 Before deciding, load the `project/runs/review` runtime skill if it is not already loaded and call get_project_coding_run_review_context for the current review task. For ad hoc latest-run or latest-review questions outside a review session, call get_project_coding_run_details instead.
 Use the Project root as the working directory. Inspect each selected run's task, receipt, PR, tests, screenshots, and reviewer-visible evidence before making a decision. If the operator asked you to merge accepted PRs, merge only the runs you accept.
-If you are running through a Codex or Claude Code harness, use native tools for repo-local inspection, test commands, and app/dev server checks. Do not wrap unit tests in Docker, Dockerfile.test, or docker compose. Docker-backed dependency control, merge/finalizer actions, and receipts must use task-granted Spindrel tools.
-If stack-backed dependencies are needed, use get_project_dependency_stack and manage_project_dependency_stack; do not use raw docker or docker compose in the harness shell, and do not use dependency stacks to run unit tests.
+If you are running through a Codex or Claude Code harness, use native tools for repo-local inspection, test commands, Docker-backed dependency checks, and app/dev server checks. Isolated scheduled/project runs receive their own working directory and Docker daemon; do not touch host/shared Docker state.
 
 Finalization rules:
 1. Call get_project_coding_run_review_context before finalizing selected runs.
@@ -145,7 +143,7 @@ PROJECT_CODING_RUN = RunPreset(
     id="project_coding_run",
     title="Agent Coding Run",
     description=(
-        "Creates a Project-scoped implementation run with a fresh Project instance, "
+        "Creates a Project-scoped implementation run with an isolated session environment, "
         "exec/file/screenshot tools, and a required review receipt."
     ),
     surface="project_coding_run",
@@ -166,8 +164,7 @@ PROJECT_CODING_RUN = RunPreset(
         tools=(
             "file",
             "exec_command",
-            "get_project_dependency_stack",
-            "manage_project_dependency_stack",
+            "get_session_execution_environment",
             "prepare_project_run_handoff",
             "get_project_coding_run_details",
             "publish_project_run_receipt",
@@ -209,8 +206,7 @@ PROJECT_CODING_RUN_REVIEW = RunPreset(
         tools=(
             "file",
             "exec_command",
-            "get_project_dependency_stack",
-            "manage_project_dependency_stack",
+            "get_session_execution_environment",
             "prepare_project_run_handoff",
             "get_project_coding_run_details",
             "get_project_coding_run_review_context",

@@ -39,6 +39,11 @@ class ChannelSessionSearchRowOut(BaseModel):
     section_count: int = 0
     is_active: bool = False
     is_current: bool = False
+    origin: Optional[str] = None
+    source_task_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
+    execution_environment: Optional[str] = None
+    execution_environment_status: Optional[str] = None
     matches: list[ChannelSessionMatchOut] = Field(default_factory=list)
 
 
@@ -79,11 +84,19 @@ def _session_label(session: Session, preview: str | None) -> str | None:
     return fallback or None
 
 
+def _project_run_metadata(session: Session) -> dict | None:
+    meta = session.metadata_ if isinstance(session.metadata_, dict) else {}
+    if meta.get("created_by") != "project_coding_run":
+        return None
+    return meta
+
+
 def _is_user_visible_channel_session(session: Session, channel: Channel) -> bool:
+    project_run = _project_run_metadata(session) is not None
     return (
         session.channel_id == channel.id
         and session.session_type == SESSION_TYPE_CHANNEL
-        and session.source_task_id is None
+        and (session.source_task_id is None or project_run)
         and session.parent_session_id is None
         and session.parent_message_id is None
     )
@@ -112,7 +125,6 @@ async def _channel_session_rows(
         .where(
             Session.channel_id == channel.id,
             Session.session_type == SESSION_TYPE_CHANNEL,
-            Session.source_task_id.is_(None),
             Session.parent_session_id.is_(None),
             Session.parent_message_id.is_(None),
         )
@@ -211,6 +223,52 @@ async def _session_latest_message_previews(
     return previews
 
 
+async def _session_execution_environment_statuses(
+    db: AsyncSession,
+    sessions: list[Session],
+) -> dict[uuid.UUID, tuple[str, str]]:
+    if not sessions:
+        return {}
+    from app.db.models import SessionExecutionEnvironment
+
+    rows = (await db.execute(
+        select(
+            SessionExecutionEnvironment.session_id,
+            SessionExecutionEnvironment.mode,
+            SessionExecutionEnvironment.status,
+        ).where(
+            SessionExecutionEnvironment.session_id.in_([session.id for session in sessions]),
+            SessionExecutionEnvironment.deleted_at.is_(None),
+        )
+    )).all()
+    return {sid: (str(mode), str(status)) for sid, mode, status in rows}
+
+
+def _session_origin_payload(
+    session: Session,
+    execution_status: tuple[str, str] | None,
+) -> dict[str, object | None]:
+    meta = _project_run_metadata(session)
+    origin = None
+    project_id = None
+    if meta is not None:
+        source = str(meta.get("source") or "manual")
+        origin = "scheduled_run" if source == "schedule" else "project_run"
+        raw_project_id = meta.get("project_id")
+        try:
+            project_id = uuid.UUID(str(raw_project_id)) if raw_project_id else None
+        except ValueError:
+            project_id = None
+    mode, status = execution_status if execution_status else (None, None)
+    return {
+        "origin": origin,
+        "source_task_id": session.source_task_id,
+        "project_id": project_id,
+        "execution_environment": mode,
+        "execution_environment_status": status,
+    }
+
+
 async def build_session_search_rows(
     db: AsyncSession,
     channel: Channel,
@@ -220,6 +278,7 @@ async def build_session_search_rows(
 ) -> list[ChannelSessionSearchRowOut]:
     sessions = await _channel_session_rows(db, channel, auth, limit=limit)
     message_counts, section_counts, previews = await _session_row_counts_and_previews(db, sessions)
+    execution_by_session = await _session_execution_environment_statuses(db, sessions)
     return [
         ChannelSessionSearchRowOut(
             session_id=session.id,
@@ -234,6 +293,7 @@ async def build_session_search_rows(
             section_count=section_counts.get(session.id, 0),
             is_active=session.id == channel.active_session_id,
             is_current=session.is_current,
+            **_session_origin_payload(session, execution_by_session.get(session.id)),
         )
         for session in sessions
     ]
@@ -260,7 +320,6 @@ async def build_recent_session_rows(
         .where(
             Session.channel_id.in_(channel_ids),
             Session.session_type == SESSION_TYPE_CHANNEL,
-            Session.source_task_id.is_(None),
             Session.parent_session_id.is_(None),
             Session.parent_message_id.is_(None),
         )
@@ -298,6 +357,7 @@ async def build_recent_session_rows(
 
     message_counts, section_counts, _first_user_previews = await _session_row_counts_and_previews(db, sessions)
     latest_previews = await _session_latest_message_previews(db, sessions)
+    execution_by_session = await _session_execution_environment_statuses(db, sessions)
 
     read_state_by_session: dict[uuid.UUID, SessionReadState] = {}
     if isinstance(auth, User):
@@ -335,6 +395,7 @@ async def build_recent_session_rows(
             is_current=session.is_current,
             unread_agent_reply_count=read_state.unread_agent_reply_count if read_state else 0,
             latest_unread_at=read_state.latest_unread_at if read_state else None,
+            **_session_origin_payload(session, execution_by_session.get(session.id)),
         ))
     return rows
 

@@ -33,6 +33,8 @@ import {
   useProjectFactoryReviewInbox,
   useRefreshProjectCodingRun,
   useRunProjectCodingRunScheduleNow,
+  useManageSessionExecutionEnvironment,
+  useSessionExecutionEnvironment,
   useUpdateProjectCodingRunSchedule,
 } from "@/src/api/hooks/useProjects";
 import type { MachineTargetGrant } from "@/src/api/hooks/useTasks";
@@ -71,7 +73,11 @@ const TERMINAL_STATUSES = new Set(["complete", "completed", "cancelled", "cancel
 const STALE_ACTIVE_MS = 30 * 60 * 1000;
 
 function runTitle(run: ProjectCodingRun) {
-  return run.request || run.task.title || "Project coding run";
+  return run.task.title || "Project coding run";
+}
+
+function runDescription(run: ProjectCodingRun) {
+  return run.request || "";
 }
 
 function shortId(value?: string | null) {
@@ -327,6 +333,12 @@ function DetailRow({ label, value }: { label: string; value?: React.ReactNode })
   );
 }
 
+function compactPath(value?: string | null) {
+  if (!value) return "none";
+  const parts = value.split("/").filter(Boolean);
+  return parts.length > 4 ? `.../${parts.slice(-4).join("/")}` : value;
+}
+
 function InspectorPanel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-md bg-surface-raised/55 p-3">
@@ -337,6 +349,14 @@ function InspectorPanel({ title, children }: { title: string; children: React.Re
 }
 
 function DetailDrawer({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-surface/55 backdrop-blur-[1px]" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <div className="h-full w-full max-w-[560px] overflow-auto border-l border-surface-border bg-surface px-4 py-4" onMouseDown={(event) => event.stopPropagation()}>
@@ -550,16 +570,16 @@ export function ProjectRunsSection({
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        <div className="grid min-h-full min-w-[980px] grid-cols-[190px_210px_210px_210px_210px] gap-1.5">
+        <div className="grid min-h-full min-w-[920px] grid-cols-[repeat(5,minmax(180px,1fr))] gap-1.5">
           {(["backlog", "scheduled", "running", "review", "closed"] as BoardColumnKey[]).map((column) => (
             <div key={column} className="min-h-[560px] bg-surface-raised/20 px-1.5 py-1.5">
               <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
                 <div className="truncate text-[10px] font-bold uppercase tracking-[0.08em] text-text-dim/80">{columnLabel(column)}</div>
                 <div className="text-[10px] font-semibold text-text-dim">{columns[column].length}</div>
               </div>
-              <div className="flex flex-col gap-1.5">
+              <div className="grid auto-rows-max grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-1.5">
                 {columns[column].length === 0 ? (
-                  <div className="rounded-md border border-dashed border-surface-border/45 px-2 py-5 text-center text-[11px] text-text-dim">No items</div>
+                  <div className="h-10 rounded-md bg-surface/20" aria-hidden="true" />
                 ) : (
                   columns[column].map((item) => (
                     <BoardCard
@@ -632,7 +652,9 @@ export function ProjectRunsSection({
             onSubmitFollowUp={submitFollowUp}
             onLaunchReviewForBatch={launchReviewForBatch}
             scheduleBusy={createSchedule.isPending || updateSchedule.isPending || runScheduleNow.isPending || disableSchedule.isPending}
-            onRunScheduleNow={(schedule) => runScheduleNow.mutate(schedule.id)}
+            onRunScheduleNow={(schedule) => runScheduleNow.mutate(schedule.id, {
+              onSuccess: (run) => setSelectedItemId(`run:${run.id}`),
+            })}
             onDisableSchedule={(schedule) => disableSchedule.mutate(schedule.id)}
             onResumeSchedule={(schedule) => updateSchedule.mutate({ scheduleId: schedule.id, enabled: true })}
           />
@@ -757,6 +779,10 @@ function Inspector({
   onDisableSchedule: (schedule: ProjectCodingRunSchedule) => void;
   onResumeSchedule: (schedule: ProjectCodingRunSchedule) => void;
 }) {
+  const selectedRunSessionId = item?.kind === "run" ? item.run.task.session_id : null;
+  const sessionEnv = useSessionExecutionEnvironment(selectedRunSessionId);
+  const manageSessionEnv = useManageSessionExecutionEnvironment(selectedRunSessionId);
+
   if (!item) return <EmptyState message="No Project run items are available." />;
 
   if (item.kind === "new_run") {
@@ -860,15 +886,17 @@ function Inspector({
   if (item.kind === "run") {
     const run = item.run;
     const sessionPath = sessionPathForRun(run);
-    const handoffUrl = run.review?.handoff_url || run.receipt?.handoff_url || null;
-    const active = isActiveRun(run);
-    const stale = isStaleActive(run);
-    return (
+	    const handoffUrl = run.review?.handoff_url || run.receipt?.handoff_url || null;
+	    const active = isActiveRun(run);
+	    const stale = isStaleActive(run);
+	    const env = sessionEnv.data;
+	    const envBusy = manageSessionEnv.isPending || sessionEnv.isFetching;
+	    return (
       <div className="flex flex-col gap-3">
         {stale && <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-3 text-[13px] font-semibold text-danger-muted">Stale running run needs a decision</div>}
         <InspectorPanel title="Selected run">
           <div className="text-base font-semibold leading-6 text-text">{runTitle(run)}</div>
-          <p className="mt-1 text-[13px] text-text-muted">{run.lifecycle?.next_action || run.review_next_action || evidenceLine(run)}</p>
+          <p className="mt-1 text-[13px] text-text-muted">{runDescription(run) || run.lifecycle?.next_action || run.review_next_action || evidenceLine(run)}</p>
           <div className="mt-3 grid gap-2">
             <DetailRow label="Started" value={formatRunTime(startedTimestamp(run))} />
             <DetailRow label="Last activity" value={formatRunTime(itemTimestamp(run))} />
@@ -879,9 +907,35 @@ function Inspector({
             <DetailRow label="Branch" value={run.branch || "none"} />
             <DetailRow label="Evidence" value={evidenceLine(run)} />
             <DetailRow label="Dev target" value={run.dev_targets?.length ? run.dev_targets.map((target) => typeof target === "string" ? target : target.url || target.label || target.key).filter(Boolean).slice(0, 2).join(" · ") : "none"} />
-          </div>
-        </InspectorPanel>
-        <InspectorPanel title="Actions">
+	          </div>
+	        </InspectorPanel>
+	        <InspectorPanel title="Session environment">
+	          <div className="grid gap-2">
+	            <DetailRow label="Mode" value={env ? `${env.mode}${env.status ? ` · ${env.status}` : ""}` : selectedRunSessionId ? "loading" : "missing session"} />
+	            <DetailRow label="Worktree" value={compactPath(env?.worktree?.worktree_path || env?.cwd)} />
+	            <DetailRow label="Branch" value={env?.worktree?.branch || "none"} />
+	            <DetailRow label="Docker" value={env?.docker_status ? `${env.docker_status}${env.docker_endpoint ? ` · ${env.docker_endpoint}` : ""}` : "none"} />
+	            <DetailRow label="TTL" value={env?.pinned ? "pinned" : env?.expires_at ? formatRunTime(env.expires_at) : "default"} />
+	          </div>
+	          {selectedRunSessionId && (
+	            <div className="mt-3 grid grid-cols-2 gap-2">
+	              <ActionButton label="Doctor" icon={<RefreshCcw size={13} />} size="small" variant="secondary" disabled={envBusy} onPress={() => manageSessionEnv.mutate({ action: "doctor" })} />
+	              {env?.status === "stopped" ? (
+	                <ActionButton label="Start Docker" icon={<Play size={13} />} size="small" variant="secondary" disabled={envBusy} onPress={() => manageSessionEnv.mutate({ action: "start" })} />
+	              ) : (
+	                <ActionButton label="Stop Docker" icon={<Trash2 size={13} />} size="small" variant="secondary" disabled={envBusy || env?.mode !== "isolated"} onPress={() => manageSessionEnv.mutate({ action: "stop" })} />
+	              )}
+	              <ActionButton label="Restart Docker" icon={<RefreshCcw size={13} />} size="small" variant="secondary" disabled={envBusy || env?.mode !== "isolated"} onPress={() => manageSessionEnv.mutate({ action: "restart" })} />
+	              {env?.pinned ? (
+	                <ActionButton label="Unpin" size="small" variant="secondary" disabled={envBusy} onPress={() => manageSessionEnv.mutate({ action: "unpin" })} />
+	              ) : (
+	                <ActionButton label="Pin" size="small" variant="secondary" disabled={envBusy || !env} onPress={() => manageSessionEnv.mutate({ action: "pin" })} />
+	              )}
+	              <ActionButton label="Clean env" icon={<Trash2 size={13} />} size="small" variant="danger" disabled={envBusy || !env || env.mode === "shared"} onPress={() => manageSessionEnv.mutate({ action: "cleanup" })} />
+	            </div>
+	          )}
+	        </InspectorPanel>
+	        <InspectorPanel title="Actions">
           <div className="grid grid-cols-2 gap-2">
             {sessionPath && <Link className="col-span-2 inline-flex min-h-[38px] items-center justify-center rounded-md bg-accent/10 text-[13px] font-semibold text-accent hover:bg-accent/15" to={sessionPath}>Open session</Link>}
             {active && <RowLink to={`/admin/projects/${project.id}/runs/${run.task.id}/live`}>Live view</RowLink>}

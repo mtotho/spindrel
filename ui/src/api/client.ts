@@ -1,5 +1,28 @@
 import { useAuthStore, getAuthToken } from "../stores/auth";
 
+/**
+ * Effective API base URL.
+ *
+ * In dev (Vite), returns "" so all fetches become **same-origin** paths
+ * (`/api/v1/...`) handled by `vite.config.ts` `server.proxy`. This:
+ *  - eliminates CORS preflights (no cross-origin = no OPTIONS)
+ *  - consolidates the browser's HTTP/1.1 6-conn-per-origin budget so
+ *    long-lived SSE streams don't starve regular fetches
+ *
+ * In prod, returns the auth-store configured server URL.
+ */
+export function getApiBase(): string {
+  if (import.meta.env.DEV) return "";
+  return useAuthStore.getState().serverUrl;
+}
+
+/** True if the app has enough config to talk to the API. In dev, the proxy
+ *  always points to a real backend; in prod, the user must have set serverUrl. */
+export function isApiConfigured(): boolean {
+  if (import.meta.env.DEV) return true;
+  return !!useAuthStore.getState().serverUrl;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -57,11 +80,11 @@ function retryDelayMs(res: Response): number {
  *  Concurrent 401s share one refresh call so an expired access token does not
  *  stampede /auth/refresh and trip the auth rate limiter. */
 async function doRefresh(): Promise<RefreshResult> {
-  const { serverUrl, refreshToken } = useAuthStore.getState();
-  if (!serverUrl || !refreshToken) return { ok: false, clearAuth: false };
+  const { refreshToken } = useAuthStore.getState();
+  if (!isApiConfigured() || !refreshToken) return { ok: false, clearAuth: false };
   if (Date.now() < refreshBlockedUntil) return { ok: false, clearAuth: false };
   try {
-    const res = await fetch(`${serverUrl}/auth/refresh`, {
+    const res = await fetch(`${getApiBase()}/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh_token: refreshToken }),
@@ -99,11 +122,10 @@ export async function apiFetch<T = unknown>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const { serverUrl } = useAuthStore.getState();
-  if (!serverUrl) throw new Error("Server not configured");
+  if (!isApiConfigured()) throw new Error("Server not configured");
 
   const token = getAuthToken();
-  const url = `${serverUrl}${path}`;
+  const url = `${getApiBase()}${path}`;
   const method = (options.method ?? "GET").toUpperCase();
   const hasBody = options.body != null;
   const headers: Record<string, string> = {
@@ -146,11 +168,10 @@ export async function apiFetchText(
   path: string,
   options: RequestInit = {},
 ): Promise<string> {
-  const { serverUrl } = useAuthStore.getState();
-  if (!serverUrl) throw new Error("Server not configured");
+  if (!isApiConfigured()) throw new Error("Server not configured");
 
   const token = getAuthToken();
-  const url = `${serverUrl}${path}`;
+  const url = `${getApiBase()}${path}`;
   const headers: Record<string, string> = {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers as Record<string, string>),

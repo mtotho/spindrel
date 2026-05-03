@@ -854,6 +854,7 @@ async def run_native_harness_compact(
         db,
         channel_id=session.channel_id or session.parent_channel_id,
         bot=bot,
+        session_id=session_id,
     )
     runtime_env = None
     work_surface = getattr(harness_paths, "work_surface", None)
