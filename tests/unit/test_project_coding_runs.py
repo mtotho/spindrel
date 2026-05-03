@@ -635,6 +635,7 @@ async def test_project_coding_run_schedule_can_be_edited_resumed_and_blocks_disa
             title="Nightly review",
             request="Review.",
             recurrence="+1d",
+            loop_policy={"enabled": True, "max_iterations": 3},
         ),
     )
 
@@ -651,12 +652,15 @@ async def test_project_coding_run_schedule_can_be_edited_resumed_and_blocks_disa
             request="Review architecture and publish a receipt.",
             recurrence="+1w",
             enabled=True,
+            loop_policy={},
         ),
     )
     assert resumed.status == "active"
     assert resumed.title == "Weekly architecture review"
     assert resumed.prompt == "Review architecture and publish a receipt."
     assert resumed.recurrence == "+1w"
+    assert resumed.execution_config["project_coding_run_schedule"]["request"] == "Review architecture and publish a receipt."
+    assert resumed.execution_config["project_coding_run_schedule"]["loop_policy"] == {}
 
     run = await fire_project_coding_run_schedule(db_session, resumed, advance=False)
     assert run is not None

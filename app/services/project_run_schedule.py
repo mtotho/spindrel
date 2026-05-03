@@ -135,7 +135,7 @@ async def update_project_coding_run_schedule(
     if task is None or not _is_project_coding_run_schedule(project, task):
         raise ValueError("coding-run schedule not found")
 
-    cfg = _project_schedule_config(task)
+    cfg = dict(_project_schedule_config(task))
     if body.channel_id is not None and body.channel_id != task.channel_id:
         channel = _validate_schedule_channel(project, await db.get(Channel, body.channel_id))
         task.channel_id = channel.id

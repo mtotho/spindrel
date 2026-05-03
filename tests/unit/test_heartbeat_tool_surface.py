@@ -88,12 +88,13 @@ def _patches(*, enrolled: list[str] | None = None, retrieved: list[dict] | None 
             return_value=enrolled or [],
         ),
         patch(
-            "app.agent.context_assembly.retrieve_tools",
+            "app.agent.tool_surface.retrieval.retrieve_tools",
             new_callable=AsyncMock,
             return_value=(retrieved or [], 0.0, []),
         ),
-        patch("app.agent.context_assembly.get_client_tool_schemas", return_value=[]),
-        patch("app.agent.context_assembly.get_mcp_server_for_tool", return_value=None),
+        patch("app.agent.tool_surface.retrieval.get_client_tool_schemas", return_value=[]),
+        patch("app.agent.tool_surface.heartbeat.get_client_tool_schemas", return_value=[]),
+        patch("app.agent.tool_surface.retrieval.get_mcp_server_for_tool", return_value=None),
     ]
 
 
@@ -115,12 +116,12 @@ async def _run(
     budget = ContextBudget(total_tokens=128_000, reserve_tokens=19_200)
     patches = _patches(**patch_kwargs) + [
         patch(
-            "app.agent.context_assembly._all_tool_schemas_by_name",
+            "app.agent.tool_surface.retrieval._all_tool_schemas_by_name",
             new_callable=AsyncMock,
             return_value=schemas,
         ),
         patch(
-            "app.agent.context_assembly.get_local_tool_schemas",
+            "app.agent.tool_surface.retrieval.get_local_tool_schemas",
             side_effect=lambda names: [schemas[n] for n in names if n in schemas],
         ),
     ]
@@ -313,7 +314,8 @@ class TestHeartbeatDiscoveryHatchesSuppressed:
             n: _schema(n)
             for n in baseline + ["arr_heartbeat_snapshot", "run_script"]
         }
-        with patch("app.agent.context_assembly.auto_injected_pin_names", return_value=frozenset(baseline)):
+        with patch("app.agent.tool_surface.heartbeat.auto_injected_pin_names", return_value=frozenset(baseline)), \
+             patch("app.agent.tool_surface.retrieval.auto_injected_pin_names", return_value=frozenset(baseline)):
             result = await _run(bot, schemas=schemas)
         exposed = {t["function"]["name"] for t in result.pre_selected_tools or []}
         assert "arr_heartbeat_snapshot" in exposed
@@ -357,7 +359,7 @@ class TestHeartbeatRetrievalSkip:
             n: _schema(n) for n in ("arr_heartbeat_snapshot", "get_tool_info", "run_script")
         }
         retrieve_mock = AsyncMock(return_value=([], 0.0, []))
-        with patch("app.agent.context_assembly.retrieve_tools", retrieve_mock):
+        with patch("app.agent.tool_surface.retrieval.retrieve_tools", retrieve_mock):
             extra_patches = [
                 p for p in _patches(enrolled=[]) if "retrieve_tools" not in str(p)
             ]
@@ -365,12 +367,12 @@ class TestHeartbeatRetrievalSkip:
             budget = ContextBudget(total_tokens=128_000, reserve_tokens=19_200)
             extra_patches += [
                 patch(
-                    "app.agent.context_assembly._all_tool_schemas_by_name",
+                    "app.agent.tool_surface.retrieval._all_tool_schemas_by_name",
                     new_callable=AsyncMock,
                     return_value=schemas,
                 ),
                 patch(
-                    "app.agent.context_assembly.get_local_tool_schemas",
+                    "app.agent.tool_surface.retrieval.get_local_tool_schemas",
                     side_effect=lambda names: [schemas[n] for n in names if n in schemas],
                 ),
             ]
@@ -449,17 +451,30 @@ class TestChatRegressionGuard:
         budget = ContextBudget(total_tokens=128_000, reserve_tokens=19_200)
         patches = _patches(enrolled=[], retrieved=[_schema("foo")]) + [
             patch(
-                "app.agent.context_assembly._all_tool_schemas_by_name",
+                "app.agent.tool_surface.retrieval._all_tool_schemas_by_name",
                 new_callable=AsyncMock,
                 return_value=schemas,
             ),
             patch(
-                "app.agent.context_assembly.get_local_tool_schemas",
+                "app.agent.tool_surface.retrieval.get_local_tool_schemas",
                 side_effect=lambda names: [schemas[n] for n in names if n in schemas],
             ),
             patch(
-                "app.agent.context_assembly.get_local_tool_schemas_by_metadata",
+                "app.agent.tool_surface.retrieval.get_local_tool_schemas_by_metadata",
                 side_effect=lambda domain, exposure: [
+                    schemas[n] for n in ("get_tool_info",)
+                    if domain == "tool_schema" and exposure == "ambient" and n in schemas
+                ] + [
+                    schemas[n] for n in ("search_tools",)
+                    if domain == "tool_discovery" and exposure == "ambient" and n in schemas
+                ] + [
+                    schemas[n] for n in ("get_skill", "get_skill_list")
+                    if domain == "skill_access" and exposure == "ambient" and n in schemas
+                ],
+            ),
+            patch(
+                "app.agent.tool_surface.heartbeat.get_local_tool_schemas_by_metadata",
+                side_effect=lambda domain, exposure="ambient": [
                     schemas[n] for n in ("get_tool_info",)
                     if domain == "tool_schema" and exposure == "ambient" and n in schemas
                 ] + [

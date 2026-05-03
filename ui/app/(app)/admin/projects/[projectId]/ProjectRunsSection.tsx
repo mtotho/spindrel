@@ -416,6 +416,10 @@ export function ProjectRunsSection({
   const [scheduleStart, setScheduleStart] = useState("");
   const [scheduleRecurrence, setScheduleRecurrence] = useState("+1w");
   const [scheduleMachineTargetGrant, setScheduleMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
+  const [scheduleLoopEnabled, setScheduleLoopEnabled] = useState(false);
+  const [scheduleLoopMaxIterations, setScheduleLoopMaxIterations] = useState(3);
+  const [scheduleLoopStopCondition, setScheduleLoopStopCondition] = useState("Stop when the scheduled run brief is complete.");
+  const [scheduleLoopContinuationPrompt, setScheduleLoopContinuationPrompt] = useState("");
 
   useEffect(() => {
     if (!selectedChannelId && channels && channels.length > 0) {
@@ -480,6 +484,21 @@ export function ProjectRunsSection({
   }, [boardItems, selectedItemId]);
 
   const selectedItem = boardItems.find((item) => item.id === selectedItemId);
+  useEffect(() => {
+    if (selectedItem?.kind !== "schedule") return;
+    const schedule = selectedItem.schedule;
+    const loop = schedule.loop_policy || {};
+    setSelectedChannelId(schedule.channel_id || selectedChannelId);
+    setScheduleTitle(schedule.title || "");
+    setScheduleRequest(schedule.request || "");
+    setScheduleStart(schedule.scheduled_at || "");
+    setScheduleRecurrence(schedule.recurrence || "");
+    setScheduleMachineTargetGrant((schedule.machine_target_grant as MachineTargetGrant | null) || null);
+    setScheduleLoopEnabled(Boolean(loop.enabled));
+    setScheduleLoopMaxIterations(Number(loop.max_iterations || 3));
+    setScheduleLoopStopCondition(String(loop.stop_condition || "Stop when the scheduled run brief is complete."));
+    setScheduleLoopContinuationPrompt(String(loop.continuation_prompt || ""));
+  }, [selectedItem?.id]);
   const activeRuns = columns.running.filter((item) => item.kind === "run").length;
   const staleRuns = columns.running.filter((item) => item.kind === "run" && isStaleActive(item.run)).length;
   const reviewCount = columns.review.length;
@@ -521,9 +540,38 @@ export function ProjectRunsSection({
         scheduled_at: scheduleStart || null,
         recurrence: scheduleRecurrence || "+1w",
         machine_target_grant: scheduleMachineTargetGrant,
+        loop_policy: scheduleLoopEnabled
+          ? {
+            enabled: true,
+            max_iterations: scheduleLoopMaxIterations,
+            stop_condition: scheduleLoopStopCondition.trim(),
+            continuation_prompt: scheduleLoopContinuationPrompt.trim(),
+          }
+          : null,
       },
       { onSuccess: (schedule) => setSelectedItemId(`schedule:${schedule.id}`) },
     );
+  };
+
+  const saveSchedule = (schedule: ProjectCodingRunSchedule) => {
+    if (!selectedChannel || updateSchedule.isPending) return;
+    updateSchedule.mutate({
+      scheduleId: schedule.id,
+      channel_id: selectedChannel.id,
+      title: scheduleTitle.trim() || "Scheduled Project coding run",
+      request: scheduleRequest.trim(),
+      scheduled_at: scheduleStart || null,
+      recurrence: scheduleRecurrence || "",
+      machine_target_grant: scheduleMachineTargetGrant,
+      loop_policy: scheduleLoopEnabled
+        ? {
+          enabled: true,
+          max_iterations: scheduleLoopMaxIterations,
+          stop_condition: scheduleLoopStopCondition.trim(),
+          continuation_prompt: scheduleLoopContinuationPrompt.trim(),
+        }
+        : null,
+    });
   };
 
   const launchReviewForRun = (run: ProjectCodingRun) => {
@@ -633,6 +681,14 @@ export function ProjectRunsSection({
             setScheduleRecurrence={setScheduleRecurrence}
             scheduleMachineTargetGrant={scheduleMachineTargetGrant}
             setScheduleMachineTargetGrant={setScheduleMachineTargetGrant}
+            scheduleLoopEnabled={scheduleLoopEnabled}
+            setScheduleLoopEnabled={setScheduleLoopEnabled}
+            scheduleLoopMaxIterations={scheduleLoopMaxIterations}
+            setScheduleLoopMaxIterations={setScheduleLoopMaxIterations}
+            scheduleLoopStopCondition={scheduleLoopStopCondition}
+            setScheduleLoopStopCondition={setScheduleLoopStopCondition}
+            scheduleLoopContinuationPrompt={scheduleLoopContinuationPrompt}
+            setScheduleLoopContinuationPrompt={setScheduleLoopContinuationPrompt}
             createSchedulePending={createSchedule.isPending}
             onStartSchedule={startSchedule}
             runBusy={refreshRun.isPending || markReviewed.isPending || cleanupRun.isPending || cancelRun.isPending || disableLoop.isPending || continueRun.isPending}
@@ -657,6 +713,7 @@ export function ProjectRunsSection({
             })}
             onDisableSchedule={(schedule) => disableSchedule.mutate(schedule.id)}
             onResumeSchedule={(schedule) => updateSchedule.mutate({ scheduleId: schedule.id, enabled: true })}
+            onSaveSchedule={saveSchedule}
           />
         </DetailDrawer>
       )}
@@ -699,6 +756,14 @@ function Inspector({
   setScheduleRecurrence,
   scheduleMachineTargetGrant,
   setScheduleMachineTargetGrant,
+  scheduleLoopEnabled,
+  setScheduleLoopEnabled,
+  scheduleLoopMaxIterations,
+  setScheduleLoopMaxIterations,
+  scheduleLoopStopCondition,
+  setScheduleLoopStopCondition,
+  scheduleLoopContinuationPrompt,
+  setScheduleLoopContinuationPrompt,
   createSchedulePending,
   onStartSchedule,
   runBusy,
@@ -721,6 +786,7 @@ function Inspector({
   onRunScheduleNow,
   onDisableSchedule,
   onResumeSchedule,
+  onSaveSchedule,
 }: {
   project: Project;
   item?: BoardItem;
@@ -756,6 +822,14 @@ function Inspector({
   setScheduleRecurrence: (value: string) => void;
   scheduleMachineTargetGrant: MachineTargetGrant | null;
   setScheduleMachineTargetGrant: (value: MachineTargetGrant | null) => void;
+  scheduleLoopEnabled: boolean;
+  setScheduleLoopEnabled: (value: boolean) => void;
+  scheduleLoopMaxIterations: number;
+  setScheduleLoopMaxIterations: (value: number) => void;
+  scheduleLoopStopCondition: string;
+  setScheduleLoopStopCondition: (value: string) => void;
+  scheduleLoopContinuationPrompt: string;
+  setScheduleLoopContinuationPrompt: (value: string) => void;
   createSchedulePending: boolean;
   onStartSchedule: () => void;
   runBusy: boolean;
@@ -778,6 +852,7 @@ function Inspector({
   onRunScheduleNow: (schedule: ProjectCodingRunSchedule) => void;
   onDisableSchedule: (schedule: ProjectCodingRunSchedule) => void;
   onResumeSchedule: (schedule: ProjectCodingRunSchedule) => void;
+  onSaveSchedule: (schedule: ProjectCodingRunSchedule) => void;
 }) {
   const selectedRunSessionId = item?.kind === "run" ? item.run.task.session_id : null;
   const sessionEnv = useSessionExecutionEnvironment(selectedRunSessionId);
@@ -876,6 +951,23 @@ function Inspector({
             </FormRow>
             <PromptEditor value={scheduleRequest} onChange={setScheduleRequest} label="Scheduled run prompt" rows={5} fieldType="task_prompt" generateContext={`Project: ${project.name}. Root: /${project.root_path}`} />
             <ExecutionAccessControl value={scheduleMachineTargetGrant} onChange={setScheduleMachineTargetGrant} testId="project-schedule-execution-access" />
+            <label className="flex items-center gap-2 text-[12px] font-semibold text-text">
+              <input type="checkbox" className="h-4 w-4 rounded border-input-border bg-input" checked={scheduleLoopEnabled} onChange={(event) => setScheduleLoopEnabled(event.target.checked)} />
+              Bounded loop
+            </label>
+            {scheduleLoopEnabled && (
+              <div className="grid gap-2">
+                <FormRow label="Max iterations">
+                  <SelectInput value={String(scheduleLoopMaxIterations)} onChange={(value) => setScheduleLoopMaxIterations(Number(value))} options={[2, 3, 4, 5, 6, 7, 8].map((value) => ({ label: String(value), value: String(value) }))} />
+                </FormRow>
+                <FormRow label="Stop condition">
+                  <textarea value={scheduleLoopStopCondition} onChange={(event) => setScheduleLoopStopCondition(event.target.value)} rows={3} className="min-h-[72px] w-full resize-y rounded-md border border-input-border bg-input px-3 py-2 text-[13px] text-text outline-none focus:border-accent" />
+                </FormRow>
+                <FormRow label="Continuation prompt">
+                  <textarea value={scheduleLoopContinuationPrompt} onChange={(event) => setScheduleLoopContinuationPrompt(event.target.value)} rows={3} className="min-h-[72px] w-full resize-y rounded-md border border-input-border bg-input px-3 py-2 text-[13px] text-text outline-none focus:border-accent" />
+                </FormRow>
+              </div>
+            )}
             <ActionButton label={createSchedulePending ? "Saving" : "Create schedule"} icon={<CalendarClock size={13} />} disabled={!selectedChannelId || createSchedulePending} onPress={onStartSchedule} />
           </div>
         </InspectorPanel>
@@ -972,6 +1064,7 @@ function Inspector({
   if (item.kind === "schedule") {
     const schedule = item.schedule;
     const lastSessionPath = sessionPathForScheduleRun(schedule.last_run);
+    const loopPolicy = schedule.loop_policy || {};
     return (
       <div className="flex flex-col gap-3">
         <InspectorPanel title="Scheduled run">
@@ -982,6 +1075,51 @@ function Inspector({
             <DetailRow label="Runs" value={schedule.run_count} />
             <DetailRow label="Last run" value={schedule.last_run ? `${schedule.last_run.status || "unknown"} · ${formatRunTime(schedule.last_run.created_at)}` : "none"} />
             <DetailRow label="Execution" value={executionAccessLine(schedule.machine_target_grant) || "default"} />
+            <DetailRow label="Loop" value={loopPolicy.enabled ? `${loopPolicy.max_iterations || 3} iterations · ${loopPolicy.stop_condition || "bounded"}` : "disabled"} />
+          </div>
+        </InspectorPanel>
+        <InspectorPanel title="Edit schedule">
+          <div className="flex flex-col gap-3">
+            <FormRow label="Channel">
+              <SelectInput
+                value={selectedChannelId}
+                onChange={setSelectedChannelId}
+                options={
+                  channels && channels.length > 0
+                    ? channels.map((channel) => ({ label: `${channel.name} · ${channel.bot_id}`, value: channel.id }))
+                    : [{ label: "Attach a Project channel first", value: "" }]
+                }
+              />
+            </FormRow>
+            <FormRow label="Title">
+              <input value={scheduleTitle} onChange={(event) => setScheduleTitle(event.target.value)} className="w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none focus:border-accent" />
+            </FormRow>
+            <FormRow label="Start">
+              <DateTimePicker value={scheduleStart} onChange={setScheduleStart} />
+            </FormRow>
+            <FormRow label="Repeat">
+              <SelectInput value={scheduleRecurrence} onChange={setScheduleRecurrence} options={[{ label: "Daily", value: "+1d" }, { label: "Weekly", value: "+1w" }, { label: "Every 5 days", value: "+5d" }, { label: "Manual", value: "" }]} />
+            </FormRow>
+            <PromptEditor value={scheduleRequest} onChange={setScheduleRequest} label="Scheduled run prompt" rows={5} fieldType="task_prompt" generateContext={`Project: ${project.name}. Root: /${project.root_path}`} />
+            <ExecutionAccessControl value={scheduleMachineTargetGrant} onChange={setScheduleMachineTargetGrant} testId={`project-schedule-${schedule.id}-execution-access`} />
+            <label className="flex items-center gap-2 text-[12px] font-semibold text-text">
+              <input type="checkbox" className="h-4 w-4 rounded border-input-border bg-input" checked={scheduleLoopEnabled} onChange={(event) => setScheduleLoopEnabled(event.target.checked)} />
+              Bounded loop
+            </label>
+            {scheduleLoopEnabled && (
+              <div className="grid gap-2">
+                <FormRow label="Max iterations">
+                  <SelectInput value={String(scheduleLoopMaxIterations)} onChange={(value) => setScheduleLoopMaxIterations(Number(value))} options={[2, 3, 4, 5, 6, 7, 8].map((value) => ({ label: String(value), value: String(value) }))} />
+                </FormRow>
+                <FormRow label="Stop condition">
+                  <textarea value={scheduleLoopStopCondition} onChange={(event) => setScheduleLoopStopCondition(event.target.value)} rows={3} className="min-h-[72px] w-full resize-y rounded-md border border-input-border bg-input px-3 py-2 text-[13px] text-text outline-none focus:border-accent" />
+                </FormRow>
+                <FormRow label="Continuation prompt">
+                  <textarea value={scheduleLoopContinuationPrompt} onChange={(event) => setScheduleLoopContinuationPrompt(event.target.value)} rows={3} className="min-h-[72px] w-full resize-y rounded-md border border-input-border bg-input px-3 py-2 text-[13px] text-text outline-none focus:border-accent" />
+                </FormRow>
+              </div>
+            )}
+            <ActionButton label={scheduleBusy ? "Saving" : "Save schedule"} icon={<Check size={13} />} size="small" disabled={scheduleBusy || !selectedChannelId} onPress={() => onSaveSchedule(schedule)} />
           </div>
         </InspectorPanel>
         <InspectorPanel title="Actions">

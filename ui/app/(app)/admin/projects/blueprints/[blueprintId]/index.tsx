@@ -344,7 +344,7 @@ export default function ProjectBlueprintDetail() {
 
           <Section
             title="Instructions"
-            description="Runbook policy applied to Projects created from this Blueprint."
+            description="Workflow policy applied to Projects created from this Blueprint."
           >
             <div className="flex flex-col gap-3">
               <PromptEditor
@@ -357,8 +357,8 @@ export default function ProjectBlueprintDetail() {
                 fieldType="project_prompt"
                 generateContext={`Project Blueprint: ${blueprint.name}`}
               />
-              <FormRow label="Project Runbook" description="Project-root relative policy file created or maintained by repo agents.">
-                <TextInput value={promptFilePath} onChangeText={setPromptFilePath} placeholder=".spindrel/project-runbook.md" />
+              <FormRow label="Project workflow" description="Project-root relative policy file created or maintained by repo agents.">
+                <TextInput value={promptFilePath} onChangeText={setPromptFilePath} placeholder=".spindrel/WORKFLOW.md" />
               </FormRow>
             </div>
           </Section>

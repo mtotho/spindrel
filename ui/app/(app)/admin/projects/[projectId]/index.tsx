@@ -80,7 +80,7 @@ function ProjectBasicsSection({
   const attachedCount = channels?.length ?? project.attached_channel_count ?? 0;
   const setupReady = setup?.plan?.ready ?? false;
   const runtimeReady = runtimeEnv?.ready ?? false;
-  const runbookPath = project.prompt_file_path || ".spindrel/project-runbook.md";
+  const workflowPath = project.prompt_file_path || ".spindrel/WORKFLOW.md";
   return (
     <Section
       title="Basics"
@@ -113,8 +113,8 @@ function ProjectBasicsSection({
         />
         <SettingsControlRow
           leading={<FileText size={14} />}
-          title="Project Runbook"
-          description={<span className="font-mono">{runbookPath}</span>}
+          title="Project workflow"
+          description={<span className="font-mono">{workflowPath}</span>}
           meta={<StatusBadge label={project.prompt_file_path ? "Configured" : "Recommended"} variant={project.prompt_file_path ? "success" : "info"} />}
         />
       </div>
@@ -205,7 +205,6 @@ function ProjectOverviewSection({
   const setupReady = setup?.plan?.ready ?? false;
   const runtimeReady = runtimeEnv?.ready ?? false;
   const attachedCount = channels?.length ?? project.attached_channel_count ?? 0;
-  const runbookPath = project.prompt_file_path || ".spindrel/project-runbook.md";
   const activeInstances = (instances ?? []).filter((instance) => !["deleted", "expired"].includes(instance.status));
   const dependencyConfigured = Boolean(project.metadata_?.blueprint_snapshot?.dependency_stack);
   const activeRuns = runs.filter(isActiveCodingRun);
@@ -1456,7 +1455,7 @@ export default function ProjectDetail() {
 
               <Section
                 title="Instructions"
-                description="Shared turn guidance for channels attached to this Project. The Project Runbook is the repo-owned policy file agents should inspect and maintain."
+                description="Shared turn guidance for channels attached to this Project. The Project workflow file is the repo-owned policy file agents should inspect and maintain."
                 action={
                   <div className="flex items-center gap-2">
                     <SaveStatusPill
@@ -1478,16 +1477,16 @@ export default function ProjectDetail() {
                     onChange={setPrompt}
                     label="Project instructions"
                     placeholder="Optional inline instructions shared by every attached channel..."
-                    helpText="Applied before channel-level prompt content for Project-bound turns, then combined with the Project Runbook when configured."
+                    helpText="Applied before channel-level prompt content for Project-bound turns, then combined with the Project workflow file when configured."
                     rows={7}
                     fieldType="project_prompt"
                     generateContext={`Project: ${project.name}. Root: /${project.root_path}`}
                   />
-                  <FormRow label="Project Runbook" description="Project-root relative policy file for branch rules, test commands, e2e/screenshot expectations, dependency stack usage, and tracker handoff.">
+                  <FormRow label="Project workflow" description="Project-root relative policy file for branch rules, test commands, e2e/screenshot expectations, dependency stack usage, and tracker handoff.">
                     <TextInput
                       value={promptFilePath}
                       onChangeText={setPromptFilePath}
-                      placeholder=".spindrel/project-runbook.md"
+                      placeholder=".spindrel/WORKFLOW.md"
                     />
                   </FormRow>
                 </div>

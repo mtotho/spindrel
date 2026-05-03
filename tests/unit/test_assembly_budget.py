@@ -85,6 +85,21 @@ def _call_assembly(messages, bot, user_message, result, budget=None, correlation
     )
 
 
+def test_context_assembly_has_json_binding_for_skill_history_parser():
+    """Regression for turn-boundary failures in _inject_skill_working_set.
+
+    That path parses historical assistant get_skill tool-call arguments with
+    module-level json.loads/json.JSONDecodeError. A missing import used to
+    crash turns before the model responded.
+    """
+    import app.agent.context_assembly as context_assembly
+
+    assert context_assembly.json.loads('{"skill_id": "history-skill"}') == {
+        "skill_id": "history-skill",
+    }
+    assert issubclass(context_assembly.json.JSONDecodeError, ValueError)
+
+
 # ---------------------------------------------------------------------------
 # Tests: generous budget
 # ---------------------------------------------------------------------------

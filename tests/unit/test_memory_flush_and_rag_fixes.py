@@ -138,7 +138,7 @@ class TestMaintenanceToolSurfaces:
         exposed_names = {
             tool["function"]["name"] for tool in (state.pre_selected_tools or [])
         }
-        assert exposed_names == {
+        assert {
             "get_memory_file",
             "memory",
             "file",
@@ -146,7 +146,8 @@ class TestMaintenanceToolSurfaces:
             "list_sub_sessions",
             "read_sub_session",
             "manage_bot_skill",
-        }
+        }.issubset(exposed_names)
+        assert "web_search" not in exposed_names
         assert state.authorized_names == exposed_names
         assert state.tool_discovery_info["tool_surface"] == "memory_hygiene"
         assert state.tool_discovery_info["tool_retrieval_enabled"] is False

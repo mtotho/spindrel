@@ -1701,6 +1701,9 @@ async def update_project_coding_run_schedule_endpoint(
     project = await db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
+    loop_policy = None
+    if "loop_policy" in body.model_fields_set:
+        loop_policy = body.loop_policy.model_dump() if body.loop_policy else {}
     try:
         task = await update_project_coding_run_schedule(
             db,
@@ -1716,7 +1719,7 @@ async def update_project_coding_run_schedule_endpoint(
                 enabled=body.enabled,
                 machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
                 granted_by_user_id=_auth_user_id(_auth),
-                loop_policy=body.loop_policy.model_dump() if body.loop_policy else None,
+                loop_policy=loop_policy,
             ),
         )
     except ValueError as exc:

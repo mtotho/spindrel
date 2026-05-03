@@ -242,7 +242,7 @@ export function useProjectCodingRunSchedules(projectId: string | undefined) {
 export function useCreateProjectCodingRunSchedule(projectId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { channel_id: string; title?: string; request?: string; scheduled_at?: string | null; recurrence?: string; machine_target_grant?: MachineTargetGrant | null }) =>
+    mutationFn: (data: { channel_id: string; title?: string; request?: string; scheduled_at?: string | null; recurrence?: string; machine_target_grant?: MachineTargetGrant | null; loop_policy?: ProjectRunLoopPolicyInput | null }) =>
       apiFetch<ProjectCodingRunSchedule>(`/api/v1/projects/${projectId}/coding-run-schedules`, {
         method: "POST",
         body: JSON.stringify(data),
@@ -266,6 +266,7 @@ export function useUpdateProjectCodingRunSchedule(projectId: string | undefined)
       recurrence?: string;
       enabled?: boolean;
       machine_target_grant?: MachineTargetGrant | null;
+      loop_policy?: ProjectRunLoopPolicyInput | null;
     }) => {
       const { scheduleId, ...body } = data;
       return apiFetch<ProjectCodingRunSchedule>(`/api/v1/projects/${projectId}/coding-run-schedules/${scheduleId}`, {

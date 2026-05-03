@@ -1,6 +1,7 @@
 """Context injection pipeline — assembles RAG context before the agent tool loop."""
 
 import asyncio
+import json
 import logging
 import math
 import uuid
