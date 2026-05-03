@@ -405,6 +405,27 @@ class TestRunWithFallbackChain:
         expires, fb_model, fb_provider = _model_cooldowns["primary"]
         assert fb_model == "fb"
 
+    async def test_bad_request_fallback_does_not_set_cooldown(self):
+        """Request-shape 400s may fallback once but must not poison the model globally."""
+        def make_attempt(m, pid, mp):
+            async def _fn():
+                if m == "primary":
+                    raise _bad_request_error("The image data you provided does not represent a valid image")
+                return f"ok_{m}"
+            return _fn
+
+        def make_no_tools(m, pid, mp):
+            return AsyncMock(side_effect=_bad_request_error("still bad"))
+
+        with self._patched():
+            result = await _run_with_fallback_chain(
+                "primary", None, None, False,
+                [{"model": "fb"}],
+                make_attempt, make_no_tools, 0,
+            )
+        assert result == "ok_fb"
+        assert "primary" not in _model_cooldowns
+
     async def test_global_fallbacks_used(self):
         """Global fallback models are appended to caller's fallback list."""
         def make_attempt(m, pid, mp):

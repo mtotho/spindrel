@@ -217,6 +217,9 @@ async def get_weather(
     if not api_key:
         return json.dumps({"error": "OPENWEATHERMAP_API_KEY is not configured"}, ensure_ascii=False)
 
+    if units not in {"imperial", "metric", "standard"}:
+        units = "imperial"
+
     unit_label = {"imperial": "°F", "metric": "°C", "standard": "K"}.get(units, "°F")
     speed_label = "mph" if units == "imperial" else "m/s"
 

@@ -626,6 +626,18 @@ _RETRYABLE_ERRORS = (
 _FALLBACK_TRIGGER_ERRORS = (*_RETRYABLE_ERRORS, openai.BadRequestError)
 
 
+def _should_set_model_cooldown(exc: Exception) -> bool:
+    """Return True when a primary-model failure should trip the circuit breaker.
+
+    Cooldowns are process-global by model, so only provider/model health failures
+    should poison later unrelated turns. BadRequestError is often caused by this
+    specific request shape (invalid image bytes, unsupported input part, bad
+    parameter, tools/vision mismatch). A fallback may still rescue that one
+    request, but it must not put an otherwise healthy model into cooldown.
+    """
+    return isinstance(exc, _RETRYABLE_ERRORS)
+
+
 def _is_model_access_denied_error(exc: Exception) -> bool:
     """Return True for auth errors that mean "this key cannot use this model".
 
@@ -941,7 +953,8 @@ async def _run_with_fallback_chain(
                 reason=type(primary_exc).__name__,
                 original_error=str(primary_exc)[:500],
             ))
-            set_model_cooldown(model, fb_model, fb_provider)
+            if _should_set_model_cooldown(primary_exc):
+                set_model_cooldown(model, fb_model, fb_provider)
             return result
         except Exception as fb_exc:
             if not isinstance(fb_exc, _FALLBACK_TRIGGER_ERRORS) and not _is_model_access_denied_error(fb_exc):

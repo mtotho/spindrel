@@ -329,6 +329,49 @@ class TestStatePollConfigInArgs:
         assert isinstance(sent_args["include_daily"], bool)
 
     @pytest.mark.asyncio
+    async def test_state_poll_args_use_default_widget_config(self):
+        """OpenWeather relies on default_config.units during inline refresh.
+
+        Without this merge, ``{{widget_config.units}}`` resolves to JSON null,
+        OpenWeather falls back to Kelvin values, and the HTML widget still
+        renders the default Fahrenheit toggle.
+        """
+        _widget_templates["get_weather"] = {
+            "content_type": "application/vnd.spindrel.components+json",
+            "display": "inline",
+            "template": {"v": 1, "components": []},
+            "default_config": {"units": "imperial", "show_forecast": False},
+            "state_poll": {
+                "tool": "get_weather",
+                "args": {
+                    "location": "{{display_label}}",
+                    "units": "{{widget_config.units}}",
+                    "include_daily": "{{widget_config.show_forecast}}",
+                },
+                "template": {"v": 1, "components": []},
+            },
+            "source": "test",
+        }
+        poll_cfg = _widget_templates["get_weather"]["state_poll"]
+
+        stub = AsyncMock(return_value=json.dumps({"location": "Lambertville, NJ"}))
+        with patch.object(router_mod, "is_local_tool", return_value=True), \
+             patch.object(router_mod, "call_local_tool", stub), \
+             patch.object(router_mod, "_resolve_tool_name", side_effect=lambda n: n):
+            await router_mod._do_state_poll(
+                tool_name="get_weather",
+                display_label="Lambertville, NJ",
+                poll_cfg=poll_cfg,
+            )
+
+        sent_args = json.loads(stub.await_args.args[1])
+        assert sent_args == {
+            "location": "Lambertville, NJ",
+            "units": "imperial",
+            "include_daily": False,
+        }
+
+    @pytest.mark.asyncio
     async def test_missing_widget_config_yields_empty_config_dict(self):
         """{{widget_config.show_forecast}} with no widget_config and no default_config
         passthrough on the poll_cfg should resolve to None → JSON null in args."""

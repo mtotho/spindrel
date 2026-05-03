@@ -35,8 +35,9 @@ export function SessionsTabPanel({
   const routeSessionId = routeSessionMatch?.params.sessionId ?? null;
   const [searchParams] = useSearchParams();
   const routeIsScratch = searchParams.get("scratch") === "true";
-  const effectiveSelectedSessionId = selectedSessionId === undefined ? routeSessionId : selectedSessionId;
-  const useRouteScratchKind = selectedSessionId === undefined;
+  const hasExplicitSelection = selectedSessionId !== undefined;
+  const effectiveSelectedSessionId = hasExplicitSelection ? selectedSessionId : routeSessionId;
+  const useRouteScratchKind = !hasExplicitSelection;
   const { data: catalog, isLoading } = useChannelSessionCatalog(channelId);
   const resetScratch = useResetScratchSession();
   const { data: projectChannels } = useProjectChannels(project?.id);
@@ -155,7 +156,7 @@ export function SessionsTabPanel({
               isCurrent={
                 effectiveSelectedSessionId
                   ? row.session_id === effectiveSelectedSessionId && (!useRouteScratchKind || !routeIsScratch)
-                  : row.is_current
+                  : hasExplicitSelection ? false : row.is_current
               }
               onClick={() =>
                 activate({ kind: "channel", sessionId: row.session_id })
@@ -169,7 +170,7 @@ export function SessionsTabPanel({
               isCurrent={
                 effectiveSelectedSessionId
                   ? row.session_id === effectiveSelectedSessionId && (!useRouteScratchKind || routeIsScratch)
-                  : row.is_current
+                  : hasExplicitSelection ? false : row.is_current
               }
               onClick={() =>
                 activate({ kind: "scratch", sessionId: row.session_id })

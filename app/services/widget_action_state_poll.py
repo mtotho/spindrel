@@ -27,6 +27,7 @@ from app.schemas.widget_actions import (
 )
 from app.services.widget_templates import (
     apply_state_poll,
+    get_widget_template_with_bare_fallback,
     get_state_poll_config,
     substitute_vars,
 )
@@ -62,6 +63,14 @@ def invalidate_poll_cache_for(poll_cfg: dict) -> None:
         _poll_cache.pop(key, None)
 
 
+def _resolve_widget_config(tool_name: str, widget_config: dict | None) -> dict:
+    tmpl = get_widget_template_with_bare_fallback(tool_name) or {}
+    return {
+        **(tmpl.get("default_config") or {}),
+        **(widget_config or {}),
+    }
+
+
 async def _do_state_poll(
     *,
     tool_name: str,
@@ -79,11 +88,12 @@ async def _do_state_poll(
 
     resolved_poll_tool = _resolve_tool_name(poll_tool)
     raw_args = poll_cfg.get("args", {}) or {}
+    resolved_widget_config = _resolve_widget_config(tool_name, widget_config)
     widget_meta = {
         "display_label": display_label,
         "tool_name": tool_name,
-        "widget_config": widget_config or {},
-        "config": widget_config or {},
+        "widget_config": resolved_widget_config,
+        "config": resolved_widget_config,
         "source_bot_id": bot_id,
         "source_channel_id": str(channel_id) if channel_id else None,
     }
@@ -274,11 +284,12 @@ async def refresh_widget_states_batch(
         channel_id = pin_channel_id or item.channel_id
         resolved_poll_tool = _resolve_tool_name(poll_tool)
         raw_args = poll_cfg.get("args", {}) or {}
+        resolved_widget_config = _resolve_widget_config(item.tool_name, item.widget_config)
         widget_meta = {
             "display_label": item.display_label,
             "tool_name": item.tool_name,
-            "widget_config": item.widget_config or {},
-            "config": item.widget_config or {},
+            "widget_config": resolved_widget_config,
+            "config": resolved_widget_config,
             "source_bot_id": bot_id,
             "source_channel_id": str(channel_id) if channel_id else None,
         }
