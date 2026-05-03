@@ -916,6 +916,21 @@ async def persist_turn(
         except Exception:
             logger.exception("persist_turn: unread processing failed for session %s", session_id)
 
+    if correlation_id:
+        try:
+            from app.config import settings
+            if settings.AGENT_QUALITY_AUDIT_ENABLED:
+                from app.services.agent_quality_audit import audit_turn_quality_background
+                from app.utils import safe_create_task
+
+                turn_kind = "heartbeat" if is_heartbeat else ("hidden" if hide_messages else "chat")
+                safe_create_task(
+                    audit_turn_quality_background(correlation_id, turn_kind=turn_kind),
+                    name=f"agent-quality-audit:{correlation_id}",
+                )
+        except Exception:
+            logger.exception("persist_turn: failed scheduling quality audit for %s", correlation_id)
+
     return staged.first_user_msg_id
 
 

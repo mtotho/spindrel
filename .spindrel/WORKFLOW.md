@@ -89,6 +89,30 @@ Rough captures start in `docs/inbox.md`. Promotion paths:
 Do not leave the same active item as a full entry in multiple places. Keep a
 one-line pointer when history matters.
 
+### Inbox Git Cadence
+
+For this Spindrel repo, the workflow branch for inbox-only work is
+`development`.
+
+When the user asks an agent to check, triage, or add issues in `docs/inbox.md`:
+
+1. Inspect Git state first: current branch, `git status --short`, and
+   `git fetch origin development`.
+2. Before writing to `docs/inbox.md`, make sure local `development` includes
+   `origin/development`. Use a fast-forward update only. If the branch cannot
+   be made current without touching unrelated dirty work, stop and report that
+   blocker instead of editing a stale inbox.
+3. If the request only reads or summarizes the inbox, do not commit.
+4. If the request adds, deletes, promotes, or otherwise edits inbox entries,
+   commit the inbox change immediately on `development` unless the user
+   explicitly says not to commit.
+5. The inbox commit must stage only the intended inbox/fix-log artifacts:
+   usually `docs/inbox.md`; for an inline fixed item, `docs/inbox.md` plus
+   `docs/fix-log.md`. Never include unrelated dirty files in an inbox commit.
+6. If unrelated files are dirty, leave them dirty. Use path-limited staging and
+   commit commands such as `git add docs/inbox.md` and
+   `git commit -- docs/inbox.md` after verifying the staged diff.
+
 A Run Brief is the minimum contract for a track/doc-driven Project run,
 especially an overnight or loop-enabled run. It may live directly in the run
 prompt. Use this shape:

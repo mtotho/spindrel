@@ -136,6 +136,36 @@ async def test_generate_daily_summary_counts_structured_sources(db_session):
 
 
 @pytest.mark.asyncio
+async def test_generate_daily_summary_counts_agent_quality_findings(db_session):
+    period_end = _now_fixed()
+    inside = period_end - timedelta(hours=2)
+
+    db_session.add(TraceEvent(
+        event_type="agent_quality_audit",
+        created_at=inside,
+        data={
+            "audit_version": 1,
+            "findings": [
+                {"code": "current_inline_image_missed"},
+                {"code": "tool_surface_mismatch"},
+            ],
+        },
+    ))
+    await db_session.commit()
+
+    with patch(
+        "app.tools.local.get_recent_server_errors.collect_findings",
+        new=AsyncMock(return_value=[]),
+    ):
+        summary = await generate_daily_summary(db_session, period_hours=24, now=period_end)
+
+    assert summary.source_counts["agent_quality"] == 2
+    quality = next(f for f in summary.findings if f["service"] == "agent_quality")
+    assert quality["count"] == 2
+    assert "current_inline_image_missed" in quality["sample"]
+
+
+@pytest.mark.asyncio
 async def test_dedupe_key_per_day(db_session):
     """Two summaries on different dates produce different attention items."""
     day_one = datetime(2026, 4, 26, 3, 30, tzinfo=timezone.utc)

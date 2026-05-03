@@ -576,6 +576,7 @@ class Settings(BaseSettings):
     SKILL_REPEATED_LOOKUP_NUDGE_ENABLED: bool = True  # inject nudge when bot repeatedly searches same topics
     LOG_LEVEL: str = "INFO"  # INFO = pathway only; DEBUG = full args, result previews, token counts
     AGENT_TRACE: bool = False  # When True: one-line trace per tool/response (no JSON), ideal for dev
+    AGENT_QUALITY_AUDIT_ENABLED: bool = True  # Fire-and-forget deterministic post-turn quality findings
     TOOL_LOOP_DETECTION_ENABLED: bool = True  # Detect and break repeating tool call cycles within a single agent run
     # Parallel tool execution — dispatch multiple tool calls concurrently via asyncio.gather
     PARALLEL_TOOL_EXECUTION: bool = True

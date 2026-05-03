@@ -35,7 +35,10 @@ export default function DailyHealthLandmark({ zoom, onOpen }: Props) {
   const size = compact ? 156 : 180;
   const errorCount = summary?.error_count ?? 0;
   const criticalCount = summary?.critical_count ?? 0;
-  const services = summary ? Object.keys(summary.source_counts || {}).length : 0;
+  const qualityFindings = Number(summary?.source_counts?.agent_quality || 0);
+  const services = summary
+    ? Object.keys(summary.source_counts || {}).filter((key) => key !== "agent_quality").length
+    : 0;
   const isClean = !!summary && errorCount === 0 && criticalCount === 0;
 
   const accent =
@@ -70,7 +73,10 @@ export default function DailyHealthLandmark({ zoom, onOpen }: Props) {
       {summary === null ? (
         <span className="mt-1 text-[11px] font-medium text-text-muted">Pending first run</span>
       ) : isClean ? (
-        <span className="mt-1 text-[11px] font-medium">Clean · {formatRelative(summary.generated_at)}</span>
+        <span className="mt-1 text-[11px] font-medium">
+          {qualityFindings > 0 ? `${qualityFindings} quality` : "Clean"} ·{" "}
+          {formatRelative(summary.generated_at)}
+        </span>
       ) : (
         <span className="mt-1 text-[11px] font-medium">
           {errorCount} err{criticalCount > 0 ? ` · ${criticalCount} crit` : ""} · {services}{" "}

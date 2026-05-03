@@ -96,6 +96,31 @@ async def get_tool_info(tool_name: str) -> str:
                     row = (await db.execute(
                         select(ToolEmbedding).where(ToolEmbedding.tool_name == tool_name)
                     )).scalar_one_or_none()
+            if row is None and "-" not in tool_name:
+                # Cache-cold MCP alias fallback. Indexed MCP rows are stored as
+                # ``<server>-<tool>`` in ``tool_name`` while skills often refer
+                # to the bare community name (for example ``ha_get_state``).
+                # Resolve from the persisted catalog so get_tool_info remains
+                # useful before the MCP runtime cache has been warmed.
+                matches = (await db.execute(
+                    select(ToolEmbedding)
+                    .where(ToolEmbedding.server_name.is_not(None))
+                    .where(ToolEmbedding.tool_name.endswith(f"-{tool_name}", autoescape=True))
+                    .limit(2)
+                )).scalars().all()
+                if len(matches) == 1:
+                    row = matches[0]
+                    logger.info(
+                        "get_tool_info: resolved bare %r from DB catalog -> %r",
+                        tool_name,
+                        row.tool_name,
+                    )
+                    tool_name = row.tool_name
+                elif len(matches) > 1:
+                    return json.dumps({
+                        "error": f"Tool {tool_name!r} is ambiguous.",
+                        "candidates": [m.tool_name for m in matches],
+                    }, ensure_ascii=False)
         if row is None:
             return json.dumps({"error": f"Tool {tool_name!r} not found."}, ensure_ascii=False)
         schema_for_activation = row.schema_ if isinstance(row.schema_, dict) else None

@@ -52,6 +52,7 @@ interface OmniPanelProps {
   channelDisplayName?: string | null;
   activeFile: string | null;
   activeSessionId?: string | null;
+  selectedSessionId?: string | null;
   onSelectFile: (path: string, options?: { split?: boolean }) => void;
   onOpenTerminal?: (workspaceRelativePath: string) => void;
   onClose: () => void;
@@ -104,6 +105,7 @@ export function OmniPanel({
   channelDisplayName,
   activeFile,
   activeSessionId,
+  selectedSessionId,
   onSelectFile,
   onOpenTerminal,
   onClose: _onClose,
@@ -325,6 +327,7 @@ export function OmniPanel({
             botId={botId}
             channelLabel={channelDisplayName ?? null}
             project={project}
+            selectedSessionId={selectedSessionId}
             onActivateSurface={activateSessionSurface}
           />
         </div>

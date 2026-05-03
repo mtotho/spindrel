@@ -29,6 +29,7 @@ from app.db.models import (
     TraceEvent,
     WorkspaceAttentionItem,
 )
+from app.services.agent_quality_audit import AGENT_QUALITY_AUDIT_EVENT
 from app.services.error_log_parser import LogFinding
 from app.services.workspace_attention import (
     STRUCTURED_ERROR_DETECTOR_ID,
@@ -85,6 +86,52 @@ async def _count_tool_errors(db: AsyncSession, *, since: datetime) -> int:
         )
     )).scalar()
     return int(row or 0)
+
+
+async def _agent_quality_counts(db: AsyncSession, *, since: datetime) -> tuple[int, dict[str, int]]:
+    rows = (await db.execute(
+        select(TraceEvent.data).where(
+            TraceEvent.created_at >= since,
+            TraceEvent.event_type == AGENT_QUALITY_AUDIT_EVENT,
+        )
+    )).scalars().all()
+    total = 0
+    by_code: dict[str, int] = {}
+    for data in rows:
+        if not isinstance(data, dict):
+            continue
+        findings = data.get("findings") or []
+        if not isinstance(findings, list):
+            continue
+        total += len(findings)
+        for finding in findings:
+            if not isinstance(finding, dict):
+                continue
+            code = str(finding.get("code") or "unknown")
+            by_code[code] = by_code.get(code, 0) + 1
+    return total, by_code
+
+
+def _quality_finding_payload(
+    *,
+    count: int,
+    by_code: dict[str, int],
+    period_start: datetime,
+    period_end: datetime,
+) -> dict:
+    sample = ", ".join(f"{code}: {n}" for code, n in sorted(by_code.items())) or "agent quality findings"
+    return {
+        "service": "agent_quality",
+        "severity": "warning",
+        "signature": "agent_quality_findings",
+        "dedupe_key": f"agent-quality:{period_end.date().isoformat()}",
+        "title": f"{count} agent quality finding(s)",
+        "sample": sample,
+        "first_seen": period_start.isoformat(),
+        "last_seen": period_end.isoformat(),
+        "count": count,
+        "kind": "agent_quality",
+    }
 
 
 async def _matching_attention_item_ids(
@@ -157,9 +204,20 @@ async def generate_daily_summary(
 
         trace_event_count = await _count_trace_errors(session, since=period_start)
         tool_error_count = await _count_tool_errors(session, since=period_start)
+        quality_count, quality_by_code = await _agent_quality_counts(session, since=period_start)
+        if quality_count:
+            source_counts["agent_quality"] = quality_count
         attention_refs = await _matching_attention_item_ids(
             session, findings=findings, since=period_start,
         )
+        finding_payloads = [_finding_payload(f) for f in findings[:200]]
+        if quality_count:
+            finding_payloads.append(_quality_finding_payload(
+                count=quality_count,
+                by_code=quality_by_code,
+                period_start=period_start,
+                period_end=period_end,
+            ))
 
         summary = SystemHealthSummary(
             period_start=period_start,
@@ -167,7 +225,7 @@ async def generate_daily_summary(
             generated_at=period_end,
             error_count=error_count,
             critical_count=critical_count,
-            findings=[_finding_payload(f) for f in findings[:200]],
+            findings=finding_payloads,
             source_counts=source_counts,
             attention_item_refs=[str(i) for i in attention_refs],
             trace_event_count=trace_event_count,
@@ -190,7 +248,8 @@ async def generate_daily_summary(
             message=(
                 f"Period {period_start.isoformat()} → {period_end.isoformat()}. "
                 f"{error_count} errors, {critical_count} critical, "
-                f"{trace_event_count} trace_event errors, {tool_error_count} tool errors."
+                f"{trace_event_count} trace_event errors, {tool_error_count} tool errors, "
+                f"{quality_count} quality findings."
             )[:1000],
             severity=attention_severity,
             dedupe_key=_date_dedupe_key(period_end),
@@ -202,6 +261,7 @@ async def generate_daily_summary(
                 "error_count": error_count,
                 "critical_count": critical_count,
                 "services": sorted(services_set),
+                "agent_quality_findings": quality_count,
             },
             source_event_key=f"daily-health-summary:{period_end.date().isoformat()}",
         )

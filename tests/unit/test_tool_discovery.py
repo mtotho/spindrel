@@ -828,6 +828,53 @@ class TestGetToolInfoActivation:
         assert activation_list[0]["function"]["name"] == "ha_get_state"
 
     @pytest.mark.asyncio
+    async def test_mcp_bare_name_resolves_from_db_catalog_when_cache_cold(self):
+        from app.agent.context import current_activated_tools
+        from app.tools.local.discovery import get_tool_info
+
+        mcp_schema = {
+            "type": "function",
+            "function": {
+                "name": "homeassistant-ha_get_state",
+                "description": "Get HA entity state",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"entity_id": {"type": "string"}},
+                    "required": ["entity_id"],
+                },
+            },
+        }
+
+        class _Row:
+            tool_name = "homeassistant-ha_get_state"
+            server_name = "homeassistant"
+            schema_ = mcp_schema
+
+        exact_result = MagicMock()
+        exact_result.scalar_one_or_none.return_value = None
+        suffix_result = MagicMock()
+        suffix_result.scalars.return_value.all.return_value = [_Row()]
+
+        mock_db = AsyncMock()
+        mock_db.execute.side_effect = [exact_result, suffix_result]
+
+        with patch("app.db.engine.async_session") as mock_session_ctx:
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+            with patch("app.tools.mcp.resolve_mcp_tool_name", return_value=None):
+                activation_list: list[dict] = []
+                token = current_activated_tools.set(activation_list)
+                try:
+                    result = await get_tool_info("ha_get_state")
+                finally:
+                    current_activated_tools.reset(token)
+
+        assert "homeassistant-ha_get_state" in result
+        assert "homeassistant" in result
+        assert len(activation_list) == 1
+        assert activation_list[0]["function"]["name"] == "homeassistant-ha_get_state"
+
+    @pytest.mark.asyncio
     async def test_not_found_does_not_activate(self):
         from app.agent.context import current_activated_tools
         from app.tools.local.discovery import get_tool_info

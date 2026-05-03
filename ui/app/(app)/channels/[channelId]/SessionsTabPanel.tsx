@@ -18,6 +18,7 @@ interface SessionsTabPanelProps {
   botId?: string;
   channelLabel?: string | null;
   project?: ProjectSummary | null;
+  selectedSessionId?: string | null;
   onActivateSurface?: (surface: ChannelSessionSurface) => void;
 }
 
@@ -26,6 +27,7 @@ export function SessionsTabPanel({
   botId,
   channelLabel,
   project,
+  selectedSessionId,
   onActivateSurface,
 }: SessionsTabPanelProps) {
   const navigate = useNavigate();
@@ -33,6 +35,8 @@ export function SessionsTabPanel({
   const routeSessionId = routeSessionMatch?.params.sessionId ?? null;
   const [searchParams] = useSearchParams();
   const routeIsScratch = searchParams.get("scratch") === "true";
+  const effectiveSelectedSessionId = selectedSessionId === undefined ? routeSessionId : selectedSessionId;
+  const useRouteScratchKind = selectedSessionId === undefined;
   const { data: catalog, isLoading } = useChannelSessionCatalog(channelId);
   const resetScratch = useResetScratchSession();
   const { data: projectChannels } = useProjectChannels(project?.id);
@@ -139,7 +143,7 @@ export function SessionsTabPanel({
             <SessionRow
               row={primaryRow}
               isPrimary
-              isCurrent={!routeSessionId && primaryRow.is_current}
+              isCurrent={effectiveSelectedSessionId == null}
               label={channelLabel ?? "Main chat"}
               onClick={() => activate({ kind: "primary" })}
             />
@@ -149,8 +153,8 @@ export function SessionsTabPanel({
               key={row.session_id}
               row={row}
               isCurrent={
-                routeSessionId
-                  ? row.session_id === routeSessionId && !routeIsScratch
+                effectiveSelectedSessionId
+                  ? row.session_id === effectiveSelectedSessionId && (!useRouteScratchKind || !routeIsScratch)
                   : row.is_current
               }
               onClick={() =>
@@ -163,8 +167,8 @@ export function SessionsTabPanel({
               key={row.session_id}
               row={row}
               isCurrent={
-                routeSessionId
-                  ? row.session_id === routeSessionId && routeIsScratch
+                effectiveSelectedSessionId
+                  ? row.session_id === effectiveSelectedSessionId && (!useRouteScratchKind || routeIsScratch)
                   : row.is_current
               }
               onClick={() =>

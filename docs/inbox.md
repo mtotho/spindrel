@@ -39,6 +39,16 @@ Body. 1-10 lines. Free-form. Repro steps, links, context.
 | Fixed inline | Delete from inbox; append a one-liner to `docs/fix-log.md`. |
 | Goes stale (30+ days) | Status flips to `stale`; agent surfaces in next triage. |
 
+## Editing Policy
+
+This file is the intake artifact, not the full agent operating contract. Agents
+editing it must follow `.spindrel/WORKFLOW.md#inbox-git-cadence` for branch,
+fetch, fast-forward, staging, and commit rules.
+
+Practical rule: inbox-only captures should change only `docs/inbox.md`.
+Inline fixed items may also change `docs/fix-log.md`. Do not include unrelated
+dirty files in an inbox edit or inbox commit.
+
 ## Open
 
 <!-- New items go below this line. Newest at top within the section. -->

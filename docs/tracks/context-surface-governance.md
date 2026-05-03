@@ -4,7 +4,7 @@ summary: Bound context/tool exposure by metadata and policy instead of global to
 status: active
 tags: [spindrel, context, tools, discovery]
 created: 2026-05-01
-updated: 2026-05-01
+updated: 2026-05-03
 ---
 
 # Context Surface Governance
@@ -25,7 +25,7 @@ Phase 1 adds generic tool metadata (`domains`, `intent_tags`, `exposure`) to reg
 
 Phase 2 removes remaining runtime hardcoded tool/skill identity lists by replacing them with registry metadata queries, manifest metadata, or config-owned policy sets.
 
-Phase 3 turns known bad traces into tests and emits trace fields that make schema/context waste visible.
+Phase 3 turns known bad traces into tests and emits trace fields that make schema/context waste visible. Generic post-turn agent-quality findings now live in [[agent-quality-observability]] so this track can stay focused on the context/tool surface itself.
 
 Phase 4 connects missing-tool reports to reviewable configuration proposals instead of forcing manual tool assignment.
 
@@ -38,4 +38,5 @@ Phase 4 connects missing-tool reports to reviewable configuration proposals inst
 ## References
 - `docs/guides/context-management.md`
 - `docs/guides/discovery-and-enrollment.md`
+- `docs/tracks/agent-quality-observability.md`
 - Bad live traces reviewed 2026-05-01: heartbeat context bloat and normal chat over-surfacing.

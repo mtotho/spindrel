@@ -85,7 +85,8 @@ function SummaryHeader({ summary }: { summary: SystemHealthSummary | null }) {
       </div>
     );
   }
-  const services = Object.keys(summary.source_counts || {}).length;
+  const services = Object.keys(summary.source_counts || {}).filter((key) => key !== "agent_quality").length;
+  const qualityFindings = Number(summary.source_counts?.agent_quality || 0);
   const isClean = summary.error_count === 0 && summary.critical_count === 0;
   return (
     <div className="px-3 py-2">
@@ -102,6 +103,7 @@ function SummaryHeader({ summary }: { summary: SystemHealthSummary | null }) {
         <span>{services} services</span>
         <span>{summary.trace_event_count} trace events</span>
         <span>{summary.tool_error_count} tool errors</span>
+        {qualityFindings > 0 ? <span>{qualityFindings} quality findings</span> : null}
       </div>
     </div>
   );

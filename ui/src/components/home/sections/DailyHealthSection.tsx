@@ -32,7 +32,10 @@ export function DailyHealthSection({ onOpen }: { onOpen?: () => void }) {
   const summary = data?.summary ?? null;
   const errorCount = summary?.error_count ?? 0;
   const criticalCount = summary?.critical_count ?? 0;
-  const services = summary ? Object.keys(summary.source_counts || {}).length : 0;
+  const qualityFindings = Number(summary?.source_counts?.agent_quality || 0);
+  const services = summary
+    ? Object.keys(summary.source_counts || {}).filter((key) => key !== "agent_quality").length
+    : 0;
 
   let badge: { label: string; variant: "success" | "warning" | "danger" | "neutral" };
   let detail: string;
@@ -46,6 +49,9 @@ export function DailyHealthSection({ onOpen }: { onOpen?: () => void }) {
   } else if (errorCount > 0) {
     badge = { label: `${errorCount} err`, variant: "warning" };
     detail = `${services} svc · ${formatRelative(summary.generated_at)}`;
+  } else if (qualityFindings > 0) {
+    badge = { label: `${qualityFindings} quality`, variant: "warning" };
+    detail = formatRelative(summary.generated_at);
   } else {
     badge = { label: "Clean", variant: "success" };
     detail = formatRelative(summary.generated_at);

@@ -1425,6 +1425,7 @@ export default function ChatScreen() {
                       channelDisplayName={channel?.display_name || channel?.name}
                       activeFile={activeFile}
                       activeSessionId={channel?.active_session_id}
+                      selectedSessionId={selectedPickerSessionId}
                       onSelectFile={handleSelectFile}
                       onOpenTerminal={openTerminalAtPath}
                       onClose={handleCloseExplorer}
