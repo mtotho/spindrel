@@ -335,6 +335,15 @@ test("MessageInput delegates draft files and submit decision policy", () => {
     assert.match(modelControl, /LlmModelDropdownContent/);
     assert.match(modelControl, /function HarnessModelPickerContent/);
     assert.match(modelControl, /spindrel:open-model-picker/);
+    assert.match(modelControl, /harnessDefaultModel/);
+    assert.match(modelControl, /harnessDefaultEffort/);
+    assert.match(modelControl, /displayHarnessModel = harnessCurrentModel \?\? harnessDefaultModel/);
+    assert.match(modelControl, /displayHarnessEffort = harnessCurrentEffort \?\? harnessDefaultEffort/);
+    assert.match(modelControl, /runtime default/);
+    assert.doesNotMatch(modelControl, /effort \{harnessCurrentEffort \?\? "default"\}/);
+    assert.match(readChatFile("useHarnessComposerProps.ts"), /useSessionHarnessStatus/);
+    assert.match(readChatFile("useHarnessComposerProps.ts"), /status\?\.effective_model/);
+    assert.match(readChatFile("useHarnessComposerProps.ts"), /status\?\.effective_effort/);
     assert.match(planControl, /getComposerPlanControlState/);
     assert.match(planControl, /data-testid="composer-plan-mode-control"/);
     assert.match(planControl, /createPortal/);
@@ -352,6 +361,10 @@ test("channel file editor keeps textarea and highlight font metrics aligned", ()
     const codeEditor = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/CodeEditor.tsx"), "utf8");
     assert.match(codeEditor, /const EDITOR_FONT_SIZE = 16;/);
     assert.match(codeEditor, /Global CSS forces textarea \{ font-size: 16px !important \}/);
+    assert.match(codeEditor, /wrap="off"/);
+    assert.match(codeEditor, /whiteSpace:\s*"pre"/);
+    assert.match(codeEditor, /wordWrap:\s*"normal"/);
+    assert.match(codeEditor, /WebkitTextFillColor:\s*highlightedLines \? "transparent" : undefined/);
     assert.doesNotMatch(codeEditor, /fontSize:\s*13/);
     assert.doesNotMatch(codeEditor, /fontSize:\s*12/);
 });
@@ -364,6 +377,18 @@ test("session composers use the parent channel for tool discovery menus", () => 
     assert.match(messageInput, /<ComposerAddMenu\s+channelId=\{toolChannelId\}/);
     assert.match(fixedSession, /channelId=\{sessionId\}\s+toolContextChannelId=\{parentChannelId\}/);
     assert.match(ephemeralSession, /toolContextChannelId=\{scratchBoundChannelId \?\? parentChannelId\}/);
+});
+test("native CLI session view uses bare terminal chrome inside the chat surface", () => {
+    const fixedSession = readChatFile("ChatSessionFixed.tsx");
+    const terminalPanel = readFileSync(resolve(process.cwd(), "src/components/terminal/TerminalPanel.tsx"), "utf8");
+    assert.match(terminalPanel, /chrome\?:\s*"framed"\s*\|\s*"bare"/);
+    assert.match(terminalPanel, /const showTitle = chrome === "framed" && !!title;/);
+    assert.match(terminalPanel, /const terminalInsetClass = chrome === "bare" \? "p-0" : "p-2";/);
+    assert.match(fixedSession, /\{isHarnessSession && !nativeCliOpen && \(/);
+    assert.match(fixedSession, /absolute right-3 top-3 z-\[8\]/);
+    assert.match(fixedSession, /chrome="bare"/);
+    assert.doesNotMatch(fixedSession, /flex h-9 shrink-0 items-center justify-end/);
+    assert.doesNotMatch(fixedSession, /title=\{`\$\{sessionBot\?\.harness_runtime \?\? "harness"\} native CLI`\}/);
 });
 test("chat sends thread a stable client-local id through optimistic rows and requests", () => {
     const channelHook = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/useChannelChat.ts"), "utf8");
@@ -492,4 +517,19 @@ test("channel route renders desktop session tabs through dedicated components an
     assert.match(sessionTabs, /data-testid="channel-session-inline-picker"/);
     assert.match(sessionSurfaces, /export function buildChannelSessionTabItems/);
     assert.match(sessionSurfaces, /export function snapshotChannelSessionTabLayout/);
+});
+test("fixed harness sessions remount native CLI after Spindrel chat sends", () => {
+    const fixedSession = readChatFile("ChatSessionFixed.tsx");
+    assert.match(fixedSession, /nativeCliStarted/);
+    assert.match(fixedSession, /nativeCliRevision/);
+    assert.match(fixedSession, /setNativeCliStarted\(true\)/);
+    assert.match(fixedSession, /setNativeCliStarted\(false\)/);
+    assert.match(fixedSession, /setNativeCliRevision\(\(value\) => value \+ 1\)/);
+    assert.match(fixedSession, /disabled=\{isSending\}/);
+    assert.match(fixedSession, /Native CLI syncing/);
+    assert.match(fixedSession, /key=\{nativeCliRevision\}/);
+    assert.match(fixedSession, /isHarnessSession && nativeCliStarted/);
+    assert.match(fixedSession, /pointer-events-auto z-\[20\] opacity-100/);
+    assert.match(fixedSession, /pointer-events-none z-0 opacity-0/);
+    assert.doesNotMatch(fixedSession, /nativeCliOpen \? \([\s\S]*<TerminalPanel[\s\S]*\) : \(/);
 });

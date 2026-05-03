@@ -4,7 +4,7 @@ summary: Rolling track for architectural deepening passes. Holds the current can
 status: active
 tags: [spindrel, architecture, refactor]
 created: 2026-05-02
-updated: 2026-05-02
+updated: 2026-05-03
 ---
 
 # Architecture Deepening
@@ -24,7 +24,7 @@ Spindrel's agent surfaces (loop, context assembly, tool dispatch) are the #1 bug
 
 | # | Candidate | Area | Confidence | State | Updated |
 |---|---|---|---|---|---|
-| 1 | Tool Surface composition (extract from context_assembly) | app/agent | high | not started | 2026-05-02 |
+| 1 | ~~Tool Surface composition (extract from context_assembly)~~ | app/agent | high | **done — see deepening-log 2026-05-03** | 2026-05-03 |
 | 2 | Tool Execution Policy gateway | app/agent | high | not started | 2026-05-02 |
 | 3 | Tool Result Envelope vs. invocation | app/agent | medium | not started | 2026-05-02 |
 | 4 | Message Assembly module (consolidate transcript mutation) | app/agent | medium | not started | 2026-05-02 |

@@ -82,7 +82,7 @@ async def create_project_coding_run_schedule(
     from app.agent.tasks import validate_recurrence
 
     channel = _validate_schedule_channel(project, await db.get(Channel, body.channel_id))
-    recurrence = validate_recurrence(body.recurrence) or "+1w"
+    recurrence = validate_recurrence(body.recurrence) or None
     scheduled_at = body.scheduled_at or _utcnow()
     title = body.title.strip() or "Scheduled Project coding run"
     task = Task(
@@ -155,7 +155,7 @@ async def update_project_coding_run_schedule(
     if body.scheduled_at is not None:
         task.scheduled_at = body.scheduled_at
     if body.recurrence is not None:
-        task.recurrence = validate_recurrence(body.recurrence) or task.recurrence
+        task.recurrence = validate_recurrence(body.recurrence) or None
     if body.enabled is not None:
         task.status = "active" if body.enabled else "cancelled"
     if body.machine_target_grant is not None:

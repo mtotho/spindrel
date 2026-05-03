@@ -26,6 +26,16 @@ const catalog = [
         local_only: false,
         args: [{ name: "args", source: "free_text", required: false, enum: null }],
     },
+    {
+        id: "project-fixture",
+        label: "project-fixture",
+        description: "Project-local native slash",
+        surfaces: ["channel", "session"],
+        local_only: false,
+        args: [{ name: "args", source: "free_text", required: false, enum: null }],
+        runtime_native: true,
+        runtime_command_interaction_kind: "native_session",
+    },
 ];
 test("composer submit resolves valid slash commands before normal sends", () => {
     assert.deepEqual(resolveComposerSubmitIntent({
@@ -71,6 +81,14 @@ test("composer submit sends unknown slash-looking text as chat", () => {
         slashSurface: "session",
         slashCatalog: catalog,
     }), { kind: "send", message: "/harness-native-slash-fixture abc123", files: undefined });
+});
+test("composer submit sends session-native runtime slash commands as chat text", () => {
+    assert.deepEqual(resolveComposerSubmitIntent({
+        rawMessage: "/project-fixture abc123",
+        pendingFiles: [],
+        slashSurface: "session",
+        slashCatalog: catalog,
+    }), { kind: "send", message: "/project-fixture abc123", files: undefined });
 });
 test("composer submit sends slash-looking text normally when files are attached", () => {
     const file = { name: "note.txt", base64: "eA==" };

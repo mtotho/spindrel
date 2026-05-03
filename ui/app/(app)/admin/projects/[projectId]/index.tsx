@@ -33,11 +33,12 @@ const TerminalPanel = lazy(() =>
   import("@/src/components/terminal/TerminalPanel").then((m) => ({ default: m.TerminalPanel })),
 );
 
-type ProjectTab = "overview" | "runs" | "channels" | "setup" | "instances" | "files" | "terminal" | "settings";
+type ProjectTab = "overview" | "runs" | "feed" | "channels" | "setup" | "instances" | "files" | "terminal" | "settings";
 
 const TABS: Array<{ key: ProjectTab; label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "runs", label: "Runs" },
+  { key: "feed", label: "Feed" },
   { key: "channels", label: "Channels" },
   { key: "setup", label: "Setup" },
   { key: "instances", label: "Instances" },
@@ -1439,6 +1440,12 @@ export default function ProjectDetail() {
         {tab === "runs" && (
           <div className="h-full overflow-auto">
             <ProjectRunsSection project={project} channels={channels} receipts={receipts} />
+          </div>
+        )}
+
+        {tab === "feed" && (
+          <div className="h-full overflow-auto">
+            <ProjectRunsSection project={project} channels={channels} receipts={receipts} mode="feed" />
           </div>
         )}
 

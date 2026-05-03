@@ -604,6 +604,55 @@ async def test_project_coding_run_schedule_fires_concrete_run_with_provenance(db
 
 
 @pytest.mark.asyncio
+async def test_project_coding_run_manual_schedule_round_trips_and_runs_now(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel-manual-schedule",
+        root_path="common/projects/spindrel",
+        metadata_=_factory_meta(),
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    schedule = await create_project_coding_run_schedule(
+        db_session,
+        project,
+        ProjectCodingRunScheduleCreate(
+            channel_id=channel_id,
+            title="Manual prompt",
+            request="Run this only when asked.",
+            recurrence="",
+        ),
+    )
+
+    assert schedule.recurrence is None
+    rows = await list_project_coding_run_schedules(db_session, project)
+    assert rows[0]["recurrence"] is None
+
+    run = await fire_project_coding_run_schedule(db_session, schedule, advance=False)
+
+    assert run is not None
+    assert run.parent_task_id == schedule.id
+    assert run.recurrence is None
+    rows = await list_project_coding_run_schedules(db_session, project)
+    assert rows[0]["run_count"] == 1
+    assert rows[0]["last_run"]["task_id"] == str(run.id)
+
+
+@pytest.mark.asyncio
 async def test_project_coding_run_schedule_can_be_edited_resumed_and_blocks_disabled_run_now(db_session):
     workspace_id = uuid.uuid4()
     project_id = uuid.uuid4()

@@ -12,7 +12,7 @@ export function defaultChannelPanelPrefs() {
         rightPinned: false,
         leftWidth: CHANNEL_PANEL_DEFAULT_WIDTH,
         rightWidth: CHANNEL_PANEL_DEFAULT_WIDTH,
-        leftTab: "widgets",
+        leftTab: "sessions",
         mobileDrawerOpen: false,
         mobileExpandedWidgetId: null,
         focusModePrior: null,
@@ -43,7 +43,7 @@ function normalizeChannelPanelPrefs(prefs) {
         ...(prefs ?? {}),
         leftWidth: clampChannelPanelWidth(prefs?.leftWidth ?? base.leftWidth),
         rightWidth: clampChannelPanelWidth(prefs?.rightWidth ?? base.rightWidth),
-        leftTab: prefs?.leftTab ?? base.leftTab,
+        leftTab: normalizeOmniPanelTab(prefs?.leftTab) ?? base.leftTab,
         mobileExpandedWidgetId: prefs?.mobileExpandedWidgetId ?? null,
         focusModePrior,
         sessionPanels: normalizeChannelSessionPanels(prefs?.sessionPanels),
@@ -58,6 +58,14 @@ function normalizeChannelPanelPrefs(prefs) {
             : [],
         topChromeCollapsed: prefs?.topChromeCollapsed ?? base.topChromeCollapsed,
         collapseHintDismissed: prefs?.collapseHintDismissed ?? base.collapseHintDismissed,
+    };
+}
+function normalizePersistedChannelPanelPrefs(prefs) {
+    return {
+        ...normalizeChannelPanelPrefs(prefs),
+        // Drawer visibility is runtime chrome. Persisting it makes mobile routes
+        // reopen into a full-screen drawer with no explicit user action.
+        mobileDrawerOpen: false,
     };
 }
 function normalizeFileTabPaths(value) {
@@ -90,7 +98,7 @@ export const useUIStore = create()(persist((set) => ({
     fileExplorerOpen: false,
     fileExplorerSplit: false,
     rightDockHidden: false,
-    omniPanelTab: "widgets",
+    omniPanelTab: "sessions",
     channelPanelPrefs: {},
     filesFocusTick: 0,
     recentPages: [],
@@ -134,7 +142,18 @@ export const useUIStore = create()(persist((set) => ({
     patchChannelPanelPrefs: (channelId, patch) => set((s) => {
         const current = normalizeChannelPanelPrefs(s.channelPanelPrefs[channelId]);
         const patchValue = typeof patch === "function" ? patch(current) : patch;
+        // Mirror left-panel intent (open + tab) up to the global store so it
+        // persists across channels — users expect "I had Sessions open" to
+        // survive jumping to a sibling channel.
+        const globalPatch = {};
+        if (typeof patchValue.leftOpen === "boolean") {
+            globalPatch.fileExplorerOpen = patchValue.leftOpen;
+        }
+        if (patchValue.leftTab) {
+            globalPatch.omniPanelTab = patchValue.leftTab;
+        }
         return {
+            ...globalPatch,
             channelPanelPrefs: {
                 ...s.channelPanelPrefs,
                 [channelId]: normalizeChannelPanelPrefs({ ...current, ...patchValue }),
@@ -144,6 +163,7 @@ export const useUIStore = create()(persist((set) => ({
     setChannelPanelTab: (channelId, tab) => set((s) => {
         const current = normalizeChannelPanelPrefs(s.channelPanelPrefs[channelId]);
         return {
+            omniPanelTab: tab,
             channelPanelPrefs: {
                 ...s.channelPanelPrefs,
                 [channelId]: { ...current, leftTab: tab },
@@ -246,15 +266,23 @@ export const useUIStore = create()(persist((set) => ({
         fileExplorerOpen: state.fileExplorerOpen,
         fileExplorerSplit: state.fileExplorerSplit,
         rightDockHidden: state.rightDockHidden,
-        omniPanelTab: state.omniPanelTab,
-        channelPanelPrefs: state.channelPanelPrefs,
+        omniPanelTab: normalizeOmniPanelTab(state.omniPanelTab) ?? "sessions",
+        channelPanelPrefs: Object.fromEntries(Object.entries(state.channelPanelPrefs).map(([channelId, prefs]) => [channelId, normalizePersistedChannelPanelPrefs(prefs)])),
         recentPages: state.recentPages,
     }),
     // Migrate old string[] format to RecentPage[]
     merge: (persisted, current) => ({
         ...current,
         ...persisted,
-        channelPanelPrefs: Object.fromEntries(Object.entries(persisted?.channelPanelPrefs ?? {}).map(([channelId, prefs]) => [channelId, normalizeChannelPanelPrefs(prefs)])),
+        omniPanelTab: normalizeOmniPanelTab(persisted?.omniPanelTab) ?? current.omniPanelTab,
+        channelPanelPrefs: Object.fromEntries(Object.entries(persisted?.channelPanelPrefs ?? {}).map(([channelId, prefs]) => [channelId, normalizePersistedChannelPanelPrefs(prefs)])),
         recentPages: (persisted?.recentPages ?? []).map((p) => migrateRecentPage((typeof p === "string" ? { href: p } : p))),
     }),
 }));
+function normalizeOmniPanelTab(value) {
+    if (value === "sessions" || value === "notes" || value === "widgets" || value === "files")
+        return value;
+    if (value === "jump")
+        return "sessions";
+    return null;
+}

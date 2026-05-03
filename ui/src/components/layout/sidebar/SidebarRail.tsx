@@ -5,9 +5,13 @@ import {
   Brain,
   Bot,
   BookOpen,
+  Columns3,
   FolderKanban,
+  FolderOpen,
   Hash,
   Inbox,
+  LayoutDashboard,
+  List,
   Monitor,
   Plug,
   PanelLeftClose,
@@ -37,6 +41,7 @@ import { useChannelReadStore } from "../../../stores/channelRead";
 import { LucideIconByName } from "../../IconPicker";
 import { cn } from "../../../lib/cn";
 import { buildActionInboxModel } from "../../../lib/actionInbox";
+import { projectRailContextForLocation } from "../../../lib/projectRailContext";
 import { useTodayUpcomingCount } from "./UpcomingRailPopover";
 import { AvatarMenu } from "./AvatarMenu";
 
@@ -108,7 +113,7 @@ interface SidebarRailProps {
 }
 
 export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: SidebarRailProps) {
-  const { pathname, search } = useLocation();
+  const { pathname, search, hash } = useLocation();
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const user = useAuthStore((s) => s.user);
@@ -161,6 +166,7 @@ export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: Si
   const isLearningActive = pathname.startsWith("/admin/learning");
   const isProjectsActive = pathname.startsWith("/admin/projects");
   const isHomeActive = pathname === "/" && !search;
+  const projectRailContext = projectRailContextForLocation(pathname, hash);
 
   const [avatarOpen, setAvatarOpen] = useState(false);
   const avatarBtnRef = useRef<HTMLButtonElement>(null);
@@ -283,6 +289,39 @@ export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: Si
             <RailLink href="/admin/projects" active={isProjectsActive} title="Projects">
               <FolderKanban size={18} className={isProjectsActive ? "text-accent" : "text-text-dim"} />
             </RailLink>
+
+            {projectRailContext && (
+              <div className="flex flex-col items-center gap-1 py-1">
+                <RailLink
+                  href={`/admin/projects/${projectRailContext.projectId}#overview`}
+                  active={projectRailContext.activeChild === "overview"}
+                  title="Project overview"
+                >
+                  <LayoutDashboard size={15} className={projectRailContext.activeChild === "overview" ? "text-accent" : "text-text-dim"} />
+                </RailLink>
+                <RailLink
+                  href={`/admin/projects/${projectRailContext.projectId}#runs`}
+                  active={projectRailContext.activeChild === "runs"}
+                  title="Project runs"
+                >
+                  <Columns3 size={15} className={projectRailContext.activeChild === "runs" ? "text-accent" : "text-text-dim"} />
+                </RailLink>
+                <RailLink
+                  href={`/admin/projects/${projectRailContext.projectId}#feed`}
+                  active={projectRailContext.activeChild === "feed"}
+                  title="Project feed"
+                >
+                  <List size={15} className={projectRailContext.activeChild === "feed" ? "text-accent" : "text-text-dim"} />
+                </RailLink>
+                <RailLink
+                  href={`/admin/projects/${projectRailContext.projectId}#files`}
+                  active={projectRailContext.activeChild === "files"}
+                  title="Project files"
+                >
+                  <FolderOpen size={15} className={projectRailContext.activeChild === "files" ? "text-accent" : "text-text-dim"} />
+                </RailLink>
+              </div>
+            )}
 
             <RailLink href="/admin/integrations" active={isIntegrationsActive} title="Integrations">
               <Plug size={18} className={isIntegrationsActive ? "text-accent" : "text-text-dim"} />

@@ -517,3 +517,56 @@ class TestChatRegressionGuard:
         assert "list_tool_signatures" not in exposed
         # Heartbeat-specific trace block must NOT appear on chat surfaces.
         assert "heartbeat_surface" not in result.tool_discovery_info
+
+
+class TestHeartbeatNeverInvokesRetrieval:
+    """ADR-pinned invariant: the heartbeat path is deterministic and must
+    never reach `retrieve_tools`. Catches regressions where new code paths
+    accidentally route heartbeat traffic through the RAG retriever."""
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_does_not_call_retrieve_tools(self):
+        bot = _bot(local_tools=["foo"], pinned_tools=["foo"])
+        schemas = {"foo": _schema("foo")}
+        retrieve_mock = AsyncMock(return_value=([], 0.0, []))
+        result = AssemblyResult()
+        budget = ContextBudget(total_tokens=128_000, reserve_tokens=19_200)
+        patches = [p for p in _patches(enrolled=[], retrieved=[]) if "retrieve_tools" not in str(p)]
+        patches += [
+            patch("app.agent.tool_surface.retrieval.retrieve_tools", retrieve_mock),
+            patch(
+                "app.agent.tool_surface.retrieval._all_tool_schemas_by_name",
+                new_callable=AsyncMock,
+                return_value=schemas,
+            ),
+            patch(
+                "app.agent.tool_surface.retrieval.get_local_tool_schemas",
+                side_effect=lambda names: [schemas[n] for n in names if n in schemas],
+            ),
+        ]
+        for p in patches:
+            p.start()
+        try:
+            await _drain(
+                assemble_context(
+                    messages=[{"role": "system", "content": "System."}],
+                    bot=bot,
+                    user_message="heartbeat tick",
+                    session_id=None,
+                    client_id=None,
+                    correlation_id=None,
+                    channel_id=None,
+                    audio_data=None,
+                    audio_format=None,
+                    attachments=None,
+                    native_audio=False,
+                    result=result,
+                    budget=budget,
+                    context_profile_name="heartbeat",
+                    tool_surface_policy="focused_escape",
+                )
+            )
+        finally:
+            for p in patches:
+                p.stop()
+        retrieve_mock.assert_not_called()

@@ -530,6 +530,7 @@ function buildEntryFromSummary(toolName, summary, result, args, rawCall) {
     const toolInfoRef = resolveToolInfoRef(toolName, args, result, rawCall);
     const target = summary.target_label || (toolInfoRef ? null : introspectionTarget(toolName, [args], rawCall, result));
     const previewText = resolvePreviewText(summary, result, summaryLabel);
+    const pathRoot = summary.path_root ?? null;
     if (summary.kind === "diff" && summary.subject_type === "file") {
         return {
             id: `${toolName}:${summaryLabel}`,
@@ -538,6 +539,7 @@ function buildEntryFromSummary(toolName, summary, result, args, rawCall) {
             metaLabel: summarizeDiffMeta(summary),
             previewText: null,
             target: summaryFileTarget(summary) || (summary.target_label ? null : target),
+            pathRoot,
             env: result,
             summary,
             isError: false,
@@ -555,6 +557,7 @@ function buildEntryFromSummary(toolName, summary, result, args, rawCall) {
             metaLabel: null,
             previewText,
             target: summaryFileTarget(summary) || (summary.target_label ? null : target),
+            pathRoot,
             env: result,
             summary,
             isError: false,
@@ -572,6 +575,7 @@ function buildEntryFromSummary(toolName, summary, result, args, rawCall) {
             metaLabel: null,
             previewText,
             target: summaryFileTarget(summary),
+            pathRoot,
             env: result,
             summary,
             isError: false,
@@ -588,6 +592,7 @@ function buildEntryFromSummary(toolName, summary, result, args, rawCall) {
         metaLabel: summarizeDiffMeta(summary) || toolInfoRef,
         previewText,
         target: summary.target_label ? null : target,
+        pathRoot,
         env: result,
         summary,
         isError: summary.kind === "error",

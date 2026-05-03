@@ -14,6 +14,7 @@ with iteration-time filtering.
 """
 from __future__ import annotations
 
+from .composer import compose_stream
 from .types import ToolSurfaceResult, ToolSurfaceTraceEvent
 
-__all__ = ["ToolSurfaceResult", "ToolSurfaceTraceEvent"]
+__all__ = ["ToolSurfaceResult", "ToolSurfaceTraceEvent", "compose_stream"]

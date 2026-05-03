@@ -4328,12 +4328,39 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "&& text.includes('running') "
             "&& text.includes('human review') "
             "&& text.includes('closed') "
+            "&& text.includes('feed') "
             "&& text.includes('start a new run') "
             "&& text.includes('schedule a prompt') "
             "&& text.includes('prepare the project') "
             "&& text.includes('ready for review') "
             "&& text.includes('weekly project review'), "
-            "detail: 'Project Runs taskboard did not expose workflow lanes, launchers, schedules, and review-ready work' };"
+            "detail: 'Project Runs taskboard did not expose board lanes, feed navigation, launchers, schedules, and review-ready work' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-run-feed",
+        route="/admin/projects/{project_workspace_project}#feed",
+        viewport={"width": 1440, "height": 1000},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-feed\"]') "
+            "&& document.body.innerText.toLowerCase().includes('upcoming') "
+            "&& document.body.innerText.toLowerCase().includes('history') "
+            "&& document.body.innerText.includes('Weekly Project review')"
+        ),
+        output="project-workspace-run-feed.png",
+        color_scheme="dark",
+        full_page=True,
+        extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
+        pre_capture_js="window.scrollTo(0, 0); await new Promise((resolve) => setTimeout(resolve, 120));",
+        assert_js=(
+            "const text = document.body.innerText.toLowerCase();"
+            "return { ok: text.includes('upcoming') "
+            "&& text.includes('history') "
+            "&& text.includes('weekly project review') "
+            "&& text.includes('project coding run') "
+            "&& text.includes('receipt'), "
+            "detail: 'Project Runs feed did not expose chronological upcoming and historical runs' };"
         ),
     ),
     ScreenshotSpec(

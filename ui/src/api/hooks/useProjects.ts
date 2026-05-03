@@ -198,10 +198,11 @@ export function useProjectRunReceipts(projectId: string | undefined) {
   });
 }
 
-export function useProjectCodingRuns(projectId: string | undefined) {
+export function useProjectCodingRuns(projectId: string | undefined, opts: { limit?: number } = {}) {
+  const limit = opts.limit ?? 25;
   return useQuery({
-    queryKey: ["projects", projectId, "coding-runs"],
-    queryFn: () => apiFetch<ProjectCodingRun[]>(`/api/v1/projects/${projectId}/coding-runs`),
+    queryKey: ["projects", projectId, "coding-runs", limit],
+    queryFn: () => apiFetch<ProjectCodingRun[]>(`/api/v1/projects/${projectId}/coding-runs?limit=${limit}`),
     enabled: !!projectId,
     refetchInterval: 10_000,
   });

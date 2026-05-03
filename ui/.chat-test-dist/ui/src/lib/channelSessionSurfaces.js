@@ -582,6 +582,10 @@ export function getChannelSessionMeta(session) {
         typeof session.section_count === "number"
             ? `${session.section_count} section${session.section_count === 1 ? "" : "s"}`
             : null,
+        session.origin === "scheduled_run" ? "Run" : session.origin === "project_run" ? "Run" : null,
+        session.execution_environment === "isolated"
+            ? `Isolated${session.execution_environment_status ? ` ${session.execution_environment_status}` : ""}`
+            : null,
     ].filter(Boolean);
     return bits.join(" · ");
 }

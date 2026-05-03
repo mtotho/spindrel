@@ -104,19 +104,19 @@ class TestMaintenanceToolSurfaces:
 
         with (
             patch(
-                "app.agent.context_assembly._all_tool_schemas_by_name",
+                "app.agent.tool_surface.retrieval._all_tool_schemas_by_name",
                 new_callable=AsyncMock,
                 return_value={},
             ),
             patch(
-                "app.agent.context_assembly.get_local_tool_schemas_by_metadata",
+                "app.agent.tool_surface.retrieval.get_local_tool_schemas_by_metadata",
                 side_effect=schemas_by_metadata,
             ),
             patch(
-                "app.agent.context_assembly.get_local_tool_names_by_metadata",
+                "app.agent.tool_surface.retrieval.get_local_tool_names_by_metadata",
                 side_effect=names_by_metadata,
             ),
-            patch("app.agent.context_assembly.retrieve_tools", retrieve_tools),
+            patch("app.agent.tool_surface.retrieval.retrieve_tools", retrieve_tools),
         ):
             events = [
                 event async for event in _run_tool_retrieval(

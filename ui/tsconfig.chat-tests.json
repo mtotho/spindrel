@@ -3,18 +3,20 @@
   "compilerOptions": {
     "module": "ESNext",
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM"],
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": false,
     "noEmit": false,
     "outDir": "./.chat-test-dist",
-    "types": ["node"]
+    "types": ["node", "vite/client"]
   },
   "include": [
     "app/(app)/channels/[channelId]/chatUtils.ts",
     "app/(app)/channels/[channelId]/chatUtils.test.ts",
     "app/(app)/channels/[channelId]/sessionHeaderChrome.ts",
     "app/(app)/channels/[channelId]/sessionHeaderChrome.test.ts",
+    "app/(app)/admin/projects/[projectId]/ProjectRunsModel.ts",
+    "app/(app)/admin/projects/[projectId]/ProjectRunsModel.test.ts",
     "src/types/api.ts",
     "src/api/types/workspaceMapState.ts",
     "src/stores/chat.ts",
@@ -46,6 +48,8 @@
     "src/lib/channelNavigation.test.ts",
     "src/lib/channelFileNavigation.ts",
     "src/lib/channelFileNavigation.test.ts",
+    "src/lib/projectRailContext.ts",
+    "src/lib/projectRailContext.test.ts",
     "src/lib/recentPages.ts",
     "src/lib/historyModeMeta.ts",
     "src/lib/historyModeMeta.test.ts",

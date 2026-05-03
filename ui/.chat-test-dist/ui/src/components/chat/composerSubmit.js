@@ -9,6 +9,10 @@ export function resolveComposerSubmitIntent({ rawMessage, pendingFiles, disabled
     if (!hasFiles) {
         const slashCommand = resolveSlashCommand(message, slashSurface, slashCatalog, availableSlashCommands);
         if (slashCommand) {
+            const spec = slashCatalog.find((cmd) => cmd.id === slashCommand.id);
+            if (spec?.runtime_command_interaction_kind === "native_session") {
+                return { kind: "send", message, files: undefined };
+            }
             return {
                 kind: "slash",
                 id: slashCommand.id,

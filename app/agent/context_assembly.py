@@ -71,6 +71,7 @@ def __getattr__(name: str) -> Any:
     }:
         return getattr(_ts_enrollment, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+from app.agent.tool_surface import compose_stream as tool_surface_compose_stream
 from app.agent.tool_surface.finalize import _finalize_exposed_tools
 from app.agent.tool_surface.heartbeat import _compose_heartbeat_tool_surface
 from app.agent.tool_surface.retrieval import _run_tool_retrieval
@@ -2161,41 +2162,23 @@ async def assemble_context(
     ):
         yield evt
 
-    # --- tool retrieval (tool RAG) ---
-    pre_selected_tools: list[dict[str, Any]] | None = None
-    _authorized_names: set[str] | None = None
-    if bot.tool_retrieval or getattr(context_profile, "name", None) in {
-        "memory_flush",
-        "memory_hygiene",
-        "skill_review",
-    }:
-        async for _evt in _run_tool_retrieval(
-            messages=messages,
-            bot=bot,
-            user_message=user_message,
-            ch_row=_ch_row,
-            correlation_id=correlation_id,
-            session_id=session_id,
-            client_id=client_id,
-            context_profile=context_profile,
-            tool_surface_policy=tool_surface_policy,
-            required_tool_names=required_tool_names,
-            state=stage_state,
-            ledger=ledger,
-        ):
-            yield _evt
-        pre_selected_tools = stage_state.pre_selected_tools
-        _authorized_names = stage_state.authorized_names
-    # --- tool-exposure finalization (dynamic injection + widget-handler tools + capability gate) ---
-    stage_state.pre_selected_tools = pre_selected_tools
-    stage_state.authorized_names = _authorized_names
-    await _finalize_exposed_tools(
+    # --- tool surface composition (retrieval + heartbeat + finalization) ---
+    async for _evt in tool_surface_compose_stream(
+        messages=messages,
         bot=bot,
-        channel_id=channel_id,
+        user_message=user_message,
         ch_row=_ch_row,
+        channel_id=channel_id,
+        correlation_id=correlation_id,
+        session_id=session_id,
+        client_id=client_id,
+        context_profile=context_profile,
         tool_surface_policy=tool_surface_policy,
+        required_tool_names=required_tool_names,
         state=stage_state,
-    )
+        ledger=ledger,
+    ):
+        yield _evt
     pre_selected_tools = stage_state.pre_selected_tools
     _authorized_names = stage_state.authorized_names
 

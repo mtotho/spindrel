@@ -297,7 +297,7 @@ test("Starboard is an object inspector and Mission Control Review owns decisions
     assert.match(deckSource, /Current finding/);
     assert.doesNotMatch(deckSource, /Reviewing now/);
     assert.match(deckSource, /Review first finding/);
-    assert.match(deckSource, /Sweep unreviewed/);
+    assert.match(deckSource, /Sweep signals/);
     assert.match(deckSource, /Clear all/);
     assert.match(deckSource, /useBulkAcknowledgeAttentionItems/);
     assert.match(deckSource, /scope: "workspace_visible"/);
@@ -306,7 +306,7 @@ test("Starboard is an object inspector and Mission Control Review owns decisions
     assert.match(hubPageSource, /setSelectedId\(null\);\n    const next = new URLSearchParams\(searchParams\);\n    next\.set\("mode", mode\);\n    next\.delete\("item"\);/);
     assert.match(deckSource, /AttentionCommandDeckSkeleton/);
     assert.match(deckSource, /attention-command-deck-loading/);
-    assert.match(deckSource, /Unreviewed items/);
+    assert.match(deckSource, /Raw signals/);
     assert.doesNotMatch(deckSource, /Raw signals waiting/);
     assert.doesNotMatch(deckSource, /DeckSideRail/);
     assert.match(deckSource, /selectedRunId/);
@@ -318,7 +318,7 @@ test("Starboard is an object inspector and Mission Control Review owns decisions
     assert.match(deckSource, /sweepBusy/);
     assert.match(deckSource, /onSelect\(null\);\n    setDeckMode\("runs"\)/);
     assert.match(deckSource, /focusReviewFinding/);
-    assert.match(deckSource, /Pick a sweep in the detail panel/);
+    assert.match(deckSource, /Operator feed/);
     assert.match(deckSource, /md:grid-cols-\[300px_minmax\(0,1fr\)\]/);
     assert.match(deckSource, /return "Code fix"/);
     assert.match(deckSource, /humanizeSuggestedAction/);

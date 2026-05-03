@@ -2,9 +2,7 @@ import { Link } from "react-router-dom";
 import {
   CalendarClock,
   Check,
-  CheckCircle2,
   FileText,
-  GitBranch,
   GitMerge,
   MessageSquarePlus,
   Play,
@@ -47,9 +45,7 @@ import type {
   Project,
   ProjectCodingRun,
   ProjectCodingRunReviewBatch,
-  ProjectCodingRunReviewSessionLedger,
   ProjectCodingRunSchedule,
-  ProjectFactoryReviewInboxItem,
   ProjectRunReceipt,
 } from "@/src/types/api";
 import {
@@ -58,111 +54,26 @@ import {
   formatRunTime,
   RowLink,
 } from "./ProjectRunControls";
-
-type BoardColumnKey = "backlog" | "scheduled" | "running" | "review" | "closed";
-type BoardItem =
-  | { id: string; kind: "run"; column: BoardColumnKey; run: ProjectCodingRun }
-  | { id: string; kind: "schedule"; column: "scheduled"; schedule: ProjectCodingRunSchedule }
-  | { id: string; kind: "review_session"; column: "review"; session: ProjectCodingRunReviewSessionLedger }
-  | { id: string; kind: "batch"; column: "backlog"; batch: ProjectCodingRunReviewBatch }
-  | { id: string; kind: "inbox"; column: "backlog"; item: ProjectFactoryReviewInboxItem }
-  | { id: string; kind: "new_run"; column: "backlog" }
-  | { id: string; kind: "new_schedule"; column: "scheduled" };
-
-const TERMINAL_STATUSES = new Set(["complete", "completed", "cancelled", "canceled", "failed"]);
-const STALE_ACTIVE_MS = 30 * 60 * 1000;
-
-function runTitle(run: ProjectCodingRun) {
-  return run.task.title || "Project coding run";
-}
-
-function runDescription(run: ProjectCodingRun) {
-  return run.request || "";
-}
-
-function shortId(value?: string | null) {
-  if (!value) return "";
-  const parts = value.split(":");
-  return (parts[1] || value).slice(0, 8);
-}
-
-function runStatus(run: ProjectCodingRun) {
-  return String(run.task?.status || run.status || "").toLowerCase();
-}
-
-function reviewStatus(run: ProjectCodingRun) {
-  return String(run.review_queue_state || run.review?.status || run.status || "").toLowerCase();
-}
-
-function isActiveRun(run: ProjectCodingRun) {
-  const status = runStatus(run);
-  return status === "pending" || status === "running";
-}
-
-function isClosedRun(run: ProjectCodingRun) {
-  const status = runStatus(run);
-  const review = reviewStatus(run);
-  return TERMINAL_STATUSES.has(status) || review === "reviewed" || Boolean(run.review?.reviewed);
-}
-
-function isReviewRun(run: ProjectCodingRun) {
-  if (isClosedRun(run)) return false;
-  const review = reviewStatus(run);
-  return ["blocked", "changes_requested", "ready_for_review", "needs_review", "missing_evidence", "pending_evidence", "reviewing", "follow_up_running"].includes(review);
-}
-
-function isActiveReviewSession(session: ProjectCodingRunReviewSessionLedger) {
-  const status = String(session.task_status || session.status || "").toLowerCase();
-  return Boolean(session.actions?.active) || status === "pending" || status === "running" || status === "active";
-}
-
-function itemTimestamp(run: ProjectCodingRun) {
-  return run.updated_at || run.task.completed_at || run.created_at || run.task.created_at || null;
-}
-
-function startedTimestamp(run: ProjectCodingRun) {
-  return run.created_at || run.task.created_at || run.task.run_at || null;
-}
-
-function ageMs(value?: string | null) {
-  if (!value) return 0;
-  const time = new Date(value).getTime();
-  if (!Number.isFinite(time)) return 0;
-  return Math.max(0, Date.now() - time);
-}
-
-function compactAge(value?: string | null) {
-  const ms = ageMs(value);
-  if (ms <= 0) return "now";
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const remaining = minutes % 60;
-  if (hours < 48) return remaining ? `${hours}h ${remaining}m` : `${hours}h`;
-  return `${Math.floor(hours / 24)}d`;
-}
-
-function isStaleActive(run: ProjectCodingRun) {
-  return isActiveRun(run) && ageMs(itemTimestamp(run) || startedTimestamp(run)) > STALE_ACTIVE_MS && !run.receipt;
-}
-
-function evidenceLine(run: ProjectCodingRun) {
-  const evidence = run.review?.evidence;
-  if (evidence) {
-    return `${evidence.tests_count ?? 0} tests · ${evidence.screenshots_count ?? 0} screenshots · ${evidence.changed_files_count ?? 0} files`;
-  }
-  if (!run.receipt) return "no receipt";
-  return `${run.receipt.tests?.length ?? 0} tests · ${run.receipt.screenshots?.length ?? 0} screenshots · ${run.receipt.changed_files?.length ?? 0} files`;
-}
-
-function runMetaLine(run: ProjectCodingRun) {
-  const pieces = [
-    startedTimestamp(run) ? `started ${formatRunTime(startedTimestamp(run))}` : null,
-    run.branch ? `branch ${run.branch}` : null,
-    run.repo?.path ? String(run.repo.path) : null,
-  ].filter(Boolean);
-  return pieces.join(" · ") || "Project coding run";
-}
+import { ProjectRunFeed } from "./ProjectRunFeed";
+import { ProjectRunsBoardCard, batchTitle, compactAge, scheduleNextLine } from "./ProjectRunsBoardCard";
+import {
+  BOARD_COLUMNS,
+  type BoardColumnKey,
+  type BoardItem,
+  buildBoardItems,
+  buildFeedItems,
+  evidenceLine,
+  groupBoardColumns,
+  isActiveRun,
+  isStaleActive,
+  itemTimestamp,
+  reviewStatus,
+  runDescription,
+  runStatus,
+  runTitle,
+  sortScheduleRailItems,
+  startedTimestamp,
+} from "./ProjectRunsModel";
 
 function sessionPathForRun(run: ProjectCodingRun) {
   return run.task.channel_id && run.task.session_id ? `/channels/${run.task.channel_id}/session/${run.task.session_id}` : null;
@@ -172,156 +83,11 @@ function sessionPathForScheduleRun(run?: ProjectCodingRunSchedule["last_run"] | 
   return run?.channel_id && run.session_id ? `/channels/${run.channel_id}/session/${run.session_id}` : null;
 }
 
-function batchTitle(batch: ProjectCodingRunReviewBatch) {
-  return batch.summary?.title || `Launch batch ${shortId(batch.id)}`;
-}
-
-function scheduleNextLine(schedule: ProjectCodingRunSchedule) {
-  return `${schedule.enabled ? "enabled" : "disabled"} · ${schedule.recurrence || "manual"} · next ${formatRunTime(schedule.scheduled_at)}`;
-}
-
-function classifyRun(run: ProjectCodingRun): BoardColumnKey {
-  if (isClosedRun(run)) return "closed";
-  if (isActiveRun(run)) return "running";
-  if (isReviewRun(run)) return "review";
-  return "backlog";
-}
-
-function itemPriority(item: BoardItem) {
-  if (item.kind === "run") {
-    if (isStaleActive(item.run)) return 0;
-    const review = reviewStatus(item.run);
-    if (review === "blocked" || review === "changes_requested") return 1;
-    if (isActiveRun(item.run)) return 2;
-    if (isReviewRun(item.run)) return 3;
-    if (isClosedRun(item.run)) return 8;
-    return 5;
-  }
-  if (item.kind === "review_session") return item.session.actions?.active ? 2 : 6;
-  if (item.kind === "schedule") return item.schedule.enabled ? 4 : 7;
-  if (item.kind === "batch") return 5;
-  if (item.kind === "inbox") return 5;
-  return 9;
-}
-
-function itemSortTime(item: BoardItem) {
-  if (item.kind === "run") return itemTimestamp(item.run) || "";
-  if (item.kind === "review_session") return item.session.latest_activity_at || item.session.created_at || "";
-  if (item.kind === "schedule") return item.schedule.scheduled_at || item.schedule.created_at || "";
-  if (item.kind === "inbox") return item.item.updated_at || item.item.created_at || "";
-  return "";
-}
-
 function columnLabel(key: BoardColumnKey) {
   if (key === "backlog") return "Backlog / ready";
-  if (key === "scheduled") return "Scheduled";
   if (key === "running") return "Running";
   if (key === "review") return "Human review";
   return "Closed";
-}
-
-function BoardCard({
-  item,
-  selected,
-  onSelect,
-}: {
-  item: BoardItem;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  let title = "";
-  let meta = "";
-  let age = "";
-  let urgent = false;
-  let tokens: { label: string; tone?: "red" | "green" | "blue" }[] = [];
-  let icon: React.ReactNode = null;
-
-  if (item.kind === "run") {
-    const run = item.run;
-    title = runTitle(run);
-    meta = item.column === "running" ? `${runMetaLine(run)} · ${evidenceLine(run)}` : `${formatRunTime(itemTimestamp(run))} · ${evidenceLine(run)}`;
-    age = isActiveRun(run) ? compactAge(itemTimestamp(run) || startedTimestamp(run)) : reviewStatus(run).replaceAll("_", " ") || runStatus(run);
-    urgent = isStaleActive(run) || ["blocked", "changes_requested"].includes(reviewStatus(run));
-    tokens = [
-      urgent ? { label: isStaleActive(run) ? "stale" : reviewStatus(run).replaceAll("_", " "), tone: "red" } : { label: runStatus(run) || "run", tone: isClosedRun(run) ? "green" : undefined },
-      run.receipt ? { label: "receipt", tone: "green" } : { label: "no receipt" },
-      run.task.session_id ? { label: "session", tone: "blue" } : { label: "no session" },
-    ];
-    icon = item.column === "review" ? <GitMerge size={13} /> : item.column === "closed" ? <CheckCircle2 size={13} /> : <GitBranch size={13} />;
-  } else if (item.kind === "schedule") {
-    title = item.schedule.title;
-    meta = scheduleNextLine(item.schedule);
-    age = item.schedule.enabled ? "active" : "paused";
-    tokens = [
-      { label: item.schedule.recurrence || "manual", tone: item.schedule.enabled ? "green" : undefined },
-      { label: `${item.schedule.run_count} runs` },
-      item.schedule.last_run?.session_id ? { label: "last session", tone: "blue" } : { label: "no session" },
-    ];
-    icon = <CalendarClock size={13} />;
-  } else if (item.kind === "review_session") {
-    title = item.session.title || "Project coding-run review";
-    meta = `${item.session.run_count} run${item.session.run_count === 1 ? "" : "s"} · latest ${formatRunTime(item.session.latest_activity_at || item.session.created_at)}`;
-    age = item.session.task_status || item.session.status;
-    urgent = String(item.session.status || "").toLowerCase() === "blocked";
-    tokens = [
-      { label: item.session.status, tone: urgent ? "red" : undefined },
-      { label: "review agent", tone: "blue" },
-    ];
-    icon = <GitMerge size={13} />;
-  } else if (item.kind === "batch") {
-    title = batchTitle(item.batch);
-    meta = `${item.batch.run_count} run${item.batch.run_count === 1 ? "" : "s"} · ready ${item.batch.summary?.ready_count ?? 0} · unreviewed ${item.batch.summary?.unreviewed_count ?? 0}`;
-    age = item.batch.status;
-    tokens = [{ label: "batch", tone: "blue" }, { label: item.batch.status }];
-    icon = <GitMerge size={13} />;
-  } else if (item.kind === "inbox") {
-    title = item.item.title;
-    meta = item.item.summary_line || item.item.next_action || item.item.state;
-    age = item.item.state;
-    tokens = [{ label: item.item.state }, item.item.launch_batch_id ? { label: `batch ${shortId(item.item.launch_batch_id)}` } : { label: "inbox" }];
-    icon = <FileText size={13} />;
-  } else {
-    title = item.kind === "new_run" ? "Start a new run" : "Schedule a prompt";
-    meta = item.kind === "new_run" ? "Launch work into a visible channel session." : "Create a recurring Project run prompt.";
-    age = "new";
-    tokens = [{ label: "launcher", tone: "blue" }];
-    icon = item.kind === "new_run" ? <Play size={13} /> : <CalendarClock size={13} />;
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={[
-        "w-full rounded-md border px-2 py-1.5 text-left transition-colors duration-100",
-        selected ? "border-accent bg-accent/[0.08]" : urgent ? "border-danger/45 bg-danger/10" : "border-surface-border/55 bg-surface-raised/45 hover:bg-surface-overlay/40",
-      ].join(" ")}
-    >
-      <div className="flex items-start justify-between gap-1.5">
-        <div className="flex min-w-0 items-start gap-1.5">
-          <span className="mt-0.5 shrink-0 text-text-dim">{icon}</span>
-          <span className="line-clamp-2 min-w-0 text-[12px] font-semibold leading-4 text-text">{title}</span>
-        </div>
-        <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold leading-3 ${urgent ? "bg-danger/10 text-danger-muted" : "bg-surface-overlay/70 text-text-dim"}`}>
-          {age}
-        </span>
-      </div>
-      <div className="mt-1 truncate text-[11px] leading-4 text-text-muted">{meta}</div>
-      <div className="mt-1 flex flex-wrap gap-1">
-        {tokens.filter(Boolean).slice(0, 3).map((token) => (
-          <span
-            key={token.label}
-            className={[
-              "rounded px-1 py-0.5 text-[10px] font-semibold leading-3",
-              token.tone === "red" ? "bg-danger/10 text-danger-muted" : token.tone === "green" ? "bg-success/10 text-success" : token.tone === "blue" ? "bg-accent/10 text-accent" : "bg-surface-overlay/70 text-text-dim",
-            ].join(" ")}
-          >
-            {token.label}
-          </span>
-        ))}
-      </div>
-    </button>
-  );
 }
 
 function DetailRow({ label, value }: { label: string; value?: React.ReactNode }) {
@@ -375,12 +141,14 @@ function DetailDrawer({ title, children, onClose }: { title: string; children: R
 export function ProjectRunsSection({
   project,
   channels,
+  mode = "board",
 }: {
   project: Project;
   channels?: Pick<Channel, "id" | "name" | "bot_id">[];
   receipts?: ProjectRunReceipt[];
+  mode?: "board" | "feed";
 }) {
-  const { data: runs = [] } = useProjectCodingRuns(project.id);
+  const { data: runs = [] } = useProjectCodingRuns(project.id, mode === "feed" ? { limit: 100 } : undefined);
   const { data: schedules = [] } = useProjectCodingRunSchedules(project.id);
   const { data: reviewBatches = [] } = useProjectCodingRunReviewBatches(project.id);
   const { data: reviewSessions = [] } = useProjectCodingRunReviewSessions(project.id);
@@ -455,35 +223,24 @@ export function ProjectRunsSection({
       .slice(0, 8);
   }, [project.id, reviewInbox?.items, runs]);
 
-  const boardItems = useMemo<BoardItem[]>(() => {
-    const items: BoardItem[] = [
-      { id: "action:new-run", kind: "new_run", column: "backlog" },
-      { id: "action:new-schedule", kind: "new_schedule", column: "scheduled" },
-      ...schedules.map((schedule) => ({ id: `schedule:${schedule.id}`, kind: "schedule" as const, column: "scheduled" as const, schedule })),
-      ...reviewSessions.filter(isActiveReviewSession).map((session) => ({ id: `review-session:${session.id}`, kind: "review_session" as const, column: "review" as const, session })),
-      ...runs.map((run) => ({ id: `run:${run.id}`, kind: "run" as const, column: classifyRun(run), run })),
-      ...reviewBatches.filter((batch) => batch.status !== "reviewed").map((batch) => ({ id: `batch:${batch.id}`, kind: "batch" as const, column: "backlog" as const, batch })),
-      ...inboxItems.map((item) => ({ id: `inbox:${item.id}`, kind: "inbox" as const, column: "backlog" as const, item })),
-    ];
-    return items.sort((a, b) => {
-      const priority = itemPriority(a) - itemPriority(b);
-      if (priority !== 0) return priority;
-      return itemSortTime(b).localeCompare(itemSortTime(a));
-    });
-  }, [inboxItems, reviewBatches, reviewSessions, runs, schedules]);
+  const boardItems = useMemo<BoardItem[]>(
+    () => buildBoardItems({ runs, reviewBatches, reviewSessions, inboxItems }),
+    [inboxItems, reviewBatches, reviewSessions, runs],
+  );
+  const scheduleItems = useMemo<BoardItem[]>(() => sortScheduleRailItems(schedules), [schedules]);
+  const allItems = useMemo(() => [...scheduleItems, ...boardItems], [boardItems, scheduleItems]);
+  const feedItems = useMemo(() => buildFeedItems({ runs, schedules }), [runs, schedules]);
 
   const columns = useMemo(() => {
-    const map: Record<BoardColumnKey, BoardItem[]> = { backlog: [], scheduled: [], running: [], review: [], closed: [] };
-    for (const item of boardItems) map[item.column].push(item);
-    return map;
+    return groupBoardColumns(boardItems);
   }, [boardItems]);
 
   useEffect(() => {
-    if (!selectedItemId || boardItems.some((item) => item.id === selectedItemId)) return;
+    if (!selectedItemId || allItems.some((item) => item.id === selectedItemId)) return;
     setSelectedItemId("");
-  }, [boardItems, selectedItemId]);
+  }, [allItems, selectedItemId]);
 
-  const selectedItem = boardItems.find((item) => item.id === selectedItemId);
+  const selectedItem = allItems.find((item) => item.id === selectedItemId);
   useEffect(() => {
     if (selectedItem?.kind !== "schedule") return;
     const schedule = selectedItem.schedule;
@@ -502,7 +259,7 @@ export function ProjectRunsSection({
   const activeRuns = columns.running.filter((item) => item.kind === "run").length;
   const staleRuns = columns.running.filter((item) => item.kind === "run" && isStaleActive(item.run)).length;
   const reviewCount = columns.review.length;
-  const scheduleCount = columns.scheduled.filter((item) => item.kind === "schedule").length;
+  const scheduleCount = scheduleItems.filter((item) => item.kind === "schedule").length;
   const closedCount = columns.closed.length;
 
   const startRun = () => {
@@ -538,7 +295,7 @@ export function ProjectRunsSection({
         title: scheduleTitle.trim() || "Scheduled Project coding run",
         request: scheduleRequest.trim(),
         scheduled_at: scheduleStart || null,
-        recurrence: scheduleRecurrence || "+1w",
+        recurrence: scheduleRecurrence || "",
         machine_target_grant: scheduleMachineTargetGrant,
         loop_policy: scheduleLoopEnabled
           ? {
@@ -617,32 +374,61 @@ export function ProjectRunsSection({
         <span className="text-text-dim">closed <span className="font-semibold text-text-muted">{closedCount}</span></span>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
-        <div className="grid min-h-full min-w-[920px] grid-cols-[repeat(5,minmax(180px,1fr))] gap-1.5">
-          {(["backlog", "scheduled", "running", "review", "closed"] as BoardColumnKey[]).map((column) => (
-            <div key={column} className="min-h-[560px] bg-surface-raised/20 px-1.5 py-1.5">
-              <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
-                <div className="truncate text-[10px] font-bold uppercase tracking-[0.08em] text-text-dim/80">{columnLabel(column)}</div>
-                <div className="text-[10px] font-semibold text-text-dim">{columns[column].length}</div>
-              </div>
-              <div className="grid auto-rows-max grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-1.5">
-                {columns[column].length === 0 ? (
-                  <div className="h-10 rounded-md bg-surface/20" aria-hidden="true" />
-                ) : (
-                  columns[column].map((item) => (
-                    <BoardCard
-                      key={item.id}
-                      item={item}
-                      selected={item.id === selectedItem?.id}
-                      onSelect={() => setSelectedItemId(item.id)}
-                    />
-                  ))
-                )}
-              </div>
-            </div>
-          ))}
+      {mode === "feed" ? (
+        <div className="min-h-0 flex-1 overflow-auto">
+          <ProjectRunFeed
+            items={feedItems}
+            projectId={project.id}
+            onSelectSchedule={(schedule) => setSelectedItemId(`schedule:${schedule.id}`)}
+          />
         </div>
-      </div>
+      ) : (
+        <>
+          <div className="mb-2 rounded-md bg-surface-raised/20 px-1.5 py-1.5">
+            <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
+              <div className="truncate text-[10px] font-bold uppercase tracking-[0.08em] text-text-dim/80">Scheduled</div>
+              <div className="text-[10px] font-semibold text-text-dim">{scheduleCount}</div>
+            </div>
+            <div className="grid auto-rows-max grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-1.5">
+              {scheduleItems.map((item) => (
+                <ProjectRunsBoardCard
+                  key={item.id}
+                  item={item}
+                  selected={item.id === selectedItem?.id}
+                  onSelect={() => setSelectedItemId(item.id)}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-auto">
+            <div className="grid min-h-full min-w-[820px] grid-cols-[repeat(4,minmax(200px,1fr))] gap-1.5">
+              {BOARD_COLUMNS.map((column) => (
+                <div key={column} className="min-h-[560px] bg-surface-raised/20 px-1.5 py-1.5">
+                  <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
+                    <div className="truncate text-[10px] font-bold uppercase tracking-[0.08em] text-text-dim/80">{columnLabel(column)}</div>
+                    <div className="text-[10px] font-semibold text-text-dim">{columns[column].length}</div>
+                  </div>
+                  <div className="grid auto-rows-max grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-1.5">
+                    {columns[column].length === 0 ? (
+                      <div className="h-10 rounded-md bg-surface/20" aria-hidden="true" />
+                    ) : (
+                      columns[column].map((item) => (
+                        <ProjectRunsBoardCard
+                          key={item.id}
+                          item={item}
+                          selected={item.id === selectedItem?.id}
+                          onSelect={() => setSelectedItemId(item.id)}
+                        />
+                      ))
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       {selectedItem && (
         <DetailDrawer title={selectedItem.kind === "run" ? runTitle(selectedItem.run) : selectedItem.kind === "schedule" ? selectedItem.schedule.title : selectedItem.kind === "batch" ? batchTitle(selectedItem.batch) : selectedItem.kind === "review_session" ? selectedItem.session.title || "Review agent" : selectedItem.kind === "inbox" ? selectedItem.item.title : selectedItem.kind === "new_run" ? "Start a new run" : "Schedule a prompt"} onClose={() => setSelectedItemId("")}>

@@ -38,8 +38,8 @@ export function buildPaletteItems(input) {
     });
     pushUnique(items, {
         id: "nav-widgets",
-        label: "Widgets",
-        hint: "Pinned widgets dashboard",
+        label: "Widget dashboards",
+        hint: "Pinned artifacts",
         href: "/widgets",
         icon: LayoutDashboard,
         category: "Widgets",
@@ -47,7 +47,7 @@ export function buildPaletteItems(input) {
     pushUnique(items, {
         id: "nav-widgets-dev",
         label: "Widget developer panel",
-        hint: "Widgets",
+        hint: "Artifacts",
         href: "/widgets/dev",
         icon: Wrench,
         category: "Widgets",
@@ -80,8 +80,8 @@ export function buildPaletteItems(input) {
         });
         pushUnique(items, {
             id: `channel-dashboard-${channel.id}`,
-            label: `Dashboard · ${channelLabel}`,
-            hint: "Widgets",
+            label: `Workbench · ${channelLabel}`,
+            hint: "Pinned artifacts",
             href: `/widgets/channel/${channel.id}`,
             icon: LayoutDashboard,
             category: "Widgets",
@@ -286,8 +286,8 @@ export function buildPaletteItems(input) {
                 continue;
             pushUnique(items, {
                 id: `dashboard-channel-${channelId}`,
-                label: `Dashboard · ${tagChannel(dashboard.name)}`,
-                hint: "Widgets",
+                label: `Workbench · ${tagChannel(dashboard.name)}`,
+                hint: "Pinned artifacts",
                 href: `/widgets/channel/${channelId}`,
                 icon: LayoutDashboard,
                 category: "Widgets",
@@ -297,7 +297,7 @@ export function buildPaletteItems(input) {
         pushUnique(items, {
             id: `dashboard-${dashboard.slug}`,
             label: `Dashboard · ${dashboard.name}`,
-            hint: "Widgets",
+            hint: "Pinned artifacts",
             href: `/widgets/${dashboard.slug}`,
             icon: LayoutDashboard,
             category: "Widgets",
