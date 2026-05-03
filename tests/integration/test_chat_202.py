@@ -10,6 +10,7 @@ End-to-end coverage of the worker → bus → outbox → drainer → renderer
 flow lives in ``tests/integration/test_outbox_drainer_smoke.py`` and
 ``tests/integration/test_turn_worker.py``.
 """
+import base64
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -113,6 +114,70 @@ class TestChat202:
         assert user_msg is not None
         assert user_msg.session_id == task.session_id
         assert user_msg.content == "queue me"
+        assert task.execution_config["chat_burst"] is True
+        assert task.execution_config["burst_user_msg_ids"] == [str(pre_user_msg_id)]
+
+    async def test_busy_followups_coalesce_into_one_pending_task(self, client, db_session):
+        from app.db.models import Channel, Message, Session, Task
+        from app.services.turns import SessionBusyError
+
+        self._mock.side_effect = SessionBusyError("busy")
+        channel_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+        db_session.add_all([
+            Channel(
+                id=channel_id,
+                client_id="web",
+                bot_id="test-bot",
+                name="busy burst",
+                active_session_id=session_id,
+            ),
+            Session(
+                id=session_id,
+                client_id="web",
+                bot_id="test-bot",
+                channel_id=channel_id,
+                session_type="channel",
+            ),
+        ])
+        await db_session.flush()
+
+        bodies = []
+        for text in ("first followup", "second followup", "third followup"):
+            resp = await client.post(
+                "/chat",
+                json={
+                    "message": text,
+                    "bot_id": "test-bot",
+                    "channel_id": str(channel_id),
+                },
+                headers=AUTH_HEADERS,
+            )
+            assert resp.status_code == 202, resp.text
+            bodies.append(resp.json())
+
+        assert bodies[0]["queued"] is True
+        assert bodies[0]["coalesced"] is False
+        assert bodies[1]["task_id"] == bodies[0]["task_id"]
+        assert bodies[2]["task_id"] == bodies[0]["task_id"]
+        assert bodies[1]["coalesced"] is True
+        assert bodies[2]["queued_message_count"] == 3
+
+        task = await db_session.get(Task, uuid.UUID(bodies[0]["task_id"]))
+        assert task is not None
+        ecfg = task.execution_config
+        assert ecfg["chat_burst"] is True
+        assert len(ecfg["burst_user_msg_ids"]) == 3
+        assert ecfg["pre_user_msg_id"] == ecfg["burst_user_msg_ids"][0]
+        assert "Reply once" in task.prompt
+        assert "1. first followup" in task.prompt
+        assert "2. second followup" in task.prompt
+        assert "3. third followup" in task.prompt
+
+        for idx, msg_id in enumerate(ecfg["burst_user_msg_ids"]):
+            msg = await db_session.get(Message, uuid.UUID(msg_id))
+            assert msg is not None
+            assert msg.content == ("first followup", "second followup", "third followup")[idx]
 
     async def test_text_followup_carries_recent_image_context(self, client, db_session):
         from datetime import datetime, timezone
@@ -171,6 +236,65 @@ class TestChat202:
         assert carried and carried[0]["attachment_id"] == str(attachment.id)
         assert carried[0]["name"] == "pot.jpg"
         assert carried[0]["source"] == "recent_chat_image"
+
+    async def test_inline_attachment_without_file_metadata_creates_attachment_row(self, client, db_session):
+        from app.db.models import Attachment, Channel, Message, Session
+        from sqlalchemy import select
+
+        channel_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+        db_session.add_all([
+            Channel(
+                id=channel_id,
+                client_id="web",
+                bot_id="test-bot",
+                name="raw image",
+                active_session_id=session_id,
+            ),
+            Session(
+                id=session_id,
+                client_id="web",
+                bot_id="test-bot",
+                channel_id=channel_id,
+                session_type="channel",
+            ),
+        ])
+        await db_session.flush()
+        image_bytes = b"fake-red-pixel"
+        encoded = base64.b64encode(image_bytes).decode("ascii")
+
+        resp = await client.post(
+            "/chat",
+            json={
+                "message": "what color is this",
+                "bot_id": "test-bot",
+                "channel_id": str(channel_id),
+                "attachments": [{
+                    "type": "image",
+                    "content": encoded,
+                    "mime_type": "image/png",
+                    "name": "probe.png",
+                }],
+            },
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 202, resp.text
+        kwargs = self._mock.await_args.kwargs
+        payload = kwargs["att_payload"][0]
+        assert payload["attachment_id"]
+
+        msg = await db_session.get(Message, uuid.UUID(kwargs["req"].msg_metadata["_pre_user_msg_id"]))
+        assert msg is not None
+        assert msg.content == "what color is this"
+        rows = await db_session.execute(
+            select(Attachment).where(Attachment.message_id == msg.id)
+        )
+        attachments = rows.scalars().all()
+        assert len(attachments) == 1
+        assert attachments[0].filename == "probe.png"
+        assert attachments[0].mime_type == "image/png"
+        assert attachments[0].file_data == image_bytes
 
     async def test_secondary_channel_session_requires_web_only_delivery(self, client, db_session):
         from app.db.models import Channel, Session

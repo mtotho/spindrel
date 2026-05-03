@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from app.db.models import Channel, ExecutionReceipt, Project, ProjectDependencyStackInstance, ProjectRunReceipt, Task, TaskMachineGrant
+from app.db.models import Channel, ExecutionReceipt, Message, Project, ProjectDependencyStackInstance, ProjectRunReceipt, Task, TaskMachineGrant
 from app.services.project_coding_runs import (
     ProjectCodingRunCreate,
     ProjectCodingRunReviewFinalize,
@@ -258,6 +258,63 @@ async def test_create_project_coding_run_uses_explicit_repo_path(db_session):
     assert run_cfg["repo"] == {"name": "spindrel", "path": "spindrel", "url": None}
     assert run_cfg["base_branch"] == "development"
     assert "Repository path: spindrel" in task.prompt
+
+
+@pytest.mark.asyncio
+async def test_create_project_coding_run_records_environment_failure(db_session, monkeypatch):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Projects",
+        slug="projects",
+        root_path="common/projects",
+        metadata_={"blueprint_snapshot": {"repos": [{"name": "spindrel", "path": "spindrel", "branch": "development"}]}},
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    async def fail_environment(*_args, **_kwargs):
+        raise RuntimeError("private Docker daemon is unreachable at tcp://127.0.0.1:50209")
+
+    monkeypatch.setattr(
+        "app.services.session_execution_environments.ensure_isolated_session_environment",
+        fail_environment,
+    )
+
+    task = await create_project_coding_run(
+        db_session,
+        project,
+        ProjectCodingRunCreate(channel_id=channel_id, request="Smoke.", repo_path="spindrel"),
+    )
+
+    assert task.status == "failed"
+    assert task.error == "private Docker daemon is unreachable at tcp://127.0.0.1:50209"
+    run_cfg = task.execution_config["project_coding_run"]
+    assert run_cfg["session_environment"]["status"] == "failed"
+    assert run_cfg["loop_state"]["state"] == "blocked"
+
+    receipt = (await db_session.execute(
+        select(ProjectRunReceipt).where(ProjectRunReceipt.task_id == task.id)
+    )).scalar_one()
+    assert receipt.status == "blocked"
+    assert receipt.metadata_["loop"]["decision"] == "blocked"
+
+    message = (await db_session.execute(
+        select(Message).where(Message.session_id == task.session_id, Message.role == "assistant")
+    )).scalar_one()
+    assert "blocked before the agent started" in (message.content or "")
+    assert "tcp://127.0.0.1:50209" in (message.content or "")
 
 
 @pytest.mark.asyncio

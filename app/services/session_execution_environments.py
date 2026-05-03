@@ -303,12 +303,18 @@ def _docker_payload_from_inspect(session_id: uuid.UUID, info: dict[str, Any]) ->
         if isinstance(mount, dict) and mount.get("Destination") == "/var/lib/docker" and mount.get("Name"):
             volume = str(mount["Name"])
             break
+    network_name = _current_container_network()
+    networks = network.get("Networks") if isinstance(network.get("Networks"), dict) else {}
+    network_endpoint = None
+    if network_name and network_name in networks:
+        network_endpoint = f"tcp://{_container_name(session_id)}:2375"
     return {
-        "endpoint": f"tcp://127.0.0.1:{port}" if port else None,
+        "endpoint": network_endpoint or (f"tcp://127.0.0.1:{port}" if port else None),
         "container_id": str(info.get("Id") or ""),
         "container_name": _container_name(session_id),
         "state_volume": volume,
         "port": port,
+        "network": network_name if network_endpoint else None,
         "state": "running" if state.get("Running") else (state.get("Status") or "unknown"),
     }
 
@@ -330,14 +336,43 @@ def _wait_for_docker_endpoint(endpoint: str | None, *, attempts: int = 12, timeo
     return False
 
 
+def _current_container_network() -> str | None:
+    configured = os.environ.get("SPINDREL_SESSION_DOCKER_NETWORK")
+    if configured:
+        return configured
+    hostname = os.environ.get("HOSTNAME")
+    if not hostname:
+        return None
+    proc = _run(["docker", "inspect", hostname], timeout=10)
+    if proc.returncode != 0:
+        return None
+    try:
+        payload = json.loads(proc.stdout or "[]")
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, list) or not payload or not isinstance(payload[0], dict):
+        return None
+    settings = payload[0].get("NetworkSettings")
+    networks = settings.get("Networks") if isinstance(settings, dict) else None
+    if not isinstance(networks, dict) or not networks:
+        return None
+    # Prefer user-defined compose networks; bridge/host/none do not provide the
+    # stable container DNS name we need for the private dockerd endpoint.
+    for name in networks:
+        if name not in {"bridge", "host", "none"}:
+            return str(name)
+    return None
+
+
 def _run_new_docker_daemon(session_id: uuid.UUID) -> dict[str, Any]:
     if os.environ.get("SPINDREL_SESSION_DOCKER_DISABLED") == "1":
         raise RuntimeError("per-session Docker daemon is disabled by SPINDREL_SESSION_DOCKER_DISABLED")
 
     name = _container_name(session_id)
     volume = _state_volume_name(session_id)
-    port = _find_free_port()
-    endpoint = f"tcp://127.0.0.1:{port}"
+    network = _current_container_network()
+    port = None if network else _find_free_port()
+    endpoint = f"tcp://{name}:2375" if network else f"tcp://127.0.0.1:{port}"
     args = [
         "docker",
         "run",
@@ -351,15 +386,20 @@ def _run_new_docker_daemon(session_id: uuid.UUID) -> dict[str, Any]:
         "spindrel.kind=session-docker-daemon",
         "-e",
         "DOCKER_TLS_CERTDIR=",
-        "-p",
-        f"127.0.0.1:{port}:2375",
         "-v",
         f"{volume}:/var/lib/docker",
+    ]
+    if network:
+        args.extend(["--network", network])
+    else:
+        args.extend(["-p", f"127.0.0.1:{port}:2375"])
+    args.extend([
         _docker_image(),
         "dockerd",
         "--host=tcp://0.0.0.0:2375",
         "--host=unix:///var/run/docker.sock",
-    ]
+        "--tls=false",
+    ])
     proc = _run(args, timeout=120)
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip()
@@ -370,6 +410,7 @@ def _run_new_docker_daemon(session_id: uuid.UUID) -> dict[str, Any]:
         "container_name": name,
         "state_volume": volume,
         "port": port,
+        "network": network,
         "state": "running",
     }
 

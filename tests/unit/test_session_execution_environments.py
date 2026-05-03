@@ -14,6 +14,7 @@ from app.services.session_execution_environments import (
     load_session_execution_runtime,
     manage_session_execution_environment,
     _prepare_session_worktree,
+    _run_new_docker_daemon,
 )
 
 
@@ -203,6 +204,28 @@ async def test_isolated_session_environment_fails_when_docker_endpoint_unreachab
             project=project,
             project_instance=instance,
         )
+
+
+async def test_new_session_docker_daemon_uses_configured_container_network(monkeypatch):
+    session_id = uuid.uuid4()
+    commands = []
+
+    def fake_run(args, **_kwargs):
+        commands.append(args)
+        return subprocess.CompletedProcess(args, 0, "container-id\n", "")
+
+    monkeypatch.setenv("SPINDREL_SESSION_DOCKER_NETWORK", "agent-server_default")
+    monkeypatch.setattr("app.services.session_execution_environments._run", fake_run)
+
+    payload = _run_new_docker_daemon(session_id)
+
+    assert payload["endpoint"] == f"tcp://spindrel-session-docker-{str(session_id).replace('-', '')[:12]}:2375"
+    assert payload["port"] is None
+    assert payload["network"] == "agent-server_default"
+    run_cmd = commands[0]
+    assert "--network" in run_cmd
+    assert "agent-server_default" in run_cmd
+    assert "-p" not in run_cmd
 
 
 async def test_session_environment_lifecycle_stops_starts_pins_and_cleans(db_session, monkeypatch):

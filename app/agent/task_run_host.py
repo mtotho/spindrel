@@ -637,6 +637,79 @@ async def _ensure_session_environment_if_requested(
     )
 
 
+def _api_task_user_message_ids(ecfg: dict[str, Any]) -> list[uuid.UUID]:
+    raw_ids = ecfg.get("burst_user_msg_ids") if isinstance(ecfg, dict) else None
+    parsed: list[uuid.UUID] = []
+    if isinstance(raw_ids, list):
+        for raw_id in raw_ids:
+            try:
+                parsed.append(uuid.UUID(str(raw_id)))
+            except (TypeError, ValueError):
+                continue
+    if parsed:
+        return parsed
+    raw_id = ecfg.get("pre_user_msg_id") if isinstance(ecfg, dict) else None
+    if raw_id:
+        try:
+            return [uuid.UUID(str(raw_id))]
+        except (TypeError, ValueError):
+            return []
+    return []
+
+
+async def _inline_image_payloads_for_messages(
+    db: Any,
+    *,
+    message_ids: list[uuid.UUID],
+    max_images: int = 6,
+) -> list[dict]:
+    if not message_ids or max_images <= 0:
+        return []
+    import base64
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.db.models import Message
+
+    rows = await db.execute(
+        select(Message)
+        .options(selectinload(Message.attachments))
+        .where(Message.id.in_(message_ids))
+    )
+    by_id = {msg.id: msg for msg in rows.scalars().all()}
+    payloads: list[dict] = []
+    for msg_id in message_ids:
+        msg = by_id.get(msg_id)
+        if msg is None:
+            continue
+        for att in (msg.attachments or []):
+            if len(payloads) >= max_images:
+                return payloads
+            if att.type != "image" or not att.file_data:
+                continue
+            payloads.append({
+                "type": "image",
+                "content": base64.b64encode(att.file_data or b"").decode("ascii"),
+                "mime_type": att.mime_type or "image/jpeg",
+                "name": att.filename or "attachment",
+                "attachment_id": str(att.id),
+                "source": "queued_chat_burst",
+            })
+    return payloads
+
+
+def _dedupe_attachment_payloads(payloads: list[dict]) -> list[dict]:
+    seen: set[str] = set()
+    deduped: list[dict] = []
+    for payload in payloads:
+        key = str(payload.get("attachment_id") or "")
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        deduped.append(payload)
+    return deduped
+
+
 async def _run_normal_agent_task(
     prepared: _PreparedTaskRun,
     *,
@@ -659,22 +732,46 @@ async def _run_normal_agent_task(
     carried_attachments = None
     carried_context = None
     pre_user_msg_id = None
+    api_user_msg_ids: list[uuid.UUID] = []
     if task.task_type == "api" and task.session_id is not None:
-        pre_user_msg_id_str = (task.execution_config or {}).get("pre_user_msg_id")
-        if pre_user_msg_id_str:
-            try:
-                pre_user_msg_id = uuid.UUID(str(pre_user_msg_id_str))
-            except (ValueError, TypeError):
-                pre_user_msg_id = None
-        if pre_user_msg_id is not None:
-            from app.services.recent_attachments import recent_inline_image_context
-            async with deps.async_session() as attach_db:
+        api_user_msg_ids = _api_task_user_message_ids(task.execution_config or {})
+        pre_user_msg_id = api_user_msg_ids[0] if api_user_msg_ids else None
+        queued_attachments: list[dict] = []
+        async with deps.async_session() as attach_db:
+            if api_user_msg_ids:
+                queued_attachments = await _inline_image_payloads_for_messages(
+                    attach_db,
+                    message_ids=api_user_msg_ids,
+                )
+            if pre_user_msg_id is not None:
+                from app.services.recent_attachments import recent_inline_image_context
                 carried_context = await recent_inline_image_context(
                     attach_db,
                     session_id=task.session_id,
                     before_message_id=pre_user_msg_id,
                 )
-                carried_attachments = carried_context.payloads if carried_context else None
+        all_attachments: list[dict] = []
+        if carried_context:
+            all_attachments.extend(carried_context.payloads)
+        all_attachments.extend(queued_attachments)
+        carried_attachments = _dedupe_attachment_payloads(all_attachments) or None
+
+        if len(api_user_msg_ids) > 1:
+            from app.agent.recording import _record_trace_event
+            await _record_trace_event(
+                correlation_id=prepared.correlation_id,
+                session_id=task.session_id,
+                bot_id=bot.id,
+                client_id=task.client_id or "task",
+                event_type="chat_burst_coalesced",
+                event_name="api_task",
+                count=len(api_user_msg_ids),
+                data={
+                    "task_id": str(task.id),
+                    "message_ids": [str(msg_id) for msg_id in api_user_msg_ids],
+                    "attachment_count": len(carried_attachments or []),
+                },
+            )
 
     if carried_context is not None:
         from app.agent.recording import _record_trace_event
@@ -784,16 +881,8 @@ async def _run_normal_agent_task(
             "context_visibility": "background",
         }
 
-    pre_user_msg_id_str = (task.execution_config or {}).get("pre_user_msg_id")
-    pre_user_msg_id = None
-    if pre_user_msg_id_str:
-        try:
-            pre_user_msg_id = uuid.UUID(pre_user_msg_id_str)
-        except (ValueError, TypeError):
-            logger.warning(
-                "task %s: invalid pre_user_msg_id %r in execution_config",
-                task.id, pre_user_msg_id_str,
-            )
+    api_user_msg_ids = _api_task_user_message_ids(task.execution_config or {})
+    pre_user_msg_id = api_user_msg_ids[0] if api_user_msg_ids else None
 
     persist_channel_id = None if suppress_channel else task.channel_id
     async with deps.async_session() as db:

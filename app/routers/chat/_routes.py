@@ -16,6 +16,7 @@ publishes ``TURN_ENDED`` when done. Subscribers tail
 """
 from __future__ import annotations
 
+import base64
 import logging
 import uuid
 from dataclasses import dataclass
@@ -24,6 +25,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import get_bot, list_bots
@@ -57,6 +59,7 @@ from app.schemas.chat import (
     CancelRequest,
     CancelResponse,
     ChatRequest,
+    FileMetadata,
     SecretCheckRequest,
     SecretCheckResponse,
     ToolResultRequest,
@@ -65,6 +68,7 @@ from app.schemas.chat import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+_BUSY_CHAT_BURST_DELAY_SECONDS = 2
 
 
 @dataclass
@@ -372,6 +376,122 @@ async def _queue_channel_task(
     return queued_task
 
 
+def _chat_burst_delivery_config(req: ChatRequest, run: _NormalChatRun) -> dict[str, Any]:
+    execution_config: dict[str, Any] = {
+        "chat_burst": True,
+        "burst_user_msg_ids": [],
+    }
+    if run.session_scoped_delivery:
+        execution_config["session_scoped"] = True
+        execution_config["external_delivery"] = req.external_delivery
+    return execution_config
+
+
+def _task_matches_chat_burst_policy(task: TaskModel, req: ChatRequest, run: _NormalChatRun) -> bool:
+    ecfg = task.execution_config if isinstance(task.execution_config, dict) else {}
+    if ecfg.get("chat_burst") is not True:
+        return False
+    if bool(ecfg.get("session_scoped")) != bool(run.session_scoped_delivery):
+        return False
+    if run.session_scoped_delivery and ecfg.get("external_delivery") != req.external_delivery:
+        return False
+    return True
+
+
+async def _find_pending_chat_burst_task(
+    *,
+    db: AsyncSession,
+    req: ChatRequest,
+    run: _NormalChatRun,
+) -> TaskModel | None:
+    rows = await db.execute(
+        select(TaskModel)
+        .where(
+            TaskModel.status == "pending",
+            TaskModel.task_type == "api",
+            TaskModel.session_id == run.session_id,
+            TaskModel.channel_id == run.channel.id,
+            TaskModel.bot_id == req.bot_id,
+        )
+        .order_by(TaskModel.created_at.asc())
+    )
+    for task in rows.scalars().all():
+        if _task_matches_chat_burst_policy(task, req, run):
+            return task
+    return None
+
+
+async def _build_chat_burst_prompt(
+    *,
+    db: AsyncSession,
+    user_msg_ids: list[uuid.UUID],
+) -> str:
+    if not user_msg_ids:
+        return "[QUEUED CHAT BURST]\nThe user sent follow-up messages while you were responding."
+    rows = await db.execute(
+        select(MessageModel)
+        .where(MessageModel.id.in_(user_msg_ids))
+    )
+    by_id = {msg.id: msg for msg in rows.scalars().all()}
+    ordered = [by_id[msg_id] for msg_id in user_msg_ids if msg_id in by_id]
+    lines = [
+        "[QUEUED CHAT BURST]",
+        "The user sent these messages while you were responding. Reply once, addressing them together in order.",
+        "",
+    ]
+    for idx, msg in enumerate(ordered, start=1):
+        content = (msg.content or "").strip() or "[empty message]"
+        lines.append(f"{idx}. {content}")
+    return "\n".join(lines)
+
+
+async def _queue_or_append_chat_burst_task(
+    *,
+    db: AsyncSession,
+    req: ChatRequest,
+    run: _NormalChatRun,
+    queued_user_msg_id: uuid.UUID,
+) -> tuple[TaskModel, bool, int]:
+    queued_task = await _find_pending_chat_burst_task(db=db, req=req, run=run)
+    coalesced = queued_task is not None
+    if queued_task is None:
+        execution_config = _chat_burst_delivery_config(req, run)
+        execution_config["pre_user_msg_id"] = str(queued_user_msg_id)
+        execution_config["burst_user_msg_ids"] = [str(queued_user_msg_id)]
+        queued_task = TaskModel(
+            bot_id=req.bot_id,
+            client_id=req.client_id,
+            session_id=run.session_id,
+            channel_id=run.channel.id,
+            prompt=await _build_chat_burst_prompt(db=db, user_msg_ids=[queued_user_msg_id]),
+            status="pending",
+            task_type="api",
+            created_at=datetime.now(timezone.utc),
+            scheduled_at=datetime.now(timezone.utc) + timedelta(seconds=_BUSY_CHAT_BURST_DELAY_SECONDS),
+            execution_config=execution_config,
+        )
+        db.add(queued_task)
+        return queued_task, coalesced, 1
+
+    execution_config = dict(queued_task.execution_config or {})
+    raw_ids = execution_config.get("burst_user_msg_ids") or []
+    user_msg_ids: list[uuid.UUID] = []
+    for raw_id in raw_ids:
+        try:
+            user_msg_ids.append(uuid.UUID(str(raw_id)))
+        except (TypeError, ValueError):
+            continue
+    if queued_user_msg_id not in user_msg_ids:
+        user_msg_ids.append(queued_user_msg_id)
+    execution_config["chat_burst"] = True
+    execution_config["burst_user_msg_ids"] = [str(msg_id) for msg_id in user_msg_ids]
+    execution_config["pre_user_msg_id"] = str(user_msg_ids[0])
+    queued_task.execution_config = execution_config
+    queued_task.prompt = await _build_chat_burst_prompt(db=db, user_msg_ids=user_msg_ids)
+    queued_task.scheduled_at = datetime.now(timezone.utc) + timedelta(seconds=_BUSY_CHAT_BURST_DELAY_SECONDS)
+    return queued_task, coalesced, len(user_msg_ids)
+
+
 async def _maybe_short_circuit_normal_chat(
     *,
     req: ChatRequest,
@@ -432,7 +552,10 @@ async def _prepare_attachment_records(
     prepared: _PreparedChatInput,
 ) -> uuid.UUID | None:
     pre_user_msg_id: uuid.UUID | None = None
-    if not req.file_metadata:
+    file_metadata = list(req.file_metadata or [])
+    if not file_metadata and prepared.att_payload:
+        file_metadata = _file_metadata_from_inline_attachments(req, prepared.att_payload)
+    if not file_metadata:
         return pre_user_msg_id
 
     pre_user_msg_id = uuid.uuid4()
@@ -451,7 +574,7 @@ async def _prepare_attachment_records(
 
     source = (req.msg_metadata or {}).get("source", "web")
     created_attachments = await _create_attachments_from_metadata(
-        req.file_metadata, run.channel.id, source, bot_id=req.bot_id,
+        file_metadata, run.channel.id, source, bot_id=req.bot_id,
         message_id=pre_user_msg_id,
     )
     if prepared.att_payload:
@@ -464,6 +587,32 @@ async def _prepare_attachment_records(
             if matched_id:
                 entry["attachment_id"] = matched_id
     return pre_user_msg_id
+
+
+def _file_metadata_from_inline_attachments(
+    req: ChatRequest,
+    attachments: list[dict],
+) -> list[FileMetadata]:
+    posted_by = (req.msg_metadata or {}).get("sender_id")
+    result: list[FileMetadata] = []
+    for idx, entry in enumerate(attachments, start=1):
+        content = entry.get("content")
+        if not isinstance(content, str) or not content:
+            continue
+        mime_type = entry.get("mime_type") or "application/octet-stream"
+        name = entry.get("name") or f"attachment-{idx}"
+        try:
+            size_bytes = len(base64.b64decode(content, validate=False))
+        except Exception:
+            size_bytes = 0
+        result.append(FileMetadata(
+            filename=name,
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+            posted_by=posted_by,
+            file_data=content,
+        ))
+    return result
 
 
 async def _carry_forward_recent_image_context(
@@ -548,19 +697,20 @@ async def _start_or_queue_normal_turn(
                 metadata_=queued_meta,
                 created_at=datetime.now(timezone.utc),
             ))
-        queued_task = await _queue_channel_task(
+        queued_task, coalesced, queued_message_count = await _queue_or_append_chat_burst_task(
             db=db,
             req=req,
             run=run,
-            message=prepared.message,
-            pre_user_msg_id=queued_user_msg_id,
-            delay_seconds=10,
+            queued_user_msg_id=queued_user_msg_id,
         )
         await db.commit()
         await db.refresh(queued_task)
         logger.info(
-            "Session %s busy — queued message as task %s",
-            run.session_id, queued_task.id,
+            "Session %s busy — %s chat burst task %s (%d message(s))",
+            run.session_id,
+            "appended to" if coalesced else "queued",
+            queued_task.id,
+            queued_message_count,
         )
         return JSONResponse(
             {
@@ -568,6 +718,8 @@ async def _start_or_queue_normal_turn(
                 "queued": True,
                 "task_id": str(queued_task.id),
                 "session_scoped": run.session_scoped_delivery,
+                "coalesced": coalesced,
+                "queued_message_count": queued_message_count,
             },
             status_code=202,
         ), False
