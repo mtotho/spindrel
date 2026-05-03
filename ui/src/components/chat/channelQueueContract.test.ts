@@ -20,6 +20,11 @@ test("channel chat submits follow-ups immediately and renders server queue state
   assert.match(useChannelChat, /local_status:\s*"queued"/);
   assert.match(useChannelChat, /queuedLocalMessages\(messages\)/);
   assert.match(useChannelChat, /Math\.max\(result\.queued_message_count \?\? 0, localQueuedCount\)/);
+  assert.match(useChannelChat, /meta\.client_local_id === prepared\.clientLocalId/);
+
+  const channelEvents = readProjectFile("src/api/hooks/useChannelEvents.ts");
+  assert.match(channelEvents, /const queuedMeta = optimisticMatches/);
+  assert.match(channelEvents, /local_status:\s*"queued"/);
 
   assert.doesNotMatch(channelPage, /onCancelQueue:|onEditQueue:|onSendNow:/);
   assert.match(messageInput, /Responding - follow-up will be queued/);

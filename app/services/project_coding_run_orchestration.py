@@ -41,6 +41,7 @@ from app.services.project_coding_run_lib import (
     normalize_work_surface_mode,
 )
 from app.services.project_runtime import project_snapshot
+from app.services.project_run_environment_profiles import validate_project_run_environment_profile_or_raise
 
 
 def _apply_work_surface_mode(task: Task, mode: str) -> None:
@@ -266,6 +267,12 @@ async def create_project_coding_run(
         schedule_run_number=body.schedule_run_number,
     )
     work_surface_mode = normalize_work_surface_mode(body.work_surface_mode)
+    await validate_project_run_environment_profile_or_raise(
+        project,
+        profile_id=body.run_environment_profile,
+        repo_path=body.repo_path,
+        work_surface_mode=work_surface_mode,
+    )
     loop_policy = normalize_project_run_loop_policy(body.loop_policy)
     prompt = _project_coding_run_prompt(
         base_prompt=preset.task_defaults.prompt,

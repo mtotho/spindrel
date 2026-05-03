@@ -20,6 +20,7 @@ PROJECT_CHANNEL_TOOL_NAMES: tuple[str, ...] = (
     "propose_run_packs",
     "update_project_intake_config",
     "write_project_workflow_starter",
+    "validate_project_run_environment_profile",
     "get_project_coding_run_details",
     "schedule_project_coding_run",
     "prepare_project_run_handoff",

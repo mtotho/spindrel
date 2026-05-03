@@ -218,14 +218,22 @@ export function useChannelChatSource(channelId: string): UseChannelChatSourceRet
             const current = store.channels[channelId]?.messages ?? [];
             const localQueuedCount = current.filter((message) => {
               const meta = (message.metadata ?? {}) as Record<string, unknown>;
-              return message.role === "user" && (message.id === optimisticMsgId || meta.local_status === "queued");
+              return message.role === "user" && (
+                message.id === optimisticMsgId ||
+                meta.client_local_id === clientLocalId ||
+                meta.local_status === "queued"
+              );
             }).length;
             const queuedCount = Math.max(result.queued_message_count ?? 0, localQueuedCount);
             setMessages(channelId, current.map((message) => {
               const meta = (message.metadata ?? {}) as Record<string, any>;
               const isQueuedLocal =
                 message.role === "user" &&
-                (message.id === optimisticMsgId || meta.local_status === "queued");
+                (
+                  message.id === optimisticMsgId ||
+                  meta.client_local_id === clientLocalId ||
+                  meta.local_status === "queued"
+                );
               if (!isQueuedLocal) return message;
               return {
                 ...message,

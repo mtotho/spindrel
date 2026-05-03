@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Message, Project, ProjectRunReceipt, Task
 from app.services.project_coding_run_lib import WORK_SURFACE_SHARED_REPO, normalize_work_surface_mode
 from app.services.project_runtime import ProjectRuntimeEnvironment, load_project_runtime_environment_for_id
-from app.services.projects import normalize_project_path, project_canonical_repo_host_path
+from app.services.projects import normalize_project_path, project_canonical_repo_host_path, project_repo_host_path
 from app.services.secret_registry import redact
 from app.services.session_execution_environments import (
     get_session_execution_environment,
@@ -313,11 +313,11 @@ async def _load_repo_file_profile(
     *,
     project: Project,
     profile_id: str,
-    cwd: str,
+    cwd: str | None,
     work_surface_mode: str,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     metadata = _project_metadata(project)
-    if not bool(metadata.get("trust_repo_environment_profiles")):
+    if not bool(metadata.get("trust_repo_environment_profiles")) or not cwd:
         return None, None
     if not PROFILE_ID_RE.match(profile_id):
         return None, {
@@ -398,7 +398,7 @@ async def _resolve_profile_definition(
     *,
     project: Project,
     profile_id: str | None,
-    cwd: str,
+    cwd: str | None,
     work_surface_mode: str,
 ) -> tuple[str | None, dict[str, Any] | None, dict[str, Any]]:
     resolved_id = (profile_id or "").strip() or default_run_environment_profile_id(project)
@@ -1095,7 +1095,7 @@ async def validate_run_environment_profile(
     project: Project,
     profile_id: str | None,
     *,
-    cwd: str,
+    cwd: str | None,
     work_surface_mode: str = "isolated_worktree",
 ) -> dict[str, Any]:
     resolved_id, profile, source = await _resolve_profile_definition(
@@ -1109,12 +1109,71 @@ async def validate_run_environment_profile(
         "profile_id": resolved_id,
         "source_layer": source.get("source_layer"),
         "profile_path": source.get("profile_path"),
+        "status": source.get("status") if profile is None else "ready",
         "current_hash": source.get("current_hash"),
         "approved_hash": source.get("approved_hash"),
         "approved_by": source.get("approved_by"),
         "error": None if profile is not None else source.get("error") or f"run environment profile not found: {resolved_id}",
         "fields": sorted(profile.keys()) if isinstance(profile, dict) else [],
     }
+
+
+async def validate_project_run_environment_profile_selection(
+    project: Project,
+    *,
+    profile_id: str | None,
+    repo_path: str | None = None,
+    work_surface_mode: str = "isolated_worktree",
+) -> dict[str, Any]:
+    metadata = _project_metadata(project)
+    cwd = project_repo_host_path(project, repo_path=repo_path)
+    resolved_id = (profile_id or "").strip() or default_run_environment_profile_id(project)
+    if not resolved_id:
+        return {
+            "ok": True,
+            "configured": False,
+            "profile_id": None,
+            "work_surface_mode": normalize_work_surface_mode(work_surface_mode),
+            "trust_repo_environment_profiles": bool(metadata.get("trust_repo_environment_profiles")),
+            "cwd": cwd,
+        }
+    result = await validate_run_environment_profile(
+        project,
+        resolved_id,
+        cwd=cwd,
+        work_surface_mode=work_surface_mode,
+    )
+    result.update({
+        "configured": True,
+        "trust_repo_environment_profiles": bool(metadata.get("trust_repo_environment_profiles")),
+        "cwd": cwd,
+        "work_surface_mode": normalize_work_surface_mode(work_surface_mode),
+    })
+    if not result.get("ok"):
+        result["status"] = str(result.get("status") or "blocked")
+        if not result.get("error"):
+            result["error"] = f"run environment profile is not valid: {resolved_id}"
+    else:
+        result["status"] = "ready"
+    return result
+
+
+async def validate_project_run_environment_profile_or_raise(
+    project: Project,
+    *,
+    profile_id: str | None,
+    repo_path: str | None = None,
+    work_surface_mode: str = "isolated_worktree",
+) -> dict[str, Any]:
+    result = await validate_project_run_environment_profile_selection(
+        project,
+        profile_id=profile_id,
+        repo_path=repo_path,
+        work_surface_mode=work_surface_mode,
+    )
+    if result.get("ok") is False:
+        raise ValueError(str(result.get("error") or "run environment profile is invalid"))
+    return result
 
 
 def approve_run_environment_profile_hash(

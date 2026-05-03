@@ -62,7 +62,10 @@ from app.services.project_dependency_stacks import (
 )
 from app.services.project_setup import list_project_setup_runs, load_project_setup_plan, run_project_setup
 from app.services.project_runtime import load_project_runtime_environment
-from app.services.project_run_environment_profiles import approve_run_environment_profile_hash
+from app.services.project_run_environment_profiles import (
+    approve_run_environment_profile_hash,
+    validate_project_run_environment_profile_selection,
+)
 from app.services.project_factory_state import get_project_factory_state
 from app.services.project_orchestration_policy import get_project_orchestration_policy
 from app.services.projects import (
@@ -438,6 +441,12 @@ class ProjectRunEnvironmentProfileApprovalOut(BaseModel):
     sha256: str
     approved_by: str | None = None
     approved_at: str
+
+
+class ProjectRunEnvironmentProfileValidateWrite(BaseModel):
+    profile_id: str | None = None
+    repo_path: str | None = None
+    work_surface_mode: str = "isolated_worktree"
 
 
 class ProjectCodingRunTaskOut(BaseModel):
@@ -1677,6 +1686,27 @@ async def approve_project_run_environment_profile_endpoint(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     await db.commit()
     return {"project_id": project.id, **approval}
+
+
+@router.post("/{project_id}/run-environment-profiles/validate", response_model=dict)
+async def validate_project_run_environment_profile_endpoint(
+    project_id: uuid.UUID,
+    body: ProjectRunEnvironmentProfileValidateWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        return await validate_project_run_environment_profile_selection(
+            project,
+            profile_id=body.profile_id,
+            repo_path=body.repo_path,
+            work_surface_mode=body.work_surface_mode,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/{project_id}/coding-runs", response_model=ProjectCodingRunOut, status_code=201)

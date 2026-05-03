@@ -29,6 +29,7 @@ from app.services.project_coding_run_lib import (
     _uuid_from_config,
     normalize_work_surface_mode,
 )
+from app.services.project_run_environment_profiles import validate_project_run_environment_profile_or_raise
 
 
 def _schedule_execution_config(
@@ -100,6 +101,13 @@ async def create_project_coding_run_schedule(
     scheduled_at = body.scheduled_at or _utcnow()
     title = body.title.strip() or "Scheduled Project coding run"
     request = _validate_schedule_request(body.request)
+    work_surface_mode = normalize_work_surface_mode(body.work_surface_mode)
+    await validate_project_run_environment_profile_or_raise(
+        project,
+        profile_id=body.run_environment_profile,
+        repo_path=body.repo_path,
+        work_surface_mode=work_surface_mode,
+    )
     task = Task(
         id=uuid.uuid4(),
         bot_id=channel.bot_id,
@@ -117,7 +125,7 @@ async def create_project_coding_run_schedule(
             project_id=project.id,
             request=request,
             repo_path=body.repo_path,
-            work_surface_mode=body.work_surface_mode,
+            work_surface_mode=work_surface_mode,
             run_environment_profile=body.run_environment_profile,
             machine_target_grant=body.machine_target_grant,
             loop_policy=body.loop_policy,
@@ -192,6 +200,12 @@ async def update_project_coding_run_schedule(
             )
     if body.loop_policy is not None:
         cfg["loop_policy"] = dict(body.loop_policy or {})
+    await validate_project_run_environment_profile_or_raise(
+        project,
+        profile_id=cfg.get("run_environment_profile"),
+        repo_path=str(cfg.get("repo_path") or "") or None,
+        work_surface_mode=normalize_work_surface_mode(cfg.get("work_surface_mode")),
+    )
     task.execution_config = {
         **dict(task.execution_config or {}),
         "run_preset_id": PROJECT_CODING_RUN_SCHEDULE_PRESET_ID,

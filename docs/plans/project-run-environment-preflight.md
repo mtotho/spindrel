@@ -361,6 +361,11 @@ Shipped in the backend V1 slice:
 - Admins can record reviewed repo-file hashes through
   `POST /api/v1/projects/{project_id}/run-environment-profiles/{profile_id}/approvals`,
   closing the approval loop without hand-editing Project metadata.
+- Validator surface is now available through
+  `POST /api/v1/projects/{project_id}/run-environment-profiles/validate` and
+  the agent-facing `validate_project_run_environment_profile` tool.
+- Manual coding-run launch and schedule create/update validate selected
+  profiles up front and reject blockers before a run is queued.
 - Profile file loading enforces `.spindrel/profiles/<id>.yaml|yml|toml`, a
   safe id character set, repo-root path containment, 64 KiB file cap, and V1
   field/schema validation.
@@ -373,13 +378,12 @@ Shipped in the backend V1 slice:
   use Project runtime value-aware redaction.
 - HTTP readiness defaults to 2xx and supports `expected_status`.
 - Focused regressions cover shared-repo preservation, repo-file
-  trust/approval, changed-profile blocking, successful profile execution, setup
-  failure blocking, and Project-secret redaction.
+  trust/approval, changed-profile blocking, validator blocking, Project-channel
+  tool enrollment, successful profile execution, setup failure blocking, and
+  Project-secret redaction.
 
 Still open from this plan:
 
-- Validator admin API + agent-facing tool, and schedule create/update
-  validator rejection.
 - Repeated identical preflight blocker schedule downgrade to `needs_review`.
 - Full live/dogfood proof with `.spindrel/profiles/harness-parity.yaml`.
 - Repo-dev skill audit gates in item 9.

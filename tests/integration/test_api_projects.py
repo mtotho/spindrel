@@ -231,6 +231,40 @@ class TestProjectsApi:
         )
         assert rejected.status_code == 422
 
+    async def test_project_run_environment_profile_validate_endpoint_reports_blocker(self, client, db_session):
+        workspace = await _workspace(db_session)
+        created = await client.post(
+            "/api/v1/projects",
+            json={
+                "workspace_id": str(workspace.id),
+                "name": "Profile Validate Project",
+                "root_path": "common/projects/profile-validate",
+                "metadata_": {
+                    "blueprint_snapshot": {
+                        "repos": [{"path": "repo", "branch": "main"}],
+                        "run_environment_profiles": {
+                            "mutating": {"setup_commands": ["touch generated.txt"]},
+                        },
+                    }
+                },
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert created.status_code == 201
+        project_id = created.json()["id"]
+
+        validated = await client.post(
+            f"/api/v1/projects/{project_id}/run-environment-profiles/validate",
+            json={"profile_id": "mutating", "repo_path": "repo", "work_surface_mode": "shared_repo"},
+            headers=AUTH_HEADERS,
+        )
+
+        assert validated.status_code == 200
+        body = validated.json()
+        assert body["ok"] is False
+        assert body["status"] == "blocked"
+        assert "shared_repo profiles with setup commands" in body["error"]
+
     async def test_project_coding_runs_create_guided_task_and_list_receipt(self, client, db_session):
         workspace = await _workspace(db_session)
         blueprint_resp = await client.post(

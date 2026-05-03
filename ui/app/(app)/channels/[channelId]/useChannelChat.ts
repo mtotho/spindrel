@@ -319,14 +319,22 @@ export function useChannelChat({
     const current = useChatStore.getState().channels[prepared.channelId]?.messages ?? [];
     const localQueuedCount = current.filter((message) => {
       const meta = (message.metadata ?? {}) as Record<string, unknown>;
-      return message.role === "user" && (message.id === prepared.optimisticMsgId || meta.local_status === "queued");
+      return message.role === "user" && (
+        message.id === prepared.optimisticMsgId ||
+        meta.client_local_id === prepared.clientLocalId ||
+        meta.local_status === "queued"
+      );
     }).length;
     const queuedCount = Math.max(result.queued_message_count ?? 0, localQueuedCount);
     setMessages(prepared.channelId, current.map((message) => {
       const meta = (message.metadata ?? {}) as Record<string, any>;
       const isQueuedLocal =
         message.role === "user" &&
-        (message.id === prepared.optimisticMsgId || meta.local_status === "queued");
+        (
+          message.id === prepared.optimisticMsgId ||
+          meta.client_local_id === prepared.clientLocalId ||
+          meta.local_status === "queued"
+        );
       if (!isQueuedLocal) return message;
       return {
         ...message,

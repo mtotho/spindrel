@@ -38,6 +38,7 @@ def test_project_bound_channel_gets_project_skill_entrypoint_and_tools():
     assert "get_project_orchestration_policy" in effective.local_tools
     assert "capture_project_intake" in effective.local_tools
     assert "propose_run_packs" in effective.local_tools
+    assert "validate_project_run_environment_profile" in effective.local_tools
     assert "publish_project_run_receipt" in effective.local_tools
 
 

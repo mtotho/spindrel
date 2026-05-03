@@ -419,17 +419,35 @@ export function useChannelEvents(
             // Content may differ (e.g. typed text vs "[User sent attachment(s)]")
             // so timestamp proximity stays as a fallback.
             const serverTs = new Date(msg.created_at).getTime();
-            const withoutOptimistic = existing.filter(
-              (m) => !(m.id.startsWith("msg-") && m.role === "user" && (
+            const optimisticMatches = existing.filter(
+              (m) => m.id.startsWith("msg-") && m.role === "user" && (
                 (incomingClientLocalId && m.metadata?.client_local_id === incomingClientLocalId) ||
                 Math.abs(new Date(m.created_at).getTime() - serverTs) < 5000
-              )),
+              ),
+            );
+            const queuedMeta = optimisticMatches
+              .map((m) => m.metadata ?? {})
+              .find((meta) => meta.local_status === "queued");
+            const messageToStore = queuedMeta && normalizedMessage
+              ? {
+                ...normalizedMessage,
+                metadata: {
+                  ...(normalizedMessage.metadata ?? {}),
+                  local_status: "queued",
+                  queued_task_id: queuedMeta.queued_task_id,
+                  queued_message_count: queuedMeta.queued_message_count,
+                  queued_coalesced: queuedMeta.queued_coalesced,
+                },
+              }
+              : normalizedMessage;
+            const withoutOptimistic = existing.filter(
+              (m) => !optimisticMatches.includes(m),
             );
             if (withoutOptimistic.length < existing.length) {
               // Had an optimistic message — replace it with the server version
-              store.setMessages(storeKey, [...withoutOptimistic, normalizedMessage!]);
+              store.setMessages(storeKey, [...withoutOptimistic, messageToStore!]);
             } else if (!isDuplicate) {
-              store.addMessage(storeKey, normalizedMessage!);
+              store.addMessage(storeKey, messageToStore!);
             }
             return;
           }

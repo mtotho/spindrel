@@ -213,6 +213,15 @@ async def prepare_project_run_handoff(
                 "request": {"type": "string", "description": "Prompt for each concrete Project coding run."},
                 "scheduled_at": {"type": "string", "description": "Optional ISO start time. Defaults to now."},
                 "recurrence": {"type": "string", "description": "Relative recurrence like +1d or +1w. Defaults to +1w."},
+                "run_environment_profile": {
+                    "type": "string",
+                    "description": "Optional pre-agent run environment profile id to validate and use for each fired run.",
+                },
+                "work_surface_mode": {
+                    "type": "string",
+                    "enum": ["isolated_worktree", "fresh_project_instance", "shared_repo"],
+                    "description": "Optional work surface mode for fired runs. Defaults to isolated_worktree.",
+                },
             },
             "required": ["title", "request"],
         },
@@ -223,6 +232,8 @@ async def schedule_project_coding_run(
     request: str,
     scheduled_at: str | None = None,
     recurrence: str = "+1w",
+    run_environment_profile: str | None = None,
+    work_surface_mode: str = "isolated_worktree",
 ) -> str:
     channel_id = current_channel_id.get()
     if not channel_id:
@@ -255,6 +266,8 @@ async def schedule_project_coding_run(
                     request=request,
                     scheduled_at=start,
                     recurrence=recurrence or "+1w",
+                    run_environment_profile=run_environment_profile,
+                    work_surface_mode=work_surface_mode,
                 ),
             )
             rows = await list_project_coding_run_schedules(db, project)

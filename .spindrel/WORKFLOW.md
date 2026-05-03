@@ -222,6 +222,11 @@ processes.
 Profile YAML must not contain literal secret values. Put secrets in Project
 secret bindings and let profile commands read them from OS env.
 
+Use `validate_project_run_environment_profile` (or the matching admin API) to
+check profile source, trust/approval state, schema, and work-surface
+compatibility before scheduling unattended work. Schedule create/update rejects
+profile selections that the validator knows would block.
+
 ## Runtime Skills Boundary
 
 `skills/` is product behavior for all Spindrel users and their Projects.

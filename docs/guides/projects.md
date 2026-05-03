@@ -200,6 +200,13 @@ secret bindings and are exposed to commands only through OS env. Runtime
 redaction knows Project-bound secret values; a hard-coded value in YAML is not
 part of that registry and should be treated as a policy violation.
 
+Before launching or scheduling a profiled run, validate the selection with
+`POST /api/v1/projects/{project_id}/run-environment-profiles/validate` or the
+agent-facing `validate_project_run_environment_profile` tool. Schedule create
+and update calls also run this validator and reject profiles that would clearly
+block, such as malformed schema, missing definitions, unapproved repo-file
+hashes, or mutating commands in `shared_repo` without opt-in.
+
 ## Fresh Instances
 
 Project Instances are temporary roots created from a Project's frozen Blueprint
