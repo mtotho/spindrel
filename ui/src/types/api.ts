@@ -1,4 +1,9 @@
 // Secret check types
+import type { components as ApiSchemas } from "./api.generated";
+
+export type ProjectGitRepoStatus = ApiSchemas["schemas"]["ProjectGitRepoStatusOut"];
+export type ProjectGitStatus = ApiSchemas["schemas"]["ProjectGitStatusOut"];
+
 export interface SecretCheckResult {
   has_secrets: boolean;
   exact_matches: number;
@@ -1937,31 +1942,6 @@ export interface ProjectCodingRunSchedule {
   created_at?: string | null;
   machine_target_grant?: ProjectCodingRunTask["machine_target_grant"];
   loop_policy?: Record<string, any> | null;
-}
-
-export interface ProjectGitRepoStatus {
-  path: string;
-  display_path?: string;
-  branch?: string | null;
-  head?: string | null;
-  dirty: boolean;
-  staged_count: number;
-  unstaged_count: number;
-  untracked_count: number;
-  ahead?: number;
-  behind?: number;
-  status_lines: string[];
-  diff_stat?: string | null;
-  patch?: string | null;
-  error?: string | null;
-}
-
-export interface ProjectGitStatus {
-  scope: Record<string, any>;
-  repo_count: number;
-  dirty_count: number;
-  repos: ProjectGitRepoStatus[];
-  generated_at?: string;
 }
 
 export interface SessionProjectInstance {

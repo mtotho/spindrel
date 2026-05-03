@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Channel, Project, ProjectBlueprint, ProjectInstance, ProjectRunReceipt, ProjectSecretBinding, ProjectSetupRun, SecretValue, SharedWorkspace, Task
 from app.dependencies import get_db, require_scopes
+from app.schemas.project_git_status import ProjectGitStatusOut
 from app.services.project_instances import cleanup_project_instance, create_project_instance, list_project_instances, project_directory_from_instance, project_instance_cleanup_summary, project_instance_task_status
 from app.services.project_coding_runs import (
     ProjectCodingRunCreate,
@@ -1271,7 +1272,7 @@ async def get_project_orchestration_policy_endpoint(
     return await get_project_orchestration_policy(db, project)
 
 
-@router.get("/{project_id}/git-status")
+@router.get("/{project_id}/git-status", response_model=ProjectGitStatusOut)
 async def get_project_git_status_endpoint(
     project_id: uuid.UUID,
     repo_path: str | None = Query(None),
@@ -1739,11 +1740,14 @@ async def update_project_coding_run_schedule_endpoint(
                 title=body.title,
                 request=body.request,
                 repo_path=body.repo_path,
+                repo_path_set="repo_path" in body.model_fields_set,
                 work_surface_mode=body.work_surface_mode,
                 scheduled_at=body.scheduled_at,
+                scheduled_at_set="scheduled_at" in body.model_fields_set,
                 recurrence=body.recurrence,
                 enabled=body.enabled,
                 machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
+                machine_target_grant_set="machine_target_grant" in body.model_fields_set,
                 granted_by_user_id=_auth_user_id(_auth),
                 loop_policy=loop_policy,
             ),
@@ -1939,7 +1943,7 @@ async def get_project_coding_run_endpoint(
         raise HTTPException(status_code=422, detail=message) from exc
 
 
-@router.get("/{project_id}/coding-runs/{task_id}/git-status")
+@router.get("/{project_id}/coding-runs/{task_id}/git-status", response_model=ProjectGitStatusOut)
 async def get_project_coding_run_git_status_endpoint(
     project_id: uuid.UUID,
     task_id: uuid.UUID,

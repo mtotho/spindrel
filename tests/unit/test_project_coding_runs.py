@@ -721,6 +721,66 @@ async def test_project_coding_run_schedule_can_be_edited_resumed_and_blocks_disa
 
 
 @pytest.mark.asyncio
+async def test_project_coding_run_schedule_update_can_clear_nullable_fields(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects/spindrel",
+        metadata_=_factory_meta(),
+    )
+    channel = Channel(
+        id=channel_id,
+        workspace_id=workspace_id,
+        project_id=project_id,
+        name="Claude Spindrel",
+        bot_id="claude-code-bot",
+        client_id="web",
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    schedule = await create_project_coding_run_schedule(
+        db_session,
+        project,
+        ProjectCodingRunScheduleCreate(
+            channel_id=channel_id,
+            title="Harness parity nightly",
+            request="Run harness parity.",
+            scheduled_at=datetime(2026, 5, 9, 22, 0, tzinfo=timezone.utc),
+            recurrence="+5d",
+            repo_path="spindrel",
+            machine_target_grant=ProjectMachineTargetGrant(target_id="server", inspect=True),
+        ),
+    )
+
+    updated = await update_project_coding_run_schedule(
+        db_session,
+        project,
+        schedule.id,
+        ProjectCodingRunScheduleUpdate(
+            scheduled_at=None,
+            scheduled_at_set=True,
+            repo_path=None,
+            repo_path_set=True,
+            machine_target_grant=None,
+            machine_target_grant_set=True,
+        ),
+    )
+
+    cfg = updated.execution_config["project_coding_run_schedule"]
+    assert updated.scheduled_at is None
+    assert cfg["repo_path"] is None
+    assert cfg["machine_target_grant"] is None
+    grant = (await db_session.execute(select(TaskMachineGrant).where(TaskMachineGrant.task_id == schedule.id))).scalar_one_or_none()
+    assert grant is None
+
+
+@pytest.mark.asyncio
 async def test_project_coding_run_schedule_definitions_are_not_listed_as_runs(db_session):
     workspace_id = uuid.uuid4()
     project_id = uuid.uuid4()

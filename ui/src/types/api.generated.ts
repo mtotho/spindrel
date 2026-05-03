@@ -6878,6 +6878,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/coding-runs/{task_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Project Coding Run Endpoint */
+        post: operations["cancel_project_coding_run_endpoint_api_v1_projects__project_id__coding_runs__task_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/coding-runs/{task_id}/cleanup": {
         parameters: {
             query?: never;
@@ -6906,6 +6923,23 @@ export interface paths {
         put?: never;
         /** Continue Project Coding Run Endpoint */
         post: operations["continue_project_coding_run_endpoint_api_v1_projects__project_id__coding_runs__task_id__continue_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/coding-runs/{task_id}/git-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Coding Run Git Status Endpoint */
+        get: operations["get_project_coding_run_git_status_endpoint_api_v1_projects__project_id__coding_runs__task_id__git_status_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6990,6 +7024,23 @@ export interface paths {
         };
         /** Get Project Factory State Endpoint */
         get: operations["get_project_factory_state_endpoint_api_v1_projects__project_id__factory_state_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/git-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Git Status Endpoint */
+        get: operations["get_project_git_status_endpoint_api_v1_projects__project_id__git_status_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7341,6 +7392,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/execution-environments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Session Execution Environments Endpoint */
+        get: operations["list_session_execution_environments_endpoint_api_v1_sessions_execution_environments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/recent": {
         parameters: {
             query?: never;
@@ -7563,6 +7631,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/{session_id}/execution-environment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Session Execution Environment Endpoint */
+        get: operations["get_session_execution_environment_endpoint_api_v1_sessions__session_id__execution_environment_get"];
+        put?: never;
+        post?: never;
+        /** Cleanup Session Execution Environment Endpoint */
+        delete: operations["cleanup_session_execution_environment_endpoint_api_v1_sessions__session_id__execution_environment_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session_id}/execution-environment/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Manage Session Execution Environment Endpoint */
+        post: operations["manage_session_execution_environment_endpoint_api_v1_sessions__session_id__execution_environment_actions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session_id}/execution-environment/isolated": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Isolated Session Execution Environment */
+        post: operations["create_isolated_session_execution_environment_api_v1_sessions__session_id__execution_environment_isolated_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session_id}/git-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Session Git Status Endpoint */
+        get: operations["get_session_git_status_endpoint_api_v1_sessions__session_id__git_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/{session_id}/harness-interactions/{interaction_id}/answer": {
         parameters: {
             query?: never;
@@ -7755,6 +7892,30 @@ export interface paths {
         put?: never;
         /** Promote Scratch To Primary */
         post: operations["promote_scratch_to_primary_api_v1_sessions__session_id__promote_to_primary_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session_id}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Session State
+         * @description Snapshot in-flight state for a specific session transcript.
+         *
+         *     Project-run and sub-session views render by session id, not by the parent
+         *     channel's active session. This mirrors channel state hydration so those
+         *     views can recover a turn that started before their SSE subscription.
+         */
+        get: operations["get_session_state_api_v1_sessions__session_id__state_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -13788,6 +13949,10 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Execution Environment */
+            execution_environment?: string | null;
+            /** Execution Environment Status */
+            execution_environment_status?: string | null;
             /**
              * Is Active
              * @default false
@@ -13812,8 +13977,12 @@ export interface components {
              * @default 0
              */
             message_count: number;
+            /** Origin */
+            origin?: string | null;
             /** Preview */
             preview?: string | null;
+            /** Project Id */
+            project_id?: string | null;
             /**
              * Section Count
              * @default 0
@@ -13824,6 +13993,8 @@ export interface components {
              * Format: uuid
              */
             session_id: string;
+            /** Source Task Id */
+            source_task_id?: string | null;
             /** Summary */
             summary?: string | null;
             /** Surface Kind */
@@ -13884,11 +14055,6 @@ export interface components {
              * @default standard
              */
             effective_native_context_policy: string;
-            /**
-             * Server Native Context Policy Default
-             * @default standard
-             */
-            server_native_context_policy_default: string;
             /**
              * Header Backdrop Mode
              * @default glass
@@ -14017,6 +14183,11 @@ export interface components {
             section_index_count?: number | null;
             /** Section Index Verbosity */
             section_index_verbosity?: string | null;
+            /**
+             * Server Native Context Policy Default
+             * @default standard
+             */
+            server_native_context_policy_default: string;
             /**
              * Tags
              * @default []
@@ -14518,6 +14689,8 @@ export interface components {
             runtime: string;
             /** Session Id */
             session_id: string;
+            /** Warning */
+            warning?: string | null;
         };
         /** CreatePinRequest */
         CreatePinRequest: {
@@ -17938,6 +18111,10 @@ export interface components {
             dev_targets?: {
                 [key: string]: unknown;
             }[];
+            /** Execution Environment */
+            execution_environment?: {
+                [key: string]: unknown;
+            };
             /**
              * Id
              * Format: uuid
@@ -18248,6 +18425,11 @@ export interface components {
             status: string;
             /** Title */
             title: string;
+            /**
+             * Work Surface Mode
+             * @default isolated_worktree
+             */
+            work_surface_mode: string;
         };
         /** ProjectCodingRunSchedulePatch */
         ProjectCodingRunSchedulePatch: {
@@ -18267,6 +18449,8 @@ export interface components {
             scheduled_at?: string | null;
             /** Title */
             title?: string | null;
+            /** Work Surface Mode */
+            work_surface_mode?: string | null;
         };
         /** ProjectCodingRunScheduleWrite */
         ProjectCodingRunScheduleWrite: {
@@ -18296,6 +18480,11 @@ export interface components {
              * @default Scheduled Project coding run
              */
             title: string;
+            /**
+             * Work Surface Mode
+             * @default isolated_worktree
+             */
+            work_surface_mode: string;
         };
         /** ProjectCodingRunTaskOut */
         ProjectCodingRunTaskOut: {
@@ -18350,6 +18539,11 @@ export interface components {
              */
             request: string;
             source_artifact?: components["schemas"]["SourceArtifactIn"] | null;
+            /**
+             * Work Surface Mode
+             * @default isolated_worktree
+             */
+            work_surface_mode: string;
         };
         /** ProjectCodingRunsReviewedWrite */
         ProjectCodingRunsReviewedWrite: {
@@ -18522,6 +18716,52 @@ export interface components {
             slug?: string | null;
             /** Workspace Id */
             workspace_id?: string | null;
+        };
+        /** ProjectGitRepoStatusOut */
+        ProjectGitRepoStatusOut: {
+            /** Ahead */
+            ahead?: number | null;
+            /** Behind */
+            behind?: number | null;
+            /** Branch */
+            branch?: string | null;
+            /** Diff Stat */
+            diff_stat?: string | null;
+            /** Dirty */
+            dirty: boolean;
+            /** Display Path */
+            display_path?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Head */
+            head?: string | null;
+            /** Patch */
+            patch?: string | null;
+            /** Path */
+            path: string;
+            /** Staged Count */
+            staged_count: number;
+            /** Status Lines */
+            status_lines: string[];
+            /** Unstaged Count */
+            unstaged_count: number;
+            /** Untracked Count */
+            untracked_count: number;
+        };
+        /** ProjectGitStatusOut */
+        ProjectGitStatusOut: {
+            /** Dirty Count */
+            dirty_count: number;
+            /** Generated At */
+            generated_at?: string | null;
+            /** Repo Count */
+            repo_count: number;
+            /** Repos */
+            repos: components["schemas"]["ProjectGitRepoStatusOut"][];
+            /** Scope */
+            scope: {
+                [key: string]: unknown;
+            };
         };
         /** ProjectInstanceOut */
         ProjectInstanceOut: {
@@ -19624,6 +19864,10 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Execution Environment */
+            execution_environment?: string | null;
+            /** Execution Environment Status */
+            execution_environment_status?: string | null;
             /**
              * Is Active
              * @default false
@@ -19650,8 +19894,12 @@ export interface components {
              * @default 0
              */
             message_count: number;
+            /** Origin */
+            origin?: string | null;
             /** Preview */
             preview?: string | null;
+            /** Project Id */
+            project_id?: string | null;
             /**
              * Section Count
              * @default 0
@@ -19662,6 +19910,8 @@ export interface components {
              * Format: uuid
              */
             session_id: string;
+            /** Source Task Id */
+            source_task_id?: string | null;
             /** Summary */
             summary?: string | null;
             /** Surface Kind */
@@ -20151,6 +20401,73 @@ export interface components {
             messages: components["schemas"]["app__schemas__messages__MessageOut"][];
             session: components["schemas"]["SessionSummary"];
         };
+        /** SessionExecutionEnvironmentActionIn */
+        SessionExecutionEnvironmentActionIn: {
+            /** Action */
+            action: string;
+            /** Pinned */
+            pinned?: boolean | null;
+            /** Ttl Seconds */
+            ttl_seconds?: number | null;
+        };
+        /** SessionExecutionEnvironmentListOut */
+        SessionExecutionEnvironmentListOut: {
+            /** Capacity */
+            capacity?: {
+                [key: string]: unknown;
+            };
+            /** Environments */
+            environments?: components["schemas"]["SessionExecutionEnvironmentOut"][];
+        };
+        /** SessionExecutionEnvironmentOut */
+        SessionExecutionEnvironmentOut: {
+            /** Created At */
+            created_at?: string | null;
+            /** Cwd */
+            cwd?: string | null;
+            /** Docker */
+            docker?: {
+                [key: string]: unknown;
+            } | null;
+            /** Docker Endpoint */
+            docker_endpoint?: string | null;
+            /** Docker Status */
+            docker_status?: string | null;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Mode */
+            mode: string;
+            /**
+             * Pinned
+             * @default false
+             */
+            pinned: boolean;
+            /** Project Id */
+            project_id?: string | null;
+            /** Project Instance Id */
+            project_instance_id?: string | null;
+            /** Runtime Env */
+            runtime_env?: {
+                [key: string]: string;
+            };
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Status */
+            status: string;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Worktree */
+            worktree?: {
+                [key: string]: unknown;
+            } | null;
+        };
         /** SessionListOut */
         SessionListOut: {
             /** Sessions */
@@ -20428,6 +20745,17 @@ export interface components {
             status?: string | null;
             /** Workspace Id */
             workspace_id?: string | null;
+        };
+        /** SessionStateOut */
+        SessionStateOut: {
+            /** Active Turns */
+            active_turns: {
+                [key: string]: unknown;
+            }[];
+            /** Pending Approvals */
+            pending_approvals: {
+                [key: string]: unknown;
+            }[];
         };
         /** SessionStatusOut */
         SessionStatusOut: {
@@ -39098,6 +39426,40 @@ export interface operations {
             };
         };
     };
+    cancel_project_coding_run_endpoint_api_v1_projects__project_id__coding_runs__task_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                project_id: string;
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectCodingRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     cleanup_project_coding_run_endpoint_api_v1_projects__project_id__coding_runs__task_id__cleanup_post: {
         parameters: {
             query?: never;
@@ -39157,6 +39519,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectCodingRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_coding_run_git_status_endpoint_api_v1_projects__project_id__coding_runs__task_id__git_status_get: {
+        parameters: {
+            query?: {
+                include_patch?: boolean;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                project_id: string;
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectGitStatusOut"];
                 };
             };
             /** @description Validation Error */
@@ -39362,6 +39760,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectFactoryStateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_git_status_endpoint_api_v1_projects__project_id__git_status_get: {
+        parameters: {
+            query?: {
+                repo_path?: string | null;
+                include_patch?: boolean;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectGitStatusOut"];
                 };
             };
             /** @description Validation Error */
@@ -40202,6 +40636,40 @@ export interface operations {
             };
         };
     };
+    list_session_execution_environments_endpoint_api_v1_sessions_execution_environments_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionExecutionEnvironmentListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_recent_sessions_api_v1_sessions_recent_get: {
         parameters: {
             query?: {
@@ -40567,6 +41035,179 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_execution_environment_endpoint_api_v1_sessions__session_id__execution_environment_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionExecutionEnvironmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cleanup_session_execution_environment_endpoint_api_v1_sessions__session_id__execution_environment_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionExecutionEnvironmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    manage_session_execution_environment_endpoint_api_v1_sessions__session_id__execution_environment_actions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionExecutionEnvironmentActionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_isolated_session_execution_environment_api_v1_sessions__session_id__execution_environment_isolated_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionExecutionEnvironmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_git_status_endpoint_api_v1_sessions__session_id__git_status_get: {
+        parameters: {
+            query?: {
+                include_patch?: boolean;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectGitStatusOut"];
                 };
             };
             /** @description Validation Error */
@@ -41049,6 +41690,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PromoteScratchSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_state_api_v1_sessions__session_id__state_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionStateOut"];
                 };
             };
             /** @description Validation Error */

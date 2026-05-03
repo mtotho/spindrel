@@ -1,6 +1,7 @@
 import { useProjectGitStatus, useSessionGitStatus } from "@/src/api/hooks/useProjects";
 import { EmptyState, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { Spinner } from "@/src/components/shared/Spinner";
+import { projectGitRepoDirty, projectGitRepoError, projectGitStatusLines } from "@/src/lib/projectGitStatus";
 import type { ProjectSummary } from "@/src/types/api";
 
 export function GitTabPanel({
@@ -29,25 +30,30 @@ export function GitTabPanel({
       </div>
       {repos.length === 0 ? (
         <EmptyState message="No Git repositories were detected." />
-      ) : repos.map((repo) => (
-        <section key={repo.path} className="rounded-md bg-surface-raised/45">
-          <div className="flex items-start justify-between gap-2 border-b border-surface-border/60 px-2 py-2">
-            <div className="min-w-0">
-              <div className="truncate font-mono text-[11px] font-semibold text-text">{repo.display_path || repo.path}</div>
-              <div className="truncate text-[10px] text-text-dim">{repo.branch || "detached"}</div>
+      ) : repos.map((repo) => {
+        const statusLines = projectGitStatusLines(repo);
+        const error = projectGitRepoError(repo);
+        const dirty = projectGitRepoDirty(repo);
+        return (
+          <section key={repo.path} className="rounded-md bg-surface-raised/45">
+            <div className="flex items-start justify-between gap-2 border-b border-surface-border/60 px-2 py-2">
+              <div className="min-w-0">
+                <div className="truncate font-mono text-[11px] font-semibold text-text">{repo.display_path || repo.path}</div>
+                <div className="truncate text-[10px] text-text-dim">{repo.branch || "detached"}</div>
+              </div>
+              <StatusBadge label={error ? "error" : dirty ? "dirty" : "clean"} variant={error ? "danger" : dirty ? "warning" : "success"} />
             </div>
-            <StatusBadge label={repo.error ? "error" : repo.dirty ? "dirty" : "clean"} variant={repo.error ? "danger" : repo.dirty ? "warning" : "success"} />
-          </div>
-          <div className="grid gap-2 p-2">
-            <pre className="max-h-32 overflow-auto rounded bg-surface/70 p-2 font-mono text-[10px] leading-4 text-text-muted">
-              {repo.error || repo.status_lines.join("\n") || "working tree clean"}
-            </pre>
-            <pre className="max-h-72 overflow-auto rounded bg-[#080b10] p-2 font-mono text-[10px] leading-4 text-zinc-300">
-              {repo.patch || repo.diff_stat || "No diff."}
-            </pre>
-          </div>
-        </section>
-      ))}
+            <div className="grid gap-2 p-2">
+              <pre className="max-h-32 overflow-auto rounded bg-surface/70 p-2 font-mono text-[10px] leading-4 text-text-muted">
+                {error || statusLines.join("\n") || "working tree clean"}
+              </pre>
+              <pre className="max-h-72 overflow-auto rounded bg-[#080b10] p-2 font-mono text-[10px] leading-4 text-zinc-300">
+                {repo.patch || repo.diff_stat || "No diff."}
+              </pre>
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }

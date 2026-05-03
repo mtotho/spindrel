@@ -107,11 +107,70 @@ class TestChat202:
 
         task = await db_session.get(Task, uuid.UUID(body["task_id"]))
         assert task is not None
+        assert task.task_type == "api"
         pre_user_msg_id = uuid.UUID(task.execution_config["pre_user_msg_id"])
         user_msg = await db_session.get(Message, pre_user_msg_id)
         assert user_msg is not None
         assert user_msg.session_id == task.session_id
         assert user_msg.content == "queue me"
+
+    async def test_text_followup_carries_recent_image_context(self, client, db_session):
+        from datetime import datetime, timezone
+        from app.db.models import Attachment, Channel, Message, Session
+
+        channel_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+        session = Session(
+            id=session_id,
+            client_id="web",
+            bot_id="test-bot",
+            channel_id=channel_id,
+            session_type="channel",
+        )
+        channel = Channel(
+            id=channel_id,
+            client_id="web",
+            bot_id="test-bot",
+            name="image followup",
+            active_session_id=session_id,
+        )
+        image_msg = Message(
+            id=uuid.uuid4(),
+            session_id=session_id,
+            role="user",
+            content="the glazed ceramic pot",
+            created_at=datetime.now(timezone.utc),
+        )
+        attachment = Attachment(
+            id=uuid.uuid4(),
+            message_id=image_msg.id,
+            channel_id=channel_id,
+            type="image",
+            file_data=b"fake-image-bytes",
+            filename="pot.jpg",
+            mime_type="image/jpeg",
+            size_bytes=16,
+            source_integration="slack",
+        )
+        db_session.add_all([channel, session, image_msg, attachment])
+        await db_session.flush()
+
+        resp = await client.post(
+            "/chat",
+            json={
+                "message": '4" pot for reference',
+                "bot_id": "test-bot",
+                "channel_id": str(channel_id),
+            },
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 202, resp.text
+        kwargs = self._mock.await_args.kwargs
+        carried = kwargs["att_payload"]
+        assert carried and carried[0]["attachment_id"] == str(attachment.id)
+        assert carried[0]["name"] == "pot.jpg"
+        assert carried[0]["source"] == "recent_chat_image"
 
     async def test_secondary_channel_session_requires_web_only_delivery(self, client, db_session):
         from app.db.models import Channel, Session

@@ -116,6 +116,7 @@ def _project_repo_roots(project: Project, repo_path: str | None = None) -> list[
 def _repo_summary(root: Path, *, include_patch: bool = False) -> dict[str, Any]:
     branch = _run_git(root, "status", "--short", "--branch")
     porcelain = _run_git(root, "status", "--porcelain=v1", "-uall")
+    head = _run_git(root, "rev-parse", "--short", "HEAD")
     stat = _run_git(root, "diff", "--stat")
     staged_stat = _run_git(root, "diff", "--cached", "--stat")
     name_status = _run_git(root, "diff", "--name-status")
@@ -126,12 +127,36 @@ def _repo_summary(root: Path, *, include_patch: bool = False) -> dict[str, Any]:
         for line in str(porcelain.get("stdout") or "").splitlines()
         if line.strip()
     ][:200]
+    staged_count = 0
+    unstaged_count = 0
+    untracked_count = 0
+    for line in files:
+        status = line[:2]
+        if status == "??":
+            untracked_count += 1
+            continue
+        if status[:1].strip():
+            staged_count += 1
+        if len(status) > 1 and status[1].strip():
+            unstaged_count += 1
+    errors = [
+        item.get("stderr")
+        for item in [branch, porcelain, head, stat, staged_stat, name_status, staged_name_status, log]
+        if item.get("stderr") and not item.get("ok")
+    ]
     payload: dict[str, Any] = {
         "path": str(root),
+        "display_path": root.name,
         "branch": str(branch.get("stdout") or "").splitlines()[0] if branch.get("stdout") else "",
+        "head": str(head.get("stdout") or "").strip(),
         "clean": len(files) == 0,
+        "dirty": len(files) > 0,
         "changed_count": len(files),
+        "staged_count": staged_count,
+        "unstaged_count": unstaged_count,
+        "untracked_count": untracked_count,
         "files": files,
+        "status_lines": files,
         "diff_stat": str(stat.get("stdout") or "").strip(),
         "staged_diff_stat": str(staged_stat.get("stdout") or "").strip(),
         "name_status": str(name_status.get("stdout") or "").strip(),
@@ -139,11 +164,8 @@ def _repo_summary(root: Path, *, include_patch: bool = False) -> dict[str, Any]:
         "recent_commits": [
             line for line in str(log.get("stdout") or "").splitlines() if line.strip()
         ],
-        "errors": [
-            item.get("stderr")
-            for item in [branch, porcelain, stat, staged_stat, name_status, staged_name_status, log]
-            if item.get("stderr") and not item.get("ok")
-        ],
+        "errors": errors,
+        "error": "\n".join(str(error) for error in errors if error) or None,
     }
     if include_patch:
         patch = _run_git(root, "diff", "--patch", max_chars=MAX_PATCH_CHARS)

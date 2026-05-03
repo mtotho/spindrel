@@ -272,12 +272,15 @@ class ProjectCodingRunScheduleUpdate:
     title: str | None = None
     request: str | None = None
     repo_path: str | None = None
+    repo_path_set: bool = False
     work_surface_mode: str | None = None
     scheduled_at: datetime | None = None
+    scheduled_at_set: bool = False
     recurrence: str | None = None
     enabled: bool | None = None
     channel_id: uuid.UUID | None = None
     machine_target_grant: ProjectMachineTargetGrant | None = None
+    machine_target_grant_set: bool = False
     granted_by_user_id: uuid.UUID | None = None
     loop_policy: dict[str, Any] | None = None
 

@@ -37,6 +37,7 @@ from app.services.channel_throttle import is_throttled as _channel_throttled, re
 from app.services.sessions import (
     store_passive_message,
 )
+from app.services.recent_attachments import recent_inline_image_payloads
 from app.services.channel_member_turns import maybe_route_to_member_bot
 from app.services.turn_context import prepare_bot_context
 from app.services.turns import SessionBusyError, TurnHandle, start_turn
@@ -355,6 +356,7 @@ async def _queue_channel_task(
         channel_id=run.channel.id,
         prompt=message,
         status="pending",
+        task_type="api",
         created_at=datetime.now(timezone.utc),
         scheduled_at=(
             datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
@@ -459,6 +461,24 @@ async def _prepare_attachment_records(
             if matched_id:
                 entry["attachment_id"] = matched_id
     return pre_user_msg_id
+
+
+async def _carry_forward_recent_image_context(
+    *,
+    db: AsyncSession,
+    run: _NormalChatRun,
+    prepared: _PreparedChatInput,
+    pre_user_msg_id: uuid.UUID | None,
+) -> None:
+    if prepared.att_payload:
+        return
+    recent_images = await recent_inline_image_payloads(
+        db,
+        session_id=run.session_id,
+        before_message_id=pre_user_msg_id,
+    )
+    if recent_images:
+        prepared.att_payload = recent_images
 
 
 async def _start_or_queue_normal_turn(
@@ -628,6 +648,12 @@ async def _enqueue_chat_turn(
         run=run,
         prepared=prepared,
     )
+    await _carry_forward_recent_image_context(
+        db=db,
+        run=run,
+        prepared=prepared,
+        pre_user_msg_id=pre_user_msg_id,
+    )
     response, turn_started = await _start_or_queue_normal_turn(
         req=req,
         db=db,
@@ -736,6 +762,7 @@ async def _enqueue_sub_session_turn(
             channel_id=None,
             prompt=message,
             status="pending",
+            task_type="api",
             created_at=datetime.now(timezone.utc),
             scheduled_at=datetime.now(timezone.utc) + timedelta(seconds=10),
             execution_config={"session_scoped": True, "pre_user_msg_id": str(queued_user_msg_id)},

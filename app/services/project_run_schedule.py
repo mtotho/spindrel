@@ -154,25 +154,26 @@ async def update_project_coding_run_schedule(
     if body.request is not None:
         cfg["request"] = body.request.strip()
         task.prompt = body.request.strip()
-    if body.repo_path is not None:
+    if body.repo_path_set:
         cfg["repo_path"] = body.repo_path
     if body.work_surface_mode is not None:
         cfg["work_surface_mode"] = normalize_work_surface_mode(body.work_surface_mode)
-    if body.scheduled_at is not None:
+    if body.scheduled_at_set:
         task.scheduled_at = body.scheduled_at
     if body.recurrence is not None:
         task.recurrence = validate_recurrence(body.recurrence) or None
     if body.enabled is not None:
         task.status = "active" if body.enabled else "cancelled"
-    if body.machine_target_grant is not None:
-        cfg["machine_target_grant"] = _machine_target_grant_summary(body.machine_target_grant)
+    if body.machine_target_grant_set:
+        cfg["machine_target_grant"] = _machine_target_grant_summary(body.machine_target_grant) if body.machine_target_grant else None
         await revoke_task_machine_grant(db, task.id)
-        await _attach_task_machine_grant(
-            db,
-            task=task,
-            grant=body.machine_target_grant,
-            granted_by_user_id=body.granted_by_user_id,
-        )
+        if body.machine_target_grant is not None:
+            await _attach_task_machine_grant(
+                db,
+                task=task,
+                grant=body.machine_target_grant,
+                granted_by_user_id=body.granted_by_user_id,
+            )
     if body.loop_policy is not None:
         cfg["loop_policy"] = dict(body.loop_policy or {})
     task.execution_config = {

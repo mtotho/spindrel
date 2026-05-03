@@ -8135,6 +8135,28 @@
             "title": "Created At",
             "type": "string"
           },
+          "execution_environment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Environment"
+          },
+          "execution_environment_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Environment Status"
+          },
           "is_active": {
             "default": false,
             "title": "Is Active",
@@ -8173,6 +8195,17 @@
             "title": "Message Count",
             "type": "integer"
           },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
+          },
           "preview": {
             "anyOf": [
               {
@@ -8184,6 +8217,18 @@
             ],
             "title": "Preview"
           },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
           "section_count": {
             "default": 0,
             "title": "Section Count",
@@ -8193,6 +8238,18 @@
             "format": "uuid",
             "title": "Session Id",
             "type": "string"
+          },
+          "source_task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Task Id"
           },
           "summary": {
             "anyOf": [
@@ -8406,11 +8463,6 @@
           "effective_native_context_policy": {
             "default": "standard",
             "title": "Effective Native Context Policy",
-            "type": "string"
-          },
-          "server_native_context_policy_default": {
-            "default": "standard",
-            "title": "Server Native Context Policy Default",
             "type": "string"
           },
           "header_backdrop_mode": {
@@ -8803,6 +8855,11 @@
               }
             ],
             "title": "Section Index Verbosity"
+          },
+          "server_native_context_policy_default": {
+            "default": "standard",
+            "title": "Server Native Context Policy Default",
+            "type": "string"
           },
           "tags": {
             "default": [],
@@ -10519,6 +10576,17 @@
           "session_id": {
             "title": "Session Id",
             "type": "string"
+          },
+          "warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warning"
           }
         },
         "required": [
@@ -19962,6 +20030,11 @@
             "title": "Dev Targets",
             "type": "array"
           },
+          "execution_environment": {
+            "additionalProperties": true,
+            "title": "Execution Environment",
+            "type": "object"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -20594,6 +20667,18 @@
             ],
             "title": "Last Run"
           },
+          "loop_policy": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loop Policy"
+          },
           "machine_target_grant": {
             "anyOf": [
               {
@@ -20668,6 +20753,11 @@
           },
           "title": {
             "title": "Title",
+            "type": "string"
+          },
+          "work_surface_mode": {
+            "default": "isolated_worktree",
+            "title": "Work Surface Mode",
             "type": "string"
           }
         },
@@ -20781,6 +20871,17 @@
               }
             ],
             "title": "Title"
+          },
+          "work_surface_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Surface Mode"
           }
         },
         "title": "ProjectCodingRunSchedulePatch",
@@ -20849,6 +20950,11 @@
           "title": {
             "default": "Scheduled Project coding run",
             "title": "Title",
+            "type": "string"
+          },
+          "work_surface_mode": {
+            "default": "isolated_worktree",
+            "title": "Work Surface Mode",
             "type": "string"
           }
         },
@@ -21060,6 +21166,11 @@
                 "type": "null"
               }
             ]
+          },
+          "work_surface_mode": {
+            "default": "isolated_worktree",
+            "title": "Work Surface Mode",
+            "type": "string"
           }
         },
         "required": [
@@ -21508,6 +21619,178 @@
           "name"
         ],
         "title": "ProjectFromBlueprintWrite",
+        "type": "object"
+      },
+      "ProjectGitRepoStatusOut": {
+        "properties": {
+          "ahead": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ahead"
+          },
+          "behind": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Behind"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "diff_stat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diff Stat"
+          },
+          "dirty": {
+            "title": "Dirty",
+            "type": "boolean"
+          },
+          "display_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Path"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "head": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head"
+          },
+          "patch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Patch"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "staged_count": {
+            "title": "Staged Count",
+            "type": "integer"
+          },
+          "status_lines": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Status Lines",
+            "type": "array"
+          },
+          "unstaged_count": {
+            "title": "Unstaged Count",
+            "type": "integer"
+          },
+          "untracked_count": {
+            "title": "Untracked Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "dirty",
+          "staged_count",
+          "unstaged_count",
+          "untracked_count",
+          "status_lines"
+        ],
+        "title": "ProjectGitRepoStatusOut",
+        "type": "object"
+      },
+      "ProjectGitStatusOut": {
+        "properties": {
+          "dirty_count": {
+            "title": "Dirty Count",
+            "type": "integer"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "repo_count": {
+            "title": "Repo Count",
+            "type": "integer"
+          },
+          "repos": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectGitRepoStatusOut"
+            },
+            "title": "Repos",
+            "type": "array"
+          },
+          "scope": {
+            "additionalProperties": true,
+            "title": "Scope",
+            "type": "object"
+          }
+        },
+        "required": [
+          "scope",
+          "repo_count",
+          "dirty_count",
+          "repos"
+        ],
+        "title": "ProjectGitStatusOut",
         "type": "object"
       },
       "ProjectInstanceOut": {
@@ -24523,6 +24806,28 @@
             "title": "Created At",
             "type": "string"
           },
+          "execution_environment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Environment"
+          },
+          "execution_environment_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Environment Status"
+          },
           "is_active": {
             "default": false,
             "title": "Is Active",
@@ -24573,6 +24878,17 @@
             "title": "Message Count",
             "type": "integer"
           },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
+          },
           "preview": {
             "anyOf": [
               {
@@ -24584,6 +24900,18 @@
             ],
             "title": "Preview"
           },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
           "section_count": {
             "default": 0,
             "title": "Section Count",
@@ -24593,6 +24921,18 @@
             "format": "uuid",
             "title": "Session Id",
             "type": "string"
+          },
+          "source_task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Task Id"
           },
           "summary": {
             "anyOf": [
@@ -25813,6 +26153,218 @@
         "title": "SessionDetail",
         "type": "object"
       },
+      "SessionExecutionEnvironmentActionIn": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "pinned": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pinned"
+          },
+          "ttl_seconds": {
+            "anyOf": [
+              {
+                "minimum": 60.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ttl Seconds"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "SessionExecutionEnvironmentActionIn",
+        "type": "object"
+      },
+      "SessionExecutionEnvironmentListOut": {
+        "properties": {
+          "capacity": {
+            "additionalProperties": true,
+            "title": "Capacity",
+            "type": "object"
+          },
+          "environments": {
+            "items": {
+              "$ref": "#/components/schemas/SessionExecutionEnvironmentOut"
+            },
+            "title": "Environments",
+            "type": "array"
+          }
+        },
+        "title": "SessionExecutionEnvironmentListOut",
+        "type": "object"
+      },
+      "SessionExecutionEnvironmentOut": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd"
+          },
+          "docker": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Docker"
+          },
+          "docker_endpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Docker Endpoint"
+          },
+          "docker_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Docker Status"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "pinned": {
+            "default": false,
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "project_instance_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Instance Id"
+          },
+          "runtime_env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Runtime Env",
+            "type": "object"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "worktree": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worktree"
+          }
+        },
+        "required": [
+          "session_id",
+          "mode",
+          "status"
+        ],
+        "title": "SessionExecutionEnvironmentOut",
+        "type": "object"
+      },
       "SessionListOut": {
         "properties": {
           "sessions": {
@@ -26876,6 +27428,32 @@
           "session_id"
         ],
         "title": "SessionProjectInstanceOut",
+        "type": "object"
+      },
+      "SessionStateOut": {
+        "properties": {
+          "active_turns": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Active Turns",
+            "type": "array"
+          },
+          "pending_approvals": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Pending Approvals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "active_turns",
+          "pending_approvals"
+        ],
+        "title": "SessionStateOut",
         "type": "object"
       },
       "SessionStatusOut": {
@@ -63915,6 +64493,75 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/coding-runs/{task_id}/cancel": {
+      "post": {
+        "operationId": "cancel_project_coding_run_endpoint_api_v1_projects__project_id__coding_runs__task_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectCodingRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Project Coding Run Endpoint",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/coding-runs/{task_id}/cleanup": {
       "post": {
         "operationId": "cleanup_project_coding_run_endpoint_api_v1_projects__project_id__coding_runs__task_id__cleanup_post",
@@ -64058,6 +64705,85 @@
           }
         },
         "summary": "Continue Project Coding Run Endpoint",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/coding-runs/{task_id}/git-status": {
+      "get": {
+        "operationId": "get_project_coding_run_git_status_endpoint_api_v1_projects__project_id__coding_runs__task_id__git_status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_patch",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Patch",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectGitStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Project Coding Run Git Status Endpoint",
         "tags": [
           "projects"
         ]
@@ -64446,6 +65172,91 @@
           }
         },
         "summary": "Get Project Factory State Endpoint",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/git-status": {
+      "get": {
+        "operationId": "get_project_git_status_endpoint_api_v1_projects__project_id__git_status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "repo_path",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Repo Path"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_patch",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Patch",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectGitStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Project Git Status Endpoint",
         "tags": [
           "projects"
         ]
@@ -65971,6 +66782,83 @@
         ]
       }
     },
+    "/api/v1/sessions/execution-environments": {
+      "get": {
+        "operationId": "list_session_execution_environments_endpoint_api_v1_sessions_execution_environments_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionExecutionEnvironmentListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Session Execution Environments Endpoint",
+        "tags": [
+          "Sessions"
+        ]
+      }
+    },
     "/api/v1/sessions/recent": {
       "get": {
         "operationId": "list_recent_sessions_api_v1_sessions_recent_get",
@@ -66684,6 +67572,321 @@
           }
         },
         "summary": "Session Events",
+        "tags": [
+          "Sessions"
+        ]
+      }
+    },
+    "/api/v1/sessions/{session_id}/execution-environment": {
+      "delete": {
+        "operationId": "cleanup_session_execution_environment_endpoint_api_v1_sessions__session_id__execution_environment_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionExecutionEnvironmentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cleanup Session Execution Environment Endpoint",
+        "tags": [
+          "Sessions"
+        ]
+      },
+      "get": {
+        "operationId": "get_session_execution_environment_endpoint_api_v1_sessions__session_id__execution_environment_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionExecutionEnvironmentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session Execution Environment Endpoint",
+        "tags": [
+          "Sessions"
+        ]
+      }
+    },
+    "/api/v1/sessions/{session_id}/execution-environment/actions": {
+      "post": {
+        "operationId": "manage_session_execution_environment_endpoint_api_v1_sessions__session_id__execution_environment_actions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionExecutionEnvironmentActionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Manage Session Execution Environment Endpoint Api V1 Sessions  Session Id  Execution Environment Actions Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Manage Session Execution Environment Endpoint",
+        "tags": [
+          "Sessions"
+        ]
+      }
+    },
+    "/api/v1/sessions/{session_id}/execution-environment/isolated": {
+      "post": {
+        "operationId": "create_isolated_session_execution_environment_api_v1_sessions__session_id__execution_environment_isolated_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionExecutionEnvironmentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Isolated Session Execution Environment",
+        "tags": [
+          "Sessions"
+        ]
+      }
+    },
+    "/api/v1/sessions/{session_id}/git-status": {
+      "get": {
+        "operationId": "get_session_git_status_endpoint_api_v1_sessions__session_id__git_status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_patch",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Patch",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectGitStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session Git Status Endpoint",
         "tags": [
           "Sessions"
         ]
@@ -67560,6 +68763,66 @@
           }
         },
         "summary": "Promote Scratch To Primary",
+        "tags": [
+          "Sessions"
+        ]
+      }
+    },
+    "/api/v1/sessions/{session_id}/state": {
+      "get": {
+        "description": "Snapshot in-flight state for a specific session transcript.\n\nProject-run and sub-session views render by session id, not by the parent\nchannel's active session. This mirrors channel state hydration so those\nviews can recover a turn that started before their SSE subscription.",
+        "operationId": "get_session_state_api_v1_sessions__session_id__state_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session State",
         "tags": [
           "Sessions"
         ]

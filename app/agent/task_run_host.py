@@ -656,6 +656,24 @@ async def _run_normal_agent_task(
     skip_skill_inject = resolve_task_run_policy(task.task_type).skip_skill_inject
     current_run_origin.set(_task_run_origin(task))
 
+    carried_attachments = None
+    if task.task_type == "api" and task.session_id is not None:
+        pre_user_msg_id_str = (task.execution_config or {}).get("pre_user_msg_id")
+        pre_user_msg_id = None
+        if pre_user_msg_id_str:
+            try:
+                pre_user_msg_id = uuid.UUID(str(pre_user_msg_id_str))
+            except (ValueError, TypeError):
+                pre_user_msg_id = None
+        if pre_user_msg_id is not None:
+            from app.services.recent_attachments import recent_inline_image_payloads
+            async with deps.async_session() as attach_db:
+                carried_attachments = await recent_inline_image_payloads(
+                    attach_db,
+                    session_id=task.session_id,
+                    before_message_id=pre_user_msg_id,
+                )
+
     run_result = await asyncio.wait_for(
         run(
             prepared.messages, bot, prepared.task_prompt,
@@ -664,6 +682,7 @@ async def _run_normal_agent_task(
             correlation_id=prepared.correlation_id,
             dispatch_type=task.dispatch_type,
             dispatch_config=task.dispatch_config,
+            attachments=carried_attachments,
             channel_id=task.channel_id,
             model_override=prepared.model_override,
             provider_id_override=prepared.provider_id_override,

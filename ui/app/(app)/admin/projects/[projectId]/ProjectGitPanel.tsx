@@ -3,6 +3,8 @@ import { RefreshCcw } from "lucide-react";
 import { useProjectGitStatus } from "@/src/api/hooks/useProjects";
 import { ActionButton, EmptyState, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { Spinner } from "@/src/components/shared/Spinner";
+import { projectGitRepoDirty, projectGitRepoError, projectGitStatusLines } from "@/src/lib/projectGitStatus";
+import type { ProjectGitRepoStatus } from "@/src/types/api";
 
 export function ProjectGitPanel({ projectId }: { projectId: string }) {
   const { data, isLoading, isFetching, refetch } = useProjectGitStatus(projectId, { includePatch: true });
@@ -28,35 +30,43 @@ export function ProjectGitPanel({ projectId }: { projectId: string }) {
         <EmptyState message="No Git repositories were detected under this Project." />
       ) : (
         <div className="grid gap-3">
-          {repos.map((repo) => (
-            <section key={repo.path} className="rounded-md border border-surface-border bg-surface-raised/25">
-              <div className="flex flex-wrap items-start justify-between gap-2 border-b border-surface-border/60 px-3 py-2">
-                <div className="min-w-0">
-                  <div className="truncate font-mono text-[12px] font-semibold text-text">{repo.display_path || repo.path}</div>
-                  <div className="truncate text-[11px] text-text-muted">
-                    {repo.branch || "detached"}{repo.head ? ` · ${repo.head}` : ""}
-                  </div>
-                </div>
-                <StatusBadge label={repo.error ? "error" : repo.dirty ? "dirty" : "clean"} variant={repo.error ? "danger" : repo.dirty ? "warning" : "success"} />
-              </div>
-              <div className="grid gap-2 p-3 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
-                <div className="min-h-[96px] rounded bg-surface/55 p-2 font-mono text-[11px] text-text-muted">
-                  {repo.error ? (
-                    <div className="text-danger-muted">{repo.error}</div>
-                  ) : repo.status_lines.length ? (
-                    repo.status_lines.map((line) => <div key={line}>{line}</div>)
-                  ) : (
-                    <div>working tree clean</div>
-                  )}
-                </div>
-                <pre className="max-h-[520px] overflow-auto rounded bg-[#080b10] p-3 text-[11px] leading-5 text-zinc-300">
-                  {repo.patch || repo.diff_stat || "No diff."}
-                </pre>
-              </div>
-            </section>
-          ))}
+          {repos.map((repo) => <ProjectGitRepoCard key={repo.path} repo={repo} />)}
         </div>
       )}
     </div>
+  );
+}
+
+function ProjectGitRepoCard({ repo }: { repo: ProjectGitRepoStatus }) {
+  const statusLines = projectGitStatusLines(repo);
+  const error = projectGitRepoError(repo);
+  const dirty = projectGitRepoDirty(repo);
+
+  return (
+    <section className="rounded-md border border-surface-border bg-surface-raised/25">
+      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-surface-border/60 px-3 py-2">
+        <div className="min-w-0">
+          <div className="truncate font-mono text-[12px] font-semibold text-text">{repo.display_path || repo.path}</div>
+          <div className="truncate text-[11px] text-text-muted">
+            {repo.branch || "detached"}{repo.head ? ` · ${repo.head}` : ""}
+          </div>
+        </div>
+        <StatusBadge label={error ? "error" : dirty ? "dirty" : "clean"} variant={error ? "danger" : dirty ? "warning" : "success"} />
+      </div>
+      <div className="grid gap-2 p-3 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+        <div className="min-h-[96px] rounded bg-surface/55 p-2 font-mono text-[11px] text-text-muted">
+          {error ? (
+            <div className="text-danger-muted">{error}</div>
+          ) : statusLines.length ? (
+            statusLines.map((line) => <div key={line}>{line}</div>)
+          ) : (
+            <div>working tree clean</div>
+          )}
+        </div>
+        <pre className="max-h-[520px] overflow-auto rounded bg-[#080b10] p-3 text-[11px] leading-5 text-zinc-300">
+          {repo.patch || repo.diff_stat || "No diff."}
+        </pre>
+      </div>
+    </section>
   );
 }

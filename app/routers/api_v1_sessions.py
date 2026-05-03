@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from app.db.models import Attachment, Attachment as AttachmentModel, Channel, ConversationSection, Message, Project, ProjectInstance, Session, Task, ToolApproval, ToolCall
 from app.domain.errors import DomainError
 from app.dependencies import ApiKeyAuth, get_db, require_scopes, verify_auth_or_user, verify_user
+from app.schemas.project_git_status import ProjectGitStatusOut
 from app.services.api_keys import has_scope
 from app.services import presence, session_locks
 from app.services.machine_control import (
@@ -1152,7 +1153,7 @@ async def get_session_execution_environment_endpoint(
     )
 
 
-@router.get("/{session_id}/git-status")
+@router.get("/{session_id}/git-status", response_model=ProjectGitStatusOut)
 async def get_session_git_status_endpoint(
     session_id: uuid.UUID,
     include_patch: bool = Query(False),
