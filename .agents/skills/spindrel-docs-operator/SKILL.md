@@ -9,7 +9,7 @@ This is a repo-dev skill for agents editing Spindrel source and workspace state.
 
 ## Start Here
 
-1. Read `CLAUDE.md` and `docs/guides/index.md`.
+1. Read `CLAUDE.md`, `.spindrel/WORKFLOW.md`, and `docs/guides/index.md`.
 2. Read `docs/guides/ubiquitous-language.md` before naming new concepts.
 3. Treat `vault/Projects/agent-server/` as live project state.
 4. Do not edit `agent-server/project-notes/` as the source of truth.
@@ -18,14 +18,20 @@ This is a repo-dev skill for agents editing Spindrel source and workspace state.
 
 - Update the canonical guide in the same pass as behavior it owns.
 - Keep roadmap rows short and put implementation detail in the owning track.
-- Append concise session bullets for shipped changes, verification, and gotchas.
+- Keep tracks as current-state summaries. Put long dated execution history,
+  parity ledgers, and investigation evidence in `docs/audits/`, `docs/plans/`,
+  `.spindrel/audits/`, Project receipts, or the private session vault, then
+  link from the track.
+- Append concise private session bullets for shipped changes, verification, and
+  gotchas when the vault is the right continuity surface.
 - Preserve the split between repo-dev AX and in-app runtime AX whenever writing
   about agent-first work.
 
 ## Avoid
 
-- Do not create duplicate planning documents when Roadmap, Loose Ends, a track,
-  or the current session log already owns the information.
+- Do not create duplicate planning documents when Roadmap, Inbox, a track, a
+  plan, an audit, or the current session log already owns the information.
+- Do not paste session logs into track files.
 - Do not mark living tracks complete when a phase ships.
 - Do not document `.agents/skills` as Spindrel runtime bot skills.
 - Do not mirror vault edits into `project-notes` manually.

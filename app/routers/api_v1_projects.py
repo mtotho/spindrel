@@ -447,6 +447,7 @@ class ProjectCodingRunOut(BaseModel):
     dev_targets: list[dict] = Field(default_factory=list)
     dependency_stack: dict = Field(default_factory=dict)
     dependency_stack_preflight: dict = Field(default_factory=dict)
+    execution_environment: dict = Field(default_factory=dict)
     readiness: dict = Field(default_factory=dict)
     work_surface: dict = Field(default_factory=dict)
     source_artifact: dict | None = None

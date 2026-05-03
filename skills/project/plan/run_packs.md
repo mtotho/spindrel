@@ -11,8 +11,12 @@ category: project
 
 Use this skill when the user wants a PRD, rough track, planning conversation,
 or pile of Issue Intake split into discrete implementation units. Run Packs
-are the canonical product unit: one Run Pack is a proposed launchable Project
-coding run with a clear PR target.
+are optional published batches of Run Briefs: one Run Pack is a proposed
+launchable Project coding run with a clear PR target.
+
+A Run Brief is enough for a single document-driven run. Use a Run Pack when
+the user needs to review, reorder, approve, or launch multiple PR-sized slices
+as a batch.
 
 Run Packs are file-resident — proposals land as a markdown section in a
 repo artifact (e.g. `.spindrel/audits/<slug>.md` or `.spindrel/prds/<slug>.md`)
@@ -84,9 +88,9 @@ A Run Pack itself includes:
 - Quote source intake-note slugs in `source_item_ids` (e.g. the
   `## YYYY-MM-DD HH:MM <slug>` heading) when grouping notes from the inbox file.
 - Omit `source_item_ids` for pure conversation planning.
-- A Run Pack is **proposed launch material**, not a coding run. Launch happens
-  separately, through the Project/Issue Intake UI or an explicit user
-  instruction.
+- A Run Pack is **proposed launch material**, not a coding run. It is the
+  persisted form of a Run Brief for batch review. Launch happens separately,
+  through the Project/Issue Intake UI or an explicit user instruction.
 - Prefer one `propose_run_packs` call containing the full batch with
   `triage_receipt`.
 

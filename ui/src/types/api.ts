@@ -1623,6 +1623,24 @@ export interface ProjectCodingRun {
   runtime_target?: Record<string, any>;
   dev_targets?: Array<Record<string, any>>;
   dependency_stack?: ProjectDependencyStackState;
+  execution_environment?: {
+    session_id?: string | null;
+    mode?: "shared" | "isolated" | string;
+    status?: "preparing" | "ready" | "stopped" | "failed" | "deleted" | string;
+    cwd?: string | null;
+    docker_status?: string | null;
+    docker_endpoint?: string | null;
+    project_id?: string | null;
+    project_instance_id?: string | null;
+    pinned?: boolean;
+    expires_at?: string | null;
+    created_at?: string | null;
+    updated_at?: string | null;
+    metadata?: Record<string, any>;
+    worktree?: Record<string, any> | null;
+    docker?: Record<string, any> | null;
+    runtime_env?: Record<string, string>;
+  };
   readiness?: Record<string, any>;
   work_surface?: {
     kind?: "project" | "project_instance" | "channel" | string;

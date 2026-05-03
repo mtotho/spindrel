@@ -48,6 +48,13 @@ load `project/plan/audit_to_runs`. That skill chains research → findings
 artifact → Run Packs → bounded launch loop → review cadence end-to-end.
 It is the recipe behind the dream "one prompt becomes a body of work" flow.
 
+If the user asks to run from a track, plan, audit, or doc overnight, first
+frame a Run Brief: source document, mission, stop condition, stay-inside
+boundary, evidence, update target, and review handoff. Load
+`project/runs/loop` for self-continuing runs and `project/runs/scheduled`
+when the user wants a timed fire. A Run Pack is optional for batches; a single
+document-driven run can launch directly from the Run Brief.
+
 If a run is in a non-terminal failure state (`failed` / `stalled`,
 `changes_requested`, `missing_evidence`, `blocked`, or a loop iteration
 returned `needs_review` / `blocked`), load `project/runs/recovery` to pick
@@ -85,6 +92,8 @@ Every project skill in this cluster shares the same starting boundary:
 - Use repo-owned files for durable planning material (`.spindrel/prds/*.md`,
   `docs/tracks/*.md`). Use Spindrel Issue Intake and Run Packs for the
   coordination layer.
+- Use Run Briefs to bound document-driven implementation runs. Do not turn a
+  living track into an unbounded work queue.
 - When switching stages, summarize the current artifact and the proposed next
   step before moving on.
 

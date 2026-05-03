@@ -317,12 +317,16 @@ export function useCreateProjectCodingRun(projectId: string | undefined) {
         method: "POST",
         body: JSON.stringify(data),
       }),
-    onSuccess: () => {
+    onSuccess: (run) => {
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-batches"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs", "review-sessions"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
       qc.invalidateQueries({ queryKey: ["projects", "review-inbox"] });
+      qc.invalidateQueries({ queryKey: ["recent-sessions"] });
+      if (run.task?.channel_id) {
+        qc.invalidateQueries({ queryKey: ["channel-session-catalog", run.task.channel_id] });
+      }
     },
   });
 }

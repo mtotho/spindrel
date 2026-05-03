@@ -17,6 +17,11 @@ the suite is green or the budget runs out. Concrete loops (`project/loops/harnes
 future `project/loops/type_sweep`, etc.) are *configurations* of this recipe;
 they slot in three things and inherit everything else.
 
+Every loop starts from a Run Brief. The brief can come from the user prompt or
+from the child skill, but the iteration agent must be able to name the source
+document, mission, stop condition, stay-inside boundary, evidence, update
+target, and review handoff before editing.
+
 ## The contract a child skill must declare
 
 A child skill specializes this recipe by declaring:
@@ -54,28 +59,33 @@ review-heavy gate, because there green tests can pass while the UX is wrong.
    repo-dev guidance the child skill names; never re-derive that lifecycle.
    If the child skill requires a pre-seeded env file or dev target and it is
    missing, publish a blocked receipt instead of bootstrapping host services.
-2. **Read state.** Call `get_project_factory_state` and
+2. **Confirm the Run Brief.** State the source document, mission, stop
+   condition, stay-inside boundary, evidence, update target, and review
+   handoff. If the child skill and prompt do not provide a bounded brief,
+   publish `decision: "stop", reason: "needs_review"` instead of converting
+   the loop into open-ended discovery.
+3. **Read state.** Call `get_project_factory_state` and
    `get_project_orchestration_policy`. Confirm canonical repo resolves and
    `concurrency.headroom > 0`. If `concurrency.saturated`, stop with
    `decision: stop, reason: concurrency_saturated` so the user can clear
    in-flight work first.
-3. **Run the suite** via `run_script`, using whatever command the child
+4. **Run the suite** via `run_script`, using whatever command the child
    skill's `suite_runner` declares. Wait for the run to complete. Read the
    gap-report path the script printed on stdout.
-4. **If the report shows zero failures**, publish loop receipt
+5. **If the report shows zero failures**, publish loop receipt
    `{decision: "stop", reason: "tier_green", evidence: {report: <path>}}`.
    Done.
-5. **If the report shows failures**, pick the first gap. Tier-ascending when
+6. **If the report shows failures**, pick the first gap. Tier-ascending when
    the report carries tier metadata; otherwise the order the suite emitted.
-6. **Open the spec row** in the child skill's `spec_source` and the gap's
+7. **Open the spec row** in the child skill's `spec_source` and the gap's
    `owning_module`. Reason about the smallest change that makes the spec
    true. Do not blanket-rewrite the module; do not add a feature flag; do
    not edit the test to match the broken behavior.
-7. **Apply the fix.** Run the single failing test in isolation against the
+8. **Apply the fix.** Run the single failing test in isolation against the
    leased dev-target port (parity loop) or the appropriate local runner
    (other loops) until it passes. Confirm no other test in the same file
    regressed.
-8. **Verify per mode**:
+9. **Verify per mode**:
     - **Plan-heavy**: spot-run the suite again on the affected slice; if it
       stays green, proceed to commit.
     - **Review-heavy**: additionally capture screenshots of the touched UI
@@ -83,14 +93,14 @@ review-heavy gate, because there green tests can pass while the UX is wrong.
       visual-feedback contract for this Project) and attach the artifact
       paths to the receipt's `evidence` field. Continue without human
       approval; the artifact lets a human sample-review the morning batch.
-9. **Commit + push** with a tight message: `<scope>: fix <test_id>` (or the
+10. **Commit + push** with a tight message: `<scope>: fix <test_id>` (or the
    equivalent slug for non-test failures). One commit per iteration.
-10. **Publish loop receipt** `{decision: "continue", fixed: <test_id>,
+11. **Publish loop receipt** `{decision: "continue", fixed: <test_id>,
     remaining: <count>, mode: <mode>, evidence: {...}}`. The existing
     `check_project_coding_run_loop_continuation` policy fires the next
     iteration up to the bounded budget (default `max_iterations=5,
     max_time_minutes=60`).
-11. **On stop conditions**, do NOT tear down the e2e stack the child skill
+12. **On stop conditions**, do NOT tear down the e2e stack the child skill
     brought up — leave it for the next iteration or for human inspection.
     The schedule's terminal step (or the user) tears it down per the child
     skill's lifecycle.
@@ -104,6 +114,9 @@ review-heavy gate, because there green tests can pass while the UX is wrong.
 - Mode is review-heavy and the screenshot evidence step failed
   (`reason: "evidence_capture_failed"`).
 - Budget exhausted (handled by the continuation policy, not this skill).
+- The Run Brief mission is complete, even if the source document contains
+  more possible work.
+- The next useful gap falls outside the Run Brief stay-inside boundary.
 
 ## Boundaries
 

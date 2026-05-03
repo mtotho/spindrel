@@ -5,8 +5,7 @@ description: "Use when editing Spindrel frontend source: React routes, shared co
 
 # Spindrel UI Operator
 
-This is a repo-dev skill for agents editing Spindrel source. It is not a
-Spindrel runtime skill and must not be imported into app skill tables.
+This is a repo-dev skill for agents editing Spindrel source. It is not a Spindrel runtime skill and must not be imported into app skill tables.
 
 ## Start Here
 

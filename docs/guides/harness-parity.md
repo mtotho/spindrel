@@ -11,16 +11,28 @@ screenshots, transcripts, project workspaces, and operator visibility on top.
 
 ## Sources
 
-- Claude Code Agent SDK overview: <https://code.claude.com/docs/en/agent-sdk/overview>
+- Claude Agent SDK overview: <https://code.claude.com/docs/en/agent-sdk/overview>
+- Claude Agent SDK filesystem features: <https://code.claude.com/docs/en/agent-sdk/claude-code-features>
+- Claude Agent SDK hooks: <https://code.claude.com/docs/en/agent-sdk/hooks>
 - Claude Code Agent SDK permissions: <https://code.claude.com/docs/en/agent-sdk/permissions>
 - Claude Code Agent SDK user input: <https://code.claude.com/docs/en/agent-sdk/user-input>
 - Claude Code Agent SDK checkpointing: <https://code.claude.com/docs/en/agent-sdk/file-checkpointing>
+- Claude Code changelog: <https://code.claude.com/docs/en/changelog>
 - Claude Code command reference: <https://code.claude.com/docs/en/commands>
 - OpenAI Codex docs: <https://developers.openai.com/codex/>
 - OpenAI Codex app-server protocol: <https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md>
 - Spindrel harness guide: [External Agent Harnesses](agent-harnesses.md)
 - Local E2E workflow: [Agent E2E Development](agent-e2e-development.md)
 - Active implementation track: [Harness SDK Track](../tracks/harness-sdk.md)
+
+## Tested Runtime Baseline
+
+Last refreshed 2026-05-03 from the local harness parity workstation:
+
+| Runtime | Locally tested version | Latest/current signal checked | Status |
+|---|---|---|---|
+| Codex | `codex-cli 0.128.0` | `npm view @openai/codex version` returned `0.128.0` (`latest`) | Current on stable npm tag; alpha `0.129.0-alpha.2` is intentionally not part of the supported baseline. |
+| Claude Code | `2.1.126` | `claude --version` reports 2.1.126 after the local update | Installed current; `prepare-harness-parity`, smoke, SDK, and CLI presets pass. Full strict replay should still be recorded as the new tested baseline. |
 
 ## Support Labels
 
@@ -37,6 +49,7 @@ screenshots, transcripts, project workspaces, and operator visibility on top.
 | Native surface | Claude Code support | Codex support | Spindrel benefit | Evidence | Gap / next action |
 |---|---|---|---|---|---|
 | Native turn loop | Native via Claude Agent SDK `ClaudeSDKClient` | Native via `codex app-server` JSON-RPC | Browser transcript, persistence, stop, usage rows, project cwd | `test_live_harness_core_parity_controls_trace_and_context`; `harness-chat-result.png` | Keep SDK/app-server version drift visible in capabilities/status. Codex schema drift is guarded by `verify_schema_against_binary` and `test_verify_schema_against_binary_raises_on_untracked_method`. |
+| Runtime version and tested-parity drift | Auth/status reports installed Claude CLI/auth state; installed 2.1.126 is the current local target | Auth/status blocks unsupported old Codex CLIs; installed 0.128.0 matches npm stable latest | Lets users know when their local runtime is newer/older than the parity suite actually proved | `prepare-harness-parity` auth smokes; Codex `minimum_version: 0.128.0`; npm/CLI checks from 2026-05-03 | Add `last_tested_version`, `latest_known_version`, and warning-only drift state to harness status/admin UI/ctx popover; write tested version manifest from parity batches. |
 | Native slash commands | Native SDK dispatch for session commands; CLI/list or handoff for management commands | App-server calls for supported commands; handoff for CLI-only flows | Real slash names in picker; unknown harness slashes pass through | `test_live_harness_core_native_slash_direct_commands`; `harness-native-slash-picker-dark.png`; `test_codex_native_command_mappings_are_schema_verified` | Expand doc rows whenever runtime command inventories change. |
 | `/context` | Native SDK `/context` after a session exists | Terminal handoff; app-server has no read-only native context method in current support path | Prevents fake host-context cards from impersonating native output | `harness-claude-native-context-result-dark.png`; `harness-codex-native-context-result-dark.png`; live Claude verification on 2026-05-02 showed native Context Usage, MCP Tools, and Skills sections | Revisit if Codex app-server exposes a first-class context method; otherwise prefer native CLI mirror. |
 | `/compact` | Native SDK `/compact` | Native app-server compact when thread exists | Keeps native resume identity instead of Spindrel transcript compaction | `tests/unit/test_harness_auto_compaction.py`; context tier live parity | Add a non-empty-thread Codex compact screenshot if context cards change. |
@@ -64,12 +77,12 @@ screenshots, transcripts, project workspaces, and operator visibility on top.
 
 ## Current High-Priority Gaps
 
-1. **Native CLI screenshot proof refresh.** Transcript-first checks now cover chat -> native CLI -> chat continuity and model/effort sync for both runtimes. The CLI preset now targets both Claude and Codex settings-sync screenshots; the switching guard still needs durable screenshot proof after the fast batch.
-2. **Codex CLI-first native resume.** CLI-originated Codex sessions now bypass app-server continuation and use installed Codex's native `codex exec resume <session> --json` path for the next Spindrel chat turn. Keep the live CLI-first roundtrip screenshot current because this is a second native execution surface.
-3. **Codex context parity.** Keep `/context` honest as terminal handoff until app-server exposes a supported method; use native CLI mirror for exact output.
-4. **Claude hooks/checkpointing audit.** Compare installed SDK support with docs and add rows/tests for any non-interactive surfaces we can safely expose. File checkpointing is SDK-supported but has native limitations and conflicts with external session stores, so expose it only behind an explicit runtime setting if we add it.
+1. **Runtime version drift warning.** Codex has a minimum-version guard and stable npm check; Claude is now locally updated, but Spindrel still lacks a tested-version manifest. Add warning-only drift UI so operators see "verified on X, installed Y".
+2. **Claude Python SDK hook/checkpoint boundary.** The docs list TypeScript-only hook events in addition to Python-supported hooks. Keep Spindrel's Python adapter claims limited to installed SDK support, and add explicit UI/workflow only if checkpointing/forking semantics are designed.
+3. **Codex CLI-first native resume.** CLI-originated Codex sessions use `codex exec resume <session> --json` for the next Spindrel chat turn. Keep the live CLI-first roundtrip screenshot/current test because this is a second native execution surface.
+4. **Codex context parity.** Keep `/context` honest as terminal handoff until app-server exposes a supported method; use native CLI mirror for exact output.
 5. **Codex subagent live proof.** Unit rendering exists; add a live scenario and screenshot for a real collaboration/subagent event when the runtime reliably emits one.
-6. **Native command inventory drift.** Codex app-server method drift now fails the schema verifier when the generated schema contains an untracked method, and native command mappings are tied to the required schema method list. Add the same runtime-reported `system/init.slash_commands` guard for Claude when the SDK exposes a deterministic inventory without a live turn.
+6. **Native command inventory drift.** Codex app-server method drift now fails the schema verifier when the generated schema contains an untracked method, and native command mappings are tied to the required schema method list. Add a deterministic Claude runtime inventory guard if the SDK/CLI exposes one without a long live turn.
 
 ## Verification Commands
 

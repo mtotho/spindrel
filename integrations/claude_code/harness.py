@@ -256,7 +256,7 @@ def build_native_cli_command(
 ) -> str:
     """Return the Claude Code CLI command that opens the native session surface."""
 
-    parts = ["claude"]
+    parts = ["claude", "--add-dir", cwd]
     if native_session_id:
         parts.extend(["-r", native_session_id])
     if title:

@@ -51,27 +51,32 @@ through composer mentions (`@file:<path>`, `@project:dependencies`).
    throwaway between sessions, not a permanent doc - but writing it forces
    the research pass and gives the reviewer a hook to compare against the
    final receipt.
-3. Inspect current state and call
+3. **Restate the Run Brief when needed.** If the prompt references a track,
+   plan, audit, inbox item, PRD, or bounded loop, restate the source document,
+   mission, stop condition, stay-inside boundary, evidence, artifact update,
+   and review handoff before editing. If you cannot form a bounded Run Brief,
+   publish `needs_review` or `blocked` instead of starting broad discovery.
+4. Inspect current state and call
    `prepare_project_run_handoff(action="prepare_branch")` before editing.
-4. Make focused changes with native harness file/shell tools inside the Project
+5. Make focused changes with native harness file/shell tools inside the Project
    work surface. Treat `SPINDREL_DEV_*_PORT` values as Project app leases (not
    the host Spindrel API/UI port).
-5. For Docker-backed dependencies in an isolated run, use ordinary `docker` and
+6. For Docker-backed dependencies in an isolated run, use ordinary `docker` and
    `docker compose` commands from the Project worktree. They should target the
    session's private daemon through `DOCKER_HOST`. If Docker is stopped or
    unhealthy, load `project/runs/environment` and inspect before retrying.
    Dependency Stack tools are only for Projects that explicitly declare a
    Project-managed stack.
-6. Run the smallest useful repo-local tests first with the native Project
+7. Run the smallest useful repo-local tests first with the native Project
    shell/runtime env. Do not wrap unit tests in Docker, Dockerfile.test, or
    docker compose. For UI work, run typecheck, start the Project app/dev
    server on the assigned dev target port when present, and capture
    screenshots against that server. Do not restart another agent's process or
    the host Spindrel e2e/API server.
-7. Near handoff, call `prepare_project_run_handoff(action="open_pr")` when
+8. Near handoff, call `prepare_project_run_handoff(action="open_pr")` when
    GitHub credentials and `gh` are available. If not, record the exact
    blocker.
-8. Finish with `publish_project_run_receipt`. Make the receipt review-ready
+9. Finish with `publish_project_run_receipt`. Make the receipt review-ready
    with structured records:
    - files: `{path, status, summary}`
    - tests: `{command, status, exit_code, summary}`
@@ -104,6 +109,12 @@ to decide your next move:
 If the run prompt says a bounded Project run loop is enabled, include
 `loop_decision` in the receipt - see `project/runs/loop` for the decision
 contract and stop conditions.
+
+For track/doc-driven loop work, also include metadata naming the Run Brief
+source document, selected mission, updated artifact path/section, and the
+reason the next step is `done`, `continue`, `needs_review`, or `blocked`.
+Do not continue just because the source document still contains other
+possible work.
 
 ## Evidence Rules
 

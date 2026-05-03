@@ -9,13 +9,14 @@ This file is the index, the rule book, and the retrieval contract. Drill into `d
 **Tier 0 — always read:**
 1. This file (`AGENTS.md`).
 2. `docs/roadmap.md` — what's actively in flight.
-3. The most recent file in `~/personal/vault/Sessions/spindrel/` — last session's notes (vault-private; skip if vault is unavailable).
+3. `.spindrel/WORKFLOW.md` — repo-local workflow contract for artifact boundaries, Project runs, intake, tracks, and runtime-skill boundaries.
+4. The most recent file in `~/personal/vault/Sessions/spindrel/` — last session's notes (vault-private; skip if vault is unavailable).
 
 **Tier 1 — read when relevant to the current task:**
 - `docs/inbox.md` — open bugs / ideas / tech debt / questions. Light schema (`## <date> <time> <slug>` + `**kind:** · **area:** · **status:**` tag line). Replaces the prior `loose-ends.md`.
 - `docs/guides/index.md` — canonical guides; open the matching guide for the area you're touching.
 - The relevant `docs/tracks/<slug>.md` for multi-phase work.
-- `.agents/skills/spindrel-e2e-development/SKILL.md` — required before any task involving local e2e, screenshots, provider/auth setup, Codex/Claude harness auth, harness parity, or Project coding-run evidence. Read it before concluding that e2e cannot be run locally.
+- `.agents/skills/spindrel-e2e-development/SKILL.md` — required before any local e2e, screenshots, provider/auth setup, Codex/Claude harness auth, harness parity, or Project coding-run evidence work; read it before saying e2e/auth is blocked.
 
 **Tier 2 — drill in via this file's "Where to look" table on demand:**
 - `docs/architecture-decisions.md`, `docs/architecture.md`, `docs/fix-log.md`, `docs/how-discovery-works.md`, `docs/integration-depth-playbook.md`, `docs/audits/`, etc.
@@ -30,6 +31,7 @@ This file is the index, the rule book, and the retrieval contract. Drill into `d
 
 | Need | File |
 |---|---|
+| Repo-local workflow contract: what belongs in inbox, tracks, plans, audits, receipts, or vault | `.spindrel/WORKFLOW.md` |
 | Current active work, status of named tracks | `docs/roadmap.md` |
 | Open bugs, tech debt, things to verify | `docs/inbox.md` |
 | Why does it work this way? | `docs/architecture-decisions.md` |
@@ -135,6 +137,7 @@ updated: YYYY-MM-DD
 
 - Fixing a bug from `docs/inbox.md`: remove it there and add a one-line entry to `docs/fix-log.md` in the **same edit**.
 - Completing a track phase: update the track's `## Status` table immediately. Compress phase prose in place when work ships. See `docs/guides/tracks.md` for the full lifecycle (when to flip `status: complete`, when to supersede, when to split).
+- Do not use tracks as session logs. Tracks carry current state and links; long dated execution history belongs in `docs/audits/`, `docs/plans/`, `.spindrel/audits/`, Project receipts, or the private session vault per `.spindrel/WORKFLOW.md`.
 - Making a load-bearing decision: add to `docs/architecture-decisions.md`.
 - Discovering a bug or gotcha: add to `docs/inbox.md`. Ideas / speculation go to vault `Ideas & Investigations.md` instead.
 - Architectural change: update the matching `docs/guides/<area>.md` in the same pass.

@@ -25,7 +25,7 @@ from unittest.mock import patch
 
 import pytest
 
-import app.agent.context_assembly as ca
+import app.agent.tool_surface.enrollment as ca
 from app.db.models import Skill
 from tests.factories.skills import build_skill
 

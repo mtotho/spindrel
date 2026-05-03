@@ -39,6 +39,74 @@ from app.services.project_coding_run_lib import (
 from app.services.project_runtime import project_snapshot
 
 
+def _session_environment_run_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "session_id": str(payload.get("session_id")) if payload.get("session_id") else None,
+        "mode": payload.get("mode"),
+        "status": payload.get("status"),
+        "cwd": payload.get("cwd"),
+        "docker_status": payload.get("docker_status"),
+        "docker_endpoint": payload.get("docker_endpoint"),
+        "worktree": payload.get("worktree"),
+        "error": (payload.get("metadata") or {}).get("error") if isinstance(payload.get("metadata"), dict) else None,
+    }
+
+
+async def _ensure_project_run_execution_environment(
+    db: AsyncSession,
+    *,
+    task: Task,
+    project: Project,
+    branch: str | None,
+    base_branch: str | None,
+) -> None:
+    if task.session_id is None:
+        return
+    from app.services.session_execution_environments import (
+        ensure_isolated_session_environment,
+        record_failed_session_execution_environment,
+        session_execution_environment_out,
+    )
+
+    cfg = dict(task.execution_config or {})
+    run_cfg = dict(cfg.get("project_coding_run") or {})
+    run_cfg["session_environment"] = {
+        "session_id": str(task.session_id),
+        "mode": "isolated",
+        "status": "preparing",
+    }
+    cfg["project_coding_run"] = run_cfg
+    task.execution_config = cfg
+    await db.flush()
+
+    try:
+        env = await ensure_isolated_session_environment(
+            db,
+            session_id=task.session_id,
+            project=project,
+            branch=branch,
+            base_branch=base_branch,
+        )
+        payload = session_execution_environment_out(env, session_id=env.session_id)
+    except Exception as exc:
+        env = await record_failed_session_execution_environment(
+            db,
+            session_id=task.session_id,
+            project=project,
+            error=str(exc),
+            branch=branch,
+            base_branch=base_branch,
+        )
+        payload = session_execution_environment_out(env, session_id=env.session_id)
+
+    cfg = dict(task.execution_config or {})
+    run_cfg = dict(cfg.get("project_coding_run") or {})
+    run_cfg["session_environment"] = _session_environment_run_summary(payload)
+    cfg["project_coding_run"] = run_cfg
+    task.execution_config = cfg
+    await db.flush()
+
+
 async def _attach_visible_project_run_session(
     db: AsyncSession,
     *,
@@ -277,6 +345,13 @@ async def create_project_coding_run(
     )
     db.add(task)
     await db.flush()
+    await _ensure_project_run_execution_environment(
+        db,
+        task=task,
+        project=project,
+        branch=ctx.branch,
+        base_branch=ctx.base_branch,
+    )
     await _attach_task_machine_grant(
         db,
         task=task,
@@ -400,6 +475,14 @@ async def continue_project_coding_run(
         "latest_continuation_task_id": str(task.id),
     }
     db.add(task)
+    await db.flush()
+    await _ensure_project_run_execution_environment(
+        db,
+        task=task,
+        project=project,
+        branch=ctx.branch,
+        base_branch=ctx.base_branch,
+    )
     await db.commit()
     await db.refresh(task)
     return task

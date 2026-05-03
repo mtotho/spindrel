@@ -216,11 +216,8 @@ async def create_harness_native_terminal_session(
         raw_native_session_id = harness_meta.get("session_id")
         if isinstance(raw_native_session_id, str) and raw_native_session_id.strip():
             native_session_id = raw_native_session_id.strip()
-    if not native_session_id:
-        raise HTTPException(
-            status_code=409,
-            detail="Native CLI cannot resume yet because this session has no recorded native Claude/Codex session id. Send at least one harness turn and wait for it to start before opening Native CLI.",
-        )
+    if native_session_id == str(session_id):
+        native_session_id = None
     native_cwd = session_runtime_env.cwd or harness_paths.workdir
     native_warning = None
     if isinstance(harness_meta, dict):

@@ -3,8 +3,8 @@ name: Project Audit to Runs
 description: >
   Drive a long-running thematic audit (security, performance, dependency
   hygiene, accessibility, dead code, etc.) end-to-end inside a Project channel:
-  research pass → findings artifact → Run Packs → bounded launch loop with
-  optional human-in-the-loop review gates.
+  research pass → findings artifact → Run Briefs / optional Run Packs →
+  bounded launch loop with optional human-in-the-loop review gates.
 triggers: deep audit, security audit, performance audit, accessibility audit, sweep the codebase, dependency audit, dead code sweep, audit and fix, find all the X and fix them
 category: project
 ---
@@ -51,11 +51,15 @@ behavior. If you find yourself reaching for a new tool, stop and re-read.
      (one heading per finding with severity + file refs + suggested fix),
      `## Out of scope`. The artifact is the audit's source of truth; later
      steps reference it by path, not by re-deriving findings from chat.
-4. **Decompose into Run Packs.** Load `project/plan/run_packs` and call
+4. **Decompose into Run Briefs.** Each launchable slice needs a source
+   document, mission, stop condition, stay-inside boundary, evidence, update
+   target, and review handoff. For a single slice, the Run Brief can live in
+   the run prompt. For a batch, load `project/plan/run_packs` and call
    `propose_run_packs` with `source_artifact_path` pointing at the file from
-   step 3. One finding ≈ one Run Pack unless two findings touch the same
-   file path (group), or a single finding spans multiple unrelated subsystems
-   (split). Do not launch yet - Run Packs land as `proposed`.
+   step 3. One finding ≈ one Run Brief/Run Pack unless two findings touch the
+   same file path (group), or a single finding spans multiple unrelated
+   subsystems (split). Do not launch a batch yet - Run Packs land as
+   `proposed`.
 5. **Review the proposed packs with the user.** Show the list, the cap
    (`concurrency.max_concurrent_runs`), the headroom, and the implied launch
    order. Let the user re-rank, drop, or merge before you launch anything.
@@ -102,8 +106,11 @@ behavior. If you find yourself reaching for a new tool, stop and re-read.
   path. If the user re-prompts mid-loop, re-read the artifact before
   responding.
 - **Run Packs are the unit, not findings.** A finding too small to justify
-  its own PR rolls into the next-related Run Pack. A finding too big to fit
-  in one PR splits before launching, not during the run.
+  its own PR rolls into the next-related Run Brief/Run Pack. A finding too
+  big to fit in one PR splits before launching, not during the run.
+- **Do not let the audit replenish scope forever.** When the approved Run
+  Briefs are complete, stop. New findings need a refreshed Run Brief or a new
+  batch review.
 
 ## Why this skill exists
 

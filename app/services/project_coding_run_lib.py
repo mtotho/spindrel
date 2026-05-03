@@ -788,6 +788,35 @@ def _work_surface_summary(
     }
 
 
+def _session_environment_work_surface(
+    *,
+    project: Project,
+    task: Task,
+    execution_environment: dict[str, Any],
+) -> dict[str, Any]:
+    status = str(execution_environment.get("status") or "unknown")
+    active = status == "ready"
+    cwd = execution_environment.get("cwd")
+    metadata = execution_environment.get("metadata") if isinstance(execution_environment.get("metadata"), dict) else {}
+    blocker = None if active else (metadata.get("error") or "Session execution environment is not ready.")
+    return {
+        "kind": "session_execution_environment",
+        "isolation": execution_environment.get("mode") or "isolated",
+        "expected": "session_execution_environment",
+        "active": active,
+        "status": status,
+        "display_path": cwd,
+        "root_path": cwd,
+        "project_id": str(project.id),
+        "project_instance_id": str(task.project_instance_id) if task.project_instance_id else None,
+        "session_id": str(task.session_id) if task.session_id else None,
+        "docker_status": execution_environment.get("docker_status"),
+        "docker_endpoint": execution_environment.get("docker_endpoint"),
+        "worktree": execution_environment.get("worktree"),
+        "blocker": blocker,
+    }
+
+
 def _summarize_checks(checks: Any) -> str | None:
     if not isinstance(checks, list) or not checks:
         return None
@@ -973,12 +1002,28 @@ async def _coding_run_row(
     instance = await db.get(ProjectInstance, task.project_instance_id) if task.project_instance_id else None
     from app.services.machine_task_grants import task_machine_grant_payload
     from app.services.project_dependency_stacks import get_project_dependency_stack
+    from app.services.session_execution_environments import (
+        get_session_execution_environment,
+        session_execution_environment_out,
+    )
 
     machine_target_grant = await task_machine_grant_payload(db, task)
     dependency_stack = await get_project_dependency_stack(db, project, task_id=task.id, scope="task")
+    execution_env_row = await get_session_execution_environment(db, task.session_id) if task.session_id else None
+    execution_environment = (
+        session_execution_environment_out(execution_env_row, session_id=task.session_id)
+        if task.session_id
+        else {}
+    )
     ctx = ProjectTaskExecutionContext.from_task(task)
     cfg = _task_run_config(task)
     work_surface = _work_surface_summary(project=project, task=task, instance=instance)
+    if execution_environment.get("mode") == "isolated":
+        work_surface = _session_environment_work_surface(
+            project=project,
+            task=task,
+            execution_environment=execution_environment,
+        )
     source_artifact = dict(ctx.source_artifact) if isinstance(ctx.source_artifact, dict) else None
     updated_at = (
         receipt.created_at.isoformat()
@@ -1000,6 +1045,7 @@ async def _coding_run_row(
         "dev_targets": [t.to_persisted() for t in ctx.dev_targets],
         "dependency_stack": dependency_stack,
         "dependency_stack_preflight": cfg.get("dependency_stack_preflight") or {},
+        "execution_environment": execution_environment,
         "readiness": ctx.readiness_summary(dependency_stack_status=dependency_stack),
         "work_surface": work_surface,
         "source_artifact": source_artifact,

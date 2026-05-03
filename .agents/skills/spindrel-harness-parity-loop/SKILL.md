@@ -25,6 +25,28 @@ the mode matrix, and the stop conditions.
 session work surface. If it is missing, publish a blocked receipt that says
 the parity harness was not pre-seeded; do not run repo-dev bootstrap helpers.
 
+## Run Brief
+
+Use this bounded brief unless the user provides a narrower one:
+
+- **Source document:** `docs/guides/harness-parity.md` plus the generated gap
+  report under `.spindrel/audits/harness-parity/`.
+- **Mission:** fix one concrete harness parity gap from the selected tier.
+- **Stop when:** the selected gap is fixed, tested, committed, pushed, and a
+  loop receipt is published; or the tier is green; or the next useful action
+  requires spec changes, missing infrastructure, or human review.
+- **Stay inside:** harness adapter/runtime modules named by the gap report.
+  Do not edit the parity spec to make the failure disappear.
+- **Evidence:** gap report, focused test command, verification result, commit,
+  branch/PR when available, and Project run receipt.
+- **Update:** write the per-iteration audit report and keep any active track
+  update concise; do not paste command history into the track.
+- **Review handoff:** summarize fixed gap, remaining count, blockers, and the
+  next Run Brief if more parity work remains.
+
+The parity loop is not "keep improving harnesses forever." Each iteration is
+one selected parity gap inside this brief.
+
 ## Slot-in declarations
 
 Per the supervised-iteration contract:

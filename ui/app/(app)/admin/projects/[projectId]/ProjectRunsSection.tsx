@@ -889,7 +889,7 @@ function Inspector({
 	    const handoffUrl = run.review?.handoff_url || run.receipt?.handoff_url || null;
 	    const active = isActiveRun(run);
 	    const stale = isStaleActive(run);
-	    const env = sessionEnv.data;
+    const env = sessionEnv.data || run.execution_environment;
 	    const envBusy = manageSessionEnv.isPending || sessionEnv.isFetching;
 	    return (
       <div className="flex flex-col gap-3">

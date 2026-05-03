@@ -454,6 +454,54 @@ async def ensure_isolated_session_environment(
     return env
 
 
+async def record_failed_session_execution_environment(
+    db: AsyncSession,
+    *,
+    session_id: uuid.UUID,
+    project: Project | None = None,
+    project_instance: ProjectInstance | None = None,
+    error: str,
+    branch: str | None = None,
+    base_branch: str | None = None,
+) -> SessionExecutionEnvironment:
+    """Persist a visible failed environment record without aborting the session.
+
+    Run launch should still produce a normal Session row even when worktree or
+    Docker preparation fails. This record gives operators and agents a concrete
+    environment status to inspect and repair.
+    """
+    existing = await get_session_execution_environment(db, session_id)
+    now = _utcnow()
+    env = existing or SessionExecutionEnvironment(
+        session_id=session_id,
+        project_id=project.id if project is not None else None,
+        project_instance_id=project_instance.id if project_instance is not None else None,
+        mode=MODE_ISOLATED,
+        status=STATUS_FAILED,
+        cwd=None,
+        expires_at=now + timedelta(seconds=DEFAULT_ISOLATED_TTL_SECONDS),
+        metadata_={},
+        created_at=now,
+        updated_at=now,
+    )
+    env.mode = MODE_ISOLATED
+    env.status = STATUS_FAILED
+    env.project_id = project.id if project is not None else env.project_id
+    env.project_instance_id = project_instance.id if project_instance is not None else env.project_instance_id
+    env.docker_status = "failed"
+    env.metadata_ = {
+        **dict(env.metadata_ or {}),
+        "error": error,
+        "requested_branch": branch,
+        "requested_base_branch": base_branch,
+        "isolation": "git_worktree_per_session_docker_daemon",
+    }
+    env.updated_at = now
+    db.add(env)
+    await db.flush()
+    return env
+
+
 async def stop_session_execution_environment(db: AsyncSession, session_id: uuid.UUID | str) -> SessionExecutionEnvironment | None:
     env = await get_session_execution_environment(db, session_id)
     if env is None:

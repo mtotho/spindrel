@@ -43,6 +43,15 @@ Body. 1-10 lines. Free-form. Repro steps, links, context.
 
 <!-- New items go below this line. Newest at top within the section. -->
 
+## 2026-05-03 01:37 scheduled-loop-policy-ui-tool-gap
+**kind:** tech-debt · **area:** ui/projects, tools/project_runs · **status:** open
+
+Backend/API schedule records can carry `loop_policy`, and one-shot Project
+Runs UI exposes bounded-loop controls, but schedule creation UI and the
+`schedule_project_coding_run` tool do not expose/pass `loop_policy`. Add
+schedule-level loop controls and tool args after the Run Brief workflow
+settles.
+
 ## 2026-05-02 22:50 thin-run-page-for-loop-iterations
 **kind:** ux · **area:** ui/projects · **status:** open
 
