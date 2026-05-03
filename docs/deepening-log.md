@@ -21,7 +21,7 @@ Append-only. Each entry records a deepening that landed: where the seam now live
 - **Track / ADR**: optional link
 ```
 
-Vocabulary: see `.claude/skills/improve-codebase-architecture/LANGUAGE.md` (module, interface, seam, adapter, depth, leverage, locality).
+Vocabulary: see `.agents/skills/improve-codebase-architecture/LANGUAGE.md` (module, interface, seam, adapter, depth, leverage, locality).
 
 ## Entries
 

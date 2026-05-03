@@ -1,12 +1,6 @@
 ---
-name: Project Supervised Loop Iteration
-description: >
-  Generic recipe for "run a suite, parse failures, fix one, commit, repeat
-  within budget" loops in a Project channel. Concrete loops (harness parity,
-  type sweeps, screenshot regressions, etc.) inherit this skill and slot in
-  their own suite-runner + spec source + verification gate.
-triggers: keep iterating until green, run the loop, fix everything that breaks the suite, repair until passing, stay on it
-category: project
+name: spindrel-supervised-loop
+description: "Use when the user asks to keep iterating until green, run a bounded supervised loop, fix everything that breaks a suite, repair until passing, or ship one fix per iteration within budget. Generic recipe inherited by concrete loops (harness parity, type sweeps, screenshot regressions, etc.) — children slot in their own suite-runner + spec source + verification gate. Repo-dev skill — not a Spindrel runtime skill."
 ---
 
 # Project Supervised Loop Iteration

@@ -192,6 +192,10 @@ tool only after a concrete run needs repeatable hook execution.
   private Docker daemon, and dev target ports when provided.
 - Spindrel-managed dependency stacks are for backing services. App/dev servers
   are started by the agent from source on assigned or unused ports.
+- Project run environment profiles own any pre-agent setup that must exist
+  before the model starts: repo setup commands, declared bootstrap helpers,
+  env artifacts, app/dev server preparation, and readiness checks. Agent turns
+  consume the prepared surface and should not improvise host/bootstrap setup.
 
 ## Runtime Skills Boundary
 

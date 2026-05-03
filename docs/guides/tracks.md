@@ -24,6 +24,27 @@ Create a track when **either**:
 
 Examples that are tracks: "Migrate auth from session cookies to JWT" (discovery → middleware swap → token rotation → cleanup); "Spatial canvas replaces HomeGrid" (design → primitives → channel pinning → migration). Examples that are *not* tracks: "Fix off-by-one in channel pagination"; "Rename `BotConfig` to `BotProfile`"; "Add a missing test for X".
 
+## Track vs Plan
+
+A **Track** is the durable home for a feature area, subsystem, or long-running
+initiative. It carries the north star, current state, queue, invariants, and
+links to evidence. A track can be a living timeline/task board when the domain
+stays active indefinitely (for example architecture deepening, security, or
+harness parity).
+
+A **Plan** is the bounded execution design for one track item or slice. Plans
+belong in `docs/plans/`, `.spindrel/runs/`, Project-run receipts, or the run
+brief itself depending on size and lifetime. A serious implementation plan
+names scope, acceptance criteria, steps, risks, and tests. Exploratory track
+items can start as "research gaps and propose the next slice"; once a concrete
+slice is picked, create or reference the plan that owns that slice.
+
+For unattended scheduled runs, do not turn a broad track into an open-ended
+implementation request. The run brief must either name one bounded track item
+and outcome, or explicitly be a discovery/review sweep whose output is a track
+update plus `needs_review` when it cannot safely pick the next implementation
+slice.
+
 ## Format
 
 ```markdown

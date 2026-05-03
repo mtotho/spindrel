@@ -5,7 +5,7 @@ description: "Use when editing Spindrel frontend source: React routes, shared co
 
 # Spindrel UI Operator
 
-This is a repo-dev skill for agents editing Spindrel source. It is not a Spindrel runtime skill and must not be imported into app skill tables.
+This skill applies to any agent editing this checkout — local CLI on the operator's box, in-app Spindrel agent on the server, or a Project coding run. It is **not** a Spindrel runtime skill and must not be imported into app skill tables.
 
 ## Start Here
 
@@ -31,6 +31,32 @@ Before changing a visual surface, name these in your working notes:
   neutral border.
 - **Proof path:** typecheck plus focused tests; add screenshots for visual
   layout, hierarchy, or responsive work.
+
+## Triage primitives
+
+| Need | Primitive |
+|---|---|
+| Shared dropdown / settings row / prompt editor | `docs/guides/ui-components.md` |
+| Design tokens | `ui/global.css` + `ui/tailwind.config.cjs` |
+| Surface archetype rules | `docs/guides/ui-design.md` (command vs app/content vs control) |
+| Find a component's call sites | `rg -n "<ComponentName" ui/` |
+| Typecheck after a change | `cd ui && npx tsc --noEmit --pretty false` |
+| 1000-line UI file | split into siblings before editing further (per `AGENTS.md`) |
+
+## Named patterns to grep for
+
+- **Imperative chat scroll anchoring** (`scrollTop = scrollHeight`, `ResizeObserver` pin logic, image-load races) — never reintroduce. The chat uses `flex-direction: column-reverse` for native bottom-pinning. Per `AGENTS.md`, this is non-negotiable.
+- **Component-local color literals** (`#hex`, `rgb()`, `text-blue-500`) — must be tokens. Add to `ui/global.css` + `ui/tailwind.config.cjs`, then consume via Tailwind classes.
+- **Cards inside cards / repeated equal metric-card grids** — flag as a layout smell; one anchor section + compact rows usually scans faster.
+- **Fixed-width content centered in wide-screen dead zones** — operational pages should align with the app shell rhythm, not marketing-page centering.
+
+## Worked example: add an admin settings row
+
+1. Use the canonical `SettingsRow` component (per `docs/guides/ui-components.md`) — do not build a one-off.
+2. Tokens only — no inline colors.
+3. State via the existing zustand/react-query patterns; don't add a new global store.
+4. `cd ui && npx tsc --noEmit --pretty false`. If layout-sensitive, run the visual feedback loop and inspect screenshots.
+5. Bump test for the changed component if behavior changed.
 
 ## Do
 

@@ -37,6 +37,7 @@ def _schedule_execution_config(
     request: str,
     repo_path: str | None,
     work_surface_mode: str,
+    run_environment_profile: str | None,
     machine_target_grant: ProjectMachineTargetGrant | None,
     loop_policy: dict[str, Any] | None,
 ) -> dict[str, Any]:
@@ -47,6 +48,7 @@ def _schedule_execution_config(
             "request": request.strip(),
             "repo_path": repo_path,
             "work_surface_mode": normalize_work_surface_mode(work_surface_mode),
+            "run_environment_profile": run_environment_profile,
             "machine_target_grant": _machine_target_grant_summary(machine_target_grant),
             "loop_policy": dict(loop_policy or {}),
         },
@@ -66,6 +68,15 @@ def _validate_schedule_channel(project: Project, channel: Channel | None) -> Cha
     if channel.project_id != project.id:
         raise ValueError("channel does not belong to this Project")
     return channel
+
+
+def _validate_schedule_request(request: str) -> str:
+    text = (request or "").strip()
+    if len(text) < 20:
+        raise ValueError("Project coding-run schedules require a concrete run brief")
+    if text.startswith(("docs/", ".spindrel/", "/")) and "\n" not in text and len(text.split()) == 1:
+        raise ValueError("Project coding-run schedule request cannot be only a file path")
+    return text
 
 
 def _is_project_coding_run_schedule(project: Project, task: Task) -> bool:
@@ -88,13 +99,14 @@ async def create_project_coding_run_schedule(
     recurrence = validate_recurrence(body.recurrence) or None
     scheduled_at = body.scheduled_at or _utcnow()
     title = body.title.strip() or "Scheduled Project coding run"
+    request = _validate_schedule_request(body.request)
     task = Task(
         id=uuid.uuid4(),
         bot_id=channel.bot_id,
         client_id=channel.client_id,
         session_id=channel.active_session_id,
         channel_id=channel.id,
-        prompt=body.request.strip(),
+        prompt=request,
         title=title,
         scheduled_at=scheduled_at,
         status="active",
@@ -103,9 +115,10 @@ async def create_project_coding_run_schedule(
         dispatch_config=dict(channel.dispatch_config) if channel.integration and channel.dispatch_config else None,
         execution_config=_schedule_execution_config(
             project_id=project.id,
-            request=body.request,
+            request=request,
             repo_path=body.repo_path,
             work_surface_mode=body.work_surface_mode,
+            run_environment_profile=body.run_environment_profile,
             machine_target_grant=body.machine_target_grant,
             loop_policy=body.loop_policy,
         ),
@@ -152,12 +165,15 @@ async def update_project_coding_run_schedule(
     if body.title is not None:
         task.title = body.title.strip() or task.title
     if body.request is not None:
-        cfg["request"] = body.request.strip()
-        task.prompt = body.request.strip()
+        request = _validate_schedule_request(body.request)
+        cfg["request"] = request
+        task.prompt = request
     if body.repo_path_set:
         cfg["repo_path"] = body.repo_path
     if body.work_surface_mode is not None:
         cfg["work_surface_mode"] = normalize_work_surface_mode(body.work_surface_mode)
+    if body.run_environment_profile_set:
+        cfg["run_environment_profile"] = body.run_environment_profile
     if body.scheduled_at_set:
         task.scheduled_at = body.scheduled_at
     if body.recurrence is not None:
@@ -242,6 +258,7 @@ async def fire_project_coding_run_schedule(
             request=str(cfg.get("request") or schedule.prompt or ""),
             repo_path=str(cfg.get("repo_path") or "") or None,
             work_surface_mode=normalize_work_surface_mode(cfg.get("work_surface_mode")),
+            run_environment_profile=str(cfg.get("run_environment_profile") or "") or None,
             machine_target_grant=grant,
             schedule_task_id=schedule.id,
             schedule_run_number=run_number,
@@ -319,5 +336,6 @@ async def _coding_run_schedule_row(db: AsyncSession, task: Task, recent_runs: li
         "machine_target_grant": await task_machine_grant_payload(db, task),
         "repo_path": cfg.get("repo_path"),
         "work_surface_mode": normalize_work_surface_mode(cfg.get("work_surface_mode")),
+        "run_environment_profile": cfg.get("run_environment_profile"),
         "loop_policy": cfg.get("loop_policy") if isinstance(cfg.get("loop_policy"), dict) else None,
     }

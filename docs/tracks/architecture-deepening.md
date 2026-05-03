@@ -141,7 +141,7 @@ Spindrel's agent surfaces (loop, context assembly, tool dispatch) are the #1 bug
 
 ## References
 
-- Skill: `.claude/skills/improve-codebase-architecture/SKILL.md` (+ `LANGUAGE.md`, `DEEPENING.md`, `INTERFACE-DESIGN.md`)
+- Skill: `.agents/skills/improve-codebase-architecture/SKILL.md` (+ `LANGUAGE.md`, `DEEPENING.md`, `INTERFACE-DESIGN.md`) — has `Unattended mode` for overnight Project coding runs
 - Log of landed deepenings: `docs/deepening-log.md`
 - Architecture: `docs/architecture.md`, `docs/architecture-decisions.md`
 - Domain glossary: `docs/guides/ubiquitous-language.md`

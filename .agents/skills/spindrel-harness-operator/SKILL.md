@@ -5,7 +5,7 @@ description: "Use when editing Spindrel agent harness support: Codex and Claude 
 
 # Spindrel Harness Operator
 
-This is a repo-dev skill for agents editing Spindrel source. It is not a Spindrel runtime skill and must not be imported into app skill tables.
+This skill applies to any agent editing this checkout — local CLI on the operator's box, in-app Spindrel agent on the server, or a Project coding run. It is **not** a Spindrel runtime skill and must not be imported into app skill tables.
 
 ## Start Here
 
@@ -16,6 +16,32 @@ This is a repo-dev skill for agents editing Spindrel source. It is not a Spindre
    harness execution is task-backed or Project-rooted.
 4. Inspect both Codex and Claude paths before changing a shared runtime
    contract.
+
+## Triage primitives
+
+| Need | Primitive |
+|---|---|
+| Codex adapter | `rg -n "" app/agent/ \| grep -i codex` (start with `codex_*` modules) |
+| Claude adapter | `rg -n "" app/agent/ \| grep -i claude` |
+| Approval / cancellation contract | shared services under `app/services/` (approvals, tasks) |
+| Native command metadata | the runtime adapter's command registry |
+| Parity tests | `tests/unit/test_harness_*` and `tests/unit/test_*_parity*` |
+| Run the parity suite | `./scripts/run_harness_parity_local.sh --tier core` (see `spindrel-e2e-development`) |
+
+## Named patterns to grep for
+
+- **Native command parity drift** — Codex registers a slash command Claude doesn't, or vice versa. The parity test should fail; if it doesn't, the test is missing the command.
+- **Approval-request envelope dropped across the bridge** — task or tool approval emitted by the runtime but not surfaced to Spindrel's approval queue. Trace: look for the approval `correlation_id` in both runtimes' adapters.
+- **Trace `correlation_id` not threaded through** — the runtime turn produces a trace that doesn't link back to the harness session. Adapter must thread it explicitly.
+- **Slash-command metadata diverging between runtimes** — same command, different param names / help text. Should mirror native; if native diverges, document the difference rather than silently aliasing.
+
+## Worked example: add a new slash command supported by both runtimes
+
+1. Confirm the native command exists in both Codex and Claude (or document why it's runtime-specific).
+2. Register in both adapters with mirrored param names + help text.
+3. Add a parity test that asserts the command surface matches in both adapters.
+4. Preserve approval/cancellation/trace metadata across the bridge — the command must not silently drop any of these.
+5. Run `./scripts/run_harness_parity_local.sh --tier core -k <command_name>` until green.
 
 ## Do
 

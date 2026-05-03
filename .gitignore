@@ -71,9 +71,7 @@ tools/*.py
 # Claude Code plans (dev-only)
 .claude/
 
-# Planning docs (internal)
-Plans/
-PLANS/
+
 !PLANS/README.md
 !PLANS/HEARTBEAT_QUIET_HOURS.md
 !PLANS/TESTING_PLAN.md

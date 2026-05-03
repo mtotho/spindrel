@@ -5,7 +5,7 @@ description: "Use when editing Spindrel integrations: manifests, activation, cha
 
 # Spindrel Integration Operator
 
-This is a repo-dev skill for agents editing Spindrel source. It is not a Spindrel runtime skill and must not be imported into app skill tables.
+This skill applies to any agent editing this checkout — local CLI on the operator's box, in-app Spindrel agent on the server, or a Project coding run. It is **not** a Spindrel runtime skill and must not be imported into app skill tables.
 
 ## Start Here
 
@@ -16,6 +16,32 @@ This is a repo-dev skill for agents editing Spindrel source. It is not a Spindre
 3. Check current manifests, activation flows, and binding contracts before
    adding platform-specific code.
 4. Grep `integrations/sdk.py` before adding helpers under `integrations/<id>/`.
+
+## Triage primitives
+
+| Need | Primitive |
+|---|---|
+| Find platform-specific code | `integrations/<id>/` (slack, discord, bluebubbles, github, arr, ...) |
+| Find shared helpers | `integrations/sdk.py` — grep before adding a private helper anywhere under `integrations/<id>/` |
+| Find a manifest | `integrations/<id>/manifest.{yaml,py}` |
+| Duplicate-helper drift gate | `tests/unit/test_integration_no_duplicate_helpers.py` |
+| Webhook handler entry | `integrations/<id>/webhook.py` or its dispatcher hook |
+| Run platform-depth tests | `PYTHONPATH=. pytest tests/unit/ -q -k "<platform>"` |
+
+## Named patterns to grep for
+
+- **Same private helper in 2+ integrations** — lift to `integrations/sdk.py`. AGENTS.md anti-pattern #7 + the duplicate-helper drift gate; if the gate is silent, it's missing the helper.
+- **Integration-specific code in `app/`** — must move to `integrations/<id>/`. The dispatcher protocol is the only seam between halves.
+- **Streaming-message coalesce / rate-limit windows reimplemented per platform** — Discord, Slack, BlueBubbles all want the same shape; lift to a shared "Streaming Delivery Helper" in `sdk.py` rather than diverging.
+- **Webhook handler bypassing the capability gate** — every inbound platform action that mutates state must go through the same authorization path; don't shortcut for "internal" integrations.
+
+## Worked example: add a new platform integration
+
+1. `integrations/<id>/manifest.{yaml,py}` — declare capabilities, scopes, activation needs.
+2. `integrations/<id>/dispatcher.py` — implement the dispatcher protocol; the only seam app/ sees.
+3. Reuse `integrations/sdk.py` helpers (streaming delivery, rate-limit windows, ID tracking) — do not reimplement.
+4. Renderer in `integrations/<id>/renderer.py` for platform-specific presentation.
+5. Tests: manifest load, depth, renderer, webhook auth, duplicate-helper drift.
 
 ## Do
 

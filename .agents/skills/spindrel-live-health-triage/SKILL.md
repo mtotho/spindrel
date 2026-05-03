@@ -15,10 +15,12 @@ or triage live server issues before or after backend/runtime work.
 
 ## Setup
 
-1. Determine the live API base URL from local env or project docs. Prefer the
-   currently running backend; do not start a Vite dev server for this skill.
-2. Use the local API key from env/config without printing it, writing it to
-   files, or committing it.
+1. Use `$SPINDREL_API_URL` + `$SPINDREL_API_KEY` per
+   [`../_shared/api-access.md`](../_shared/api-access.md). Prefer the currently
+   running backend; do not start a Vite dev server for this skill.
+2. When running in-spindrel, prefer MCP tools (e.g. `get_system_health_preflight`,
+   `run_agent_doctor`) over HTTP — see
+   [`../_shared/mcp-bridge-tools.md`](../_shared/mcp-bridge-tools.md).
 3. If no live backend or key is available, stop the live portion and report the
    missing prerequisite. Still inspect code for likely bugs if the error
    payload was supplied.

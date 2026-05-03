@@ -205,6 +205,33 @@
       ]
     },
     {
+      "id": "spindrel-conversation-quality-audit",
+      "path": ".agents/skills/spindrel-conversation-quality-audit",
+      "description": "Repo-dev workflow for Claude/Codex or Spindrel Project agents to review active human chat threads, inspect traces, find frustration and response-quality failures, and propose generic fixes.",
+      "triggers": [
+        "conversation quality",
+        "active threads",
+        "audit chats",
+        "review conversations",
+        "bad bot responses",
+        "context issues",
+        "image handling",
+        "response quality",
+        "user frustration"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        ".spindrel/WORKFLOW.md",
+        "docs/guides/api.md",
+        "docs/guides/development-process.md",
+        "docs/tracks/agent-quality-observability.md"
+      ],
+      "verification_commands": [
+        "PYTHONPATH=. pytest tests/unit/test_repo_agent_skills.py -q",
+        "git diff --check"
+      ]
+    },
+    {
       "id": "spindrel-visual-feedback-loop",
       "path": ".agents/skills/spindrel-visual-feedback-loop",
       "description": "Browser screenshot workflow for UI visual feedback and documentation artifacts.",

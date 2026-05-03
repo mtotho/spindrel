@@ -1,13 +1,6 @@
 ---
-name: Harness Parity Loop
-description: >
-  Bounded supervised loop that drives Codex/Claude harness chats toward
-  feature parity with their native CLIs. Each iteration runs the parity
-  suite against a leased ephemeral e2e stack, picks one failure, opens the
-  spec row, makes the smallest fix, commits, and publishes a loop receipt.
-  Concrete instance of the supervised-iteration recipe.
-triggers: fix harness parity, run the parity loop, make codex match the terminal, make claude match the cli, harness parity sweep
-category: project
+name: spindrel-harness-parity-loop
+description: "Use when the user asks to fix harness parity, run the parity loop, make Codex match the terminal, make Claude match the CLI, or run a harness parity sweep. Bounded supervised loop driving Codex/Claude harness chats toward feature parity with their native CLIs — one fix per iteration. Concrete instance of `spindrel-supervised-loop`. Repo-dev skill — not a Spindrel runtime skill."
 ---
 
 # Harness Parity Loop
@@ -17,13 +10,20 @@ already have its isolated work surface and private Docker daemon prepared by
 Spindrel before the first turn starts. Do not bootstrap or restart the host
 Spindrel API from inside the iteration agent.
 
+For scheduled Project runs, the run should select the `harness-parity` run
+environment profile. That profile owns `prepare-harness-parity`, writes
+`scratch/agent-e2e/harness-parity.env`, and records pre-agent setup evidence
+before the model starts. The iteration agent should consume that prepared
+surface; it should not create a second stack or restart another run's server.
+
 It is a concrete configuration of `.agents/skills/spindrel-supervised-loop/SKILL.md` —
 read that parent recipe before running this; it owns the procedure shape,
 the mode matrix, and the stop conditions.
 
 **Prerequisite**: `scratch/agent-e2e/harness-parity.env` exists in this
 session work surface. If it is missing, publish a blocked receipt that says
-the parity harness was not pre-seeded; do not run repo-dev bootstrap helpers.
+the `harness-parity` run environment profile did not prepare the surface; do
+not run repo-dev bootstrap helpers from the agent turn.
 
 ## Run Brief
 
@@ -78,7 +78,8 @@ Per the supervised-iteration contract:
 ## First action
 
 1. Confirm `scratch/agent-e2e/harness-parity.env` exists.
-2. If it is missing, publish a blocked loop receipt and stop.
+2. If it is missing, publish a blocked loop receipt that points at the missing
+   `harness-parity` run environment profile/preflight and stop.
 3. If it exists, hand off to the supervised-iteration procedure with the
    slot-ins above.
 
@@ -113,5 +114,5 @@ In addition to the parent skill's stop list:
 - Auto-merging the per-iteration PR. Merges happen in the morning review
   pass.
 - Running `prepare-harness-parity`, `start-api`, or other repo-dev bootstrap
-  helpers from inside the loop. Harness lifecycle belongs to the host/session
-  provisioner, not to the iteration agent.
+  helpers from inside the loop. Harness lifecycle belongs to the Project run
+  environment profile/preflight, not to the iteration agent.

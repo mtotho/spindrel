@@ -92,6 +92,11 @@ Locked next-phase ladder:
 9. **Parallel overnight factory** — multiple work packs can run overnight in fresh Project instances with isolated dependency stacks/dev targets, producing PRs, tests, screenshots, receipts, and morning review readiness.
 10. **Blueprint/fresh workspace maturity** — Blueprints define repo clones, setup commands, env slots, secret bindings, dependency stacks, dev targets, and eventually per-run isolation policy. Future sidecar/container execution should extend these primitives rather than bypass them.
 
+Immediate reliability push: Project coding runs need a generic run environment
+preflight boundary so scheduled isolated runs prepare dependencies, dev targets,
+setup commands, required artifacts, and readiness before the model starts. Full
+implementation plan: [`docs/plans/project-run-environment-preflight.md`](../plans/project-run-environment-preflight.md).
+
 ## Phase Log
 
 - [x] **Phase 1 - First-class primitive** — Projects API/model, channel binding, Project-rooted file/search/terminal/exec/harness/context behavior, Project prompt injection, and compatibility fallback for legacy `project_path` shipped. Architecture locked in [[architecture-decisions#Projects are shared roots inside the singleton Workspace]].

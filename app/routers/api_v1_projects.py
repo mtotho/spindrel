@@ -346,6 +346,7 @@ class ProjectCodingRunWrite(BaseModel):
     request: str = ""
     repo_path: str | None = None
     work_surface_mode: str = "isolated_worktree"
+    run_environment_profile: str | None = None
     machine_target_grant: ProjectMachineTargetGrantIn | None = None
     source_artifact: SourceArtifactIn | None = None
     loop_policy: ProjectRunLoopPolicyIn | None = None
@@ -384,6 +385,7 @@ class ProjectCodingRunScheduleWrite(BaseModel):
     request: str = ""
     repo_path: str | None = None
     work_surface_mode: str = "isolated_worktree"
+    run_environment_profile: str | None = None
     scheduled_at: datetime | None = None
     recurrence: str = "+1w"
     machine_target_grant: ProjectMachineTargetGrantIn | None = None
@@ -396,6 +398,7 @@ class ProjectCodingRunSchedulePatch(BaseModel):
     request: str | None = None
     repo_path: str | None = None
     work_surface_mode: str | None = None
+    run_environment_profile: str | None = None
     scheduled_at: datetime | None = None
     recurrence: str | None = None
     enabled: bool | None = None
@@ -420,6 +423,7 @@ class ProjectCodingRunScheduleOut(BaseModel):
     created_at: str | None = None
     machine_target_grant: dict | None = None
     work_surface_mode: str = "isolated_worktree"
+    run_environment_profile: str | None = None
     loop_policy: dict | None = None
 
 
@@ -1652,6 +1656,7 @@ async def create_project_coding_run_endpoint(
                 request=body.request,
                 repo_path=body.repo_path,
                 work_surface_mode=body.work_surface_mode,
+                run_environment_profile=body.run_environment_profile,
                 machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
                 granted_by_user_id=_auth_user_id(_auth),
                 source_artifact=body.source_artifact.model_dump() if body.source_artifact else None,
@@ -1700,6 +1705,7 @@ async def create_project_coding_run_schedule_endpoint(
                 request=body.request,
                 repo_path=body.repo_path,
                 work_surface_mode=body.work_surface_mode,
+                run_environment_profile=body.run_environment_profile,
                 scheduled_at=body.scheduled_at,
                 recurrence=body.recurrence,
                 machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
@@ -1742,6 +1748,8 @@ async def update_project_coding_run_schedule_endpoint(
                 repo_path=body.repo_path,
                 repo_path_set="repo_path" in body.model_fields_set,
                 work_surface_mode=body.work_surface_mode,
+                run_environment_profile=body.run_environment_profile,
+                run_environment_profile_set="run_environment_profile" in body.model_fields_set,
                 scheduled_at=body.scheduled_at,
                 scheduled_at_set="scheduled_at" in body.model_fields_set,
                 recurrence=body.recurrence,

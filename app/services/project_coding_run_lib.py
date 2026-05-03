@@ -245,6 +245,7 @@ class ProjectCodingRunCreate:
     request: str = ""
     repo_path: str | None = None
     work_surface_mode: str = WORK_SURFACE_ISOLATED_WORKTREE
+    run_environment_profile: str | None = None
     machine_target_grant: ProjectMachineTargetGrant | None = None
     granted_by_user_id: uuid.UUID | None = None
     source_artifact: dict | None = None
@@ -260,6 +261,7 @@ class ProjectCodingRunScheduleCreate:
     request: str = ""
     repo_path: str | None = None
     work_surface_mode: str = WORK_SURFACE_ISOLATED_WORKTREE
+    run_environment_profile: str | None = None
     scheduled_at: datetime | None = None
     recurrence: str = "+1w"
     machine_target_grant: ProjectMachineTargetGrant | None = None
@@ -274,6 +276,8 @@ class ProjectCodingRunScheduleUpdate:
     repo_path: str | None = None
     repo_path_set: bool = False
     work_surface_mode: str | None = None
+    run_environment_profile: str | None = None
+    run_environment_profile_set: bool = False
     scheduled_at: datetime | None = None
     scheduled_at_set: bool = False
     recurrence: str | None = None

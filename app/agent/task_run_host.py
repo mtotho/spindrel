@@ -607,12 +607,89 @@ async def _preflight_project_dependency_stack_if_requested(
     return preflight
 
 
+async def _preflight_project_run_environment_if_requested(
+    db: Any,
+    *,
+    task: Task,
+    project_instance: Any | None,
+    prepared: _PreparedTaskRun,
+) -> bool:
+    cfg = prepared.ecfg.get("project_coding_run")
+    if not isinstance(cfg, dict):
+        return True
+    project_id = cfg.get("project_id")
+    if not project_id:
+        return True
+    from app.db.models import Project
+    from app.services.project_run_environment_profiles import (
+        prepare_project_run_environment_profile,
+        record_project_run_preflight_failure,
+        record_project_run_preflight_success,
+    )
+
+    try:
+        project_uuid = uuid.UUID(str(project_id))
+    except (TypeError, ValueError):
+        return True
+    project = await db.get(Project, project_uuid)
+    if project is None:
+        return True
+
+    dependency_preflight = await _preflight_project_dependency_stack_if_requested(
+        db,
+        task=task,
+        project_instance=project_instance,
+        prepared=prepared,
+    )
+    if dependency_preflight and dependency_preflight.get("configured") and dependency_preflight.get("ok") is False:
+        await record_project_run_preflight_failure(
+            db,
+            task=task,
+            project=project,
+            summary=dependency_preflight,
+        )
+        await db.commit()
+        return False
+
+    profile_id = str(cfg.get("run_environment_profile") or "") or None
+    profile_preflight = await prepare_project_run_environment_profile(
+        db,
+        task=task,
+        project=project,
+        profile_id=profile_id,
+    )
+    cfg["run_environment_profile"] = profile_id
+    cfg["run_environment_preflight"] = profile_preflight
+    task.execution_config = prepared.ecfg
+    db_task = await db.get(Task, task.id)
+    if db_task is not None:
+        db_task.execution_config = prepared.ecfg
+    if profile_preflight.get("ok") is False:
+        await record_project_run_preflight_failure(
+            db,
+            task=db_task or task,
+            project=project,
+            summary=profile_preflight,
+        )
+        await db.commit()
+        return False
+    if profile_preflight.get("configured"):
+        await record_project_run_preflight_success(
+            db,
+            task=db_task or task,
+            project=project,
+            summary=profile_preflight,
+        )
+    await db.commit()
+    return True
+
+
 async def _ensure_session_environment_if_requested(
     db: Any,
     *,
     task: Task,
     project_instance: Any | None,
-) -> Any | None:
+) -> bool | None:
     if task.session_id is None:
         return None
     ecfg = task.execution_config if isinstance(task.execution_config, dict) else {}
@@ -620,21 +697,98 @@ async def _ensure_session_environment_if_requested(
     if not isinstance(run_cfg, dict):
         return None
     from app.db.models import Project
-    from app.services.session_execution_environments import ensure_isolated_session_environment
+    from app.services.project_run_environment_profiles import record_project_run_preflight_failure
+    from app.services.session_execution_environments import (
+        ensure_isolated_session_environment,
+        record_failed_session_execution_environment,
+        session_execution_environment_out,
+    )
 
     project = await db.get(Project, project_instance.project_id) if project_instance is not None else None
     if project is None and task.channel_id is not None:
         channel = await db.get(Channel, task.channel_id)
         project_id = getattr(channel, "project_id", None) if channel is not None else None
         project = await db.get(Project, project_id) if project_id is not None else None
-    return await ensure_isolated_session_environment(
-        db,
-        session_id=task.session_id,
-        project=project,
-        project_instance=project_instance,
-        branch=str(run_cfg.get("branch") or "") or None,
-        base_branch=str(run_cfg.get("base_branch") or "") or None,
-    )
+    repo_cfg = run_cfg.get("repo") if isinstance(run_cfg.get("repo"), dict) else {}
+    repo_path = str(run_cfg.get("repo_path") or repo_cfg.get("path") or "") or None
+    branch = str(run_cfg.get("branch") or "") or None
+    base_branch = str(run_cfg.get("base_branch") or "") or None
+    try:
+        env = await ensure_isolated_session_environment(
+            db,
+            session_id=task.session_id,
+            project=project,
+            project_instance=project_instance,
+            branch=branch,
+            base_branch=base_branch,
+            repo_path=repo_path,
+        )
+    except Exception as exc:
+        env = await record_failed_session_execution_environment(
+            db,
+            session_id=task.session_id,
+            project=project,
+            project_instance=project_instance,
+            error=str(exc),
+            branch=branch,
+            base_branch=base_branch,
+            repo_path=repo_path,
+        )
+        payload = session_execution_environment_out(env, session_id=task.session_id)
+        summary = {
+            "configured": True,
+            "ok": False,
+            "status": payload.get("status") or "failed",
+            "profile_id": run_cfg.get("run_environment_profile"),
+            "error": str(exc),
+            "category": "session_environment",
+            "cwd": payload.get("cwd"),
+            "docker_status": payload.get("docker_status"),
+            "docker_endpoint": payload.get("docker_endpoint"),
+            "worktree": payload.get("worktree"),
+            "commands": [],
+            "env_keys": [],
+        }
+        run_cfg["session_environment"] = {
+            "mode": payload.get("mode"),
+            "status": payload.get("status"),
+            "cwd": payload.get("cwd"),
+            "docker_status": payload.get("docker_status"),
+            "docker_endpoint": payload.get("docker_endpoint"),
+            "worktree": payload.get("worktree"),
+            "requested_repo_path": repo_path,
+            "requested_branch": branch,
+            "requested_base_branch": base_branch,
+            "error": str(exc),
+        }
+        task.execution_config = {**ecfg, "project_coding_run": run_cfg}
+        db_task = await db.get(Task, task.id)
+        if db_task is not None:
+            db_task.execution_config = task.execution_config
+        if project is not None:
+            await record_project_run_preflight_failure(
+                db,
+                task=db_task or task,
+                project=project,
+                summary=summary,
+            )
+        await db.commit()
+        return False
+    payload = session_execution_environment_out(env, session_id=task.session_id)
+    run_cfg["session_environment"] = {
+        "mode": payload.get("mode"),
+        "status": payload.get("status"),
+        "cwd": payload.get("cwd"),
+        "docker_status": payload.get("docker_status"),
+        "docker_endpoint": payload.get("docker_endpoint"),
+        "worktree": payload.get("worktree"),
+    }
+    task.execution_config = {**ecfg, "project_coding_run": run_cfg}
+    db_task = await db.get(Task, task.id)
+    if db_task is not None:
+        db_task.execution_config = task.execution_config
+    await db.commit()
+    return True
 
 
 def _api_task_user_message_ids(ecfg: dict[str, Any]) -> list[uuid.UUID]:
@@ -1185,17 +1339,37 @@ async def run_task(task: Task, *, deps: TaskRunHostDeps) -> None:
                 task=task,
                 execution_config=prepared.ecfg,
             )
-            await _ensure_session_environment_if_requested(
+            environment_ok = await _ensure_session_environment_if_requested(
                 instance_db,
                 task=task,
                 project_instance=project_instance,
             )
-            await _preflight_project_dependency_stack_if_requested(
+            if environment_ok is False:
+                current_project_instance_id.set(project_instance.id if project_instance is not None else None)
+                await deps.fire_task_complete(prepared.task, "failed")
+                await deps.publish_turn_ended_safe(
+                    prepared.task,
+                    turn_id=_turn_id,
+                    error="Project run environment setup failed",
+                    log_label="project run environment",
+                )
+                return
+            preflight_ok = await _preflight_project_run_environment_if_requested(
                 instance_db,
                 task=task,
                 project_instance=project_instance,
                 prepared=prepared,
             )
+            if not preflight_ok:
+                current_project_instance_id.set(project_instance.id if project_instance is not None else None)
+                await deps.fire_task_complete(prepared.task, "failed")
+                await deps.publish_turn_ended_safe(
+                    prepared.task,
+                    turn_id=_turn_id,
+                    error="Project run environment preflight failed",
+                    log_label="project run preflight",
+                )
+                return
             current_project_instance_id.set(project_instance.id if project_instance is not None else None)
         current_task_id.set(task.id)
         current_issue_reporting_enabled.set(bool(prepared.ecfg.get("allow_issue_reporting")))

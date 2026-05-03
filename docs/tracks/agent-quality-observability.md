@@ -22,6 +22,7 @@ Spindrel should notice when an agent behaves incompetently before the operator h
 | 5. Trace standards baseline | started | 2026-05-03 |
 | 6. Scoped LLM judge | not started | - |
 | 7. Structural fixes from findings | active | 2026-05-03 |
+| 8. Mid-turn chat followup absorption | planned | 2026-05-03 |
 
 ## Phase Detail
 Phase 1 adds `app/services/agent_quality_audit.py`. It emits idempotent `agent_quality_audit` `TraceEvent` rows with `audit_version=1`. V1 detectors are intentionally narrow:
@@ -47,6 +48,12 @@ Phase 6 will use existing judge primitives only for flagged traces, only from sc
 
 Phase 7 uses findings to drive structural fixes. The first one shipped with this track: `get_tool_info` now resolves cache-cold bare MCP aliases from the persisted tool catalog, closing the `ha_get_state`/Home Assistant drift seen in live traces.
 
+Phase 8 plans a structural chat-continuity fix: normal chat turns should be
+able to absorb user followups at the next pre-LLM/tool boundary instead of
+always answering through a delayed queued task. The queued-task path remains the
+fallback when no boundary occurs before turn completion. Plan:
+`docs/plans/mid-turn-chat-followup-absorption.md`.
+
 ## Spindrel Trace Contract
 - `correlation_id` is the current internal trace/run key. Future export layers may map it to W3C/OTel trace IDs without replacing existing rows.
 - `TraceEvent` remains the internal append-only event store for turn assembly, LLM routing, context admission, quality findings, and runtime diagnostics.
@@ -60,9 +67,13 @@ Phase 7 uses findings to drive structural fixes. The first one shipped with this
 - Audit writes are append-only and versioned. Re-auditing at a new version appends instead of overwriting old findings.
 - Audit failure must never affect turn persistence or user response delivery.
 - Existing runtime loop detectors remain authoritative for loop semantics; do not re-detect repeated lookup cycles here.
+- Normal chat followups sent during an active turn should not produce duplicate
+  assistant responses: either the active turn absorbs them with trace evidence,
+  or the existing queued task answers them later.
 
 ## References
 - `app/services/agent_quality_audit.py`
 - `app/tools/local/agent_quality.py`
 - `docs/tracks/context-surface-governance.md`
 - `docs/tracks/architecture-deepening.md`
+- `docs/plans/mid-turn-chat-followup-absorption.md`

@@ -14,7 +14,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, Message, Project, ProjectRunReceipt, Session, Task
+from app.db.models import Channel, Message, Project, Session, Task
 from app.services.run_presets import get_run_preset
 
 from app.services.project_coding_run_lib import (
@@ -42,164 +42,6 @@ from app.services.project_coding_run_lib import (
 )
 from app.services.project_runtime import project_snapshot
 
-
-def _session_environment_run_summary(payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "session_id": str(payload.get("session_id")) if payload.get("session_id") else None,
-        "mode": payload.get("mode"),
-        "status": payload.get("status"),
-        "cwd": payload.get("cwd"),
-        "docker_status": payload.get("docker_status"),
-        "docker_endpoint": payload.get("docker_endpoint"),
-        "worktree": payload.get("worktree"),
-        "error": (payload.get("metadata") or {}).get("error") if isinstance(payload.get("metadata"), dict) else None,
-    }
-
-
-async def _ensure_project_run_execution_environment(
-    db: AsyncSession,
-    *,
-    task: Task,
-    project: Project,
-    branch: str | None,
-    base_branch: str | None,
-    repo_path: str | None,
-) -> dict[str, Any] | None:
-    if task.session_id is None:
-        return None
-    from app.services.session_execution_environments import (
-        ensure_isolated_session_environment,
-        record_failed_session_execution_environment,
-        session_execution_environment_out,
-    )
-
-    cfg = dict(task.execution_config or {})
-    run_cfg = dict(cfg.get("project_coding_run") or {})
-    run_cfg["session_environment"] = {
-        "session_id": str(task.session_id),
-        "mode": "isolated",
-        "status": "preparing",
-    }
-    cfg["project_coding_run"] = run_cfg
-    task.execution_config = cfg
-    await db.flush()
-
-    try:
-        env = await ensure_isolated_session_environment(
-            db,
-            session_id=task.session_id,
-            project=project,
-            branch=branch,
-            base_branch=base_branch,
-            repo_path=repo_path,
-        )
-        payload = session_execution_environment_out(env, session_id=env.session_id)
-    except Exception as exc:
-        env = await record_failed_session_execution_environment(
-            db,
-            session_id=task.session_id,
-            project=project,
-            error=str(exc),
-            branch=branch,
-            base_branch=base_branch,
-            repo_path=repo_path,
-        )
-        payload = session_execution_environment_out(env, session_id=env.session_id)
-
-    cfg = dict(task.execution_config or {})
-    run_cfg = dict(cfg.get("project_coding_run") or {})
-    run_cfg["session_environment"] = _session_environment_run_summary(payload)
-    cfg["project_coding_run"] = run_cfg
-    task.execution_config = cfg
-    await db.flush()
-    return run_cfg["session_environment"]
-
-
-async def _record_project_run_environment_failure(
-    db: AsyncSession,
-    *,
-    task: Task,
-    project: Project,
-    summary: dict[str, Any],
-) -> None:
-    """Make pre-agent Project run environment failures visible in the run session."""
-    error = str(summary.get("error") or "Project run execution environment is not ready.")
-    cwd = str(summary.get("cwd") or "not assigned")
-    docker_status = str(summary.get("docker_status") or "unknown")
-    docker_endpoint = str(summary.get("docker_endpoint") or "not assigned")
-    run_cfg = (task.execution_config or {}).get("project_coding_run") if isinstance(task.execution_config, dict) else {}
-    branch = run_cfg.get("branch") if isinstance(run_cfg, dict) else None
-    base_branch = run_cfg.get("base_branch") if isinstance(run_cfg, dict) else None
-    receipt_key = f"project-run-env-failure:{task.id}"
-
-    existing = (await db.execute(
-        select(ProjectRunReceipt.id)
-        .where(ProjectRunReceipt.task_id == task.id)
-        .where(ProjectRunReceipt.idempotency_key == receipt_key)
-        .limit(1)
-    )).scalar_one_or_none()
-    if existing is None:
-        db.add(ProjectRunReceipt(
-            project_id=project.id,
-            task_id=task.id,
-            session_id=task.session_id,
-            bot_id=task.bot_id,
-            idempotency_key=receipt_key,
-            status="blocked",
-            summary=f"Project coding run blocked before agent start: {error}",
-            branch=str(branch) if branch else None,
-            base_branch=str(base_branch) if base_branch else None,
-            metadata_={
-                "category": "environment_setup",
-                "environment": summary,
-                "loop": {
-                    "decision": "blocked",
-                    "reason": error,
-                    "remaining_work": "Repair or restart the isolated session execution environment, then re-run the Project task.",
-                },
-            },
-        ))
-        if task.session_id is not None:
-            db.add(Message(
-                session_id=task.session_id,
-                role="assistant",
-                content=(
-                    "Project coding run blocked before the agent started.\n\n"
-                    f"Environment setup failed: {error}\n\n"
-                    f"- Status: {summary.get('status') or 'failed'}\n"
-                    f"- CWD: `{cwd}`\n"
-                    f"- Docker: {docker_status} (`{docker_endpoint}`)\n\n"
-                    "No files were edited. Restart or repair the isolated session execution environment, then re-run the Project task."
-                ),
-                metadata_={
-                    "source": "project_run_environment",
-                    "sender_type": "project_run_launcher",
-                    "sender_display_name": "Project run launcher",
-                    "task_id": str(task.id),
-                    "project_id": str(project.id),
-                    "context_visibility": "session",
-                    "result_kind": "blocked",
-                },
-                created_at=_utcnow(),
-            ))
-
-    task.status = "failed"
-    task.error = error[:4000]
-    task.completed_at = _utcnow()
-    if isinstance(task.execution_config, dict):
-        run_cfg = dict(task.execution_config.get("project_coding_run") or {})
-        loop_state = dict(run_cfg.get("loop_state") or {})
-        if loop_state:
-            loop_state.update({
-                "state": "blocked",
-                "stop_reason": "environment_failed",
-                "latest_decision": "blocked",
-                "latest_reason": error,
-                "remaining_work": "Repair or restart the isolated session execution environment, then re-run the Project task.",
-                "updated_at": _utcnow().isoformat(),
-            })
-            run_cfg["loop_state"] = loop_state
-            task.execution_config = {**task.execution_config, "project_coding_run": run_cfg}
 
 def _apply_work_surface_mode(task: Task, mode: str) -> None:
     normalized = normalize_work_surface_mode(mode)
@@ -281,6 +123,7 @@ def _project_coding_run_prompt(
     dev_targets: list[dict[str, Any]] | None = None,
     machine_target_grant: ProjectMachineTargetGrant | None = None,
     work_surface_mode: str = WORK_SURFACE_ISOLATED_WORKTREE,
+    run_environment_profile: str | None = None,
     continuation: dict[str, Any] | None = None,
     loop_policy: dict[str, Any] | None = None,
     loop_iteration: int = 1,
@@ -310,6 +153,7 @@ def _project_coding_run_prompt(
         + "\n"
     )
     request_text = request.strip() or "Use the Project task request from the run title and Project context."
+    profile_line = run_environment_profile or "default Project profile, if configured"
     continuation_block = ""
     if continuation:
         feedback = str(continuation.get("feedback") or "").strip() or "Continue from the reviewer feedback on the existing PR."
@@ -363,11 +207,12 @@ def _project_coding_run_prompt(
         "Execution environment:\n"
         "- Scheduled and Project coding runs use the configured work surface from the run launcher.\n"
         "- Use ordinary shell, test, Docker, and docker compose commands from the current working directory. In isolated runs, Docker commands are routed to this session's private Docker daemon.\n"
+        f"- Run environment profile: {profile_line}. Profile preflight, dependency setup, and declared env artifacts are prepared before the agent starts.\n"
         "- Start any app/dev server yourself with native bash on your own unused or assigned port; do not restart another agent's server process.\n\n"
         "Project-run boundary:\n"
-        "- Do not bootstrap, restart, or reconfigure the host Spindrel API/e2e server for ordinary Project work.\n"
-        "- Do not run repo-dev bootstrap helpers such as scripts/agent_e2e_dev.py prepare, start-api, or prepare-harness-parity unless this task explicitly asks you to change that infrastructure.\n"
-        "- Use the runtime env, the session Docker daemon, and your own source-run dev process instead.\n\n"
+        "- Do not bootstrap, restart, or reconfigure the host control-plane app/API server for ordinary Project work.\n"
+        "- Do not run repository bootstrap or host-environment setup commands unless the Project task or Project workflow explicitly asks for that infrastructure work.\n"
+        "- Use the runtime env, session Docker daemon, profile-produced artifacts, and your own source-run dev process instead.\n\n"
         f"{dev_target_block}\n"
         f"{_machine_access_prompt_block(machine_target_grant)}\n"
         "Guided handoff requirements:\n"
@@ -431,6 +276,7 @@ async def create_project_coding_run(
         dev_targets=[t.to_persisted() for t in ctx.dev_targets],
         machine_target_grant=body.machine_target_grant,
         work_surface_mode=work_surface_mode,
+        run_environment_profile=body.run_environment_profile,
         loop_policy=loop_policy,
     )
     task = Task(
@@ -445,6 +291,7 @@ async def create_project_coding_run(
     ctx.apply_to_task(task, channel=channel)
     _apply_work_surface_mode(task, work_surface_mode)
     run_cfg = task.execution_config.setdefault("project_coding_run", {})
+    run_cfg["run_environment_profile"] = body.run_environment_profile
     run_cfg["loop_policy"] = loop_policy
     run_cfg["loop_state"] = initial_project_run_loop_state(loop_policy)
     await _attach_visible_project_run_session(
@@ -457,22 +304,6 @@ async def create_project_coding_run(
     )
     db.add(task)
     await db.flush()
-    if work_surface_mode != WORK_SURFACE_SHARED_REPO:
-        environment_summary = await _ensure_project_run_execution_environment(
-            db,
-            task=task,
-            project=project,
-            branch=ctx.branch,
-            base_branch=ctx.base_branch,
-            repo_path=ctx.repo.get("path") if isinstance(ctx.repo, dict) else body.repo_path,
-        )
-        if environment_summary and environment_summary.get("status") == "failed":
-            await _record_project_run_environment_failure(
-                db,
-                task=task,
-                project=project,
-                summary=environment_summary,
-            )
     await _attach_task_machine_grant(
         db,
         task=task,
@@ -562,6 +393,7 @@ async def continue_project_coding_run(
         continuation=continuation_context,
         loop_policy=loop_policy,
         loop_iteration=continuation_index + 1,
+        run_environment_profile=parent_run_cfg.get("run_environment_profile"),
     )
     task = Task(
         id=new_task_id,
@@ -576,6 +408,7 @@ async def continue_project_coding_run(
     task.title = f"{preset.task_defaults.title} follow-up {continuation_index}"
     parent_ecfg = parent.execution_config if isinstance(parent.execution_config, dict) else {}
     task_run_cfg = task.execution_config.setdefault("project_coding_run", {})
+    task_run_cfg["run_environment_profile"] = parent_run_cfg.get("run_environment_profile")
     task_run_cfg["loop_policy"] = loop_policy
     task_run_cfg["loop_state"] = {
         **initial_project_run_loop_state(loop_policy),
@@ -601,22 +434,6 @@ async def continue_project_coding_run(
     }
     db.add(task)
     await db.flush()
-    if work_surface_mode != WORK_SURFACE_SHARED_REPO:
-        environment_summary = await _ensure_project_run_execution_environment(
-            db,
-            task=task,
-            project=project,
-            branch=ctx.branch,
-            base_branch=ctx.base_branch,
-            repo_path=ctx.repo.get("path") if isinstance(ctx.repo, dict) else None,
-        )
-        if environment_summary and environment_summary.get("status") == "failed":
-            await _record_project_run_environment_failure(
-                db,
-                task=task,
-                project=project,
-                summary=environment_summary,
-            )
     await db.commit()
     await db.refresh(task)
     return task

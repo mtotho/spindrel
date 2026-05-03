@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
 
-from app.db.models import Channel, ExecutionReceipt, Message, Project, ProjectDependencyStackInstance, ProjectRunReceipt, Task, TaskMachineGrant
+from app.db.models import Channel, ExecutionReceipt, Message, Project, ProjectDependencyStackInstance, ProjectRunReceipt, SessionExecutionEnvironment, Task, TaskMachineGrant
 from app.services.project_coding_runs import (
     ProjectCodingRunCreate,
     ProjectCodingRunReviewFinalize,
@@ -261,7 +262,7 @@ async def test_create_project_coding_run_uses_explicit_repo_path(db_session):
 
 
 @pytest.mark.asyncio
-async def test_create_project_coding_run_records_environment_failure(db_session, monkeypatch):
+async def test_project_coding_run_records_environment_failure_in_task_runner(db_session, monkeypatch):
     workspace_id = uuid.uuid4()
     project_id = uuid.uuid4()
     channel_id = uuid.uuid4()
@@ -297,11 +298,23 @@ async def test_create_project_coding_run_records_environment_failure(db_session,
         project,
         ProjectCodingRunCreate(channel_id=channel_id, request="Smoke.", repo_path="spindrel"),
     )
+    task.status = "running"
+    await db_session.commit()
 
+    from app.agent.task_run_host import _ensure_session_environment_if_requested
+
+    ok = await _ensure_session_environment_if_requested(
+        db_session,
+        task=task,
+        project_instance=None,
+    )
+
+    assert ok is False
     assert task.status == "failed"
     assert task.error == "private Docker daemon is unreachable at tcp://127.0.0.1:50209"
     run_cfg = task.execution_config["project_coding_run"]
     assert run_cfg["session_environment"]["status"] == "failed"
+    assert run_cfg["session_environment"]["requested_repo_path"] == "spindrel"
     assert run_cfg["loop_state"]["state"] == "blocked"
 
     receipt = (await db_session.execute(
@@ -315,6 +328,267 @@ async def test_create_project_coding_run_records_environment_failure(db_session,
     )).scalar_one()
     assert "blocked before the agent started" in (message.content or "")
     assert "tcp://127.0.0.1:50209" in (message.content or "")
+
+
+@pytest.mark.asyncio
+async def test_project_run_environment_profile_is_deferred_to_task_runner(db_session, monkeypatch, tmp_path):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    run_root = tmp_path / "worktree" / "spindrel"
+    run_root.mkdir(parents=True)
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects",
+        metadata_={
+            "blueprint_snapshot": {"repos": [{"name": "spindrel", "path": "spindrel", "branch": "development"}]},
+            "run_environment_profiles": {
+                "touch-ready": {
+                    "name": "Touch ready",
+                    "commands": ["mkdir -p scratch/profile && printf ready > scratch/profile/ready.txt"],
+                    "artifacts": ["scratch/profile/ready.txt"],
+                }
+            },
+        },
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    async def fake_environment(db, *, session_id, project, branch=None, base_branch=None, repo_path=None, **_kwargs):
+        env = SessionExecutionEnvironment(
+            session_id=session_id,
+            project_id=project.id,
+            mode="isolated",
+            status="ready",
+            cwd=str(run_root),
+            docker_endpoint="tcp://session-docker:2375",
+            docker_status="running",
+            metadata_={
+                "worktree": {
+                    "kind": "git_worktree",
+                    "branch": branch,
+                    "base_ref": base_branch,
+                    "repo_path": repo_path,
+                    "worktree_path": str(run_root),
+                },
+                "docker": {"endpoint": "tcp://session-docker:2375", "state": "running"},
+            },
+        )
+        db.add(env)
+        await db.flush()
+        return env
+
+    monkeypatch.setattr(
+        "app.services.session_execution_environments.ensure_isolated_session_environment",
+        fake_environment,
+    )
+
+    task = await create_project_coding_run(
+        db_session,
+        project,
+        ProjectCodingRunCreate(
+            channel_id=channel_id,
+            request="Run profile.",
+            repo_path="spindrel",
+            run_environment_profile="touch-ready",
+        ),
+    )
+
+    assert task.status == "pending"
+    assert not (run_root / "scratch" / "profile" / "ready.txt").exists()
+    assert "run_environment_preflight" not in task.execution_config["project_coding_run"]
+
+
+@pytest.mark.asyncio
+async def test_project_run_environment_profile_failure_blocks_in_task_runner(db_session, tmp_path):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    run_root = tmp_path / "worktree" / "spindrel"
+    run_root.mkdir(parents=True)
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects",
+        metadata_={
+            "blueprint_snapshot": {"repos": [{"name": "spindrel", "path": "spindrel", "branch": "development"}]},
+            "run_environment_profiles": {
+                "broken": {
+                    "commands": [{"name": "fail-fast", "command": "echo nope >&2; exit 7"}],
+                }
+            },
+        },
+    )
+    session_id = uuid.uuid4()
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+        active_session_id=session_id,
+    )
+    task = Task(
+        id=uuid.uuid4(),
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        session_id=session_id,
+        status="running",
+        task_type="agent",
+        execution_config={
+            "project_coding_run": {
+                "project_id": str(project_id),
+                "branch": "spindrel/test",
+                "base_branch": "development",
+                "run_environment_profile": "broken",
+                "loop_state": {"state": "running"},
+            }
+        },
+    )
+    env = SessionExecutionEnvironment(
+        session_id=session_id,
+        project_id=project_id,
+        mode="isolated",
+        status="ready",
+        cwd=str(run_root),
+        docker_endpoint="tcp://session-docker:2375",
+        docker_status="running",
+        metadata_={"docker": {"endpoint": "tcp://session-docker:2375", "state": "running"}},
+    )
+    db_session.add_all([project, channel, task, env])
+    await db_session.commit()
+
+    from app.agent.task_run_host import _preflight_project_run_environment_if_requested
+
+    ok = await _preflight_project_run_environment_if_requested(
+        db_session,
+        task=task,
+        project_instance=None,
+        prepared=SimpleNamespace(task=task, ecfg=task.execution_config, task_prompt="Run profile."),
+    )
+
+    assert ok is False
+    assert task.status == "failed"
+    assert "fail-fast" in task.error
+    preflight = task.execution_config["project_coding_run"]["run_environment_preflight"]
+    assert preflight["ok"] is False
+    assert preflight["commands"][0]["exit_code"] == 7
+    assert "nope" in preflight["commands"][0]["stderr"]
+
+    receipt = (await db_session.execute(
+        select(ProjectRunReceipt).where(ProjectRunReceipt.task_id == task.id)
+    )).scalar_one()
+    assert receipt.status == "blocked"
+    assert receipt.metadata_["category"] == "run_environment_preflight"
+
+    message = (await db_session.execute(
+        select(Message).where(Message.session_id == task.session_id, Message.role == "assistant")
+    )).scalars().all()[-1]
+    assert "Run environment preflight failed" in (message.content or "")
+
+
+@pytest.mark.asyncio
+async def test_project_run_environment_profile_success_runs_in_task_runner(db_session, tmp_path):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    run_root = tmp_path / "worktree" / "spindrel"
+    run_root.mkdir(parents=True)
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects",
+        metadata_={
+            "blueprint_snapshot": {"repos": [{"name": "spindrel", "path": "spindrel", "branch": "development"}]},
+            "run_environment_profiles": {
+                "touch-ready": {
+                    "name": "Touch ready",
+                    "env": {"READY_PATH": "scratch/profile/ready.txt"},
+                    "setup_commands": ["mkdir -p scratch/profile && printf ready > ${READY_PATH}"],
+                    "required_artifacts": ["${READY_PATH}"],
+                    "readiness_checks": ["test -f ${READY_PATH}"],
+                }
+            },
+        },
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+        active_session_id=session_id,
+    )
+    task = Task(
+        id=uuid.uuid4(),
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        session_id=session_id,
+        status="running",
+        task_type="agent",
+        execution_config={
+            "project_coding_run": {
+                "project_id": str(project_id),
+                "branch": "spindrel/test",
+                "base_branch": "development",
+                "run_environment_profile": "touch-ready",
+            }
+        },
+    )
+    env = SessionExecutionEnvironment(
+        session_id=session_id,
+        project_id=project_id,
+        mode="isolated",
+        status="ready",
+        cwd=str(run_root),
+        docker_endpoint="tcp://session-docker:2375",
+        docker_status="running",
+        metadata_={"docker": {"endpoint": "tcp://session-docker:2375", "state": "running"}},
+    )
+    db_session.add_all([project, channel, task, env])
+    await db_session.commit()
+
+    from app.agent.task_run_host import _preflight_project_run_environment_if_requested
+
+    ok = await _preflight_project_run_environment_if_requested(
+        db_session,
+        task=task,
+        project_instance=None,
+        prepared=SimpleNamespace(task=task, ecfg=task.execution_config, task_prompt="Run profile."),
+    )
+
+    assert ok is True
+    assert (run_root / "scratch" / "profile" / "ready.txt").read_text() == "ready"
+    preflight = task.execution_config["project_coding_run"]["run_environment_preflight"]
+    assert preflight["ok"] is True
+    assert preflight["profile_id"] == "touch-ready"
+    assert preflight["artifacts"] == [{"path": "scratch/profile/ready.txt", "exists": True}]
+    assert preflight["readiness_checks"][0]["ok"] is True
+
+    messages = list((await db_session.execute(
+        select(Message).where(Message.session_id == task.session_id).order_by(Message.created_at)
+    )).scalars().all())
+    assert any("Project run environment prepared before agent start" in (msg.content or "") for msg in messages)
 
 
 @pytest.mark.asyncio
@@ -739,7 +1013,7 @@ async def test_project_coding_run_schedule_can_be_edited_resumed_and_blocks_disa
         ProjectCodingRunScheduleCreate(
             channel_id=channel_id,
             title="Nightly review",
-            request="Review.",
+            request="Review architecture and publish a concrete receipt.",
             recurrence="+1d",
             loop_policy={"enabled": True, "max_iterations": 3},
         ),
@@ -807,7 +1081,7 @@ async def test_project_coding_run_schedule_update_can_clear_nullable_fields(db_s
         ProjectCodingRunScheduleCreate(
             channel_id=channel_id,
             title="Harness parity nightly",
-            request="Run harness parity.",
+            request="Run the harness parity smoke tier and publish a concrete receipt.",
             scheduled_at=datetime(2026, 5, 9, 22, 0, tzinfo=timezone.utc),
             recurrence="+5d",
             repo_path="spindrel",
@@ -864,7 +1138,12 @@ async def test_project_coding_run_schedule_definitions_are_not_listed_as_runs(db
     schedule = await create_project_coding_run_schedule(
         db_session,
         project,
-        ProjectCodingRunScheduleCreate(channel_id=channel_id, title="Nightly review", request="Review.", recurrence="+1d"),
+        ProjectCodingRunScheduleCreate(
+            channel_id=channel_id,
+            title="Nightly review",
+            request="Review the project and publish a concrete receipt.",
+            recurrence="+1d",
+        ),
     )
 
     from app.services.project_coding_runs import list_project_coding_runs
