@@ -206,6 +206,48 @@ async def test_get_project_factory_state_unconfigured_for_brand_new_project(db_s
 
 
 @pytest.mark.asyncio
+async def test_get_project_factory_state_uses_project_blueprint_snapshot_for_canonical_repo(
+    db_session, tmp_path, monkeypatch
+):
+    workspace_id = uuid.uuid4()
+    workspace = SharedWorkspace(id=workspace_id, name="ws", slug="ws")
+    db_session.add(workspace)
+    await db_session.flush()
+
+    project_root = tmp_path / "shared" / str(workspace_id) / "common" / "projects"
+    workflow_path = project_root / "spindrel" / ".spindrel" / "WORKFLOW.md"
+    workflow_path.parent.mkdir(parents=True)
+    workflow_path.write_text("## Policy\nBranch from development.\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "app.services.shared_workspace_service.get_host_root",
+        lambda _workspace_id: str(tmp_path / "shared" / str(workspace_id)),
+    )
+
+    project = Project(
+        id=uuid.uuid4(),
+        workspace_id=workspace.id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects",
+        metadata_={
+            "blueprint_snapshot": {
+                "repos": [{"name": "spindrel", "path": "spindrel", "canonical": True}],
+            }
+        },
+    )
+    db_session.add(project)
+    await db_session.commit()
+
+    state = await get_project_factory_state(db_session, project)
+
+    assert state["blueprint"]["applied"] is True
+    assert state["canonical_repo"]["relative_path"] == "spindrel"
+    assert state["canonical_repo"]["host_path"] == str(project_root / "spindrel")
+    assert state["repo_workflow"]["present"] is True
+    assert state["repo_workflow"]["sections"]["policy"] == "Branch from development."
+
+
+@pytest.mark.asyncio
 async def test_get_project_factory_state_counts_pending_intake_and_packs(db_session):
     workspace = SharedWorkspace(id=uuid.uuid4(), name="ws", slug="ws")
     db_session.add(workspace)

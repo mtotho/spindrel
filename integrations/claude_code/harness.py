@@ -133,6 +133,7 @@ _CLAUDE_GENERIC_SLASH_ALLOWED: frozenset[str] = frozenset({
     "help", "rename", "stop", "style", "theme", "clear",
     "sessions", "scratch", "split", "focus", "model", "effort",
     "compact", "context", "project-init", "plan", "runtime", "new",
+    "project-workflow",
 })
 
 

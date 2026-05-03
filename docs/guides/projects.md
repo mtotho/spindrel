@@ -486,14 +486,19 @@ If the Project binding or selected fresh instance cannot be resolved, file,
 exec, context, indexing, and harness paths fail visibly instead of falling back
 to a different workspace root.
 
-Existing Project-bound harness chats keep normal CLI-like behavior. Spindrel
-does not auto-load a broad Project-development skill for every ad hoc turn.
-When a user wants to point the agent at repo-local instructions, the composer
-`@` picker can attach Project files as `@file:<path>` mentions; the harness turn
-receives the Project-relative path plus a bounded preview and should inspect the
-file directly with normal tools before relying on details. Users can also
-attach `@project:dependencies` to provide the current Dependency Stack summary
-and remind the agent to use `get_project_dependency_stack` /
+Existing Project-bound chats keep normal chat or CLI-like behavior while
+receiving a compact session bootstrap, the Project entry skill, and the
+Project local tool pack. The agent should load `project` first for broad
+Project work, call `get_project_factory_state`, and then inspect
+`.spindrel/WORKFLOW.md` only when repo-specific policy, artifact homes, hooks,
+or run rules are needed. `/project-workflow` can re-bootstrap an ad hoc
+session on demand. When a user wants to point the agent at additional
+repo-local context, the composer `@` picker can attach Project files as
+`@file:<path>` mentions; the harness turn receives the
+Project-relative path plus a bounded preview and should inspect the file
+directly with normal tools before relying on details. Users can also attach
+`@project:dependencies` to provide the current Dependency Stack summary and
+remind the agent to use `get_project_dependency_stack` /
 `manage_project_dependency_stack` for Docker-backed services.
 
 ![Project file context mention in the channel composer](../images/project-workspace-context-mentions.png)

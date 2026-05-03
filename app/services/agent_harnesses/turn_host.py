@@ -499,8 +499,11 @@ async def run_harness_turn(
         harness_model = harness_model_override if harness_model_override is not None else harness_settings.model
         harness_effort = harness_effort_override if harness_effort_override is not None else harness_settings.effort
         context_hints = list(await load_context_hints(db, session_id))
+        prompt_hints = []
         if channel_prompt_hint := await load_harness_channel_prompt_hint_fn(db, channel_id):
-            context_hints.insert(0, channel_prompt_hint)
+            prompt_hints.append(channel_prompt_hint)
+        if prompt_hints:
+            context_hints[0:0] = prompt_hints
         harness_meta, _last_turn_at = await load_latest_harness_metadata(db, session_id)
         session_row = await db.get(SessionRow, session_id)
         session_plan_mode = get_session_plan_mode(session_row) if session_row is not None else "chat"

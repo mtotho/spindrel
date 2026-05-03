@@ -30,6 +30,8 @@ class MCPServerConfig:
     name: str
     url: str
     api_key: str = ""
+    allow_private_networks: bool = False
+    allow_loopback: bool = False
 
 
 def _resolve_env_vars(value: str) -> str:
@@ -72,6 +74,8 @@ def load_mcp_config(config_path: Path = MCP_CONFIG_PATH) -> None:
             name=name,
             url=_resolve_env_vars(str(conf["url"])),
             api_key=_resolve_env_vars(str(conf.get("api_key", ""))),
+            allow_private_networks=bool(conf.get("allow_private_networks", False)),
+            allow_loopback=bool(conf.get("allow_loopback", False)),
         )
         _servers[name] = server
         logger.info("Loaded MCP server: %s -> %s", name, server.url)
@@ -94,8 +98,8 @@ async def _check_server_url(server: MCPServerConfig) -> None:
 
     await assert_public_url(
         server.url,
-        allow_loopback=settings.MCP_ALLOW_LOOPBACK,
-        allow_private=settings.MCP_ALLOW_PRIVATE_NETWORKS,
+        allow_loopback=settings.MCP_ALLOW_LOOPBACK or server.allow_loopback,
+        allow_private=settings.MCP_ALLOW_PRIVATE_NETWORKS or server.allow_private_networks,
     )
 
 
@@ -274,6 +278,20 @@ def is_mcp_tool(name: str) -> bool:
 def get_mcp_server_for_tool(tool_name: str) -> str | None:
     """Return the MCP server name that owns this tool, or None."""
     return _find_server_for_tool(tool_name)
+
+
+def infer_mcp_server_from_tool_name(tool_name: str) -> str | None:
+    """Infer the configured MCP server from a gateway-prefixed tool name.
+
+    LiteLLM exposes MCP tools as ``<server>-<tool>``. The cache may be cold
+    when composing a new turn, so exact cache lookup alone is not enough to
+    decide which server to fetch for an enrolled tool like
+    ``homeassistant-HassTurnOn``.
+    """
+    if not tool_name or "-" not in tool_name:
+        return None
+    prefix = tool_name.split("-", 1)[0]
+    return prefix if prefix in _servers else None
 
 
 def get_configured_server_count() -> int:

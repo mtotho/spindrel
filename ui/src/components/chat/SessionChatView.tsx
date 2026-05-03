@@ -142,6 +142,7 @@ export function SessionChatView({
       ),
     [storeMessages, syntheticMessages],
   );
+  const compactMessages = surface === "operator-panel";
 
   // Sync the DB → chat-store slot so live turns + persisted rows share a
   // single list. Guarded by turn activity so streaming content isn't
@@ -214,7 +215,6 @@ export function SessionChatView({
       );
     }
     const isGrouped = showDateSep ? false : grouped;
-    const compactMessages = surface === "operator-panel";
     let headerIdx = index;
     while (
       headerIdx < renderedData.length - 1 &&
@@ -278,6 +278,7 @@ export function SessionChatView({
       bottomSlot={bottomSlot}
       sessionId={sessionId}
       surface={surface}
+      compactMessages={compactMessages}
       contentMaxWidthOverride={surface === "operator-panel" ? "none" : undefined}
       contentHorizontalPaddingOverride={surface === "operator-panel" ? 0 : undefined}
     />

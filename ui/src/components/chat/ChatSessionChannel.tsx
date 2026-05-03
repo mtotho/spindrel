@@ -431,6 +431,7 @@ export function ChannelChatSession({
             channelId={source.channelId}
             sessionResumeSlot={sessionResumeSlot}
             sessionId={src.sessionId}
+            compactMessages
             bottomSlot={
               <>
                 {src.sendError && (
@@ -489,6 +490,7 @@ export function ChannelChatSession({
           channelId={source.channelId}
           sessionResumeSlot={sessionResumeSlot}
           sessionId={src.sessionId}
+          compactMessages
         />
         )}
         {/* Composer overlay — messages scroll behind the frosted card

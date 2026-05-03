@@ -209,25 +209,26 @@ function ThinkingBlock({ text, borderColor, textColor, labelColor, chatMode = "d
 }
 
 /** Shown when the agent is processing in the background (queued message). */
-export function ProcessingIndicator({ botName, chatMode = "default" }: { botName?: string; chatMode?: "default" | "terminal" }) {
+export function ProcessingIndicator({ botName, chatMode = "default", compact = false }: { botName?: string; chatMode?: "default" | "terminal"; compact?: boolean }) {
   const name = botName || "Bot";
   const bg = avatarColor(name);
   const t = useThemeTokens();
   const isTerminalMode = chatMode === "terminal";
   const isMobile = useIsMobile();
+  const narrow = isMobile || compact;
   const nameColor = isTerminalMode ? t.accent : bg;
 
   return (
     <div
       style={{
         display: "flex",
-        flexDirection: isMobile ? "column" : "row",
-        gap: isMobile ? 0 : 12,
-        padding: isTerminalMode ? "10px 12px 6px" : isMobile ? "10px 8px 4px" : "10px 20px 4px",
+        flexDirection: narrow ? "column" : "row",
+        gap: narrow ? 0 : 12,
+        padding: isTerminalMode ? "10px 12px 6px" : narrow ? "10px 8px 4px" : "10px 20px 4px",
         alignSelf: "stretch",
       }}
     >
-      {!isTerminalMode && !isMobile && (
+      {!isTerminalMode && !narrow && (
         <div style={{ paddingTop: 2 }}>
           <Avatar name={name} isUser={false} />
         </div>
@@ -339,6 +340,7 @@ interface Props {
   chatMode?: "default" | "terminal";
   waitingForUserInput?: boolean;
   channelId?: string | null;
+  compact?: boolean;
 }
 
 /** Badge showing LLM retry/fallback status during streaming */
@@ -397,11 +399,14 @@ export function StreamingIndicator({
   chatMode = "default",
   waitingForUserInput = false,
   channelId,
+  compact = false,
 }: Props) {
   const name = botName || "Bot";
   const bg = avatarColor(name);
   const t = useThemeTokens();
   const isTerminalMode = chatMode === "terminal";
+  const isMobile = useIsMobile();
+  const narrow = isMobile || compact;
   const nameColor = isTerminalMode ? t.accent : bg;
   const renderedContent = useThrottledStreamingValue(
     content,
@@ -432,8 +437,8 @@ export function StreamingIndicator({
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: isTerminalMode ? "10px 12px 6px" : "10px 20px 4px", alignSelf: "stretch" }}>
-      {!isTerminalMode && (
+    <div style={{ display: "flex", flexDirection: narrow ? "column" : "row", gap: narrow ? 0 : 12, padding: isTerminalMode ? "10px 12px 6px" : narrow ? "10px 8px 4px" : "10px 20px 4px", alignSelf: "stretch" }}>
+      {!isTerminalMode && !narrow && (
         <div style={{ paddingTop: 2 }}>
           <Avatar name={name} isUser={false} />
         </div>

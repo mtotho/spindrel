@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import async_session
-from app.db.models import Channel, ChannelBotMember, ChannelIntegration, ChannelMember, Session
+from app.db.models import Channel, ChannelBotMember, ChannelIntegration, ChannelMember, Message, Project, Session
 
 if TYPE_CHECKING:
     from app.db.models import User
@@ -19,6 +19,33 @@ logger = logging.getLogger(__name__)
 
 INTEGRATION_CLIENT_PREFIXES = ("slack:", "discord:", "teams:", "github:")
 HARNESS_SETTINGS_KEY = "harness_settings"
+
+
+async def _add_project_session_bootstrap(
+    db: AsyncSession,
+    *,
+    channel: Channel,
+    session_id: uuid.UUID,
+) -> None:
+    if channel.project_id is None:
+        return
+    project = await db.get(Project, channel.project_id)
+    if project is None:
+        return
+    from app.services.projects import project_session_bootstrap_text
+
+    db.add(Message(
+        id=uuid.uuid4(),
+        session_id=session_id,
+        role="system",
+        content=project_session_bootstrap_text(project),
+        metadata_={
+            "kind": "project_session_bootstrap",
+            "project_id": str(project.id),
+            "context_visibility": "session",
+        },
+        created_at=datetime.now(timezone.utc),
+    ))
 
 
 def _default_model() -> str:
@@ -295,6 +322,7 @@ async def ensure_active_session(
     )
     db.add(session)
     await db.flush()
+    await _add_project_session_bootstrap(db, channel=channel, session_id=session_id)
 
     channel.active_session_id = session_id
     channel.updated_at = datetime.now(timezone.utc)
@@ -338,6 +366,7 @@ async def reset_channel_session(
     )
     db.add(session)
     await db.flush()
+    await _add_project_session_bootstrap(db, channel=channel, session_id=session_id)
 
     channel.active_session_id = session_id
     channel.updated_at = datetime.now(timezone.utc)
@@ -381,6 +410,8 @@ async def create_detached_channel_session(
         metadata_=inherited_metadata,
     )
     db.add(session)
+    await db.flush()
+    await _add_project_session_bootstrap(db, channel=channel, session_id=session_id)
     channel.updated_at = datetime.now(timezone.utc)
     await db.flush()
     await db.commit()

@@ -538,7 +538,9 @@ test("mobile chat transcript uses full-width content instead of avatar gutter", 
   assert.match(messageBubble, /const effectiveMobile = isMobile \|\| detectedMobile;/);
   assert.match(messageBubble, /const narrow = effectiveMobile \|\| compactLayout;/);
   assert.match(streamingIndicator, /const isMobile = useIsMobile\(\);/);
-  assert.match(streamingIndicator, /!\s*isTerminalMode && !isMobile/);
+  assert.match(streamingIndicator, /const narrow = isMobile \|\| compact;/);
+  assert.match(streamingIndicator, /!\s*isTerminalMode && !narrow/);
+  assert.match(chatMessageArea, /compact=\{compactMessages\}/);
   assert.match(chatMessageArea, /const contentHorizontalPadding = contentHorizontalPaddingOverride \?\? \(isMobile \? 4 : 16\);/);
   assert.doesNotMatch(chatMessageArea, /className="w-full mx-auto px-4"/);
 });

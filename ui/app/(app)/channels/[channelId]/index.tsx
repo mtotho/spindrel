@@ -1053,11 +1053,12 @@ export default function ChatScreen() {
     channelId,
     sessionId: channel?.active_session_id,
     onOpenMessageSession: handleOpenFindResultSession,
+    compactMessages: columns === "single",
   }), [
     visibleInvertedData, renderMessage, bot, channel?.bot_id,
     channel?.active_session_id, channelId, pendingApprovalsSlot, isLoading,
     isFetchingNextPage, hasNextPage, handleLoadMore, isProcessing, t, chatMode,
-    handleOpenFindResultSession,
+    handleOpenFindResultSession, columns,
   ]);
   const primarySessionResumeSlot = useSessionResumeCard({
     sessionId: channel?.active_session_id,

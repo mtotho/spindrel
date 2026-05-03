@@ -20,7 +20,11 @@ from typing import Any
 
 import yaml
 
-from app.services.projects import project_canonical_repo_host_path
+from app.services.projects import (
+    normalize_project_path,
+    project_canonical_repo_host_path,
+    project_directory_from_project,
+)
 
 WORKFLOW_RELATIVE_PATH = ".spindrel/WORKFLOW.md"
 
@@ -112,6 +116,45 @@ def parse_workflow_file(text: str) -> tuple[dict[str, Any], dict[str, str]]:
     return frontmatter, sections
 
 
+def _candidate_workflow_paths(
+    project: Any,
+    snapshot: dict[str, Any] | None,
+) -> list[tuple[str, Path]]:
+    """Return workflow-file candidates in resolution order.
+
+    The canonical repo remains the normal home. Projects that predate
+    canonical-repo snapshots may still carry an explicit prompt_file_path such
+    as ``spindrel/.spindrel/WORKFLOW.md`` under a multi-repo Project root; use
+    that as a compatibility fallback so factory-state and skills see the same
+    workflow that prompt injection already reads.
+    """
+    candidates: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+
+    def _add(relative_path: str | None, host_path: Path | None) -> None:
+        if not relative_path or host_path is None:
+            return
+        key = str(host_path)
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append((relative_path, host_path))
+
+    host_root = project_canonical_repo_host_path(project, snapshot)
+    if host_root is not None:
+        _add(WORKFLOW_RELATIVE_PATH, Path(host_root) / WORKFLOW_RELATIVE_PATH)
+
+    prompt_file = normalize_project_path(getattr(project, "prompt_file_path", None))
+    if prompt_file and prompt_file.endswith(WORKFLOW_RELATIVE_PATH):
+        try:
+            project_dir = project_directory_from_project(project)
+            _add(prompt_file, Path(project_dir.host_path) / prompt_file)
+        except Exception:
+            pass
+
+    return candidates
+
+
 def project_workflow_file(
     project: Any,
     snapshot: dict[str, Any] | None = None,
@@ -119,37 +162,38 @@ def project_workflow_file(
     """Resolve and parse ``.spindrel/WORKFLOW.md`` for a Project.
 
     Returns a ``WorkflowFile`` whose ``present`` flag is ``False`` when the
-    Project has no canonical repo or when the file does not exist on disk.
-    Parsing failures surface an empty ``sections`` dict so callers can still
-    report the path.
+    Project has no canonical repo/prompt-file workflow or when the file does
+    not exist on disk. Parsing failures surface an empty ``sections`` dict so
+    callers can still report the path.
     """
-    host_root = project_canonical_repo_host_path(project, snapshot)
-    if host_root is None:
+    candidates = _candidate_workflow_paths(project, snapshot)
+    if not candidates:
         return WorkflowFile(
             relative_path=WORKFLOW_RELATIVE_PATH,
             host_path=None,
             present=False,
         )
 
-    host_path = Path(host_root) / WORKFLOW_RELATIVE_PATH
-    if not host_path.is_file():
+    first_relative, first_host_path = candidates[0]
+    for relative_path, host_path in candidates:
+        if not host_path.is_file():
+            continue
+        raw = host_path.read_text(encoding="utf-8")
+        frontmatter, sections = parse_workflow_file(raw)
         return WorkflowFile(
-            relative_path=WORKFLOW_RELATIVE_PATH,
+            relative_path=relative_path,
             host_path=str(host_path),
-            present=False,
+            present=True,
+            frontmatter=frontmatter,
+            sections=sections,
+            raw=raw,
         )
 
-    raw = host_path.read_text(encoding="utf-8")
-    frontmatter, sections = parse_workflow_file(raw)
     return WorkflowFile(
-        relative_path=WORKFLOW_RELATIVE_PATH,
-        host_path=str(host_path),
-        present=True,
-        frontmatter=frontmatter,
-        sections=sections,
-        raw=raw,
+        relative_path=first_relative,
+        host_path=str(first_host_path),
+        present=False,
     )
-
 
 _STARTER_TEMPLATE = """\
 ---

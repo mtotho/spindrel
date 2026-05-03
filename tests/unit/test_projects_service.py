@@ -418,7 +418,9 @@ async def test_project_work_surface_exposes_policy(monkeypatch, tmp_path):
     assert surface.project_id == str(project_id)
     assert surface.project_name == "Common Projects"
     assert surface.channel_id == str(channel_id)
-    assert surface.prompt == "Inline project instructions.\n\nPrompt from file."
+    assert "Inline project instructions." in (surface.prompt or "")
+    assert "Project workflow contract lives at `.spindrel/WORKFLOW.md`" in (surface.prompt or "")
+    assert "Prompt from file." not in (surface.prompt or "")
     assert surface.payload()["project_id"] == str(project_id)
 
 

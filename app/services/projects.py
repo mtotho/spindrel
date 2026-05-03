@@ -543,6 +543,15 @@ def _project_prompt_from_project(project: Project) -> str | None:
         pieces.append(project.prompt.strip())
     prompt_file = normalize_project_path(project.prompt_file_path)
     if prompt_file:
+        if prompt_file.endswith(".spindrel/WORKFLOW.md"):
+            pieces.append(
+                "Project workflow contract lives at "
+                f"`{prompt_file}`. Inspect that file or "
+                "`get_project_factory_state.repo_workflow` when repo-specific "
+                "policy, artifact homes, hooks, or run rules are needed."
+            )
+            prompt = "\n\n".join(piece for piece in pieces if piece)
+            return prompt or None
         project_dir = project_directory_from_project(project)
         path = Path(project_dir.host_path) / prompt_file
         try:
@@ -556,6 +565,28 @@ def _project_prompt_from_project(project: Project) -> str | None:
             pass
     prompt = "\n\n".join(piece for piece in pieces if piece)
     return prompt or None
+
+
+def project_session_bootstrap_text(project: Project) -> str:
+    """Compact one-time orientation for new Project-bound sessions.
+
+    This is deliberately a pointer, not the workflow body. Agents should read
+    the repo-owned workflow only when the user's request needs Project policy
+    or run/artifact details.
+    """
+    workflow_path = normalize_project_path(project.prompt_file_path) or ".spindrel/WORKFLOW.md"
+    lines = [
+        f"This session is attached to Project `{project.name}`.",
+        f"Project root: `{project.root_path}`.",
+        f"Project workflow contract: `{workflow_path}`.",
+        "",
+        "For broad Project work, load `project`, call `get_project_factory_state`, "
+        "then read the workflow file or `repo_workflow` sections only when the "
+        "request needs repo-specific policy, artifact homes, hooks, or run rules.",
+    ]
+    if project.prompt:
+        lines.extend(["", project.prompt.strip()])
+    return "\n".join(lines).strip()
 
 
 def work_surface_from_project_directory(

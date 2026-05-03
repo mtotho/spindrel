@@ -34,6 +34,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import select
 
+from app.db.models import Project
+
 from app.db.models import Channel, Message, Session, Task
 
 logger = logging.getLogger(__name__)
@@ -168,8 +170,9 @@ async def spawn_ephemeral_session(
     )
     db.add(sub)
 
+    from app.db.models import Message
+
     if context:
-        from app.db.models import Message
         ctx_msg = Message(
             id=uuid.uuid4(),
             session_id=sub.id,
@@ -179,6 +182,23 @@ async def spawn_ephemeral_session(
             created_at=datetime.now(timezone.utc),
         )
         db.add(ctx_msg)
+    if parent_channel_id is not None and channel is not None and channel.project_id is not None:
+        from app.services.projects import project_session_bootstrap_text
+
+        project = await db.get(Project, channel.project_id)
+        if project is not None:
+            db.add(Message(
+                id=uuid.uuid4(),
+                session_id=sub.id,
+                role="system",
+                content=project_session_bootstrap_text(project),
+                metadata_={
+                    "kind": "project_session_bootstrap",
+                    "project_id": str(project.id),
+                    "context_visibility": "session",
+                },
+                created_at=datetime.now(timezone.utc),
+            ))
 
     logger.info(
         "ephemeral_session spawned: session=%s bot=%s parent_channel=%s",

@@ -64,6 +64,8 @@ async def load_mcp_servers() -> None:
             name=row.id,
             url=row.url,
             api_key=api_key,
+            allow_private_networks=bool((row.config or {}).get("allow_private_networks")),
+            allow_loopback=bool((row.config or {}).get("allow_loopback")),
         )
 
     logger.info("Loaded %d MCP server(s) from DB", len(_servers))

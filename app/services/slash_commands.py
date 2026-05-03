@@ -1644,6 +1644,103 @@ Use the project skill cluster's first-action exactly:
     )
 
 
+async def _project_workflow_handler(ctx: SlashCommandContext) -> SlashCommandResult:
+    channel = ctx.channel
+    if channel is None and ctx.session is not None:
+        parent_channel_id = ctx.session.channel_id or ctx.session.parent_channel_id
+        channel = await ctx.db.get(Channel, parent_channel_id) if parent_channel_id else None
+    project: Project | None = None
+    if channel is not None and channel.project_id is not None:
+        project = await ctx.db.get(Project, channel.project_id)
+
+    if project is None:
+        title = "Project workflow needs a Project-bound channel"
+        prompt = (
+            "This channel is not attached to a Project yet. Attach the channel "
+            "to a Project from Project settings, then run /project-workflow again."
+        )
+        status = "blocked"
+        project_payload: dict[str, Any] | None = None
+        target_session_id = None
+    else:
+        from app.services.projects import project_session_bootstrap_text
+
+        title = f"Project workflow: {project.name}"
+        status = "ready"
+        project_payload = {
+            "id": str(project.id),
+            "name": project.name,
+            "root_path": project.root_path,
+            "prompt_file_path": project.prompt_file_path,
+        }
+        bootstrap = project_session_bootstrap_text(project)
+        prompt = f"""{bootstrap}
+
+Bootstrap this session for Project work:
+1. Load `project`.
+2. Call `get_project_factory_state`.
+3. Read `.spindrel/WORKFLOW.md` or the returned `repo_workflow` sections if this request needs repo-specific policy, artifact homes, hooks, dependencies, or run rules.
+4. Summarize the Project root, workflow path, current stage, and the next Project skill you would use. Do not start implementation work from this command alone.
+"""
+        target_session_id = ctx.session_id
+        if target_session_id is None and ctx.channel is not None:
+            target_session_id = ctx.current_session_id or ctx.channel.active_session_id
+        if target_session_id is not None:
+            from app.db.models import Message
+            from app.services.agent_harnesses.session_state import add_context_hint
+
+            existing = (await ctx.db.execute(
+                select(Message.id)
+                .where(
+                    Message.session_id == target_session_id,
+                    Message.role == "system",
+                    Message.metadata_["kind"].as_string() == "project_session_bootstrap",
+                )
+                .limit(1)
+            )).scalar_one_or_none()
+            if existing is None:
+                ctx.db.add(Message(
+                    id=uuid.uuid4(),
+                    session_id=target_session_id,
+                    role="system",
+                    content=bootstrap,
+                    metadata_={
+                        "kind": "project_session_bootstrap",
+                        "project_id": str(project.id),
+                        "context_visibility": "session",
+                        "source": "slash_command",
+                    },
+                ))
+                await ctx.db.commit()
+            await add_context_hint(
+                ctx.db,
+                target_session_id,
+                kind="project_workflow_bootstrap",
+                text=prompt,
+                source="slash_command",
+                consume_after_next_turn=True,
+                priority="instruction",
+            )
+
+    payload = {
+        "status": status,
+        "title": title,
+        "project": project_payload,
+        "target_session_id": str(target_session_id) if target_session_id else None,
+        "prompt": prompt,
+        "skill_id": "project",
+        "api_hints": [
+            "GET /api/v1/projects/{project_id}/factory-state",
+        ],
+    }
+    return SlashCommandResult(
+        command_id="project-workflow",
+        result_type="project_init_prompt",
+        payload=payload,
+        fallback_text=prompt,
+    )
+
+
 async def _find_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     """Keyword search over recent messages in the current channel.
 
@@ -1840,6 +1937,14 @@ _register(SlashCommandSpec(
     description="Show this Project's current stage, concurrency cap, suggested next action, and what to ask for next",
     surfaces=("channel", "session"),
     handler=_project_status_handler,
+))
+
+_register(SlashCommandSpec(
+    id="project-workflow",
+    label="/project-workflow",
+    description="Bootstrap this session with the Project workflow pointer and first Project-state checks",
+    surfaces=("channel", "session"),
+    handler=_project_workflow_handler,
 ))
 
 _register(SlashCommandSpec(

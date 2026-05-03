@@ -5,7 +5,11 @@ from typing import Any
 
 from app.agent.bots import BotConfig
 from app.tools.client_tools import get_client_tool_schemas
-from app.tools.mcp import fetch_mcp_tools, get_mcp_server_for_tool
+from app.tools.mcp import (
+    fetch_mcp_tools,
+    get_mcp_server_for_tool,
+    infer_mcp_server_from_tool_name,
+)
 from app.tools.registry import get_local_tool_schemas
 
 _TRANSCRIPT_RE = re.compile(r"\[transcript\](.*?)\[/transcript\]", re.DOTALL)
@@ -143,7 +147,7 @@ async def _all_tool_schemas_by_name(
         by_name[t["function"]["name"]] = t
     mcp_servers = list(bot.mcp_servers or [])
     for name in pins + enrolled:
-        server = get_mcp_server_for_tool(name)
+        server = get_mcp_server_for_tool(name) or infer_mcp_server_from_tool_name(name)
         if server and server not in mcp_servers:
             mcp_servers.append(server)
     for t in await fetch_mcp_tools(mcp_servers):

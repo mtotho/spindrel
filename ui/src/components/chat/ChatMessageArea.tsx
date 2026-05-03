@@ -169,6 +169,7 @@ export function ChatMessageArea({
   sessionId,
   onOpenMessageSession,
   surface = "default",
+  compactMessages = false,
   contentMaxWidthOverride,
   contentHorizontalPaddingOverride,
 }: ChatMessageAreaProps) {
@@ -349,6 +350,7 @@ export function ChatMessageArea({
       chatMode={chatMode}
       channelId={channelId}
       waitingForUserInput={harnessQuestionBlockedTurnIds.has(turnId)}
+      compact={compactMessages}
     />
   ));
 
@@ -356,7 +358,7 @@ export function ChatMessageArea({
   // task accepted but worker not yet started) gets the simpler indicator.
   const processingIndicator =
     isProcessing && turnIndicators.length === 0 ? (
-      <ProcessingIndicator chatMode={chatMode} />
+      <ProcessingIndicator chatMode={chatMode} compact={compactMessages} />
     ) : null;
 
   // Approval ids already represented by a live turn card — the orphan

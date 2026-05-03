@@ -39,13 +39,12 @@ from app.services.project_run_receipts import (
     list_project_run_receipts,
     serialize_project_run_receipt,
 )
-from app.services.project_runtime import load_project_runtime_environment
+from app.services.project_runtime import load_project_runtime_environment, project_snapshot
 from app.services.project_workflow_file import (
     STANDARD_SECTIONS as _WORKFLOW_STANDARD_SECTIONS,
     project_workflow_file,
 )
 from app.services.projects import (
-    project_blueprint_snapshot,
     project_canonical_repo_host_path,
     project_canonical_repo_relative_path,
     project_directory_from_project,
@@ -332,7 +331,7 @@ async def get_project_factory_state(
     Composes existing services. Does not mutate state. Safe to call from
     agents (via tool wrapper) and from the UI cockpit using the same shape.
     """
-    snapshot = project_blueprint_snapshot(project)
+    snapshot = project_snapshot(project) or {}
     blueprint_applied = bool(snapshot)
 
     runtime = await load_project_runtime_environment(db, project)

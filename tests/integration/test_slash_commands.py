@@ -2,6 +2,7 @@
 import uuid
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Channel, Message, Project, Session, SharedWorkspace
@@ -292,6 +293,53 @@ class TestSlashCommandProjectInit:
         assert "Use the project/setup/init skill" in body["fallback_text"]
         assert ".spindrel/WORKFLOW.md" in body["fallback_text"]
         assert "Project Dependency Stack" in body["fallback_text"]
+
+    async def test_project_workflow_bootstraps_current_session_without_inlining_workflow(self, client, db_session):
+        workspace = SharedWorkspace(name=f"slash-project-workflow-{uuid.uuid4().hex[:8]}")
+        db_session.add(workspace)
+        await db_session.flush()
+        project = Project(
+            workspace_id=workspace.id,
+            name="Project Workflow Demo",
+            slug="project-workflow-demo",
+            root_path="common/projects",
+            prompt_file_path="repo/.spindrel/WORKFLOW.md",
+        )
+        db_session.add(project)
+        channel_id, session_id = await _create_channel_with_session(db_session)
+        channel = await db_session.get(Channel, uuid.UUID(channel_id))
+        channel.workspace_id = workspace.id
+        channel.project_id = project.id
+        await db_session.commit()
+
+        resp = await client.post(
+            "/api/v1/slash-commands/execute",
+            json={
+                "command_id": "project-workflow",
+                "channel_id": channel_id,
+                "current_session_id": session_id,
+            },
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["command_id"] == "project-workflow"
+        assert body["payload"]["skill_id"] == "project"
+        assert body["payload"]["target_session_id"] == session_id
+        assert "Project workflow contract: `repo/.spindrel/WORKFLOW.md`" in body["fallback_text"]
+        assert "Load `project`" in body["fallback_text"]
+
+        from app.db.models import Message
+        from app.services.agent_harnesses.session_state import load_context_hints
+
+        rows = (await db_session.execute(
+            select(Message)
+            .where(Message.session_id == uuid.UUID(session_id), Message.role == "system")
+        )).scalars().all()
+        assert any((row.metadata_ or {}).get("kind") == "project_session_bootstrap" for row in rows)
+        hints = await load_context_hints(db_session, uuid.UUID(session_id))
+        assert any(hint.kind == "project_workflow_bootstrap" for hint in hints)
 
 
 class TestSlashCommandFind:

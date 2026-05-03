@@ -222,7 +222,13 @@ async def admin_test_mcp_server(
     from app.services.encryption import decrypt
 
     api_key = decrypt(row.api_key) if row.api_key else ""
-    return await _test_mcp_connection(row.url, api_key)
+    config = row.config or {}
+    return await _test_mcp_connection(
+        row.url,
+        api_key,
+        allow_private=bool(config.get("allow_private_networks")),
+        allow_loopback=bool(config.get("allow_loopback")),
+    )
 
 
 @router.post("/mcp-servers/test-inline", response_model=MCPServerTestResult)
@@ -246,7 +252,13 @@ async def _reload_mcp() -> None:
     _cache.clear()
 
 
-async def _test_mcp_connection(url: str, api_key: str) -> MCPServerTestResult:
+async def _test_mcp_connection(
+    url: str,
+    api_key: str,
+    *,
+    allow_private: bool = False,
+    allow_loopback: bool = False,
+) -> MCPServerTestResult:
     """Fetch tools/list from an MCP server and return results."""
     headers: dict[str, str] = {
         "Content-Type": "application/json",
@@ -256,7 +268,11 @@ async def _test_mcp_connection(url: str, api_key: str) -> MCPServerTestResult:
         headers["Authorization"] = f"Bearer {api_key}"
 
     try:
-        await assert_public_url(url)
+        await assert_public_url(
+            url,
+            allow_private=allow_private,
+            allow_loopback=allow_loopback,
+        )
         async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
             resp = await client.post(
                 url,

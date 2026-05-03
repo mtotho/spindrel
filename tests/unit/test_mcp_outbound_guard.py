@@ -18,6 +18,11 @@ from app.tools import mcp as mcp_module
 from app.tools.mcp import MCPServerConfig
 
 
+def _drop_background_task(coro):
+    coro.close()
+    return None
+
+
 @pytest.fixture(autouse=True)
 def _reset_mcp_state():
     mcp_module._servers.clear()
@@ -100,9 +105,58 @@ def test_opt_in_lets_private_through() -> None:
             return _Resp()
 
     async def run():
-        with patch("app.tools.mcp.httpx.AsyncClient", _Client):
+        with patch("app.tools.mcp.asyncio.create_task", side_effect=_drop_background_task), patch(
+            "app.tools.mcp.httpx.AsyncClient", _Client
+        ):
             tools = await mcp_module.fetch_mcp_tools(["lan"])
             assert tools == []  # server returned 0 tools, but the call went through
+            assert captured["url"] == "http://10.0.0.5/"
+
+    asyncio.run(run())
+
+
+def test_per_server_opt_in_lets_private_through() -> None:
+    server = MCPServerConfig(
+        name="lan",
+        url="http://10.0.0.5/",
+        api_key="",
+        allow_private_networks=True,
+    )
+    mcp_module._servers["lan"] = server
+
+    captured: dict = {}
+
+    class _Resp:
+        status_code = 200
+        text = '{"jsonrpc": "2.0", "result": {"tools": []}, "id": 1}'
+        headers = {"content-type": "application/json"}
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"jsonrpc": "2.0", "result": {"tools": []}, "id": 1}
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kwargs):
+            captured["url"] = url
+            return _Resp()
+
+    async def run():
+        with patch("app.tools.mcp.asyncio.create_task", side_effect=_drop_background_task), patch(
+            "app.tools.mcp.httpx.AsyncClient", _Client
+        ):
+            tools = await mcp_module.fetch_mcp_tools(["lan"])
+            assert tools == []
             assert captured["url"] == "http://10.0.0.5/"
 
     asyncio.run(run())

@@ -179,6 +179,33 @@ def test_project_workflow_file_reads_and_parses_when_present(tmp_path, monkeypat
     assert wf.raw is not None and "Branch from master" in wf.raw
 
 
+def test_project_workflow_file_falls_back_to_prompt_file_path(tmp_path, monkeypatch):
+    """Pre-Blueprint multi-repo Projects can point at repo/.spindrel/WORKFLOW.md."""
+    project_root = tmp_path / "common" / "projects"
+    workflow_path = project_root / "spindrel" / ".spindrel" / "WORKFLOW.md"
+    workflow_path.parent.mkdir(parents=True)
+    workflow_path.write_text("## Artifacts\nUse docs/plans.\n", encoding="utf-8")
+    monkeypatch.setattr(
+        workflow_module,
+        "project_canonical_repo_host_path",
+        lambda *_, **__: None,
+    )
+    monkeypatch.setattr(
+        workflow_module,
+        "project_directory_from_project",
+        lambda *_: SimpleNamespace(host_path=str(project_root)),
+    )
+
+    wf = project_workflow_file(
+        SimpleNamespace(prompt_file_path="spindrel/.spindrel/WORKFLOW.md")
+    )
+
+    assert wf.present is True
+    assert wf.relative_path == "spindrel/.spindrel/WORKFLOW.md"
+    assert wf.host_path == str(workflow_path)
+    assert wf.section("artifacts") == "Use docs/plans."
+
+
 def test_write_workflow_starter_creates_file_when_absent(tmp_path, monkeypatch):
     canonical = tmp_path / "repo"
     canonical.mkdir()

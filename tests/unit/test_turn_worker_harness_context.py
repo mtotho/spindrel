@@ -10,7 +10,9 @@ import pytest
 from app.services.agent_harnesses.base import TurnResult
 from app.services.agent_harnesses.base import render_context_hints_for_prompt
 from app.services.agent_harnesses.project import build_workspace_files_memory_hint
-from app.services.agent_harnesses.turn_host import _build_harness_plan_tool_hint
+from app.services.agent_harnesses.turn_host import (
+    _build_harness_plan_tool_hint,
+)
 from app.services.agent_harnesses.turn_request import HarnessTurnRequest
 from app.services.turn_worker import (
     _codex_plan_evidence,
@@ -37,6 +39,9 @@ class _FakeSessionFactory:
 
     async def get(self, *args, **kwargs):
         return None
+
+    async def execute(self, *args, **kwargs):
+        return SimpleNamespace(scalar_one_or_none=lambda: None)
 
 
 class _FakePlanSessionFactory:
@@ -254,7 +259,7 @@ async def test_harness_turn_context_carries_latest_harness_metadata(monkeypatch)
     )
     monkeypatch.setattr(
         "app.services.agent_harnesses.project.resolve_harness_paths",
-        lambda db, channel_id, bot: _async_value(
+        lambda db, channel_id, bot, **kwargs: _async_value(
             SimpleNamespace(
                 workdir="/tmp",
                 source="bot",
@@ -340,7 +345,7 @@ async def test_harness_turn_context_uses_run_scoped_tools_and_permission_overrid
     )
     monkeypatch.setattr(
         "app.services.agent_harnesses.project.resolve_harness_paths",
-        lambda db, channel_id, bot: _async_value(
+        lambda db, channel_id, bot, **kwargs: _async_value(
             SimpleNamespace(
                 workdir="/tmp",
                 source="bot",
@@ -431,7 +436,7 @@ async def test_harness_turn_persists_runtime_thinking_for_refresh_visibility(mon
     )
     monkeypatch.setattr(
         "app.services.agent_harnesses.project.resolve_harness_paths",
-        lambda db, channel_id, bot: _async_value(
+        lambda db, channel_id, bot, **kwargs: _async_value(
             SimpleNamespace(
                 workdir="/tmp",
                 source="bot",
@@ -517,7 +522,7 @@ async def test_harness_turn_context_includes_channel_prompt_instruction(monkeypa
     )
     monkeypatch.setattr(
         "app.services.agent_harnesses.project.resolve_harness_paths",
-        lambda db, channel_id, bot: _async_value(
+        lambda db, channel_id, bot, **kwargs: _async_value(
             SimpleNamespace(
                 workdir="/tmp",
                 source="bot",
@@ -643,7 +648,7 @@ async def test_harness_heartbeat_turn_marks_persisted_rows(monkeypatch):
     )
     monkeypatch.setattr(
         "app.services.agent_harnesses.project.resolve_harness_paths",
-        lambda db, channel_id, bot: _async_value(
+        lambda db, channel_id, bot, **kwargs: _async_value(
             SimpleNamespace(
                 workdir="/tmp",
                 source="bot",
@@ -732,7 +737,7 @@ async def test_harness_turn_cancel_persists_interrupted_tool_transcript(monkeypa
     )
     monkeypatch.setattr(
         "app.services.agent_harnesses.project.resolve_harness_paths",
-        lambda db, channel_id, bot: _async_value(
+        lambda db, channel_id, bot, **kwargs: _async_value(
             SimpleNamespace(
                 workdir="/tmp",
                 source="bot",
@@ -820,7 +825,7 @@ async def test_cancelled_harness_turn_persists_runtime_session_id_seen_before_re
     )
     monkeypatch.setattr(
         "app.services.agent_harnesses.project.resolve_harness_paths",
-        lambda db, channel_id, bot: _async_value(
+        lambda db, channel_id, bot, **kwargs: _async_value(
             SimpleNamespace(
                 workdir="/tmp",
                 source="bot",

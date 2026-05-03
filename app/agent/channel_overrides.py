@@ -9,6 +9,29 @@ if False:  # TYPE_CHECKING
     from app.db.models import Channel
 
 
+PROJECT_CHANNEL_SKILL_IDS: tuple[str, ...] = (
+    "project",
+)
+
+PROJECT_CHANNEL_TOOL_NAMES: tuple[str, ...] = (
+    "get_project_factory_state",
+    "get_project_orchestration_policy",
+    "capture_project_intake",
+    "propose_run_packs",
+    "update_project_intake_config",
+    "write_project_workflow_starter",
+    "get_project_coding_run_details",
+    "schedule_project_coding_run",
+    "prepare_project_run_handoff",
+    "publish_project_run_receipt",
+    "get_project_coding_run_review_context",
+    "finalize_project_coding_run_review",
+    "get_session_execution_environment",
+    "file",
+    "exec_command",
+)
+
+
 @dataclass
 class EffectiveTools:
     local_tools: list[str] = field(default_factory=list)
@@ -37,6 +60,11 @@ def auto_injected_pin_names() -> frozenset[str]:
     for group in groups:
         names = names | _tool_names_for_metadata(auto_inject=group)
     return names
+
+
+def project_channel_tool_names() -> tuple[str, ...]:
+    """Tools exposed by default when a channel is attached to a Project."""
+    return PROJECT_CHANNEL_TOOL_NAMES
 
 
 def discovery_hatch_tool_names() -> frozenset[str]:
@@ -105,11 +133,14 @@ def _apply_disabled(bot_list: list[str], disabled: list | None) -> list[str]:
 def _resolve_skills(
     bot_skills: list[SkillConfig],
     channel_skill_ids: list[str],
+    *,
+    project_bound: bool = False,
 ) -> list[SkillConfig]:
     """Merge bot skills with channel-enrolled skill IDs."""
     skills = list(bot_skills)
     existing = {s.id for s in skills}
-    for skill_id in channel_skill_ids:
+    default_project_skill_ids = PROJECT_CHANNEL_SKILL_IDS if project_bound else ()
+    for skill_id in (*default_project_skill_ids, *channel_skill_ids):
         if skill_id not in existing:
             skills.append(SkillConfig(id=skill_id, mode="on_demand"))
             existing.add(skill_id)
@@ -173,11 +204,19 @@ def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> Effect
     for tool_name in _integration_tools:
         if tool_name not in _local_tools:
             _local_tools.append(tool_name)
+    if getattr(channel, "project_id", None):
+        for tool_name in PROJECT_CHANNEL_TOOL_NAMES:
+            if tool_name not in _local_tools:
+                _local_tools.append(tool_name)
 
     return EffectiveTools(
         local_tools=_apply_disabled(_local_tools, channel.local_tools_disabled),
         mcp_servers=_apply_disabled(_mcp, channel.mcp_servers_disabled),
         client_tools=_apply_disabled(bot.client_tools, channel.client_tools_disabled),
         pinned_tools=list(bot.pinned_tools),
-        skills=_resolve_skills(bot.skills, list(_channel_skill_ids)),
+        skills=_resolve_skills(
+            bot.skills,
+            list(_channel_skill_ids),
+            project_bound=bool(getattr(channel, "project_id", None)),
+        ),
     )

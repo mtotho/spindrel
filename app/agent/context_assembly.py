@@ -1521,24 +1521,6 @@ async def _append_prompt_and_user_message(
 ) -> None:
     inject_chars = ledger.inject_chars
     budget_consume = ledger.consume
-    # --- project prompt (shared across every channel attached to the Project) ---
-    if channel_id is not None and ch_row is not None and getattr(ch_row, "project_id", None):
-        try:
-            from app.db.engine import async_session
-            from app.services.projects import is_project_like_surface, resolve_channel_work_surface
-
-            async with async_session() as db:
-                surface = await resolve_channel_work_surface(db, ch_row, bot, include_prompt=True)
-            if is_project_like_surface(surface) and surface.prompt:
-                messages.append({"role": "system", "content": surface.prompt})
-                inject_chars["project_prompt"] = len(surface.prompt)
-                budget_consume("project_prompt", surface.prompt)
-        except Exception as exc:
-            logger.warning("Failed to resolve project prompt for channel %s", channel_id, exc_info=True)
-            text = f"Project work surface could not be resolved for this channel: {exc}"
-            messages.append({"role": "system", "content": text})
-            inject_chars["project_work_surface_error"] = len(text)
-            budget_consume("project_work_surface_error", text)
 
     # --- channel prompt (injected just before user message) ---
     if channel_id is not None and ch_row is not None:
