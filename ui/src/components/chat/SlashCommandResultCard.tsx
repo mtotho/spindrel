@@ -271,8 +271,51 @@ export function SlashCommandResultCard({ message, chatMode = "default" }: Props)
     return <ProjectInitPromptCard payload={rawPayload as Record<string, any>} chatMode={chatMode} />;
   }
 
+  if (resultType === "project_workflow_bootstrap") {
+    return <ProjectWorkflowBootstrapCard payload={rawPayload as Record<string, any>} chatMode={chatMode} />;
+  }
+
   // Default: context_summary (used by /context)
   return <ContextSummaryCard message={message} chatMode={chatMode} />;
+}
+
+function ProjectWorkflowBootstrapCard({
+  payload,
+  chatMode,
+}: {
+  payload: Record<string, any>;
+  chatMode: "default" | "terminal";
+}) {
+  const project = payload.project && typeof payload.project === "object" ? payload.project as Record<string, any> : null;
+  const status = String(payload.status || "ready");
+  const detail = String(payload.detail || "Project workflow bootstrap queued.");
+  const workflowPath = project?.prompt_file_path ? String(project.prompt_file_path) : ".spindrel/WORKFLOW.md";
+  const rootPath = project?.root_path ? String(project.root_path) : "";
+  return (
+    <SlashResultPanel
+      chatMode={chatMode}
+      commandLabel="/project-workflow"
+      meta={status}
+    >
+      <div className="grid gap-2 p-3 text-[12px] text-text-muted">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="font-medium text-text">{String(payload.title || "Project workflow bootstrap")}</div>
+            <div className="mt-1 text-text-muted">{detail}</div>
+          </div>
+          {payload.skill_id && (
+            <div className="shrink-0 rounded bg-surface-overlay px-2 py-1 font-mono text-[11px] text-text-dim">
+              {String(payload.skill_id)}
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2 font-mono text-[11px] text-text-dim">
+          {rootPath && <span className="rounded bg-surface-overlay/50 px-2 py-1">{rootPath}</span>}
+          <span className="rounded bg-surface-overlay/50 px-2 py-1">{workflowPath}</span>
+        </div>
+      </div>
+    </SlashResultPanel>
+  );
 }
 
 function ProjectInitPromptCard({

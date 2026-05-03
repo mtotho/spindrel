@@ -326,6 +326,7 @@ async def get_session(
         .order_by(Message.created_at)
     )
     messages = list(result.scalars().all())
+    messages = [m for m in messages if not (m.metadata_ or {}).get("ui_hidden")]
     if session.channel_id:
         await _recover_orphan_attachments(db, session.channel_id, messages)
     return SessionDetail(session=session, messages=[MessageOut.from_orm(m) for m in messages])
@@ -836,6 +837,7 @@ async def get_session_messages(
     messages = visible_rows[:limit]
     # Reverse to chronological order
     messages.reverse()
+    messages = [m for m in messages if not (m.metadata_ or {}).get("ui_hidden")]
 
     # Recover orphaned attachments: if persist_turn's orphan linking failed,
     # attachments created by send_file have message_id=NULL.  Link them now.

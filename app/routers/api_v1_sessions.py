@@ -2046,6 +2046,7 @@ async def list_messages(
     )
     messages = list(result.scalars().all())
     messages.reverse()
+    messages = [m for m in messages if not (m.metadata_ or {}).get("ui_hidden")]
 
     # Recover orphaned attachments (send_file creates with message_id=NULL)
     if session.channel_id:

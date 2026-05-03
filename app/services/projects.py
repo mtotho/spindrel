@@ -580,12 +580,15 @@ def project_session_bootstrap_text(project: Project) -> str:
         f"Project root: `{project.root_path}`.",
         f"Project workflow contract: `{workflow_path}`.",
         "",
-        "For broad Project work, load `project`, call `get_project_factory_state`, "
-        "then read the workflow file or `repo_workflow` sections only when the "
-        "request needs repo-specific policy, artifact homes, hooks, or run rules.",
+        "For Project work, load `project` and call `get_project_factory_state` "
+        "before choosing setup, intake, planning, run, or review behavior.",
+        "",
+        "This bootstrap is not the workflow. When the user asks what the "
+        "workflow says, specifies, or requires - including intake locations, "
+        "commit cadence, artifact homes, hooks, or run rules - first read the "
+        "workflow file or the returned `repo_workflow` sections. Do not ask "
+        "the user to point you at the workflow; the path is above.",
     ]
-    if project.prompt:
-        lines.extend(["", project.prompt.strip()])
     return "\n".join(lines).strip()
 
 

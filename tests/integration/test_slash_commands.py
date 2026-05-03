@@ -325,10 +325,11 @@ class TestSlashCommandProjectInit:
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["command_id"] == "project-workflow"
+        assert body["result_type"] == "project_workflow_bootstrap"
         assert body["payload"]["skill_id"] == "project"
         assert body["payload"]["target_session_id"] == session_id
-        assert "Project workflow contract: `repo/.spindrel/WORKFLOW.md`" in body["fallback_text"]
-        assert "Load `project`" in body["fallback_text"]
+        assert "Workflow contract: `repo/.spindrel/WORKFLOW.md`" in body["fallback_text"]
+        assert "workflow-policy questions should read the workflow" in body["fallback_text"]
 
         from app.db.models import Message
         from app.services.agent_harnesses.session_state import load_context_hints
@@ -337,7 +338,14 @@ class TestSlashCommandProjectInit:
             select(Message)
             .where(Message.session_id == uuid.UUID(session_id), Message.role == "system")
         )).scalars().all()
-        assert any((row.metadata_ or {}).get("kind") == "project_session_bootstrap" for row in rows)
+        bootstrap_rows = [
+            row for row in rows
+            if (row.metadata_ or {}).get("kind") == "project_session_bootstrap"
+        ]
+        assert bootstrap_rows
+        assert all((row.metadata_ or {}).get("ui_hidden") is True for row in bootstrap_rows)
+        assert "This bootstrap is not the workflow" in bootstrap_rows[0].content
+        assert "commit cadence" in bootstrap_rows[0].content
         hints = await load_context_hints(db_session, uuid.UUID(session_id))
         assert any(hint.kind == "project_workflow_bootstrap" for hint in hints)
 

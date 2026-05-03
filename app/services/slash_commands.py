@@ -1655,7 +1655,7 @@ async def _project_workflow_handler(ctx: SlashCommandContext) -> SlashCommandRes
 
     if project is None:
         title = "Project workflow needs a Project-bound channel"
-        prompt = (
+        detail = (
             "This channel is not attached to a Project yet. Attach the channel "
             "to a Project from Project settings, then run /project-workflow again."
         )
@@ -1674,12 +1674,12 @@ async def _project_workflow_handler(ctx: SlashCommandContext) -> SlashCommandRes
             "prompt_file_path": project.prompt_file_path,
         }
         bootstrap = project_session_bootstrap_text(project)
-        prompt = f"""{bootstrap}
+        hint_text = f"""{bootstrap}
 
 Bootstrap this session for Project work:
 1. Load `project`.
 2. Call `get_project_factory_state`.
-3. Read `.spindrel/WORKFLOW.md` or the returned `repo_workflow` sections if this request needs repo-specific policy, artifact homes, hooks, dependencies, or run rules.
+3. Read `{project_payload["prompt_file_path"] or ".spindrel/WORKFLOW.md"}` or the returned `repo_workflow` sections if this request needs repo-specific policy, artifact homes, hooks, dependencies, intake rules, or commit cadence.
 4. Summarize the Project root, workflow path, current stage, and the next Project skill you would use. Do not start implementation work from this command alone.
 """
         target_session_id = ctx.session_id
@@ -1708,6 +1708,7 @@ Bootstrap this session for Project work:
                         "kind": "project_session_bootstrap",
                         "project_id": str(project.id),
                         "context_visibility": "session",
+                        "ui_hidden": True,
                         "source": "slash_command",
                     },
                 ))
@@ -1716,18 +1717,23 @@ Bootstrap this session for Project work:
                 ctx.db,
                 target_session_id,
                 kind="project_workflow_bootstrap",
-                text=prompt,
+                text=hint_text,
                 source="slash_command",
                 consume_after_next_turn=True,
                 priority="instruction",
             )
+        detail = (
+            f"Project workflow bootstrap queued for {project.name}. "
+            f"Workflow contract: `{project_payload['prompt_file_path'] or '.spindrel/WORKFLOW.md'}`. "
+            "Ask your question normally; workflow-policy questions should read the workflow before answering."
+        )
 
     payload = {
         "status": status,
         "title": title,
+        "detail": detail,
         "project": project_payload,
         "target_session_id": str(target_session_id) if target_session_id else None,
-        "prompt": prompt,
         "skill_id": "project",
         "api_hints": [
             "GET /api/v1/projects/{project_id}/factory-state",
@@ -1735,9 +1741,9 @@ Bootstrap this session for Project work:
     }
     return SlashCommandResult(
         command_id="project-workflow",
-        result_type="project_init_prompt",
+        result_type="project_workflow_bootstrap",
         payload=payload,
-        fallback_text=prompt,
+        fallback_text=detail,
     )
 
 

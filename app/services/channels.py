@@ -43,6 +43,7 @@ async def _add_project_session_bootstrap(
             "kind": "project_session_bootstrap",
             "project_id": str(project.id),
             "context_visibility": "session",
+            "ui_hidden": True,
         },
         created_at=datetime.now(timezone.utc),
     ))
