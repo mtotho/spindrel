@@ -1482,7 +1482,7 @@ async def get_channel_context_budget(
     from app.services.context_breakdown import fetch_latest_context_budget
 
     out = await fetch_latest_context_budget(channel_id, db, session_id=session_id)
-    await release_db_read_transaction(db)
+    await release_db_read_transaction(db, context="channel context budget")
     return out
 
 
