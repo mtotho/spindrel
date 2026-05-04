@@ -1,6 +1,6 @@
 ---
 name: Widgets
-description: Decision tree for building widgets across the three current definition kinds — tool widgets for tool-bound server-driven UI, HTML widgets for standalone iframe-backed bundles, and first-party native widgets for built-in host-rendered surfaces. Covers library authoring under `widget://`, grouping with `suite`/`package`, themes, dashboards, and which follow-up skill to read next.
+description: Decision tree across the three widget kinds — tool widgets (server-driven UI), HTML widgets (iframe bundles), and native widgets (host-rendered first-party). Covers `widget://` library, `suite`/`package` grouping, themes, and which follow-up skill to read.
 triggers: emit_html_widget, html widget, template widget, yaml widget, tool widget, tool renderer, interactive widget, custom widget, build a widget, mini dashboard, render html, iframe widget, workspace html, live dashboard, bespoke ui, project status dashboard, status board, tool control panel, chart widget, chip widget, header chip, panel title, sticky widget title, suite widget, package widget
 category: core
 ---

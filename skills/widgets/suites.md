@@ -1,6 +1,6 @@
 ---
 name: suite.yaml — multi-widget bundles sharing a DB
-description: A suite groups widget bundles that share a dashboard-scoped SQLite DB. Covers `suite.yaml` shape, the `db.shared` member opt-in, the dashboard-slug scoping rule (no bot indirection), atomic pinning via `list_suites` / `pin_suite`, and the cross-widget interop pattern demonstrated by Mission Control (Timeline + Kanban + Tasks).
+description: A suite groups widget bundles that share a dashboard-scoped SQLite DB. Covers `suite.yaml`, the `db.shared` member opt-in, dashboard-slug scoping, atomic pinning via `list_suites` / `pin_suite`, and the cross-widget interop pattern.
 triggers: suite.yaml, widget suite, shared DB widget, mission-control suite, multi-widget bundle, pin_suite, list_suites, db.shared, dashboard-scoped DB, cross-widget interop
 category: core
 ---

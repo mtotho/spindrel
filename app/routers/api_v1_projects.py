@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models import Bot as BotRow
 from app.db.models import Channel, Project, ProjectBlueprint, ProjectInstance, ProjectRunReceipt, ProjectSecretBinding, ProjectSetupRun, SecretValue, SharedWorkspace, Task
 from app.dependencies import get_db, require_scopes
 from app.schemas.project_git_status import ProjectGitStatusOut
@@ -354,6 +355,9 @@ class ProjectCodingRunWrite(BaseModel):
     machine_target_grant: ProjectMachineTargetGrantIn | None = None
     source_artifact: SourceArtifactIn | None = None
     loop_policy: ProjectRunLoopPolicyIn | None = None
+    model_override: str | None = None
+    model_provider_id_override: str | None = None
+    harness_effort: str | None = None
 
 
 class ProjectCodingRunContinueWrite(BaseModel):
@@ -394,6 +398,9 @@ class ProjectCodingRunScheduleWrite(BaseModel):
     recurrence: str = "+1w"
     machine_target_grant: ProjectMachineTargetGrantIn | None = None
     loop_policy: ProjectRunLoopPolicyIn | None = None
+    model_override: str | None = None
+    model_provider_id_override: str | None = None
+    harness_effort: str | None = None
 
 
 class ProjectCodingRunSchedulePatch(BaseModel):
@@ -408,6 +415,9 @@ class ProjectCodingRunSchedulePatch(BaseModel):
     enabled: bool | None = None
     machine_target_grant: ProjectMachineTargetGrantIn | None = None
     loop_policy: ProjectRunLoopPolicyIn | None = None
+    model_override: str | None = None
+    model_provider_id_override: str | None = None
+    harness_effort: str | None = None
 
 
 class ProjectCodingRunScheduleOut(BaseModel):
@@ -429,6 +439,7 @@ class ProjectCodingRunScheduleOut(BaseModel):
     work_surface_mode: str = "isolated_worktree"
     run_environment_profile: str | None = None
     loop_policy: dict | None = None
+    model_selection: dict = Field(default_factory=dict)
 
 
 class ProjectRunEnvironmentProfileApprovalWrite(BaseModel):
@@ -492,6 +503,7 @@ class ProjectCodingRunOut(BaseModel):
     latest_continuation: dict | None = None
     continuations: list[dict] = Field(default_factory=list)
     loop: dict = Field(default_factory=dict)
+    model_selection: dict = Field(default_factory=dict)
     review_queue_state: str | None = None
     review_queue_priority: int | None = None
     review_next_action: str | None = None
@@ -670,6 +682,11 @@ class ProjectChannelOut(BaseModel):
     id: uuid.UUID
     name: str
     bot_id: str
+    model_override: str | None = None
+    model_provider_id_override: str | None = None
+    bot_model: str | None = None
+    bot_model_provider_id: str | None = None
+    harness_runtime: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -1733,6 +1750,9 @@ async def create_project_coding_run_endpoint(
                 granted_by_user_id=_auth_user_id(_auth),
                 source_artifact=body.source_artifact.model_dump() if body.source_artifact else None,
                 loop_policy=body.loop_policy.model_dump() if body.loop_policy else None,
+                model_override=body.model_override,
+                model_provider_id_override=body.model_provider_id_override,
+                harness_effort=body.harness_effort,
             ),
         )
     except ValueError as exc:
@@ -1783,6 +1803,9 @@ async def create_project_coding_run_schedule_endpoint(
                 machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
                 granted_by_user_id=_auth_user_id(_auth),
                 loop_policy=body.loop_policy.model_dump() if body.loop_policy else None,
+                model_override=body.model_override,
+                model_provider_id_override=body.model_provider_id_override,
+                harness_effort=body.harness_effort,
             ),
         )
     except ValueError as exc:
@@ -1830,6 +1853,12 @@ async def update_project_coding_run_schedule_endpoint(
                 machine_target_grant_set="machine_target_grant" in body.model_fields_set,
                 granted_by_user_id=_auth_user_id(_auth),
                 loop_policy=loop_policy,
+                model_override=body.model_override,
+                model_override_set="model_override" in body.model_fields_set,
+                model_provider_id_override=body.model_provider_id_override,
+                model_provider_id_override_set="model_provider_id_override" in body.model_fields_set,
+                harness_effort=body.harness_effort,
+                harness_effort_set="harness_effort" in body.model_fields_set,
             ),
         )
     except ValueError as exc:
@@ -2204,6 +2233,26 @@ async def get_project_channels(
 ):
     if await db.get(Project, project_id) is None:
         raise HTTPException(status_code=404, detail="project not found")
-    return (await db.execute(
+    channels = list((await db.execute(
         select(Channel).where(Channel.project_id == project_id).order_by(Channel.name)
-    )).scalars().all()
+    )).scalars().all())
+    bot_ids = [channel.bot_id for channel in channels if channel.bot_id]
+    bots = {}
+    if bot_ids:
+        bots = {
+            bot.id: bot
+            for bot in (await db.execute(select(BotRow).where(BotRow.id.in_(bot_ids)))).scalars().all()
+        }
+    return [
+        {
+            "id": channel.id,
+            "name": channel.name,
+            "bot_id": channel.bot_id,
+            "model_override": channel.model_override,
+            "model_provider_id_override": channel.model_provider_id_override,
+            "bot_model": getattr(bots.get(channel.bot_id), "model", None),
+            "bot_model_provider_id": getattr(bots.get(channel.bot_id), "model_provider_id", None),
+            "harness_runtime": getattr(bots.get(channel.bot_id), "harness_runtime", None),
+        }
+        for channel in channels
+    ]

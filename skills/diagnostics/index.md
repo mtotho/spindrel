@@ -1,6 +1,6 @@
 ---
 name: Diagnostics
-description: Entry point for investigating server-side failure on a Spindrel instance — silent tool errors, unhandled tracebacks, container crashes, ranker misfires. Routes to the right sub-skill by symptom and walks the cost-gradient (cheap rollup first, raw logs last). Also covers the recurring heartbeat / nightly digest pattern.
+description: Entry point for investigating Spindrel server-side failures — silent tool errors, unhandled tracebacks, container crashes, ranker misfires. Routes by symptom and walks the cost-gradient (cheap rollup first, raw logs last).
 triggers: diagnose, troubleshoot, investigate failure, why did this fail, what broke overnight, server errors, server logs, container logs, system health, daily summary, traceback, ERROR CRITICAL FATAL, trace, correlation id, ranker off, discovery weak, llm_error, model_fallback, tool returned error, postgres errors, heartbeat report, nightly report, system diagnostics
 category: core
 ---

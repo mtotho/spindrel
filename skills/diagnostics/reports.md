@@ -1,6 +1,6 @@
 ---
 name: Diagnostics — Reports
-description: How to wire a recurring health digest into a channel — heartbeat or pipeline. Read this when scheduling a nightly / hourly system-health report, posting deduped findings to a channel, or composing the L1+L2 tools into a single low-token digest. Includes the dedupe-on-generated_at gotcha and the post_heartbeat_to_channel contract.
+description: Wiring a recurring health digest into a channel — heartbeat or pipeline. Use when scheduling nightly/hourly system-health reports, posting deduped findings, or composing L1+L2 tools into a low-token digest.
 triggers: heartbeat report, nightly digest, scheduled report, recurring report, system health report, daily summary post, post_heartbeat_to_channel, get_last_heartbeat, automated report, cron report, channel digest
 category: operations
 ---

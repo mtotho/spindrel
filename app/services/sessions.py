@@ -906,24 +906,6 @@ async def persist_turn(
         bus_channel = await resolve_bus_channel_id(db, session_id)
     if bus_channel and staged.records:
         await _publish_persisted_messages_to_bus(db, bus_channel=bus_channel, persisted_records=staged.records)
-    if channel_id and staged.last_assistant_msg_id:
-        try:
-            from app.agent.context import current_run_origin
-            from app.services.knowledge_capture import run_knowledge_capture_for_persisted_turn
-
-            await run_knowledge_capture_for_persisted_turn(
-                db,
-                bot=bot,
-                session_id=session_id,
-                channel_id=channel_id,
-                first_user_message_id=staged.first_user_msg_id,
-                last_assistant_message_id=staged.last_assistant_msg_id,
-                run_origin=current_run_origin.get(None),
-                is_heartbeat=is_heartbeat,
-                hide_messages=hide_messages,
-            )
-        except Exception:
-            logger.exception("persist_turn: knowledge capture failed for session %s", session_id)
     if staged.records:
         try:
             from app.services.unread import process_persisted_messages

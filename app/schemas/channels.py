@@ -215,6 +215,5 @@ class ChannelSettingsOut(BaseModel):
     widget_theme_ref: Optional[str] = None
     widget_agency_mode: str = "propose"
     pinned_widget_context_enabled: bool = True
-    knowledge_capture: str = "inherit"
 
     model_config = {"from_attributes": True}

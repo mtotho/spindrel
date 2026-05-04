@@ -385,6 +385,25 @@ export function MemorySection({
         ))}
       </div>
 
+      <SettingsControlRow
+        leading={<BookOpen size={14} />}
+        title="Auto-retrieve reference excerpts"
+        description="Each turn pulls the most semantically relevant memory/reference/ excerpts into context. Disable to fall back to a directory listing only."
+        action={
+          <Toggle
+            value={draft.workspace?.bot_memory_reference_auto_retrieval !== false}
+            onChange={(value) =>
+              update({
+                workspace: {
+                  ...(draft.workspace ?? {}),
+                  bot_memory_reference_auto_retrieval: value,
+                },
+              })
+            }
+          />
+        }
+      />
+
       <AdvancedSection title="Directory structure">
         <SourceTextEditor value={DIR_STRUCTURE} readOnly language="text" minHeight={150} maxHeight={220} />
       </AdvancedSection>

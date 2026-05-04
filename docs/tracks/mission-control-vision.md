@@ -1,7 +1,7 @@
 ---
 tags: [spindrel, track, mission-control, spatial-canvas, product-vision]
 status: active
-updated: 2026-04-30
+updated: 2026-05-03
 ---
 
 # Track - Mission Control Vision
@@ -705,6 +705,10 @@ the system can already inspect" is a shared capability manifest:
   clickable per-object attention badges open Mission Control Review for the
   specific item; object cue markers select the target object; non-clickable
   warning decoration should be removed or rendered as clearly decorative.
+
+### Knowledge Crystallization As Producer - 2026-05-03
+
+The User Knowledge Graph track is repivoting (see [`docs/plans/user-knowledge-graph.md`](../plans/user-knowledge-graph.md) "Plan Revision 2026-05-03b"). The bespoke `/admin/knowledge/review` page that shipped with Phase 1 is being retired; pending knowledge crystallizations will instead emit **Attention items** (typed `kind = "knowledge_crystallization"`) and post as actionable cards into a workspace-configured "knowledge review" channel. Triage actions reuse the existing Attention substrate: Accept / Reject / Edit / Send-to-other-channel. This is a producer of the unified review deck, not a sibling drawer. Locks the rule that **system errors, bot-reported issues, and knowledge crystallizations all converge on the same triage primitive** — no more bespoke review surfaces per producer.
 
 ## References
 

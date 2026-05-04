@@ -1,6 +1,6 @@
 ---
 name: Widget errors — error-string to fix lookup
-description: Error-keyed troubleshooting for HTML widgets. Use when the widget is blank / returns 422 / is CSP-blocked / throws "TypeError Failed to fetch" / says Workspace file not found / silently crashes / renders but shows empty cells or fallback strings despite a successful tool call. Maps each symptom to the root cause, and documents the `inspect_widget_pin` debug recipe that closes the authoring loop. Also includes the canonical envelope-shape index for commonly-called tools so extraction paths can be written against confirmed shapes instead of guessed.
+description: Error-keyed troubleshooting for HTML widgets — blank iframe, 422, CSP-blocked, fetch errors, fallback strings, silent extraction failures. Maps each symptom to root cause and the `inspect_widget_pin` recipe; includes the envelope-shape index for common tools.
 triggers: widget error, widget iframe blank, widget 422, CSP blocked widget, TypeError Failed to fetch, widget Failed to fetch, widget shows fallback, widget shows Snapshot failed, widget shows dashes, widget shows undefined, widget not loading, widget not rendering, Workspace file not found, widget truncated body null, widget scope_denied, widget silent crash, hand-rolled form widget, raw fetch widget, inline hex widget, inspect_widget_pin, envelope shape, envelope extraction path, frigate_snapshot shape, ha_get_state shape, fallback chain widget
 category: core
 ---

@@ -1,10 +1,9 @@
 ---
 name: Project Intake
 description: >
-  Recognise when the user is dropping a rough bug, idea, or future-work note
-  in conversation; capture it as a Project intake entry written to whatever
-  substrate the user configured (a file in the repo, a folder, or a hand-off
-  to an external tracker). Triage on demand into proposed Run Packs.
+  Recognise when the user is dropping a rough bug, idea, or future-work note in
+  conversation; capture it as a Project intake entry to the configured substrate.
+  Triage on demand into proposed Run Packs.
 triggers: add this issue, save this bug, issue inbox, report this issue, triage later, sweep issues, group these notes, intake, rough idea, side note
 category: project
 ---

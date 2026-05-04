@@ -1888,16 +1888,23 @@ async def _inject_bot_knowledge_base(
         yield event
 
 
-async def _inject_user_knowledge(
+async def _inject_bot_memory_reference(
     messages: list[dict],
     bot: BotConfig,
     user_message: str,
     ledger: AssemblyLedger,
+    context_profile: ContextProfile,
 ) -> AsyncGenerator[dict[str, Any], None]:
-    """Compatibility wrapper for user Knowledge Document context admission."""
-    from app.agent.context_admission import inject_user_knowledge
+    """Compatibility wrapper for bot memory/reference context admission."""
+    from app.agent.context_admission import inject_bot_memory_reference
 
-    async for event in inject_user_knowledge(messages, bot, user_message, ledger):
+    async for event in inject_bot_memory_reference(
+        messages,
+        bot,
+        user_message,
+        ledger,
+        context_profile,
+    ):
         yield event
 
 
@@ -2149,12 +2156,13 @@ async def assemble_context(
     ):
         yield evt
 
-    # --- accepted user Knowledge Documents ---
-    async for evt in _inject_user_knowledge(
+    # --- bot memory/reference retrieval (semantic + listing fallback) ---
+    async for evt in _inject_bot_memory_reference(
         messages,
         bot,
         user_message,
         ledger,
+        context_profile,
     ):
         yield evt
 

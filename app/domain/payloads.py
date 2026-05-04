@@ -487,19 +487,6 @@ class SessionPlanUpdatedPayload:
     plan: dict | None = None
 
 
-@dataclass(frozen=True)
-class KnowledgeCapturedPayload:
-    """Payload for `knowledge_captured` review chips."""
-
-    entry_id: str
-    type: str
-    title: str
-    user_id: str
-    source_message_id: str
-    confidence: float
-    mode: str = "review"
-
-
 # Discriminated union of all known payloads.
 ChannelEventPayload = (
     MessagePayload
@@ -527,5 +514,4 @@ ChannelEventPayload = (
     | ModalSubmittedPayload
     | WidgetReloadPayload
     | SessionPlanUpdatedPayload
-    | KnowledgeCapturedPayload
 )

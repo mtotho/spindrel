@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.models import Attachment, Attachment as AttachmentModel, Channel, ConversationSection, Message, Project, ProjectInstance, Session, Task, ToolApproval, ToolCall
 from app.domain.errors import DomainError
+from app.db.engine import async_session
 from app.dependencies import ApiKeyAuth, get_db, require_scopes, verify_auth_or_user, verify_user
 from app.schemas.project_git_status import ProjectGitStatusOut
 from app.services.api_keys import has_scope
@@ -27,6 +28,7 @@ from app.services.machine_control import (
 from app.services.channel_sessions import RecentSessionListOut, build_recent_session_rows
 from app.services.sessions import store_passive_message
 from app.services.tool_result_envelopes import normalize_tool_result_envelope_ids
+from app.schemas.messages import FeedbackBlock
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +142,7 @@ class MessageOut(BaseModel):
     created_at: datetime
     metadata: dict = {}
     attachments: list[AttachmentBrief] = []
+    feedback: Optional[FeedbackBlock] = None
 
     model_config = {"from_attributes": True}
 
@@ -2030,106 +2033,109 @@ async def inject_message(
 async def list_messages(
     session_id: uuid.UUID,
     limit: int = 50,
-    db: AsyncSession = Depends(get_db),
     auth=Depends(verify_auth_or_user),
 ):
-    """List messages for a session, most recent first."""
-    # Auth contract:
-    #   • Scoped API keys must hold sessions:read (preserves the legacy
-    #     require_scopes("sessions:read") gate when the static-key /
-    #     widget-token paths went through it).
-    #   • JWT users must own the parent channel or be admin — restoring
-    #     the channel-ownership boundary that ``assert_admin_or_channel_owner``
-    #     enforces on adjacent channel routes. Channel-less sessions
-    #     (ephemeral / threads launched outside a channel) require admin
-    #     equivalent auth.
+    """List messages for a session, most recent first.
+
+    Owns its own short-lived DB session and closes it before returning.
+    Standard `Depends(get_db)` keeps the session alive for the entire
+    request lifecycle — through pydantic serialization and network flush —
+    which under concurrent load (UI fires many parallel requests on
+    page-mount) pins all 30 pool connections in `idle in transaction`
+    while the responses serialize and drain. Closing the session
+    explicitly puts the connection back in the pool the moment the data
+    is materialized, so 30 concurrent calls share connections instead of
+    hoarding them.
+    """
     from app.db.models import User as UserRow
     from app.dependencies import assert_admin_or_channel_owner
     if isinstance(auth, ApiKeyAuth) and not has_scope(auth, "sessions:read"):
         raise HTTPException(status_code=403, detail="Missing scope: sessions:read")
 
-    session = await db.get(Session, session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    if isinstance(auth, UserRow):
-        if session.channel_id is not None:
-            channel = await db.get(Channel, session.channel_id)
-            if channel is None:
-                raise HTTPException(status_code=404, detail="Channel not found")
-            assert_admin_or_channel_owner(channel, auth)
-        elif not getattr(auth, "is_admin", False):
-            raise HTTPException(
-                status_code=403,
-                detail="Admin required for channel-less session messages",
-            )
-
-    result = await db.execute(
-        select(Message)
-        .options(selectinload(Message.attachments))
-        .where(Message.session_id == session_id)
-        .order_by(Message.created_at.desc())
-        .limit(limit)
-    )
-    messages = list(result.scalars().all())
-    messages.reverse()
-    messages = [m for m in messages if not (m.metadata_ or {}).get("ui_hidden")]
-
-    # Recover orphaned attachments (send_file creates with message_id=NULL)
-    if session.channel_id:
-        await _recover_orphan_attachments(db, session.channel_id, messages)
-
-    out = [MessageOut.from_orm(m) for m in messages]
-
-    # Hydrate per-turn feedback onto the anchor assistant message of each turn.
-    # Anchor = last user-visible assistant text message of the turn, resolved
-    # against the FULL turn — not the visible page. A turn split by pagination
-    # would otherwise attach feedback to the wrong row (or hide it entirely
-    # when the true anchor is on a neighbouring page).
-    #
-    # Skipped when the caller is not a real user (no per-user `mine` to
-    # populate) — scoped API-key consumers don't need it.
     user_id_for_feedback: uuid.UUID | None = None
     if isinstance(auth, UserRow):
         user_id_for_feedback = auth.id
 
-    correlation_ids = [
-        m.correlation_id for m in messages
-        if m.role == "assistant" and m.correlation_id is not None
-    ]
-    if correlation_ids:
-        from app.services.turn_feedback import (
-            anchor_message_ids_for_correlations,
-            feedback_for_correlation_ids,
-        )
-        from app.schemas.messages import FeedbackBlock, FeedbackTotals
+    async with async_session() as db:
+        session = await db.get(Session, session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session not found")
 
-        unique_cids = list({c for c in correlation_ids})
-        summaries = await feedback_for_correlation_ids(
-            db,
-            correlation_ids=unique_cids,
-            user_id=user_id_for_feedback,
-        )
-        anchor_by_cid = await anchor_message_ids_for_correlations(
-            db, unique_cids,
-        )
-        anchor_ids = set(anchor_by_cid.values())
+        if isinstance(auth, UserRow):
+            if session.channel_id is not None:
+                channel = await db.get(Channel, session.channel_id)
+                if channel is None:
+                    raise HTTPException(status_code=404, detail="Channel not found")
+                assert_admin_or_channel_owner(channel, auth)
+            elif not getattr(auth, "is_admin", False):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Admin required for channel-less session messages",
+                )
 
-        for serialized in out:
-            if serialized.id not in anchor_ids:
-                continue
-            cid = serialized.correlation_id
-            if cid is None:
-                continue
-            summary = summaries.get(cid)
-            if summary is None:
-                continue
-            serialized.feedback = FeedbackBlock(
-                mine=summary.mine,
-                totals=FeedbackTotals(**summary.totals),
-                comment_mine=summary.comment_mine,
+        result = await db.execute(
+            select(Message)
+            .options(selectinload(Message.attachments))
+            .where(Message.session_id == session_id)
+            .order_by(Message.created_at.desc())
+            .limit(limit)
+        )
+        messages = list(result.scalars().all())
+        messages.reverse()
+        messages = [m for m in messages if not (m.metadata_ or {}).get("ui_hidden")]
+
+        # Recover orphaned attachments (send_file creates with message_id=NULL)
+        if session.channel_id:
+            await _recover_orphan_attachments(db, session.channel_id, messages)
+
+        # Build the pydantic models inside the session so attribute access
+        # against ORM rows is still legal. After the `async with` exits,
+        # `out` is plain pydantic — no DB needed for serialization.
+        out = [MessageOut.from_orm(m) for m in messages]
+
+        # Hydrate per-turn feedback onto the anchor assistant message of each turn.
+        # Anchor = last user-visible assistant text message of the turn, resolved
+        # against the FULL turn — not the visible page. A turn split by pagination
+        # would otherwise attach feedback to the wrong row (or hide it entirely
+        # when the true anchor is on a neighbouring page).
+        correlation_ids = [
+            m.correlation_id for m in messages
+            if m.role == "assistant" and m.correlation_id is not None
+        ]
+        if correlation_ids:
+            from app.services.turn_feedback import (
+                anchor_message_ids_for_correlations,
+                feedback_for_correlation_ids,
             )
+            from app.schemas.messages import FeedbackBlock, FeedbackTotals
 
+            unique_cids = list({c for c in correlation_ids})
+            summaries = await feedback_for_correlation_ids(
+                db,
+                correlation_ids=unique_cids,
+                user_id=user_id_for_feedback,
+            )
+            anchor_by_cid = await anchor_message_ids_for_correlations(
+                db, unique_cids,
+            )
+            anchor_ids = set(anchor_by_cid.values())
+
+            for serialized in out:
+                if serialized.id not in anchor_ids:
+                    continue
+                cid = serialized.correlation_id
+                if cid is None:
+                    continue
+                summary = summaries.get(cid)
+                if summary is None:
+                    continue
+                serialized.feedback = FeedbackBlock(
+                    mine=summary.mine,
+                    totals=FeedbackTotals(**summary.totals),
+                    comment_mine=summary.comment_mine,
+                )
+    # session closed here — connection back in the pool BEFORE FastAPI
+    # serializes `out` to JSON and BEFORE Starlette flushes bytes to the client.
     return out
 
 

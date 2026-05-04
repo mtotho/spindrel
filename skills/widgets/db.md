@@ -1,6 +1,6 @@
 ---
 name: spindrel.db — server-side SQLite per bundle
-description: Per-bundle server-side SQLite DB accessible from iframe JS (`window.spindrel.db`) and Python handlers (`ctx.db`). Covers the JS API (query/exec/tx), migration contract driven by `widget.yaml`, WAL + per-path write lock, and the unpin data-cleanup flow. Path-mode pinned widgets only.
+description: Per-bundle server-side SQLite DB accessible from iframe JS (`window.spindrel.db`) and Python handlers (`ctx.db`). JS API (query/exec/tx), migration contract via `widget.yaml`, WAL + write lock. Path-mode pinned widgets only.
 triggers: spindrel.db, widget SQLite, widget db.query, widget db.exec, widget db.tx, db migration, PRAGMA user_version, widget database, widget data.sqlite, server-side storage
 category: core
 ---

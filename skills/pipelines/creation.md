@@ -1,11 +1,9 @@
 ---
 name: Pipeline Creation
 description: >
-  Decision guide for creating Pipelines. When to use a Pipeline vs work
-  inline, how to use define_pipeline, step type selection across all
-  five types (exec / tool / agent / user_prompt / foreach), params, optimization
-  tips, and worked examples. Load when building multi-step Automations or
-  deciding whether work needs a Pipeline.
+  Decision guide for creating Pipelines: when to use a Pipeline vs work inline,
+  `define_pipeline` usage, step type selection across the five types (exec,
+  tool, agent, user_prompt, foreach), and worked examples.
 use_when: >
   Deciding if work belongs in a Pipeline at all, choosing between the five
   step types, wiring up params for a reusable Pipeline, or picking

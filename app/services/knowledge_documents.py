@@ -101,16 +101,6 @@ class KnowledgeDocumentSurface:
         return workspace_path
 
 
-def user_knowledge_surface(*, workspace_root: str, user_id: str) -> KnowledgeDocumentSurface:
-    _validate_scope_id(user_id, "user_id")
-    return KnowledgeDocumentSurface(
-        root=os.path.realpath(workspace_root),
-        kb_rel=f"users/{user_id}/knowledge-base",
-        scope="user",
-        user_id=user_id,
-    )
-
-
 def bot_knowledge_surface(*, workspace_root: str, bot_id: str) -> KnowledgeDocumentSurface:
     _validate_scope_id(bot_id, "bot_id")
     return KnowledgeDocumentSurface(

@@ -157,7 +157,7 @@ Tests (10 new, all passing in Dockerfile.test):
 - `tests/unit/test_provider_catalog_refresh.py` — happy-path upsert, `last_refresh_ts` write, error recording + clearing, disabled-provider skip.
 - `tests/unit/test_provider_health_endpoint.py` — `_percentile` math pins (empty/single/sorted/unsorted/p50/p95-interp).
 
-**Not dropped:** the hardcoded Anthropic + OpenAI-subscription fallback model lists. Anthropic has no public `/models` endpoint so the list is THE source; OpenAI-subscription's live `/models` can fail before the user completes OAuth, so the fallback keeps the add-provider dropdown non-empty. Phase 3's "hardcoded list removal" reframed as "prefer live, keep fallback for zero-config case."
+**Not dropped:** the hardcoded Anthropic + OpenAI-subscription fallback model lists. Anthropic has no public `/models` endpoint so the list is THE source; OpenAI-subscription's ChatGPT OAuth path is only proven for Codex `/responses`, so its seeded list keeps the add-provider dropdown non-empty and admins can add new models manually. Phase 3's "hardcoded list removal" reframed as "prefer live where supported, keep fallback for zero-config cases."
 
 ## Parking lot / future investigations
 

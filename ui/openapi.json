@@ -17695,6 +17695,30 @@
         "title": "NoteSelection",
         "type": "object"
       },
+      "NoteSessionBindingBody": {
+        "properties": {
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "NoteSessionBindingBody",
+        "type": "object"
+      },
       "NoteWriteBody": {
         "properties": {
           "base_hash": {
@@ -20055,10 +20079,65 @@
             "title": "Bot Id",
             "type": "string"
           },
+          "bot_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bot Model"
+          },
+          "bot_model_provider_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bot Model Provider Id"
+          },
+          "harness_runtime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness Runtime"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "model_override": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Override"
+          },
+          "model_provider_id_override": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Provider Id Override"
           },
           "name": {
             "title": "Name",
@@ -20215,6 +20294,11 @@
           "loop": {
             "additionalProperties": true,
             "title": "Loop",
+            "type": "object"
+          },
+          "model_selection": {
+            "additionalProperties": true,
+            "title": "Model Selection",
             "type": "object"
           },
           "parent_task_id": {
@@ -20840,6 +20924,11 @@
             ],
             "title": "Machine Target Grant"
           },
+          "model_selection": {
+            "additionalProperties": true,
+            "title": "Model Selection",
+            "type": "object"
+          },
           "project_id": {
             "format": "uuid",
             "title": "Project Id",
@@ -20956,6 +21045,17 @@
             ],
             "title": "Enabled"
           },
+          "harness_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness Effort"
+          },
           "loop_policy": {
             "anyOf": [
               {
@@ -20975,6 +21075,28 @@
                 "type": "null"
               }
             ]
+          },
+          "model_override": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Override"
+          },
+          "model_provider_id_override": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Provider Id Override"
           },
           "recurrence": {
             "anyOf": [
@@ -21065,6 +21187,17 @@
             "title": "Channel Id",
             "type": "string"
           },
+          "harness_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness Effort"
+          },
           "loop_policy": {
             "anyOf": [
               {
@@ -21084,6 +21217,28 @@
                 "type": "null"
               }
             ]
+          },
+          "model_override": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Override"
+          },
+          "model_provider_id_override": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Provider Id Override"
           },
           "recurrence": {
             "default": "+1w",
@@ -21303,6 +21458,17 @@
             "title": "Channel Id",
             "type": "string"
           },
+          "harness_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness Effort"
+          },
           "loop_policy": {
             "anyOf": [
               {
@@ -21322,6 +21488,28 @@
                 "type": "null"
               }
             ]
+          },
+          "model_override": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Override"
+          },
+          "model_provider_id_override": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Provider Id Override"
           },
           "repo_path": {
             "anyOf": [
@@ -38883,7 +39071,7 @@
       },
       "patch": {
         "description": "Update a bot's config via JSON.",
-        "operationId": "admin_bot_update_api_v1_admin_bots__bot_id__patch",
+        "operationId": "admin_bot_update_api_v1_admin_bots__bot_id__patch_2",
         "parameters": [
           {
             "in": "path",
@@ -38943,7 +39131,7 @@
       },
       "put": {
         "description": "Update a bot's config via JSON.",
-        "operationId": "admin_bot_update_api_v1_admin_bots__bot_id__put",
+        "operationId": "admin_bot_update_api_v1_admin_bots__bot_id__patch",
         "parameters": [
           {
             "in": "path",
@@ -41134,7 +41322,7 @@
       },
       "patch": {
         "description": "Update heartbeat settings.",
-        "operationId": "admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch",
+        "operationId": "admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch_2",
         "parameters": [
           {
             "in": "path",
@@ -41195,7 +41383,7 @@
       },
       "put": {
         "description": "Update heartbeat settings.",
-        "operationId": "admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_put",
+        "operationId": "admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch",
         "parameters": [
           {
             "in": "path",
@@ -42099,7 +42287,7 @@
       },
       "patch": {
         "description": "Update channel settings.",
-        "operationId": "admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch",
+        "operationId": "admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch_2",
         "parameters": [
           {
             "in": "path",
@@ -42160,7 +42348,7 @@
       },
       "put": {
         "description": "Update channel settings.",
-        "operationId": "admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_put",
+        "operationId": "admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch",
         "parameters": [
           {
             "in": "path",
@@ -51578,7 +51766,7 @@
       },
       "patch": {
         "description": "Update task fields. Only provided fields are changed.",
-        "operationId": "admin_update_task_api_v1_admin_tasks__task_id__patch",
+        "operationId": "admin_update_task_api_v1_admin_tasks__task_id__patch_2",
         "parameters": [
           {
             "in": "path",
@@ -51639,7 +51827,7 @@
       },
       "put": {
         "description": "Update task fields. Only provided fields are changed.",
-        "operationId": "admin_update_task_api_v1_admin_tasks__task_id__put",
+        "operationId": "admin_update_task_api_v1_admin_tasks__task_id__patch",
         "parameters": [
           {
             "in": "path",
@@ -58898,7 +59086,7 @@
       },
       "patch": {
         "description": "Update any subset of channel settings + heartbeat config in one call.\n\nScope requirements depend on which fields are set:\n- Heartbeat fields only \u2192 ``channels.heartbeat:write``\n- Non-heartbeat fields (or both) \u2192 ``channels.config:write``\n``channels.config:write`` always covers heartbeat as a parent scope.",
-        "operationId": "update_channel_config_api_v1_channels__channel_id__config_patch",
+        "operationId": "update_channel_config_api_v1_channels__channel_id__config_patch_2",
         "parameters": [
           {
             "in": "path",
@@ -58966,7 +59154,7 @@
       },
       "put": {
         "description": "Update any subset of channel settings + heartbeat config in one call.\n\nScope requirements depend on which fields are set:\n- Heartbeat fields only \u2192 ``channels.heartbeat:write``\n- Non-heartbeat fields (or both) \u2192 ``channels.config:write``\n``channels.config:write`` always covers heartbeat as a parent scope.",
-        "operationId": "update_channel_config_api_v1_channels__channel_id__config_put",
+        "operationId": "update_channel_config_api_v1_channels__channel_id__config_patch",
         "parameters": [
           {
             "in": "path",
@@ -60375,6 +60563,82 @@
           }
         },
         "summary": "Assist Channel Note",
+        "tags": [
+          "Notes"
+        ]
+      }
+    },
+    "/api/v1/channels/{channel_id}/notes/{slug}/session-binding": {
+      "put": {
+        "operationId": "put_channel_note_session_binding_api_v1_channels__channel_id__notes__slug__session_binding_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Channel Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteSessionBindingBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Channel Note Session Binding",
         "tags": [
           "Notes"
         ]
@@ -69105,7 +69369,7 @@
     },
     "/api/v1/sessions/{session_id}/messages": {
       "get": {
-        "description": "List messages for a session, most recent first.",
+        "description": "List messages for a session, most recent first.\n\nOwns its own short-lived DB session and closes it before returning.\nStandard `Depends(get_db)` keeps the session alive for the entire\nrequest lifecycle \u2014 through pydantic serialization and network flush \u2014\nwhich under concurrent load (UI fires many parallel requests on\npage-mount) pins all 30 pool connections in `idle in transaction`\nwhile the responses serialize and drain. Closing the session\nexplicitly puts the connection back in the pool the moment the data\nis materialized, so 30 concurrent calls share connections instead of\nhoarding them.",
         "operationId": "list_messages_api_v1_sessions__session_id__messages_get",
         "parameters": [
           {
@@ -78057,7 +78321,7 @@
         ]
       },
       "patch": {
-        "operationId": "update_workspace_api_v1_workspaces__workspace_id__patch",
+        "operationId": "update_workspace_api_v1_workspaces__workspace_id__patch_2",
         "parameters": [
           {
             "in": "path",
@@ -78123,7 +78387,7 @@
         ]
       },
       "put": {
-        "operationId": "update_workspace_api_v1_workspaces__workspace_id__put",
+        "operationId": "update_workspace_api_v1_workspaces__workspace_id__patch",
         "parameters": [
           {
             "in": "path",
@@ -78377,7 +78641,7 @@
       },
       "patch": {
         "description": "Update a bot's workspace membership and/or config fields.",
-        "operationId": "update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch",
+        "operationId": "update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch_2",
         "parameters": [
           {
             "in": "path",
@@ -78451,7 +78715,7 @@
       },
       "put": {
         "description": "Update a bot's workspace membership and/or config fields.",
-        "operationId": "update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__put",
+        "operationId": "update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch",
         "parameters": [
           {
             "in": "path",
@@ -78527,7 +78791,7 @@
     "/api/v1/workspaces/{workspace_id}/bots/{bot_id}/indexing": {
       "patch": {
         "description": "Update per-bot indexing overrides within a workspace. Send null to clear a field (inherit).",
-        "operationId": "update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch",
+        "operationId": "update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch_2",
         "parameters": [
           {
             "in": "path",
@@ -78601,7 +78865,7 @@
       },
       "put": {
         "description": "Update per-bot indexing overrides within a workspace. Send null to clear a field (inherit).",
-        "operationId": "update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_put",
+        "operationId": "update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch",
         "parameters": [
           {
             "in": "path",

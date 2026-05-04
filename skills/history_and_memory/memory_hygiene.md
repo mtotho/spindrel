@@ -24,6 +24,27 @@ This prevents the most common failure mode: summarizing the primary session only
 - Reusable procedures or patterns go to skills.
 - Detailed topical material goes to reference files.
 
+## Reference File Frontmatter
+
+When you create or edit a `memory/reference/<topic>.md` file, write or
+update YAML frontmatter at the top with a one-line `summary:` field:
+
+```yaml
+---
+summary: Per-plant care notes for the kitchen window basil, sunroom monstera, etc.
+---
+```
+
+- Keep the summary one sentence, ≤200 chars. Describe what topic the file
+  covers, not the latest update.
+- Update the summary whenever the file's scope materially changes; leave it
+  alone for routine entry additions.
+- Always preserve any other frontmatter keys already present (e.g.
+  `updated:`, `tags:`).
+- The runtime exposes summaries inline in the per-turn reference index, so
+  this is the cheapest way to make the right file findable when semantic
+  retrieval misses.
+
 If you need the full routing model after you recover the history, read `context_mastery`.
 
 ## History Rules During Hygiene

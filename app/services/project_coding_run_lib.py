@@ -20,10 +20,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models import Bot as BotRow
 from app.db.models import Channel, ExecutionReceipt, Project, ProjectInstance, ProjectRunReceipt, Task
 from app.services.agent_activity import list_agent_activity
 from app.services.project_dependency_stacks import project_dependency_stack_spec
 from app.services.project_run_handoff import prepare_project_run_handoff
+from app.services.project_run_model_selection import project_run_model_selection_summary
 from app.services.project_run_receipts import serialize_project_run_receipt
 from app.services.project_runtime import project_snapshot
 from app.services.project_task_execution_context import ProjectTaskExecutionContext
@@ -252,6 +254,9 @@ class ProjectCodingRunCreate:
     schedule_task_id: uuid.UUID | None = None
     schedule_run_number: int | None = None
     loop_policy: dict[str, Any] | None = None
+    model_override: str | None = None
+    model_provider_id_override: str | None = None
+    harness_effort: str | None = None
 
 
 @dataclass(frozen=True)
@@ -267,6 +272,9 @@ class ProjectCodingRunScheduleCreate:
     machine_target_grant: ProjectMachineTargetGrant | None = None
     granted_by_user_id: uuid.UUID | None = None
     loop_policy: dict[str, Any] | None = None
+    model_override: str | None = None
+    model_provider_id_override: str | None = None
+    harness_effort: str | None = None
 
 
 @dataclass(frozen=True)
@@ -287,6 +295,12 @@ class ProjectCodingRunScheduleUpdate:
     machine_target_grant_set: bool = False
     granted_by_user_id: uuid.UUID | None = None
     loop_policy: dict[str, Any] | None = None
+    model_override: str | None = None
+    model_override_set: bool = False
+    model_provider_id_override: str | None = None
+    model_provider_id_override_set: bool = False
+    harness_effort: str | None = None
+    harness_effort_set: bool = False
 
 
 @dataclass(frozen=True)
@@ -1062,6 +1076,14 @@ async def _coding_run_row(
     )
     ctx = ProjectTaskExecutionContext.from_task(task)
     cfg = _task_run_config(task)
+    channel = await db.get(Channel, task.channel_id) if task.channel_id else None
+    bot = await db.get(BotRow, task.bot_id) if task.bot_id else None
+    model_selection = project_run_model_selection_summary(
+        execution_config=task.execution_config if isinstance(task.execution_config, dict) else {},
+        run_config=cfg,
+        channel=channel,
+        bot=bot,
+    )
     work_surface = _work_surface_summary(project=project, task=task, instance=instance)
     if execution_environment.get("mode") == "isolated":
         work_surface = _session_environment_work_surface(
@@ -1102,6 +1124,7 @@ async def _coding_run_row(
         "continuation_feedback": ctx.lineage.continuation_feedback,
         "continuations": [],
         "loop": project_run_loop_summary(task, cfg, receipt),
+        "model_selection": model_selection,
         "task": _task_summary(task, machine_target_grant=machine_target_grant),
         "receipt": _receipt_summary(receipt),
         "activity": activity,

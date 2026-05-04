@@ -10,6 +10,8 @@ import pytest
 from sqlalchemy import select
 
 from app.db.models import Channel, ExecutionReceipt, Message, Project, ProjectDependencyStackInstance, ProjectRunReceipt, SessionExecutionEnvironment, Task, TaskMachineGrant
+from app.services.agent_harnesses import register_runtime, unregister_runtime
+from app.services.agent_harnesses.base import HarnessModelOption, RuntimeCapabilities
 from app.services.project_coding_runs import (
     ProjectCodingRunCreate,
     ProjectCodingRunReviewFinalize,
@@ -39,10 +41,29 @@ from app.services.project_coding_runs import (
 )
 from app.services.project_runtime import load_project_runtime_environment_for_id
 from app.services.project_run_handoff import CommandResult
+from tests.factories.bots import build_bot
 
 
 def _factory_meta() -> dict:
     return {"blueprint_snapshot": {"repos": [{"path": "spindrel", "branch": "development"}]}}
+
+
+class _ProjectRunHarnessRuntime:
+    name = "project-run-test-harness"
+
+    def capabilities(self):
+        return RuntimeCapabilities(
+            display_name="Project Run Harness",
+            model_options=(
+                HarnessModelOption(id="codex-fast", effort_values=("low", "medium"), default_effort="medium"),
+                HarnessModelOption(id="codex-deep", effort_values=("high", "xhigh"), default_effort="high"),
+            ),
+            effort_values=("low", "medium", "high", "xhigh"),
+            model_is_freeform=False,
+        )
+
+    async def list_model_options(self):
+        return self.capabilities().model_options
 
 
 def test_project_coding_run_defaults_use_repo_branch_and_safe_slug():
@@ -261,6 +282,208 @@ async def test_create_project_coding_run_uses_explicit_repo_path(db_session):
     assert run_cfg["repo"] == {"name": "spindrel", "path": "spindrel", "url": None}
     assert run_cfg["base_branch"] == "development"
     assert "Repository path: spindrel" in task.prompt
+
+
+@pytest.mark.asyncio
+async def test_project_coding_run_records_explicit_model_selection(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    bot = build_bot(id="project-model-bot", model="default/model", model_provider_id="default-provider")
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Projects",
+        slug="projects",
+        root_path="common/projects",
+        metadata_=_factory_meta(),
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id=bot.id,
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([bot, project, channel])
+    await db_session.commit()
+
+    task = await create_project_coding_run(
+        db_session,
+        project,
+        ProjectCodingRunCreate(
+            channel_id=channel_id,
+            request="Use pinned model.",
+            repo_path="spindrel",
+            model_override="custom/model",
+            model_provider_id_override="custom-provider",
+        ),
+    )
+
+    assert task.execution_config["model_override"] == "custom/model"
+    assert task.execution_config["model_provider_id_override"] == "custom-provider"
+    assert task.execution_config["project_coding_run"]["model_selection"] == {
+        "model_override": "custom/model",
+        "model_provider_id_override": "custom-provider",
+    }
+    row = (await list_project_coding_runs(db_session, project, limit=1))[0]
+    assert row["model_selection"]["model_override"] == "custom/model"
+    assert row["model_selection"]["effective_model"] == "custom/model"
+
+
+@pytest.mark.asyncio
+async def test_project_coding_run_continuation_inherits_model_selection(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Projects",
+        slug="projects",
+        root_path="common/projects",
+        metadata_=_factory_meta(),
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    parent = await create_project_coding_run(
+        db_session,
+        project,
+        ProjectCodingRunCreate(
+            channel_id=channel_id,
+            request="Use pinned model.",
+            repo_path="spindrel",
+            model_override="custom/model",
+            model_provider_id_override="custom-provider",
+        ),
+    )
+    parent.status = "complete"
+    await db_session.commit()
+
+    from app.services.project_coding_runs import ProjectCodingRunContinue, continue_project_coding_run
+
+    child = await continue_project_coding_run(
+        db_session,
+        project,
+        parent.id,
+        ProjectCodingRunContinue(feedback="Keep going."),
+    )
+    assert child.execution_config["model_override"] == "custom/model"
+    assert child.execution_config["model_provider_id_override"] == "custom-provider"
+    assert child.execution_config["project_coding_run"]["model_selection"] == {
+        "model_override": "custom/model",
+        "model_provider_id_override": "custom-provider",
+    }
+
+
+@pytest.mark.asyncio
+async def test_project_coding_run_rejects_harness_effort_on_non_harness_channel(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Projects",
+        slug="projects",
+        root_path="common/projects",
+        metadata_=_factory_meta(),
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    with pytest.raises(ValueError, match="harness_effort"):
+        await create_project_coding_run(
+            db_session,
+            project,
+            ProjectCodingRunCreate(
+                channel_id=channel_id,
+                request="Use invalid effort.",
+                repo_path="spindrel",
+                harness_effort="high",
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_project_coding_run_validates_harness_effort_against_runtime_model(db_session):
+    runtime_name = _ProjectRunHarnessRuntime.name
+    register_runtime(runtime_name, _ProjectRunHarnessRuntime())
+    try:
+        workspace_id = uuid.uuid4()
+        project_id = uuid.uuid4()
+        channel_id = uuid.uuid4()
+        bot = build_bot(id="project-harness-bot", model="unused")
+        bot.harness_runtime = runtime_name
+        project = Project(
+            id=project_id,
+            workspace_id=workspace_id,
+            name="Projects",
+            slug="projects",
+            root_path="common/projects",
+            metadata_=_factory_meta(),
+        )
+        channel = Channel(
+            id=channel_id,
+            name="Harness Agent",
+            bot_id=bot.id,
+            client_id=f"client-{uuid.uuid4().hex[:8]}",
+            project_id=project_id,
+            workspace_id=workspace_id,
+        )
+        db_session.add_all([bot, project, channel])
+        await db_session.commit()
+
+        task = await create_project_coding_run(
+            db_session,
+            project,
+            ProjectCodingRunCreate(
+                channel_id=channel_id,
+                request="Use harness model.",
+                repo_path="spindrel",
+                model_override="codex-deep",
+                harness_effort="xhigh",
+            ),
+        )
+        assert task.execution_config["model_override"] == "codex-deep"
+        assert task.execution_config["harness_effort"] == "xhigh"
+        assert task.execution_config["project_coding_run"]["model_selection"] == {
+            "model_override": "codex-deep",
+            "harness_effort": "xhigh",
+        }
+
+        with pytest.raises(ValueError, match="Unknown effort level"):
+            await create_project_coding_run(
+                db_session,
+                project,
+                ProjectCodingRunCreate(
+                    channel_id=channel_id,
+                    request="Use invalid effort.",
+                    repo_path="spindrel",
+                    model_override="codex-deep",
+                    harness_effort="low",
+                ),
+            )
+    finally:
+        unregister_runtime(runtime_name)
 
 
 @pytest.mark.asyncio
@@ -1649,6 +1872,69 @@ async def test_project_coding_run_schedule_can_be_edited_resumed_and_blocks_disa
     assert rows[0]["request"] == "Review architecture and publish a receipt."
     assert rows[0]["last_run"]["task_id"] == str(run.id)
     assert rows[0]["recent_runs"][0]["task_id"] == str(run.id)
+
+
+@pytest.mark.asyncio
+async def test_project_coding_run_schedule_stores_clears_and_fires_model_selection(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel-schedule-models",
+        root_path="common/projects/spindrel",
+        metadata_={"blueprint_snapshot": {"repos": [{"path": "spindrel", "branch": "development"}]}},
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    schedule = await create_project_coding_run_schedule(
+        db_session,
+        project,
+        ProjectCodingRunScheduleCreate(
+            channel_id=channel_id,
+            title="Pinned review",
+            request="Review architecture and publish a concrete receipt.",
+            recurrence="+1d",
+            model_override="project/model",
+            model_provider_id_override="project-provider",
+        ),
+    )
+    cfg = schedule.execution_config["project_coding_run_schedule"]
+    assert cfg["model_selection"] == {
+        "model_override": "project/model",
+        "model_provider_id_override": "project-provider",
+    }
+
+    run = await fire_project_coding_run_schedule(db_session, schedule, advance=False)
+    assert run is not None
+    assert run.execution_config["model_override"] == "project/model"
+    assert run.execution_config["model_provider_id_override"] == "project-provider"
+
+    updated = await update_project_coding_run_schedule(
+        db_session,
+        project,
+        schedule.id,
+        ProjectCodingRunScheduleUpdate(
+            model_override=None,
+            model_override_set=True,
+            model_provider_id_override=None,
+            model_provider_id_override_set=True,
+        ),
+    )
+    assert updated.execution_config["project_coding_run_schedule"]["model_selection"] == {}
+    rows = await list_project_coding_run_schedules(db_session, project)
+    assert rows[0]["model_selection"]["explicit"] is False
 
 
 @pytest.mark.asyncio

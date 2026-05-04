@@ -196,7 +196,7 @@ export interface paths {
          * Admin Bot Update
          * @description Update a bot's config via JSON.
          */
-        put: operations["admin_bot_update_api_v1_admin_bots__bot_id__put"];
+        put: operations["admin_bot_update_api_v1_admin_bots__bot_id__patch"];
         post?: never;
         /**
          * Admin Bot Delete
@@ -209,7 +209,7 @@ export interface paths {
          * Admin Bot Update
          * @description Update a bot's config via JSON.
          */
-        patch: operations["admin_bot_update_api_v1_admin_bots__bot_id__patch"];
+        patch: operations["admin_bot_update_api_v1_admin_bots__bot_id__patch_2"];
         trace?: never;
     };
     "/api/v1/admin/bots/{bot_id}/editor-data": {
@@ -867,7 +867,7 @@ export interface paths {
          * Admin Channel Heartbeat Update
          * @description Update heartbeat settings.
          */
-        put: operations["admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_put"];
+        put: operations["admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch"];
         post?: never;
         delete?: never;
         options?: never;
@@ -876,7 +876,7 @@ export interface paths {
          * Admin Channel Heartbeat Update
          * @description Update heartbeat settings.
          */
-        patch: operations["admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch"];
+        patch: operations["admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch_2"];
         trace?: never;
     };
     "/api/v1/admin/channels/{channel_id}/heartbeat/fire": {
@@ -1119,7 +1119,7 @@ export interface paths {
          * Admin Channel Settings Update
          * @description Update channel settings.
          */
-        put: operations["admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_put"];
+        put: operations["admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1128,7 +1128,7 @@ export interface paths {
          * Admin Channel Settings Update
          * @description Update channel settings.
          */
-        patch: operations["admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch"];
+        patch: operations["admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch_2"];
         trace?: never;
     };
     "/api/v1/admin/channels/{channel_id}/tasks": {
@@ -3868,7 +3868,7 @@ export interface paths {
          * Admin Update Task
          * @description Update task fields. Only provided fields are changed.
          */
-        put: operations["admin_update_task_api_v1_admin_tasks__task_id__put"];
+        put: operations["admin_update_task_api_v1_admin_tasks__task_id__patch"];
         post?: never;
         /**
          * Admin Delete Task
@@ -3881,7 +3881,7 @@ export interface paths {
          * Admin Update Task
          * @description Update task fields. Only provided fields are changed.
          */
-        patch: operations["admin_update_task_api_v1_admin_tasks__task_id__patch"];
+        patch: operations["admin_update_task_api_v1_admin_tasks__task_id__patch_2"];
         trace?: never;
     };
     "/api/v1/admin/tasks/{task_id}/children": {
@@ -5545,7 +5545,7 @@ export interface paths {
          *     - Non-heartbeat fields (or both) → ``channels.config:write``
          *     ``channels.config:write`` always covers heartbeat as a parent scope.
          */
-        put: operations["update_channel_config_api_v1_channels__channel_id__config_put"];
+        put: operations["update_channel_config_api_v1_channels__channel_id__config_patch"];
         post?: never;
         delete?: never;
         options?: never;
@@ -5559,7 +5559,7 @@ export interface paths {
          *     - Non-heartbeat fields (or both) → ``channels.config:write``
          *     ``channels.config:write`` always covers heartbeat as a parent scope.
          */
-        patch: operations["update_channel_config_api_v1_channels__channel_id__config_patch"];
+        patch: operations["update_channel_config_api_v1_channels__channel_id__config_patch_2"];
         trace?: never;
     };
     "/api/v1/channels/{channel_id}/context-breakdown": {
@@ -5871,6 +5871,23 @@ export interface paths {
         put?: never;
         /** Assist Channel Note */
         post: operations["assist_channel_note_api_v1_channels__channel_id__notes__slug__assist_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/channels/{channel_id}/notes/{slug}/session-binding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Channel Note Session Binding */
+        put: operations["put_channel_note_session_binding_api_v1_channels__channel_id__notes__slug__session_binding_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7947,6 +7964,16 @@ export interface paths {
         /**
          * List Messages
          * @description List messages for a session, most recent first.
+         *
+         *     Owns its own short-lived DB session and closes it before returning.
+         *     Standard `Depends(get_db)` keeps the session alive for the entire
+         *     request lifecycle — through pydantic serialization and network flush —
+         *     which under concurrent load (UI fires many parallel requests on
+         *     page-mount) pins all 30 pool connections in `idle in transaction`
+         *     while the responses serialize and drain. Closing the session
+         *     explicitly puts the connection back in the pool the moment the data
+         *     is materialized, so 30 concurrent calls share connections instead of
+         *     hoarding them.
          */
         get: operations["list_messages_api_v1_sessions__session_id__messages_get"];
         put?: never;
@@ -10181,14 +10208,14 @@ export interface paths {
         /** Get Workspace */
         get: operations["get_workspace_api_v1_workspaces__workspace_id__get"];
         /** Update Workspace */
-        put: operations["update_workspace_api_v1_workspaces__workspace_id__put"];
+        put: operations["update_workspace_api_v1_workspaces__workspace_id__patch"];
         post?: never;
         /** Delete Workspace */
         delete: operations["delete_workspace_api_v1_workspaces__workspace_id__delete"];
         options?: never;
         head?: never;
         /** Update Workspace */
-        patch: operations["update_workspace_api_v1_workspaces__workspace_id__patch"];
+        patch: operations["update_workspace_api_v1_workspaces__workspace_id__patch_2"];
         trace?: never;
     };
     "/api/v1/workspaces/{workspace_id}/bots": {
@@ -10232,7 +10259,7 @@ export interface paths {
          * Update Workspace Bot
          * @description Update a bot's workspace membership and/or config fields.
          */
-        put: operations["update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__put"];
+        put: operations["update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch"];
         post?: never;
         /**
          * Remove Bot From Workspace
@@ -10248,7 +10275,7 @@ export interface paths {
          * Update Workspace Bot
          * @description Update a bot's workspace membership and/or config fields.
          */
-        patch: operations["update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch"];
+        patch: operations["update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch_2"];
         trace?: never;
     };
     "/api/v1/workspaces/{workspace_id}/bots/{bot_id}/indexing": {
@@ -10263,7 +10290,7 @@ export interface paths {
          * Update Bot Indexing
          * @description Update per-bot indexing overrides within a workspace. Send null to clear a field (inherit).
          */
-        put: operations["update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_put"];
+        put: operations["update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch"];
         post?: never;
         delete?: never;
         options?: never;
@@ -10272,7 +10299,7 @@ export interface paths {
          * Update Bot Indexing
          * @description Update per-bot indexing overrides within a workspace. Send null to clear a field (inherit).
          */
-        patch: operations["update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch"];
+        patch: operations["update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch_2"];
         trace?: never;
     };
     "/api/v1/workspaces/{workspace_id}/channels": {
@@ -17503,6 +17530,13 @@ export interface components {
             /** Text */
             text: string;
         };
+        /** NoteSessionBindingBody */
+        NoteSessionBindingBody: {
+            /** Mode */
+            mode: string;
+            /** Session Id */
+            session_id?: string | null;
+        };
         /** NoteWriteBody */
         NoteWriteBody: {
             /** Base Hash */
@@ -18240,11 +18274,21 @@ export interface components {
         ProjectChannelOut: {
             /** Bot Id */
             bot_id: string;
+            /** Bot Model */
+            bot_model?: string | null;
+            /** Bot Model Provider Id */
+            bot_model_provider_id?: string | null;
+            /** Harness Runtime */
+            harness_runtime?: string | null;
             /**
              * Id
              * Format: uuid
              */
             id: string;
+            /** Model Override */
+            model_override?: string | null;
+            /** Model Provider Id Override */
+            model_provider_id_override?: string | null;
             /** Name */
             name: string;
         };
@@ -18317,6 +18361,10 @@ export interface components {
             };
             /** Loop */
             loop?: {
+                [key: string]: unknown;
+            };
+            /** Model Selection */
+            model_selection?: {
                 [key: string]: unknown;
             };
             /** Parent Task Id */
@@ -18585,6 +18633,10 @@ export interface components {
             machine_target_grant?: {
                 [key: string]: unknown;
             } | null;
+            /** Model Selection */
+            model_selection?: {
+                [key: string]: unknown;
+            };
             /**
              * Project Id
              * Format: uuid
@@ -18628,8 +18680,14 @@ export interface components {
             channel_id?: string | null;
             /** Enabled */
             enabled?: boolean | null;
+            /** Harness Effort */
+            harness_effort?: string | null;
             loop_policy?: components["schemas"]["ProjectRunLoopPolicyIn"] | null;
             machine_target_grant?: components["schemas"]["ProjectMachineTargetGrantIn"] | null;
+            /** Model Override */
+            model_override?: string | null;
+            /** Model Provider Id Override */
+            model_provider_id_override?: string | null;
             /** Recurrence */
             recurrence?: string | null;
             /** Repo Path */
@@ -18652,8 +18710,14 @@ export interface components {
              * Format: uuid
              */
             channel_id: string;
+            /** Harness Effort */
+            harness_effort?: string | null;
             loop_policy?: components["schemas"]["ProjectRunLoopPolicyIn"] | null;
             machine_target_grant?: components["schemas"]["ProjectMachineTargetGrantIn"] | null;
+            /** Model Override */
+            model_override?: string | null;
+            /** Model Provider Id Override */
+            model_provider_id_override?: string | null;
             /**
              * Recurrence
              * @default +1w
@@ -18724,8 +18788,14 @@ export interface components {
              * Format: uuid
              */
             channel_id: string;
+            /** Harness Effort */
+            harness_effort?: string | null;
             loop_policy?: components["schemas"]["ProjectRunLoopPolicyIn"] | null;
             machine_target_grant?: components["schemas"]["ProjectMachineTargetGrantIn"] | null;
+            /** Model Override */
+            model_override?: string | null;
+            /** Model Provider Id Override */
+            model_provider_id_override?: string | null;
             /** Repo Path */
             repo_path?: string | null;
             /**
@@ -25106,7 +25176,7 @@ export interface operations {
             };
         };
     };
-    admin_bot_update_api_v1_admin_bots__bot_id__put: {
+    admin_bot_update_api_v1_admin_bots__bot_id__patch: {
         parameters: {
             query?: never;
             header: {
@@ -25177,7 +25247,7 @@ export interface operations {
             };
         };
     };
-    admin_bot_update_api_v1_admin_bots__bot_id__patch: {
+    admin_bot_update_api_v1_admin_bots__bot_id__patch_2: {
         parameters: {
             query?: never;
             header: {
@@ -26446,7 +26516,7 @@ export interface operations {
             };
         };
     };
-    admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_put: {
+    admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch: {
         parameters: {
             query?: never;
             header: {
@@ -26483,7 +26553,7 @@ export interface operations {
             };
         };
     };
-    admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch: {
+    admin_channel_heartbeat_update_api_v1_admin_channels__channel_id__heartbeat_patch_2: {
         parameters: {
             query?: never;
             header: {
@@ -27001,7 +27071,7 @@ export interface operations {
             };
         };
     };
-    admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_put: {
+    admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch: {
         parameters: {
             query?: never;
             header: {
@@ -27038,7 +27108,7 @@ export interface operations {
             };
         };
     };
-    admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch: {
+    admin_channel_settings_update_api_v1_admin_channels__channel_id__settings_patch_2: {
         parameters: {
             query?: never;
             header: {
@@ -32853,7 +32923,7 @@ export interface operations {
             };
         };
     };
-    admin_update_task_api_v1_admin_tasks__task_id__put: {
+    admin_update_task_api_v1_admin_tasks__task_id__patch: {
         parameters: {
             query?: never;
             header: {
@@ -32921,7 +32991,7 @@ export interface operations {
             };
         };
     };
-    admin_update_task_api_v1_admin_tasks__task_id__patch: {
+    admin_update_task_api_v1_admin_tasks__task_id__patch_2: {
         parameters: {
             query?: never;
             header: {
@@ -36662,7 +36732,7 @@ export interface operations {
             };
         };
     };
-    update_channel_config_api_v1_channels__channel_id__config_put: {
+    update_channel_config_api_v1_channels__channel_id__config_patch: {
         parameters: {
             query?: never;
             header?: {
@@ -36699,7 +36769,7 @@ export interface operations {
             };
         };
     };
-    update_channel_config_api_v1_channels__channel_id__config_patch: {
+    update_channel_config_api_v1_channels__channel_id__config_patch_2: {
         parameters: {
             query?: never;
             header?: {
@@ -37359,6 +37429,44 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["NoteAssistBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_channel_note_session_binding_api_v1_channels__channel_id__notes__slug__session_binding_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                channel_id: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NoteSessionBindingBody"];
             };
         };
         responses: {
@@ -46738,7 +46846,7 @@ export interface operations {
             };
         };
     };
-    update_workspace_api_v1_workspaces__workspace_id__put: {
+    update_workspace_api_v1_workspaces__workspace_id__patch: {
         parameters: {
             query?: never;
             header?: {
@@ -46806,7 +46914,7 @@ export interface operations {
             };
         };
     };
-    update_workspace_api_v1_workspaces__workspace_id__patch: {
+    update_workspace_api_v1_workspaces__workspace_id__patch_2: {
         parameters: {
             query?: never;
             header?: {
@@ -46910,7 +47018,7 @@ export interface operations {
             };
         };
     };
-    update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__put: {
+    update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch: {
         parameters: {
             query?: never;
             header?: {
@@ -46982,7 +47090,7 @@ export interface operations {
             };
         };
     };
-    update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch: {
+    update_workspace_bot_api_v1_workspaces__workspace_id__bots__bot_id__patch_2: {
         parameters: {
             query?: never;
             header?: {
@@ -47020,7 +47128,7 @@ export interface operations {
             };
         };
     };
-    update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_put: {
+    update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch: {
         parameters: {
             query?: never;
             header?: {
@@ -47058,7 +47166,7 @@ export interface operations {
             };
         };
     };
-    update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch: {
+    update_bot_indexing_api_v1_workspaces__workspace_id__bots__bot_id__indexing_patch_2: {
         parameters: {
             query?: never;
             header?: {

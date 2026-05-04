@@ -178,6 +178,7 @@ async def admin_bot_editor_data(
             workspace={
                 "enabled": True,
                 "bot_knowledge_auto_retrieval": True,
+                "bot_memory_reference_auto_retrieval": True,
                 "indexing": {"enabled": True, "watch": True, "segments": []},
             },
         )

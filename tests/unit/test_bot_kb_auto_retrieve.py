@@ -4,10 +4,32 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.agent.context_assembly import AssemblyLedger, _inject_bot_knowledge_base, _inject_user_knowledge, _inject_workspace_rag
+from app.agent.context_assembly import (
+    AssemblyLedger,
+    _inject_bot_knowledge_base,
+    _inject_bot_memory_reference,
+    _inject_workspace_rag,
+)
+from app.agent.fs_indexer import FsRetrievalChunk
 
 
-def _make_bot(*, shared_workspace_id: str | None = None, auto_retrieval: bool = True):
+def _chunk(file_path: str, content: str, similarity: float = 0.8) -> FsRetrievalChunk:
+    formatted = f"[File: {file_path}]\n\n{content}"
+    return FsRetrievalChunk(
+        file_path=file_path,
+        similarity=similarity,
+        chars=len(formatted),
+        formatted=formatted,
+    )
+
+
+def _make_bot(
+    *,
+    shared_workspace_id: str | None = None,
+    auto_retrieval: bool = True,
+    memory_reference_retrieval: bool = True,
+    memory_scheme: str | None = "workspace-files",
+):
     ws_indexing = SimpleNamespace(
         enabled=True,
         patterns=["**/*.md"],
@@ -22,6 +44,7 @@ def _make_bot(*, shared_workspace_id: str | None = None, auto_retrieval: bool = 
         enabled=True,
         indexing=ws_indexing,
         bot_knowledge_auto_retrieval=auto_retrieval,
+        bot_memory_reference_auto_retrieval=memory_reference_retrieval,
     )
     return SimpleNamespace(
         id="bot-1",
@@ -31,6 +54,7 @@ def _make_bot(*, shared_workspace_id: str | None = None, auto_retrieval: bool = 
         _ws_indexing_config=None,
         local_tools=["search_bot_knowledge"],
         user_id="user-1",
+        memory_scheme=memory_scheme,
     )
 
 
@@ -43,9 +67,10 @@ async def test_bot_kb_auto_retrieval_uses_implicit_kb_segment():
     bot = _make_bot(shared_workspace_id="ws-1")
     messages: list[dict] = []
     ledger = AssemblyLedger()
-    retrieve_mock = AsyncMock(return_value=(["[File: bots/bot-1/knowledge-base/facts.md]\n\nImportant fact"], 0.82))
+    chunk = _chunk("bots/bot-1/knowledge-base/facts.md", "Important fact", similarity=0.82)
+    retrieve_mock = AsyncMock(return_value=([chunk], 0.82))
 
-    with patch("app.agent.fs_indexer.retrieve_filesystem_context", new=retrieve_mock), \
+    with patch("app.agent.fs_indexer.retrieve_filesystem_chunks", new=retrieve_mock), \
          patch("app.services.workspace_indexing.resolve_indexing", return_value={
              "embedding_model": "text-embedding-3-small",
              "patterns": ["**/*.md"],
@@ -75,7 +100,15 @@ async def test_bot_kb_auto_retrieval_uses_implicit_kb_segment():
     assert call.kwargs["include_path_prefixes"] == ["bots/bot-1/knowledge-base"]
     assert any("search_bot_knowledge" in m["content"] for m in messages)
     assert ledger.inject_chars["bot_knowledge_base"] > 0
-    assert events == [{"type": "bot_knowledge_base", "count": 1, "similarity": 0.82}]
+    assert len(events) == 1
+    assert events[0]["type"] == "bot_knowledge_base"
+    assert events[0]["count"] == 1
+    assert events[0]["similarity"] == 0.82
+    assert events[0]["chunks"] == [{
+        "file_path": "bots/bot-1/knowledge-base/facts.md",
+        "similarity": 0.82,
+        "chars": chunk.chars,
+    }]
 
 
 @pytest.mark.asyncio
@@ -83,7 +116,7 @@ async def test_bot_kb_auto_retrieval_respects_toggle_off():
     bot = _make_bot(auto_retrieval=False)
     ledger = AssemblyLedger()
 
-    with patch("app.agent.fs_indexer.retrieve_filesystem_context", new=AsyncMock()) as retrieve_mock:
+    with patch("app.agent.fs_indexer.retrieve_filesystem_chunks", new=AsyncMock()) as retrieve_mock:
         events = await _collect(_inject_bot_knowledge_base(
             [],
             bot,
@@ -104,8 +137,9 @@ async def test_bot_kb_auto_retrieval_skips_when_budget_rejects():
     ledger = AssemblyLedger()
     ledger.can_afford = lambda _: False
 
-    with patch("app.agent.fs_indexer.retrieve_filesystem_context", new=AsyncMock(return_value=(
-        ["[File: knowledge-base/facts.md]\n\nImportant fact"],
+    chunk = _chunk("knowledge-base/facts.md", "Important fact", similarity=0.71)
+    with patch("app.agent.fs_indexer.retrieve_filesystem_chunks", new=AsyncMock(return_value=(
+        [chunk],
         0.71,
     ))), \
          patch("app.services.workspace_indexing.resolve_indexing", return_value={
@@ -138,7 +172,7 @@ async def test_bot_kb_auto_retrieval_respects_profile_gate():
     bot = _make_bot(auto_retrieval=True)
     ledger = AssemblyLedger()
 
-    with patch("app.agent.fs_indexer.retrieve_filesystem_context", new=AsyncMock()) as retrieve_mock:
+    with patch("app.agent.fs_indexer.retrieve_filesystem_chunks", new=AsyncMock()) as retrieve_mock:
         events = await _collect(_inject_bot_knowledge_base(
             [],
             bot,
@@ -204,17 +238,34 @@ async def test_workspace_rag_excludes_dedicated_channel_and_bot_kb_chunks():
     assert ledger.inject_decisions["workspace_rag"] == "admitted"
 
 
+# ---------------------------------------------------------------------------
+# bot_memory_reference (P1: semantic auto-retrieval on memory/reference/)
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
-async def test_user_knowledge_retrieval_filters_by_owner_scope_and_status():
+async def test_bot_memory_reference_admits_chunks_and_skips_directory_listing(tmp_path, monkeypatch):
+    """Semantic retrieval admits the relevant reference excerpt and the listing is suppressed."""
     bot = _make_bot(shared_workspace_id="ws-1")
     messages: list[dict] = []
     ledger = AssemblyLedger()
-    retrieve_mock = AsyncMock(return_value=(
-        ["[File: users/user-1/knowledge-base/notes/preferences.md]\n\nPrefers concise bullets"],
-        0.79,
-    ))
+    chunk = _chunk(
+        "bots/bot-1/memory/reference/plant-profiles.md",
+        "Basil prefers full sun and damp soil.",
+        similarity=0.79,
+    )
+    retrieve_mock = AsyncMock(return_value=([chunk], 0.79))
 
-    with patch("app.agent.fs_indexer.retrieve_filesystem_context", new=retrieve_mock), \
+    # Even if a reference dir exists on disk, an admitted retrieval should
+    # short-circuit before the directory-listing fallback runs.
+    ref_dir = tmp_path / "memory" / "reference"
+    ref_dir.mkdir(parents=True)
+    (ref_dir / "plant-profiles.md").write_text("# Basil\n\nLikes sun.\n")
+    monkeypatch.setattr(
+        "app.services.memory_scheme.get_memory_root", lambda bot, **_: str(tmp_path / "memory")
+    )
+
+    with patch("app.agent.fs_indexer.retrieve_filesystem_chunks", new=retrieve_mock), \
          patch("app.services.workspace_indexing.resolve_indexing", return_value={
              "embedding_model": "text-embedding-3-small",
              "patterns": ["**/*.md"],
@@ -227,27 +278,51 @@ async def test_user_knowledge_retrieval_filters_by_owner_scope_and_status():
              "segments_source": "default",
          }), \
          patch("app.services.workspace_indexing.get_all_roots", return_value=["/data/shared/ws-1"]):
-        events = await _collect(_inject_user_knowledge(messages, bot, "format?", ledger))
+        events = await _collect(_inject_bot_memory_reference(
+            messages,
+            bot,
+            "how should I prune my basil?",
+            ledger,
+            context_profile=SimpleNamespace(allow_memory_recent_logs=True),
+        ))
 
+    retrieve_mock.assert_called_once()
     call = retrieve_mock.call_args
-    assert call.kwargs["include_path_prefixes"] == ["users/user-1/knowledge-base/notes"]
-    assert call.kwargs["metadata_equals"] == {
-        "knowledge_scope": "user",
-        "owner_user_id": "user-1",
-    }
-    assert call.kwargs["metadata_not_equals"] == {"kd_status": "pending_review"}
-    assert events == [{"type": "user_knowledge", "count": 1, "similarity": 0.79}]
-    assert "Accepted user knowledge" in messages[0]["content"]
+    assert call.kwargs["include_path_prefixes"] == ["bots/bot-1/memory/reference"]
+    assert call.kwargs["segments"] == [{
+        "path_prefix": "bots/bot-1/memory/reference",
+        "embedding_model": "text-embedding-3-small",
+    }]
+    assert ledger.inject_decisions["bot_memory_reference"] == "admitted"
+    # No directory-listing decision recorded — retrieval admitted, listing skipped entirely.
+    assert "memory_reference_index" not in ledger.inject_decisions
+    assert len(events) == 1
+    assert events[0]["type"] == "bot_memory_reference"
+    assert events[0]["count"] == 1
+    assert events[0]["chunks"] == [{
+        "file_path": "bots/bot-1/memory/reference/plant-profiles.md",
+        "similarity": 0.79,
+        "chars": chunk.chars,
+    }]
+    assert any("plant-profiles.md" in m["content"] for m in messages)
 
 
 @pytest.mark.asyncio
-async def test_user_knowledge_retrieval_uses_current_bot_owner_not_other_users():
+async def test_bot_memory_reference_falls_back_to_directory_listing_when_empty(tmp_path, monkeypatch):
+    """Empty retrieval keeps the directory listing visible so get_memory_file still works."""
     bot = _make_bot(shared_workspace_id="ws-1")
-    bot.user_id = "user-2"
+    messages: list[dict] = []
     ledger = AssemblyLedger()
     retrieve_mock = AsyncMock(return_value=([], 0.0))
 
-    with patch("app.agent.fs_indexer.retrieve_filesystem_context", new=retrieve_mock), \
+    ref_dir = tmp_path / "memory" / "reference"
+    ref_dir.mkdir(parents=True)
+    (ref_dir / "season-notes.md").write_text("# Season notes\n\nSpring plantings.\n")
+    monkeypatch.setattr(
+        "app.services.memory_scheme.get_memory_root", lambda bot, **_: str(tmp_path / "memory")
+    )
+
+    with patch("app.agent.fs_indexer.retrieve_filesystem_chunks", new=retrieve_mock), \
          patch("app.services.workspace_indexing.resolve_indexing", return_value={
              "embedding_model": "text-embedding-3-small",
              "patterns": ["**/*.md"],
@@ -260,25 +335,162 @@ async def test_user_knowledge_retrieval_uses_current_bot_owner_not_other_users()
              "segments_source": "default",
          }), \
          patch("app.services.workspace_indexing.get_all_roots", return_value=["/data/shared/ws-1"]):
-        events = await _collect(_inject_user_knowledge([], bot, "query", ledger))
+        events = await _collect(_inject_bot_memory_reference(
+            messages,
+            bot,
+            "what's the spring plan?",
+            ledger,
+            context_profile=SimpleNamespace(allow_memory_recent_logs=True),
+        ))
 
-    call = retrieve_mock.call_args
-    assert call.kwargs["include_path_prefixes"] == ["users/user-2/knowledge-base/notes"]
-    assert call.kwargs["metadata_equals"]["owner_user_id"] == "user-2"
-    assert "user-1" not in call.kwargs["include_path_prefixes"][0]
-    assert events == []
-    assert ledger.inject_decisions["user_knowledge"] == "skipped_empty"
+    assert ledger.inject_decisions["bot_memory_reference"] == "skipped_empty"
+    assert ledger.inject_decisions["memory_reference_index"] == "admitted"
+    listing_msg = next(m for m in messages if "Reference documents" in m["content"])
+    assert "season-notes.md" in listing_msg["content"]
+    assert events == [{"type": "memory_scheme_reference_index", "count": 1}]
 
 
 @pytest.mark.asyncio
-async def test_user_knowledge_skips_ownerless_bot():
-    bot = _make_bot(shared_workspace_id="ws-1")
-    bot.user_id = None
+async def test_bot_memory_reference_respects_toggle_off(tmp_path, monkeypatch):
+    """Toggle off → no retrieval is attempted; the listing still surfaces as fallback."""
+    bot = _make_bot(shared_workspace_id="ws-1", memory_reference_retrieval=False)
+    messages: list[dict] = []
     ledger = AssemblyLedger()
+    retrieve_mock = AsyncMock()
 
-    with patch("app.agent.fs_indexer.retrieve_filesystem_context", new=AsyncMock()) as retrieve_mock:
-        events = await _collect(_inject_user_knowledge([], bot, "query", ledger))
+    ref_dir = tmp_path / "memory" / "reference"
+    ref_dir.mkdir(parents=True)
+    (ref_dir / "garden-notes.md").write_text("# Garden notes\n")
+    monkeypatch.setattr(
+        "app.services.memory_scheme.get_memory_root", lambda bot, **_: str(tmp_path / "memory")
+    )
+
+    with patch("app.agent.fs_indexer.retrieve_filesystem_chunks", new=retrieve_mock):
+        events = await _collect(_inject_bot_memory_reference(
+            messages,
+            bot,
+            "anything?",
+            ledger,
+            context_profile=SimpleNamespace(allow_memory_recent_logs=True),
+        ))
+
+    retrieve_mock.assert_not_called()
+    assert ledger.inject_decisions["bot_memory_reference"] == "skipped_disabled"
+    assert ledger.inject_decisions["memory_reference_index"] == "admitted"
+    assert any("garden-notes.md" in m["content"] for m in messages)
+    assert events == [{"type": "memory_scheme_reference_index", "count": 1}]
+
+
+@pytest.mark.asyncio
+async def test_bot_memory_reference_respects_profile_gate():
+    """Profile that disallows recent memory logs gates retrieval and listing alike."""
+    bot = _make_bot(shared_workspace_id="ws-1")
+    ledger = AssemblyLedger()
+    retrieve_mock = AsyncMock()
+
+    with patch("app.agent.fs_indexer.retrieve_filesystem_chunks", new=retrieve_mock):
+        events = await _collect(_inject_bot_memory_reference(
+            [],
+            bot,
+            "anything?",
+            ledger,
+            context_profile=SimpleNamespace(allow_memory_recent_logs=False),
+        ))
 
     retrieve_mock.assert_not_called()
     assert events == []
-    assert ledger.inject_decisions["user_knowledge"] == "skipped_ownerless"
+    assert ledger.inject_decisions["bot_memory_reference"] == "skipped_by_profile"
+
+
+@pytest.mark.asyncio
+async def test_bot_memory_reference_listing_surfaces_frontmatter_summary(tmp_path, monkeypatch):
+    """When retrieval misses, the directory-listing fallback must show frontmatter summaries."""
+    bot = _make_bot(shared_workspace_id="ws-1")
+    messages: list[dict] = []
+    ledger = AssemblyLedger()
+    retrieve_mock = AsyncMock(return_value=([], 0.0))
+
+    ref_dir = tmp_path / "memory" / "reference"
+    ref_dir.mkdir(parents=True)
+    (ref_dir / "plant-profiles.md").write_text(
+        "---\nsummary: Per-plant care notes for kitchen, sunroom, and patio plants.\n---\n\n# Plants\n"
+    )
+    (ref_dir / "season-notes.md").write_text("# Season notes (no frontmatter)\n")
+    monkeypatch.setattr(
+        "app.services.memory_scheme.get_memory_root", lambda bot, **_: str(tmp_path / "memory")
+    )
+
+    with patch("app.agent.fs_indexer.retrieve_filesystem_chunks", new=retrieve_mock), \
+         patch("app.services.workspace_indexing.resolve_indexing", return_value={
+             "embedding_model": "text-embedding-3-small",
+             "patterns": ["**/*.md"],
+             "similarity_threshold": 0.3,
+             "top_k": 8,
+             "watch": False,
+             "cooldown_seconds": 60,
+             "include_bots": [],
+             "segments": [],
+             "segments_source": "default",
+         }), \
+         patch("app.services.workspace_indexing.get_all_roots", return_value=["/data/shared/ws-1"]):
+        await _collect(_inject_bot_memory_reference(
+            messages,
+            bot,
+            "anything?",
+            ledger,
+            context_profile=SimpleNamespace(allow_memory_recent_logs=True),
+        ))
+
+    listing_msg = next(m for m in messages if "Reference documents" in m["content"])
+    body = listing_msg["content"]
+    assert "plant-profiles.md" in body
+    assert "Per-plant care notes for kitchen" in body
+    # File without frontmatter shouldn't synthesize a summary line.
+    assert "season-notes.md" in body
+    season_line = next(l for l in body.splitlines() if "season-notes.md" in l)
+    assert "—" not in season_line
+
+
+@pytest.mark.asyncio
+async def test_bot_memory_reference_standalone_bot_uses_no_bots_prefix(tmp_path, monkeypatch):
+    """Standalone bots use the bare ``memory/reference`` prefix, mirroring KB scope semantics."""
+    bot = _make_bot(shared_workspace_id=None)
+    ledger = AssemblyLedger()
+    chunk = _chunk(
+        "memory/reference/recipes.md",
+        "Sourdough hydration: 75%.",
+        similarity=0.81,
+    )
+    retrieve_mock = AsyncMock(return_value=([chunk], 0.81))
+
+    monkeypatch.setattr(
+        "app.services.memory_scheme.get_memory_root", lambda bot, **_: str(tmp_path / "memory")
+    )
+
+    with patch("app.agent.fs_indexer.retrieve_filesystem_chunks", new=retrieve_mock), \
+         patch("app.services.workspace_indexing.resolve_indexing", return_value={
+             "embedding_model": "text-embedding-3-small",
+             "patterns": ["**/*.md"],
+             "similarity_threshold": 0.3,
+             "top_k": 8,
+             "watch": False,
+             "cooldown_seconds": 60,
+             "include_bots": [],
+             "segments": [],
+             "segments_source": "default",
+         }), \
+         patch("app.services.workspace_indexing.get_all_roots", return_value=["/data/bot-1"]):
+        events = await _collect(_inject_bot_memory_reference(
+            [],
+            bot,
+            "what hydration?",
+            ledger,
+            context_profile=SimpleNamespace(allow_memory_recent_logs=True),
+        ))
+
+    call = retrieve_mock.call_args
+    assert call.kwargs["include_path_prefixes"] == ["memory/reference"]
+    assert ledger.inject_decisions["bot_memory_reference"] == "admitted"
+    assert events[0]["chunks"][0]["file_path"] == "memory/reference/recipes.md"
+
+

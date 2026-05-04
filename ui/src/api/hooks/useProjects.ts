@@ -32,6 +32,20 @@ export interface ProjectRunLoopPolicyInput {
   continuation_prompt?: string;
 }
 
+export interface ProjectRunModelSelectionInput {
+  model_override?: string | null;
+  model_provider_id_override?: string | null;
+  harness_effort?: string | null;
+}
+
+export type ProjectChannel = Pick<Channel, "id" | "name" | "bot_id"> & {
+  model_override?: string | null;
+  model_provider_id_override?: string | null;
+  bot_model?: string | null;
+  bot_model_provider_id?: string | null;
+  harness_runtime?: string | null;
+};
+
 export function useProjects(enabled = true) {
   return useQuery({
     queryKey: ["projects"],
@@ -75,7 +89,7 @@ export function useProjectFactoryReviewInbox(limit = 50) {
 export function useProjectChannels(projectId: string | undefined) {
   return useQuery({
     queryKey: ["projects", projectId, "channels"],
-    queryFn: () => apiFetch<Pick<Channel, "id" | "name" | "bot_id">[]>(`/api/v1/projects/${projectId}/channels`),
+    queryFn: () => apiFetch<ProjectChannel[]>(`/api/v1/projects/${projectId}/channels`),
     enabled: !!projectId,
   });
 }
@@ -294,7 +308,7 @@ export function useProjectCodingRunSchedules(projectId: string | undefined) {
 export function useCreateProjectCodingRunSchedule(projectId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { channel_id: string; title?: string; request?: string; scheduled_at?: string | null; recurrence?: string; repo_path?: string | null; work_surface_mode?: string; machine_target_grant?: MachineTargetGrant | null; loop_policy?: ProjectRunLoopPolicyInput | null }) =>
+    mutationFn: (data: { channel_id: string; title?: string; request?: string; scheduled_at?: string | null; recurrence?: string; repo_path?: string | null; work_surface_mode?: string; machine_target_grant?: MachineTargetGrant | null; loop_policy?: ProjectRunLoopPolicyInput | null } & ProjectRunModelSelectionInput) =>
       apiFetch<ProjectCodingRunSchedule>(`/api/v1/projects/${projectId}/coding-run-schedules`, {
         method: "POST",
         body: JSON.stringify(data),
@@ -321,7 +335,7 @@ export function useUpdateProjectCodingRunSchedule(projectId: string | undefined)
       enabled?: boolean;
       machine_target_grant?: MachineTargetGrant | null;
       loop_policy?: ProjectRunLoopPolicyInput | null;
-    }) => {
+    } & ProjectRunModelSelectionInput) => {
       const { scheduleId, ...body } = data;
       return apiFetch<ProjectCodingRunSchedule>(`/api/v1/projects/${projectId}/coding-run-schedules/${scheduleId}`, {
         method: "PATCH",
@@ -367,7 +381,7 @@ export function useDisableProjectCodingRunSchedule(projectId: string | undefined
 export function useCreateProjectCodingRun(projectId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { channel_id: string; request?: string; repo_path?: string | null; work_surface_mode?: string; machine_target_grant?: MachineTargetGrant | null; source_artifact?: { path: string; section?: string | null; commit_sha?: string | null } | null; loop_policy?: ProjectRunLoopPolicyInput | null }) =>
+    mutationFn: (data: { channel_id: string; request?: string; repo_path?: string | null; work_surface_mode?: string; machine_target_grant?: MachineTargetGrant | null; source_artifact?: { path: string; section?: string | null; commit_sha?: string | null } | null; loop_policy?: ProjectRunLoopPolicyInput | null } & ProjectRunModelSelectionInput) =>
       apiFetch<ProjectCodingRun>(`/api/v1/projects/${projectId}/coding-runs`, {
         method: "POST",
         body: JSON.stringify(data),

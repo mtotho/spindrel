@@ -1,10 +1,9 @@
 ---
 name: Project Audit to Runs
 description: >
-  Drive a long-running thematic audit (security, performance, dependency
-  hygiene, accessibility, dead code, etc.) end-to-end inside a Project channel:
-  research pass → findings artifact → Run Briefs / optional Run Packs →
-  bounded launch loop with optional human-in-the-loop review gates.
+  Drive a long-running thematic audit (security, performance, dependency hygiene,
+  accessibility, dead code) end-to-end inside a Project channel: research →
+  findings artifact → Run Briefs / Run Packs → bounded launch loop.
 triggers: deep audit, security audit, performance audit, accessibility audit, sweep the codebase, dependency audit, dead code sweep, audit and fix, find all the X and fix them
 category: project
 ---

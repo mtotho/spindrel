@@ -1,6 +1,6 @@
 ---
 name: Diagnostics — Traces
-description: L3-L4 structured-trace inspection. Drill into one failing turn (list_session_traces → get_trace summary → phase) or audit a TraceEvent pattern across many turns (get_trace list mode). Covers ranker, discovery, retrieval, llm_error, model_fallback, compaction, and per-tool-call failure investigation.
+description: L3-L4 structured-trace inspection. Drill into one failing turn (`list_session_traces` → `get_trace`) or audit a TraceEvent pattern across many turns. Covers ranker, discovery, retrieval, llm_error, model_fallback, compaction, tool-call failure.
 triggers: trace, traces, get_trace, list_session_traces, correlation id, why did this turn fail, ranker off, discovery weak, tool_retrieval, discovery_summary, llm_error, model_fallback, compaction, subagent, token usage spike, tool returned error, tool error, tool args, get_tool_info, audit pattern, audit ranker, cross-turn audit
 category: operations
 ---

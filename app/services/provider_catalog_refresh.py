@@ -1,9 +1,8 @@
 """Background refresh of the provider catalog (model lists + pricing).
 
-Drivers like LiteLLM, Ollama, and OpenAI-Subscription expose a live model list
-that drifts as upstream providers ship new models. Today the admin UI is the
-only path to pull that drift in (`POST /providers/{id}/sync-models`). This
-module adds:
+Drivers like LiteLLM and Ollama expose a live model list that drifts as
+upstream providers ship new models. Today the admin UI is the only path to
+pull that drift in (`POST /providers/{id}/sync-models`). This module adds:
 
   - ``refresh_one_provider(provider_id)``  — single-provider refresh used by
     the new ``POST /providers/{id}/refresh-now`` endpoint and the post-test

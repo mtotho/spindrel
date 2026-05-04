@@ -216,7 +216,6 @@ class ChannelConfigOut(BaseModel):
     harness_auto_compaction_enabled: bool = True
     harness_auto_compaction_soft_remaining_pct: int = 60
     harness_auto_compaction_hard_remaining_pct: int = 10
-    knowledge_capture: str = "inherit"
     # Heartbeat (prefixed)
     heartbeat_enabled: bool = False
     heartbeat_interval_minutes: int = 60
@@ -294,9 +293,6 @@ class ChannelConfigUpdate(BaseModel):
     harness_auto_compaction_enabled: Optional[bool] = None
     harness_auto_compaction_soft_remaining_pct: Optional[int] = None
     harness_auto_compaction_hard_remaining_pct: Optional[int] = None
-    # Review-first user knowledge capture. "inherit" follows bot opt-in;
-    # "off" disables capture for this channel.
-    knowledge_capture: Optional[str] = None
     # Heartbeat (prefixed)
     heartbeat_enabled: Optional[bool] = None
     heartbeat_interval_minutes: Optional[int] = None
@@ -609,14 +605,6 @@ async def update_channel_config(
                 status_code=422,
                 detail=f"Invalid widget_agency_mode. Valid: {sorted(_valid_widget_agency_modes)}",
             )
-    if "knowledge_capture" in ch_updates and ch_updates["knowledge_capture"] is not None:
-        _valid_knowledge_capture = {"inherit", "off"}
-        if ch_updates["knowledge_capture"] not in _valid_knowledge_capture:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Invalid knowledge_capture. Valid: {sorted(_valid_knowledge_capture)}",
-            )
-
     # layout_mode is stored inside the channel's JSONB config, not as a top-
     # level column. Split it out so the generic setattr loop below doesn't
     # try to write to a non-existent attribute.
@@ -643,10 +631,6 @@ async def update_channel_config(
     has_widget_agency_mode_update = "widget_agency_mode" in ch_updates
     widget_agency_mode_update = (
         ch_updates.pop("widget_agency_mode", None) if has_widget_agency_mode_update else None
-    )
-    has_knowledge_capture_update = "knowledge_capture" in ch_updates
-    knowledge_capture_update = (
-        ch_updates.pop("knowledge_capture", None) if has_knowledge_capture_update else None
     )
     harness_auto_keys = {
         "harness_auto_compaction_enabled",
@@ -745,18 +729,6 @@ async def update_channel_config(
             cfg.pop("widget_agency_mode", None)
         else:
             cfg["widget_agency_mode"] = widget_agency_mode_update
-        channel.config = cfg
-        flag_modified(channel, "config")
-        channel.updated_at = now
-
-    if has_knowledge_capture_update:
-        import copy as _copy
-        from sqlalchemy.orm.attributes import flag_modified
-        cfg = _copy.deepcopy(channel.config or {})
-        if knowledge_capture_update in (None, "inherit"):
-            cfg.pop("knowledge_capture", None)
-        else:
-            cfg["knowledge_capture"] = knowledge_capture_update
         channel.config = cfg
         flag_modified(channel, "config")
         channel.updated_at = now
@@ -880,7 +852,6 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "widget_theme_ref": (channel.config or {}).get("widget_theme_ref"),
         "widget_agency_mode": (channel.config or {}).get("widget_agency_mode", "propose"),
         "show_message_feedback": channel.show_message_feedback,
-        "knowledge_capture": (channel.config or {}).get("knowledge_capture", "inherit"),
         "harness_auto_compaction_enabled": ((channel.config or {}).get("harness_auto_compaction") or {}).get("enabled", True),
         "harness_auto_compaction_soft_remaining_pct": ((channel.config or {}).get("harness_auto_compaction") or {}).get("soft_remaining_pct", 60),
         "harness_auto_compaction_hard_remaining_pct": ((channel.config or {}).get("harness_auto_compaction") or {}).get("hard_remaining_pct", 10),

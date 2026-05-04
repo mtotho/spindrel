@@ -31,7 +31,7 @@ Drivers live in `app/services/provider_drivers/`. Each driver subclasses `Provid
 | Feature | `openai` | `openai-subscription` | `openai-compatible` | `anthropic` | `anthropic-compatible` | `ollama` | `litellm` |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | Chat completions | ✓ | ✓ (via `/responses` adapter) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| List models | ✓ | ✓ | ✓ | – | – | ✓ | ✓ |
+| List models | ✓ | seeded | ✓ | – | – | ✓ | ✓ |
 | Pull model | – | – | – | – | – | ✓ | – |
 | Delete model | – | – | – | – | – | ✓ | – |
 | Model info | ✓ | – | – | – | – | ✓ | – |
@@ -313,7 +313,7 @@ Today two adapters exist: `AnthropicOpenAIAdapter` (`app/services/anthropic_adap
 - **Codex OAuth `client_id`** (`openai_subscription_driver.py`): a public constant borrowed from OpenAI's own Codex CLI — not a secret.
 - **Codex `reasoning.summary` default**: set unconditionally to `"auto"` so the thinking stream flows; callers can still override via model_params.
 - **Anthropic `thinking` constraints**: when `thinking_budget > 0`, the adapter forces `temperature=1` and strips `top_p`/`top_k` (Anthropic SDK requires this for extended thinking).
-- **Fallback model lists** in the Anthropic and OpenAI-subscription drivers are hardcoded today and will decay as new models ship. Phase 3 removes them in favor of the admin refresh flow. Today's mitigation: the Models table unions driver output with persisted rows, so admins can add a freshly-released model by hand without waiting for the driver's hardcoded list to be updated.
+- **Fallback model lists** in the Anthropic and OpenAI-subscription drivers are hardcoded today and will decay as new models ship. Anthropic has no public `/models` endpoint, and the ChatGPT subscription OAuth path is only proven against the Codex `/responses` endpoint, so admins can add a freshly-released model by hand in the Models table without waiting for the driver's hardcoded list to be updated.
 - **`test_connection()` is a no-op on Anthropic today** — it returns "Credentials OK" without probing the endpoint. Phase 3 fixes this.
 - **`anthropic-subscription` provider_type** currently maps to the plain `AnthropicDriver`. There is no real OAuth driver. Treat that row in `DRIVER_REGISTRY` as unfinished scaffolding; Phase 3 either builds the driver or removes the type.
 
@@ -332,13 +332,13 @@ Caveats:
 
 ## Daily catalog refresh
 
-`app/services/provider_catalog_refresh.py` runs at server boot and every 24h thereafter. For every enabled provider it calls `driver.list_models_enriched()` + `driver.fetch_pricing()` (where the driver advertises those capabilities), upserts `provider_models` rows, and records `last_refresh_ts` / `last_refresh_error` on `ProviderConfig.config`. The refresh is also triggered immediately after a successful **Test Connection** click, and admins can force one via:
+`app/services/provider_catalog_refresh.py` runs at server boot and every 24h thereafter. For every enabled provider with driver model listing it calls `driver.list_models_enriched()` + `driver.fetch_pricing()` (where the driver advertises those capabilities), upserts `provider_models` rows, and records `last_refresh_ts` / `last_refresh_error` on `ProviderConfig.config`. The refresh is also triggered immediately after a successful **Test Connection** click, and admins can force one via:
 
 ```
 POST /api/v1/admin/providers/{provider_id}/refresh-now
 ```
 
-The Sync Models section on the provider edit page shows "Last auto-refresh: Xm ago" so you can eyeball staleness without clicking. Hardcoded fallback lists for Anthropic and OpenAI-subscription remain as a safety net (Anthropic has no public `/models` endpoint; OpenAI-subscription's live `/models` can fail before the user completes OAuth).
+The Sync Models section on the provider edit page shows "Last auto-refresh: Xm ago" so you can eyeball staleness without clicking. Hardcoded fallback lists for Anthropic and OpenAI-subscription remain as a safety net; subscription model rows are seeded locally because the ChatGPT OAuth token is for Codex `/responses`, not a verified catalog endpoint.
 
 ---
 

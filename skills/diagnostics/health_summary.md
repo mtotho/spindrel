@@ -1,6 +1,6 @@
 ---
 name: Diagnostics — Health Summary
-description: L1 orientation tier. Read the persisted daily health summary and the fleet snapshot before drilling deeper. Cheapest possible entry point for "what was wrong overnight?" or "is anything broken right now?". Also rules out wild-goose chases by confirming the bot/integration the user named actually exists.
+description: L1 orientation tier. Read the daily health summary and fleet snapshot before drilling deeper. Cheapest entry point for "what was wrong overnight?" / "is anything broken?". Confirms the named bot/integration exists.
 triggers: health summary, daily summary, system health, what broke overnight, fleet snapshot, system status, list bots, list channels, list integrations, is anything wrong, attention beacon
 category: operations
 ---

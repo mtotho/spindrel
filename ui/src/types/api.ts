@@ -916,8 +916,6 @@ export interface ChannelSettings {
   widget_theme_ref?: string | null;
   /** Bot agency policy for channel dashboard widgets. */
   widget_agency_mode?: "propose" | "propose_and_fix";
-  /** Review-first user knowledge capture policy. "inherit" follows bot opt-in; "off" disables capture in this channel. */
-  knowledge_capture?: "inherit" | "off";
 }
 
 export interface WidgetTheme {
@@ -1630,6 +1628,17 @@ export interface ProjectCodingRunTask {
   } | null;
 }
 
+export interface ProjectRunModelSelection {
+  model_override?: string | null;
+  model_provider_id_override?: string | null;
+  harness_effort?: string | null;
+  effective_model?: string | null;
+  effective_model_provider_id?: string | null;
+  effective_harness_effort?: string | null;
+  harness_runtime?: string | null;
+  explicit?: boolean;
+}
+
 export type ProjectFactoryReviewQueueState =
   | "ready_for_review"
   | "changes_requested"
@@ -1700,6 +1709,7 @@ export interface ProjectCodingRun {
   latest_continuation?: Record<string, any> | null;
   continuations?: Array<Record<string, any>>;
   loop?: ProjectRunLoopSummary;
+  model_selection?: ProjectRunModelSelection;
   review_queue_state?: ProjectFactoryReviewQueueState | string | null;
   review_queue_priority?: number | null;
   review_next_action?: string | null;
@@ -1966,7 +1976,9 @@ export interface ProjectCodingRunSchedule {
   }>;
   created_at?: string | null;
   machine_target_grant?: ProjectCodingRunTask["machine_target_grant"];
+  run_environment_profile?: string | null;
   loop_policy?: Record<string, any> | null;
+  model_selection?: ProjectRunModelSelection;
 }
 
 export interface SessionProjectInstance {

@@ -4,7 +4,7 @@ summary: Open items - rough captures of bugs, ideas, tech debt, questions. Light
 status: active
 tags: [spindrel, inbox, intake]
 created: 2026-05-02
-updated: 2026-05-02
+updated: 2026-05-03
 ---
 
 # Inbox

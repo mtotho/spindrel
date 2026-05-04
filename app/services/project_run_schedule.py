@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models import Bot as BotRow
 from app.db.models import Channel, Project, Task
 from app.services.project_coding_run_lib import (
     PROJECT_CODING_RUN_SCHEDULE_PRESET_ID,
@@ -30,6 +31,12 @@ from app.services.project_coding_run_lib import (
     normalize_work_surface_mode,
 )
 from app.services.project_run_environment_profiles import validate_project_run_environment_profile_or_raise
+from app.services.project_run_model_selection import (
+    PROJECT_RUN_MODEL_SELECTION_KEY,
+    normalize_project_run_model_selection,
+    project_run_model_selection_from_config,
+    project_run_model_selection_summary,
+)
 
 
 def _schedule_execution_config(
@@ -41,6 +48,7 @@ def _schedule_execution_config(
     run_environment_profile: str | None,
     machine_target_grant: ProjectMachineTargetGrant | None,
     loop_policy: dict[str, Any] | None,
+    model_selection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "run_preset_id": PROJECT_CODING_RUN_SCHEDULE_PRESET_ID,
@@ -52,6 +60,7 @@ def _schedule_execution_config(
             "run_environment_profile": run_environment_profile,
             "machine_target_grant": _machine_target_grant_summary(machine_target_grant),
             "loop_policy": dict(loop_policy or {}),
+            PROJECT_RUN_MODEL_SELECTION_KEY: dict(model_selection or {}),
         },
     }
 
@@ -108,6 +117,13 @@ async def create_project_coding_run_schedule(
         repo_path=body.repo_path,
         work_surface_mode=work_surface_mode,
     )
+    model_selection = await normalize_project_run_model_selection(
+        db,
+        channel,
+        model_override=body.model_override,
+        model_provider_id_override=body.model_provider_id_override,
+        harness_effort=body.harness_effort,
+    )
     task = Task(
         id=uuid.uuid4(),
         bot_id=channel.bot_id,
@@ -129,6 +145,7 @@ async def create_project_coding_run_schedule(
             run_environment_profile=body.run_environment_profile,
             machine_target_grant=body.machine_target_grant,
             loop_policy=body.loop_policy,
+            model_selection=model_selection.to_persisted(),
         ),
         recurrence=recurrence,
         source="project_coding_run_schedule",
@@ -161,6 +178,7 @@ async def update_project_coding_run_schedule(
         raise ValueError("coding-run schedule not found")
 
     cfg = dict(_project_schedule_config(task))
+    channel = await db.get(Channel, task.channel_id) if task.channel_id else None
     if body.channel_id is not None and body.channel_id != task.channel_id:
         channel = _validate_schedule_channel(project, await db.get(Channel, body.channel_id))
         task.channel_id = channel.id
@@ -169,6 +187,8 @@ async def update_project_coding_run_schedule(
         task.session_id = channel.active_session_id
         task.dispatch_type = channel.integration if channel.integration and channel.dispatch_config else "none"
         task.dispatch_config = dict(channel.dispatch_config) if channel.integration and channel.dispatch_config else None
+    if channel is None:
+        channel = _validate_schedule_channel(project, None)
 
     if body.title is not None:
         task.title = body.title.strip() or task.title
@@ -200,6 +220,22 @@ async def update_project_coding_run_schedule(
             )
     if body.loop_policy is not None:
         cfg["loop_policy"] = dict(body.loop_policy or {})
+    current_selection = project_run_model_selection_from_config(cfg.get(PROJECT_RUN_MODEL_SELECTION_KEY))
+    model_override = body.model_override if body.model_override_set else current_selection.model_override
+    provider_override = (
+        body.model_provider_id_override
+        if body.model_provider_id_override_set
+        else current_selection.model_provider_id_override
+    )
+    harness_effort = body.harness_effort if body.harness_effort_set else current_selection.harness_effort
+    model_selection = await normalize_project_run_model_selection(
+        db,
+        channel,
+        model_override=model_override,
+        model_provider_id_override=provider_override,
+        harness_effort=harness_effort,
+    )
+    cfg[PROJECT_RUN_MODEL_SELECTION_KEY] = model_selection.to_persisted()
     await validate_project_run_environment_profile_or_raise(
         project,
         profile_id=cfg.get("run_environment_profile"),
@@ -254,6 +290,11 @@ async def fire_project_coding_run_schedule(
     if channel_id is None:
         raise ValueError("coding-run schedule missing channel")
     run_number = int((schedule.run_count or 0) + 1)
+    model_selection = (
+        cfg.get(PROJECT_RUN_MODEL_SELECTION_KEY)
+        if isinstance(cfg.get(PROJECT_RUN_MODEL_SELECTION_KEY), dict)
+        else {}
+    )
     grant = None
     grant_cfg = cfg.get("machine_target_grant")
     if isinstance(grant_cfg, dict) and grant_cfg.get("provider_id") and grant_cfg.get("target_id"):
@@ -277,6 +318,9 @@ async def fire_project_coding_run_schedule(
             schedule_task_id=schedule.id,
             schedule_run_number=run_number,
             loop_policy=cfg.get("loop_policy") if isinstance(cfg.get("loop_policy"), dict) else None,
+            model_override=model_selection.get("model_override"),
+            model_provider_id_override=model_selection.get("model_provider_id_override"),
+            harness_effort=model_selection.get("harness_effort"),
         ),
     )
     schedule = await db.get(Task, schedule.id)
@@ -333,6 +377,8 @@ async def _coding_run_schedule_row(db: AsyncSession, task: Task, recent_runs: li
     from app.services.machine_task_grants import task_machine_grant_payload
 
     cfg = _project_schedule_config(task)
+    channel = await db.get(Channel, task.channel_id) if task.channel_id else None
+    bot = await db.get(BotRow, task.bot_id) if task.bot_id else None
     return {
         "id": str(task.id),
         "project_id": cfg.get("project_id"),
@@ -352,4 +398,10 @@ async def _coding_run_schedule_row(db: AsyncSession, task: Task, recent_runs: li
         "work_surface_mode": normalize_work_surface_mode(cfg.get("work_surface_mode")),
         "run_environment_profile": cfg.get("run_environment_profile"),
         "loop_policy": cfg.get("loop_policy") if isinstance(cfg.get("loop_policy"), dict) else None,
+        "model_selection": project_run_model_selection_summary(
+            execution_config=dict(task.execution_config or {}),
+            run_config=cfg,
+            channel=channel,
+            bot=bot,
+        ),
     }

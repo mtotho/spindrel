@@ -70,6 +70,70 @@ async def test_assistant_reply_creates_one_session_unread_state(db_session):
     assert row.unread_agent_reply_count == 1
 
 
+async def test_process_persisted_messages_reloads_expired_message_records(db_session):
+    user, channel, session = await _seed_session(db_session)
+    msg = Message(
+        id=uuid.uuid4(),
+        session_id=session.id,
+        role="assistant",
+        content="done after commit",
+        created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(msg)
+    await db_session.flush()
+    message_id = msg.id
+    db_session.expire(msg, ["role", "content", "metadata_", "created_at", "correlation_id"])
+
+    await unread.process_persisted_messages(
+        db_session,
+        session_id=session.id,
+        bus_channel_id=channel.id,
+        records=[msg],
+    )
+
+    row = (await db_session.execute(select(SessionReadState))).scalar_one()
+    assert row.user_id == user.id
+    assert row.latest_unread_message_id == message_id
+    assert row.unread_agent_reply_count == 1
+
+
+async def test_process_persisted_messages_does_not_filter_input_orm_records():
+    message_id = uuid.uuid4()
+    fresh = Message(
+        id=message_id,
+        session_id=uuid.uuid4(),
+        role="assistant",
+        content="hidden",
+        metadata_={"hidden": True},
+        created_at=datetime.now(timezone.utc),
+    )
+
+    class ExpiredRecord:
+        id = message_id
+
+        def __getattr__(self, name):
+            raise AssertionError(f"unexpected lazy load of {name}")
+
+    class ScalarResult:
+        def all(self):
+            return [fresh]
+
+    class ExecuteResult:
+        def scalars(self):
+            return ScalarResult()
+
+    class FakeDb:
+        async def execute(self, stmt):
+            return ExecuteResult()
+
+    await unread.process_persisted_messages(
+        FakeDb(),
+        session_id=fresh.session_id,
+        bus_channel_id=None,
+        records=[ExpiredRecord()],
+    )
+
+
 async def test_visible_session_agent_reply_marks_read_instead_of_unread(db_session):
     user, channel, session = await _seed_session(db_session)
     msg = Message(

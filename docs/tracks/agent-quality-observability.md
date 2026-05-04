@@ -4,7 +4,7 @@ summary: Agent trace/eval observability: deterministic post-turn quality finding
 status: active
 tags: [spindrel, agents, quality, traces, evals]
 created: 2026-05-03
-updated: 2026-05-03
+updated: 2026-05-04
 ---
 
 # Agent Quality Observability
@@ -24,6 +24,7 @@ Spindrel should notice when an agent behaves incompetently before the operator h
 | 7. Structural fixes from findings | active | 2026-05-03 |
 | 8. Mid-turn chat followup absorption | planned | 2026-05-03 |
 | 9. User explicit feedback (thumbs up/down) | active | 2026-05-03 |
+| 10. Feedback-informed review agents | planned | 2026-05-04 |
 
 ## Phase Detail
 Phase 1 adds `app/services/agent_quality_audit.py`. It emits idempotent `agent_quality_audit` `TraceEvent` rows with `audit_version=1`. V1 detectors are intentionally narrow:
@@ -67,6 +68,27 @@ discovery entry point (filter by vote/since_hours/bot_id/channel_id/
 correlation_id; comment text + anchor excerpt included). Plan:
 `docs/plans/user-message-feedback.md`.
 
+Phase 10 will make explicit user feedback part of downstream review context,
+without changing live turn prompting. Planned consumers:
+
+- **Project run reviews:** Codex and Claude Project run review sessions should
+  load feedback for the run's implementation and review-session
+  `correlation_id`s through `audit_trace_quality` / `list_user_feedback`.
+  Down-voted turns become review evidence: the reviewer should inspect the
+  associated assistant answer, receipt, diff, tests, and follow-up comments
+  before accepting, requesting changes, or launching a continuation. Up-voted
+  turns can be summarized as positive evidence but must not override failing
+  tests or reviewer findings.
+- **Bot hygiene reviews:** scheduled memory / skill / bot-hygiene passes should
+  include recent feedback aggregates and comments for the bot/channel being
+  reviewed. Repeated downvotes should feed skill-trigger narrowing, tool
+  enrollment cleanup, prompt/workflow edits, and memory hygiene decisions.
+  Feedback comments remain review evidence, not durable memory unless the
+  hygiene agent explicitly promotes a safe, user-relevant fact.
+
+Implementation plan should define the query shape, prompt additions, evidence
+redaction, and acceptance tests before wiring either consumer.
+
 ## Spindrel Trace Contract
 - `correlation_id` is the current internal trace/run key. Future export layers may map it to W3C/OTel trace IDs without replacing existing rows.
 - `TraceEvent` remains the internal append-only event store for turn assembly, LLM routing, context admission, quality findings, and runtime diagnostics.
@@ -83,6 +105,9 @@ correlation_id; comment text + anchor excerpt included). Plan:
 - Normal chat followups sent during an active turn should not produce duplicate
   assistant responses: either the active turn absorbs them with trace evidence,
   or the existing queued task answers them later.
+- User feedback is post-turn evidence. Review and hygiene jobs may consume it,
+  but live turn assembly must not inject feedback comments back into the active
+  model prompt.
 
 ## References
 - `app/services/agent_quality_audit.py`

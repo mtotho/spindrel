@@ -1010,10 +1010,48 @@ async def retrieve_filesystem_context(
     metadata_equals: dict[str, Any] | None = None,
     metadata_not_equals: dict[str, Any] | None = None,
 ) -> tuple[list[str], float]:
-    """Embed query, cosine-search filesystem_chunks, return (formatted_chunks, best_similarity).
+    """Legacy-shape wrapper around :func:`retrieve_filesystem_chunks`.
 
-    When hybrid search is enabled, also runs BM25 full-text search and fuses
-    results via Reciprocal Rank Fusion.
+    Returns ``(formatted_chunks, best_similarity)``. New callers should
+    prefer ``retrieve_filesystem_chunks`` so trace events can attribute
+    admitted excerpts to specific files and similarities.
+    """
+    chunks, best_sim = await _retrieve_filesystem_rows(
+        query,
+        bot_id,
+        client_id=client_id,
+        roots=roots,
+        top_k=top_k,
+        threshold=threshold,
+        embedding_model=embedding_model,
+        segments=segments,
+        channel_id=channel_id,
+        include_path_prefixes=include_path_prefixes,
+        exclude_path_prefixes=exclude_path_prefixes,
+        exclude_paths=exclude_paths,
+        metadata_equals=metadata_equals,
+        metadata_not_equals=metadata_not_equals,
+    )
+    return [c.formatted for c in chunks], best_sim
+
+
+async def _retrieve_filesystem_rows(
+    query: str,
+    bot_id: str | None,
+    client_id: str | None = None,
+    roots: list[str] | None = None,
+    top_k: int | None = None,
+    threshold: float | None = None,
+    embedding_model: str | None = None,
+    segments: list[dict] | None = None,
+    channel_id: str | None = None,
+    include_path_prefixes: list[str] | None = None,
+    exclude_path_prefixes: list[str] | None = None,
+    exclude_paths: list[str] | None = None,
+    metadata_equals: dict[str, Any] | None = None,
+    metadata_not_equals: dict[str, Any] | None = None,
+) -> tuple[list[FsRetrievalChunk], float]:
+    """Embed query, cosine-search filesystem_chunks, return per-chunk structured records.
 
     Scope semantics (matches knowledge system):
     - bot_id: returns chunks where chunk.bot_id == bot_id OR chunk.bot_id IS NULL
@@ -1121,9 +1159,9 @@ async def retrieve_filesystem_context(
                 metadata_not_equals=metadata_not_equals,
             )
             if bm25_rows:
-                return _format_hybrid_fs_results(rows, bm25_rows, threshold, top_k, query)
+                return _detailed_hybrid_fs_results(rows, bm25_rows, threshold, top_k, query)
 
-        return _format_retrieval_results(rows, threshold, query, top_k)
+        return _detailed_retrieval_results(rows, threshold, query, top_k)
 
     # Multi-model path: embed query once per unique model, query separately, merge
     all_rows: list = []
@@ -1182,15 +1220,38 @@ async def retrieve_filesystem_context(
             metadata_not_equals=metadata_not_equals,
         )
         if bm25_rows:
-            return _format_hybrid_fs_results(all_rows, bm25_rows, threshold, top_k, query)
+            return _detailed_hybrid_fs_results(all_rows, bm25_rows, threshold, top_k, query)
 
-    return _format_retrieval_results(all_rows, threshold, query, top_k)
+    return _detailed_retrieval_results(all_rows, threshold, query, top_k)
+
+
+@dataclass(frozen=True)
+class FsRetrievalChunk:
+    """Per-chunk retrieval result with the structured trace fields agents need.
+
+    ``formatted`` is the same ``[File: ...]\\n\\n<content>`` block the legacy
+    ``retrieve_filesystem_context`` returns. Carry it alongside the structured
+    fields so callers do not have to re-format.
+    """
+
+    file_path: str
+    similarity: float
+    chars: int
+    formatted: str
 
 
 def _format_retrieval_results(
     rows: list, threshold: float, query: str, top_k: int | None = None,
 ) -> tuple[list[str], float]:
-    """Format DB rows into retrieval results."""
+    """Format DB rows into retrieval results (legacy string-only shape)."""
+    detailed, best_sim = _detailed_retrieval_results(rows, threshold, query, top_k)
+    return [c.formatted for c in detailed], best_sim
+
+
+def _detailed_retrieval_results(
+    rows: list, threshold: float, query: str, top_k: int | None = None,
+) -> tuple[list[FsRetrievalChunk], float]:
+    """Format DB rows into ``FsRetrievalChunk`` records keyed by per-chunk similarity."""
     if not rows:
         return [], 0.0
 
@@ -1200,13 +1261,19 @@ def _format_retrieval_results(
         best_sim, threshold, query[:60],
     )
 
-    results: list[str] = []
+    results: list[FsRetrievalChunk] = []
     limit = int(top_k or settings.FS_INDEX_TOP_K)
     for row in rows:
         similarity = 1.0 - row.distance
         if similarity < threshold:
             break
-        results.append(_format_fs_row(row.content, row.file_path, row.symbol, row.start_line, row.end_line))
+        formatted = _format_fs_row(row.content, row.file_path, row.symbol, row.start_line, row.end_line)
+        results.append(FsRetrievalChunk(
+            file_path=row.file_path,
+            similarity=similarity,
+            chars=len(formatted),
+            formatted=formatted,
+        ))
         if len(results) >= limit:
             break
 
@@ -1229,7 +1296,15 @@ def _format_fs_row(
 def _format_hybrid_fs_results(
     vector_rows: list, bm25_rows: list, threshold: float, top_k: int, query: str,
 ) -> tuple[list[str], float]:
-    """Fuse vector and BM25 filesystem results using RRF."""
+    """Fuse vector and BM25 filesystem results using RRF (legacy shape)."""
+    detailed, best_sim = _detailed_hybrid_fs_results(vector_rows, bm25_rows, threshold, top_k, query)
+    return [c.formatted for c in detailed], best_sim
+
+
+def _detailed_hybrid_fs_results(
+    vector_rows: list, bm25_rows: list, threshold: float, top_k: int, query: str,
+) -> tuple[list[FsRetrievalChunk], float]:
+    """Fuse vector and BM25 filesystem results using RRF; emit structured chunks."""
     from app.agent.hybrid_search import reciprocal_rank_fusion
 
     k = settings.HYBRID_SEARCH_RRF_K
@@ -1254,17 +1329,30 @@ def _format_hybrid_fs_results(
 
     best_similarity = max(vector_sims.values()) if vector_sims else 0.0
 
-    results: list[str] = []
+    results: list[FsRetrievalChunk] = []
     for (item, rrf_score) in fused:
         content, file_path, symbol, start_line, end_line = item
         lookup_key = (content, file_path)
         vec_sim = vector_sims.get(lookup_key)
 
+        chunk_sim: float | None = None
         if vec_sim is not None and vec_sim >= threshold:
-            results.append(_format_fs_row(content, file_path, symbol, start_line, end_line))
+            chunk_sim = vec_sim
         elif lookup_key in bm25_set:
-            # BM25 match — include regardless of vector threshold
-            results.append(_format_fs_row(content, file_path, symbol, start_line, end_line))
+            # BM25 match — include regardless of vector threshold; surface the
+            # vector similarity if known so traces still get a numeric anchor.
+            chunk_sim = vec_sim if vec_sim is not None else 0.0
+
+        if chunk_sim is None:
+            continue
+
+        formatted = _format_fs_row(content, file_path, symbol, start_line, end_line)
+        results.append(FsRetrievalChunk(
+            file_path=file_path,
+            similarity=chunk_sim,
+            chars=len(formatted),
+            formatted=formatted,
+        ))
 
         if len(results) >= top_k:
             break
@@ -1275,3 +1363,45 @@ def _format_hybrid_fs_results(
     )
 
     return results, best_similarity
+
+
+async def retrieve_filesystem_chunks(
+    query: str,
+    bot_id: str | None,
+    client_id: str | None = None,
+    roots: list[str] | None = None,
+    top_k: int | None = None,
+    threshold: float | None = None,
+    embedding_model: str | None = None,
+    segments: list[dict] | None = None,
+    channel_id: str | None = None,
+    include_path_prefixes: list[str] | None = None,
+    exclude_path_prefixes: list[str] | None = None,
+    exclude_paths: list[str] | None = None,
+    metadata_equals: dict[str, Any] | None = None,
+    metadata_not_equals: dict[str, Any] | None = None,
+) -> tuple[list[FsRetrievalChunk], float]:
+    """Like :func:`retrieve_filesystem_context` but returns per-chunk structured records.
+
+    Used by the bot-curated memory/reference and bot knowledge-base injectors so
+    trace events can attribute admitted chunks to specific files and similarity
+    scores. The legacy string-only entry point still works for callers that just
+    need to drop the formatted excerpts into a system message.
+    """
+    chunks, best_sim = await _retrieve_filesystem_rows(
+        query,
+        bot_id,
+        client_id=client_id,
+        roots=roots,
+        top_k=top_k,
+        threshold=threshold,
+        embedding_model=embedding_model,
+        segments=segments,
+        channel_id=channel_id,
+        include_path_prefixes=include_path_prefixes,
+        exclude_path_prefixes=exclude_path_prefixes,
+        exclude_paths=exclude_paths,
+        metadata_equals=metadata_equals,
+        metadata_not_equals=metadata_not_equals,
+    )
+    return chunks, best_sim

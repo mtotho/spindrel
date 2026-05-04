@@ -285,7 +285,6 @@ async def build_admin_channel_settings_out(
     out.widget_theme_ref = cfg.get("widget_theme_ref")
     out.widget_agency_mode = cfg.get("widget_agency_mode") or "propose"
     out.pinned_widget_context_enabled = cfg.get("pinned_widget_context_enabled", True)
-    out.knowledge_capture = cfg.get("knowledge_capture") or "inherit"
     await fill_channel_project_settings(db, out, channel, get_bot_fn=get_bot_fn)
     return out
 

@@ -19,6 +19,7 @@ CHANNEL_INDEX_SEGMENTS_RAG_PREFIX = (
 WORKSPACE_RAG_PREFIX = "Relevant workspace file excerpts"
 LEGACY_INDEXED_DIRECTORIES_RAG_PREFIX = "Relevant file excerpts from indexed directories"
 BOT_KNOWLEDGE_BASE_RAG_PREFIX = "Relevant excerpts from this bot's knowledge base"
+BOT_MEMORY_REFERENCE_RAG_PREFIX = "Relevant excerpts from this bot's curated memory/reference notes"
 
 PINNED_SKILL_CONTEXT_PREFIX = "Pinned skill context"
 PINNED_KNOWLEDGE_CONTEXT_PREFIX = "Pinned knowledge"
@@ -40,6 +41,7 @@ RERANKABLE_RAG_PREFIXES: list[tuple[str, str]] = [
     (WORKSPACE_RAG_PREFIX, "filesystem"),
     (LEGACY_INDEXED_DIRECTORIES_RAG_PREFIX, "filesystem"),
     (BOT_KNOWLEDGE_BASE_RAG_PREFIX, "knowledge"),
+    (BOT_MEMORY_REFERENCE_RAG_PREFIX, "memory"),
 ]
 
 NON_RERANKABLE_SYSTEM_PREFIXES: list[str] = [

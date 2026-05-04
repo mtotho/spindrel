@@ -43,6 +43,16 @@ const FILE_WRITE_OPERATIONS = new Set([
   "move",
   "restore",
 ]);
+const EMPTY_FEEDBACK = { mine: null, totals: { up: 0, down: 0 }, comment_mine: null };
+
+function isFeedbackEligibleAssistantMessage(message: Message): boolean {
+  return (
+    message.role === "assistant" &&
+    !!message.correlation_id &&
+    !!extractDisplayText(message.content).trim() &&
+    !(Array.isArray(message.tool_calls) && message.tool_calls.length > 0)
+  );
+}
 
 function extractWidgetLibraryRef(rawPath: unknown): string | null {
   if (typeof rawPath !== "string") return null;
@@ -239,6 +249,11 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     | undefined;
   const richEnvelope: ToolResultEnvelope | undefined = meta.envelope as ToolResultEnvelope | undefined;
   const msgToolCalls: ToolCall[] | undefined = message.tool_calls;
+  const isFeedbackAnchor = useMemo(() => {
+    if (!isFeedbackEligibleAssistantMessage(message)) return false;
+    const anchor = [...(fullTurnMessages ?? [message])].reverse().find(isFeedbackEligibleAssistantMessage);
+    return anchor?.id === message.id;
+  }, [fullTurnMessages, message]);
   const trigger = meta.trigger as string | undefined;
   const localStatus = meta.local_status as string | undefined;
   const turnCancelled = meta.turn_cancelled === true;
@@ -558,11 +573,11 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             onReplyInThread={onReplyInThread ? () => onReplyInThread(message.id) : undefined}
             t={t}
           />
-          {message.role === "assistant" && message.feedback != null && (
+          {isFeedbackAnchor && (
             <TurnFeedbackControls
               messageId={message.id}
               sessionId={message.session_id}
-              feedback={message.feedback}
+              feedback={message.feedback ?? EMPTY_FEEDBACK}
               hidden={!showMessageFeedback}
             />
           )}

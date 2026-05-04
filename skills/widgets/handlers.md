@@ -1,6 +1,6 @@
 ---
 name: widget.py handlers — @on_action, @on_cron, @on_event
-description: Server-side Python handlers attached to a widget bundle. Covers `@on_action` (iframe-dispatched), `@on_cron` (scheduled), `@on_event` (channel-event subscriptions), the `ctx` surface (`ctx.db`, `ctx.tool`, `ctx.bot_id`, `ctx.notify_reload`), identity + scope, per-handler timeouts, hot reload, and the `autoReload` mount-and-reload loop.
+description: Server-side Python handlers in a widget bundle — `@on_action` (iframe-dispatched), `@on_cron` (scheduled), `@on_event` (channel-event subscriptions). Covers the `ctx` surface, identity + scope, hot reload, and the `autoReload` loop.
 triggers: widget.py, @on_action, @on_cron, @on_event, widget handler, server-side python widget, ctx.db, ctx.tool, ctx.notify_reload, autoReload, onReload, spindrel.callHandler
 category: core
 ---

@@ -142,6 +142,7 @@ class WorkspaceConfig:
     enabled: bool = False
     type: str = "docker"  # "docker" | "host"
     bot_knowledge_auto_retrieval: bool = True
+    bot_memory_reference_auto_retrieval: bool = True
     docker: WorkspaceDockerConfig = field(default_factory=WorkspaceDockerConfig)
     host: WorkspaceHostConfig = field(default_factory=WorkspaceHostConfig)
     timeout: int | None = None
@@ -374,6 +375,7 @@ def _build_workspace_config(row: BotRow) -> tuple[WorkspaceConfig, dict]:
         enabled=ws_raw.get("enabled", False) or _in_shared_ws,
         type=ws_raw.get("type", "docker"),
         bot_knowledge_auto_retrieval=ws_raw.get("bot_knowledge_auto_retrieval", True),
+        bot_memory_reference_auto_retrieval=ws_raw.get("bot_memory_reference_auto_retrieval", True),
         docker=WorkspaceDockerConfig(
             image=ws_docker_raw.get("image", "python:3.12-slim"),
             network=ws_docker_raw.get("network", "none"),

@@ -543,9 +543,6 @@ class ChannelSettingsUpdate(BaseModel):
     widget_theme_ref: Optional[str] = None
     widget_agency_mode: Optional[str] = None
     pinned_widget_context_enabled: Optional[bool] = None
-    # Review-first user knowledge capture. "inherit" follows bot opt-in;
-    # "off" disables capture for this channel.
-    knowledge_capture: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -1014,22 +1011,6 @@ async def admin_channel_settings_update(
             cfg.pop("pinned_widget_context_enabled", None)
         else:
             cfg["pinned_widget_context_enabled"] = False
-        channel.config = cfg
-        flag_modified(channel, "config")
-
-    if "knowledge_capture" in updates:
-        mode = updates.pop("knowledge_capture")
-        _valid_knowledge_capture = {"inherit", "off"}
-        if mode is not None and mode not in _valid_knowledge_capture:
-            raise HTTPException(
-                status_code=422,
-                detail=f"knowledge_capture must be one of: {sorted(_valid_knowledge_capture)}",
-            )
-        cfg = dict(channel.config or {})
-        if mode in (None, "inherit"):
-            cfg.pop("knowledge_capture", None)
-        else:
-            cfg["knowledge_capture"] = mode
         channel.config = cfg
         flag_modified(channel, "config")
 

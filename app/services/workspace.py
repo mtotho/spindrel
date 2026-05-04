@@ -66,6 +66,16 @@ class WorkspaceService:
             return f"bots/{bot.id}/knowledge-base"
         return "knowledge-base"
 
+    def get_bot_memory_reference_index_prefix(self, bot: BotConfig) -> str:
+        """Returns the file_path prefix used by filesystem_chunks for memory/reference/.
+
+        Mirrors ``get_bot_knowledge_base_index_prefix`` for the bot-curated
+        ``memory/reference/`` library that ``memory_hygiene`` maintains.
+        """
+        if bot.shared_workspace_id:
+            return f"bots/{bot.id}/memory/reference"
+        return "memory/reference"
+
     async def exec(
         self,
         bot_id: str,

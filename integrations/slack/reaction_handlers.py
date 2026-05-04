@@ -122,6 +122,26 @@ def register_reaction_handlers(app) -> None:
     async def on_reaction_removed(event, client):
         await on_reaction_removed_for_tests(event, client)
 
+    @app.action("turn_feedback_up")
+    async def on_turn_feedback_up(ack, body):
+        await ack()
+        await _handle_feedback_button(body, vote="up")
+
+    @app.action("turn_feedback_down")
+    async def on_turn_feedback_down(ack, body):
+        await ack()
+        await _handle_feedback_button(body, vote="down")
+
+
+async def _handle_feedback_button(body: dict, *, vote: str) -> None:
+    channel = (body.get("channel") or {}).get("id")
+    message = body.get("message") or {}
+    ts = message.get("ts")
+    user_id = (body.get("user") or {}).get("id") or "unknown"
+    if not channel or not ts:
+        return
+    await _handle_feedback_reaction(channel, ts, user_id, vote=vote)
+
 
 async def _handle_approve_reaction(
     client, channel: str, ts: str, user_id: str, *, approval_id: str,

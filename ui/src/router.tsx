@@ -85,7 +85,6 @@ const AdminDockerStackDetail = lazy(() => import("@/app/(app)/admin/docker-stack
 const AdminHarnesses = lazy(() => import("@/app/(app)/admin/harnesses/index"));
 const AdminIntegrationsIndex = lazy(() => import("@/app/(app)/admin/integrations/index"));
 const AdminIntegrationDetail = lazy(() => import("@/app/(app)/admin/integrations/[integrationId]/index"));
-const AdminKnowledgeReview = lazy(() => import("@/app/(app)/admin/knowledge/review"));
 const AdminLearning = lazy(() => import("@/app/(app)/admin/learning/index"));
 const AdminLogsIndex = lazy(() => import("@/app/(app)/admin/logs/index"));
 const AdminLogsFallbacks = lazy(() => import("@/app/(app)/admin/logs/fallbacks"));
@@ -246,7 +245,6 @@ export const router = createBrowserRouter([
               { path: "harnesses", element: <AdminHarnesses /> },
               { path: "integrations", element: <AdminIntegrationsIndex /> },
               { path: "integrations/:integrationId", element: <AdminIntegrationDetail /> },
-              { path: "knowledge/review", element: <AdminKnowledgeReview /> },
               { path: "learning", element: <AdminLearning /> },
               { path: "logs", element: <AdminLogsIndex /> },
               { path: "logs/fallbacks", element: <AdminLogsFallbacks /> },

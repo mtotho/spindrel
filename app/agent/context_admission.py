@@ -15,6 +15,7 @@ from app.agent.bots import BotConfig
 from app.agent.context_profiles import ContextProfile
 from app.agent.rag_formatting import (
     BOT_KNOWLEDGE_BASE_RAG_PREFIX,
+    BOT_MEMORY_REFERENCE_RAG_PREFIX,
     CHANNEL_INDEX_SEGMENTS_RAG_PREFIX,
     CHANNEL_KNOWLEDGE_BASE_RAG_PREFIX,
     CHUNK_SEPARATOR,
@@ -61,6 +62,52 @@ def _mark_injection_decision(
     decision: str,
 ) -> None:
     inject_decisions[key] = decision
+
+
+_REF_SUMMARY_MAX_BYTES = 4096
+_REF_SUMMARY_DISPLAY_CHARS = 200
+
+
+def _read_reference_summary(path: str) -> str | None:
+    """Return the ``summary:`` frontmatter field from a reference file, if any.
+
+    Reads only the first frontmatter block (``---`` fenced) so this stays cheap
+    even when the file body is large. Returns ``None`` when the file has no
+    frontmatter, no ``summary`` key, or fails to parse.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            head = fh.read(_REF_SUMMARY_MAX_BYTES)
+    except Exception:
+        return None
+    if not head.startswith("---"):
+        return None
+    end = head.find("\n---", 3)
+    if end < 0:
+        return None
+    fm_block = head[3:end]
+    summary: str | None = None
+    try:
+        import yaml
+
+        parsed = yaml.safe_load(fm_block)
+        if isinstance(parsed, dict):
+            value = parsed.get("summary")
+            if isinstance(value, str):
+                summary = value
+    except Exception:
+        # Lightweight fallback: line-by-line ``summary: ...`` scan.
+        for line in fm_block.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("summary:"):
+                summary = stripped[len("summary:"):].strip().strip('"').strip("'")
+                break
+    if not summary:
+        return None
+    summary = " ".join(summary.split())
+    if len(summary) > _REF_SUMMARY_DISPLAY_CHARS:
+        summary = summary[: _REF_SUMMARY_DISPLAY_CHARS - 1].rstrip() + "…"
+    return summary
 
 
 def apply_channel_workspace_tools(bot: BotConfig) -> BotConfig:
@@ -249,38 +296,10 @@ async def inject_memory_scheme(
         else:
             _mark_injection_decision(inject_decisions, "memory_yesterday_log", "skipped_missing")
 
-        ref_dir = os.path.join(mem_root, "reference")
-        if not context_profile.allow_memory_recent_logs:
-            _mark_injection_decision(inject_decisions, "memory_reference_index", "skipped_by_profile")
-        elif os.path.isdir(ref_dir):
-            ref_files = sorted(
-                f for f in os.listdir(ref_dir)
-                if f.endswith(".md") and os.path.isfile(os.path.join(ref_dir, f))
-            )
-            if ref_files:
-                ref_entries = []
-                for rf in ref_files:
-                    try:
-                        mtime = os.path.getmtime(os.path.join(ref_dir, rf))
-                        rf_date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
-                        ref_entries.append(f"  - {rf} (modified {rf_date})")
-                    except Exception:
-                        ref_entries.append(f"  - {rf}")
-                content = (
-                    f"Reference documents in {mem_file_rel}/reference/ (use get_memory_file to read):\n"
-                    + "\n".join(ref_entries)
-                )
-                if budget_can_afford(content):
-                    messages.append({"role": "system", "content": content})
-                    budget_consume("memory_reference_index", content)
-                    _mark_injection_decision(inject_decisions, "memory_reference_index", "admitted")
-                    yield {"type": "memory_scheme_reference_index", "count": len(ref_files)}
-                else:
-                    _mark_injection_decision(inject_decisions, "memory_reference_index", "skipped_by_budget")
-            else:
-                _mark_injection_decision(inject_decisions, "memory_reference_index", "skipped_empty")
-        else:
-            _mark_injection_decision(inject_decisions, "memory_reference_index", "skipped_missing")
+        # The memory/reference/ directory listing now lives with
+        # ``inject_bot_memory_reference`` so it can defer to semantic
+        # retrieval when chunks are admitted and only fall back to the
+        # listing on misses. See `inject_bot_memory_reference` below.
 
         skip_files = {"MEMORY.md"}
         if not context_profile.allow_memory_recent_logs:
@@ -860,7 +879,7 @@ async def inject_bot_knowledge_base(
         return
 
     try:
-        from app.agent.fs_indexer import retrieve_filesystem_context
+        from app.agent.fs_indexer import retrieve_filesystem_chunks
         from app.services.bot_indexing import resolve_for
         from app.services.workspace import workspace_service
 
@@ -871,7 +890,7 @@ async def inject_bot_knowledge_base(
             "path_prefix": kb_prefix,
             "embedding_model": plan.embedding_model,
         }]
-        chunks, sim = await retrieve_filesystem_context(
+        chunks, sim = await retrieve_filesystem_chunks(
             user_message,
             bot.id,
             roots=list(plan.roots),
@@ -885,7 +904,7 @@ async def inject_bot_knowledge_base(
             _mark_injection_decision(inject_decisions, "bot_knowledge_base", "skipped_empty")
             return
 
-        kb_body = "\n\n".join(chunks)
+        kb_body = "\n\n".join(c.formatted for c in chunks)
         kb_header = f"{BOT_KNOWLEDGE_BASE_RAG_PREFIX}:\n\n"
         if "search_bot_knowledge" in bot.local_tools:
             kb_header += "(Call search_bot_knowledge for targeted lookups beyond these auto-retrieved excerpts.)\n\n"
@@ -897,7 +916,15 @@ async def inject_bot_knowledge_base(
             budget_consume("bot_knowledge_base", kb_content)
             inject_chars["bot_knowledge_base"] = len(kb_body)
             _mark_injection_decision(inject_decisions, "bot_knowledge_base", "admitted")
-            yield {"type": "bot_knowledge_base", "count": len(chunks), "similarity": sim}
+            yield {
+                "type": "bot_knowledge_base",
+                "count": len(chunks),
+                "similarity": sim,
+                "chunks": [
+                    {"file_path": c.file_path, "similarity": c.similarity, "chars": c.chars}
+                    for c in chunks
+                ],
+            }
         else:
             _mark_injection_decision(inject_decisions, "bot_knowledge_base", "skipped_by_budget")
     except Exception:
@@ -905,61 +932,156 @@ async def inject_bot_knowledge_base(
         _mark_injection_decision(inject_decisions, "bot_knowledge_base", "skipped_error")
 
 
-async def inject_user_knowledge(
+async def inject_bot_memory_reference(
     messages: list[dict],
     bot: BotConfig,
     user_message: str,
     ledger: Any,
+    context_profile: ContextProfile,
 ) -> AsyncGenerator[dict[str, Any], None]:
-    """Inject accepted user-scope Knowledge Documents for the bot owner."""
+    """Inject semantic excerpts from the bot-curated ``memory/reference/`` library.
+
+    The bot's ``memory_hygiene`` Task already maintains the load-bearing
+    library for durable user knowledge — per-plant entries, recipes, season
+    notes, and similar long-lived references. Without this admission stage,
+    those files only surface as a directory listing and the bot has to guess
+    which file to read from filenames alone. The semantic-retrieval path here
+    closes the gap so the right reference excerpt lands in context for the
+    turn that needs it.
+
+    The companion directory listing in ``_inject_memory_scheme`` is suppressed
+    when this stage admits chunks (and falls back when it does not), so the
+    ``get_memory_file`` escape hatch is still available on misses.
+    """
     inject_chars = ledger.inject_chars
     budget_consume = ledger.consume
     budget_can_afford = ledger.can_afford
     inject_decisions = ledger.inject_decisions
-    owner_user_id = getattr(bot, "user_id", None)
-    if not owner_user_id:
-        _mark_injection_decision(inject_decisions, "user_knowledge", "skipped_ownerless")
+    if not context_profile.allow_memory_recent_logs:
+        _mark_injection_decision(inject_decisions, "bot_memory_reference", "skipped_by_profile")
         return
-    if not bot.workspace.enabled or not bot.workspace.indexing.enabled or not bot.shared_workspace_id:
-        _mark_injection_decision(inject_decisions, "user_knowledge", "skipped_missing")
+    if getattr(bot, "memory_scheme", None) != "workspace-files":
+        _mark_injection_decision(inject_decisions, "bot_memory_reference", "skipped_missing")
         return
+
+    retrieval_disabled = not getattr(bot.workspace, "bot_memory_reference_auto_retrieval", True)
+    indexing_disabled = (
+        not bot.workspace.enabled or not bot.workspace.indexing.enabled
+    )
+
+    if not retrieval_disabled and not indexing_disabled:
+        try:
+            from app.agent.fs_indexer import retrieve_filesystem_chunks
+            from app.services.bot_indexing import resolve_for
+            from app.services.workspace import workspace_service
+
+            plan = resolve_for(bot, scope="workspace")
+            if plan is None:
+                _mark_injection_decision(inject_decisions, "bot_memory_reference", "skipped_missing")
+            else:
+                ref_prefix = workspace_service.get_bot_memory_reference_index_prefix(bot)
+                ref_segments: list[dict[str, Any]] = [{
+                    "path_prefix": ref_prefix,
+                    "embedding_model": plan.embedding_model,
+                }]
+                chunks, sim = await retrieve_filesystem_chunks(
+                    user_message,
+                    bot.id,
+                    roots=list(plan.roots),
+                    threshold=plan.similarity_threshold,
+                    top_k=plan.top_k,
+                    embedding_model=plan.embedding_model,
+                    segments=ref_segments,
+                    include_path_prefixes=[ref_prefix],
+                )
+                if chunks:
+                    body = "\n\n".join(c.formatted for c in chunks)
+                    header = (
+                        f"{BOT_MEMORY_REFERENCE_RAG_PREFIX}:\n\n"
+                        "(Use get_memory_file or file(read) for the full document; these are"
+                        " the auto-retrieved excerpts most relevant to this turn.)\n\n"
+                    )
+                    content = header + body
+                    if budget_can_afford(content):
+                        messages.append({"role": "system", "content": content})
+                        budget_consume("bot_memory_reference", content)
+                        inject_chars["bot_memory_reference"] = len(body)
+                        _mark_injection_decision(inject_decisions, "bot_memory_reference", "admitted")
+                        yield {
+                            "type": "bot_memory_reference",
+                            "count": len(chunks),
+                            "similarity": sim,
+                            "chunks": [
+                                {"file_path": c.file_path, "similarity": c.similarity, "chars": c.chars}
+                                for c in chunks
+                            ],
+                        }
+                        # Retrieval admitted excerpts; the directory listing
+                        # below would be redundant prompt text.
+                        return
+                    else:
+                        _mark_injection_decision(inject_decisions, "bot_memory_reference", "skipped_by_budget")
+                else:
+                    _mark_injection_decision(inject_decisions, "bot_memory_reference", "skipped_empty")
+        except Exception:
+            logger.warning("Failed to retrieve bot memory/reference for bot %s", bot.id, exc_info=True)
+            _mark_injection_decision(inject_decisions, "bot_memory_reference", "skipped_error")
+    elif retrieval_disabled:
+        _mark_injection_decision(inject_decisions, "bot_memory_reference", "skipped_disabled")
+    else:
+        _mark_injection_decision(inject_decisions, "bot_memory_reference", "skipped_missing")
+
+    # Fallback: the directory listing keeps `get_memory_file` discoverable when
+    # semantic retrieval is empty, disabled, or below threshold. Mirrors the
+    # legacy memory-scheme listing block but lives next to the retrieval path.
+    import os
+    from datetime import datetime
+
+    from app.services.memory_scheme import get_memory_rel_path, get_memory_root
 
     try:
-        from app.agent.fs_indexer import retrieve_filesystem_context
-        from app.services.bot_indexing import resolve_for
-
-        plan = resolve_for(bot, scope="workspace")
-        if plan is None:
-            _mark_injection_decision(inject_decisions, "user_knowledge", "skipped_missing")
-            return
-        prefix = f"users/{owner_user_id}/knowledge-base/notes"
-        chunks, sim = await retrieve_filesystem_context(
-            user_message,
-            bot.id,
-            roots=list(plan.roots),
-            threshold=plan.similarity_threshold,
-            top_k=plan.top_k,
-            embedding_model=plan.embedding_model,
-            include_path_prefixes=[prefix],
-            metadata_equals={
-                "knowledge_scope": "user",
-                "owner_user_id": str(owner_user_id),
-            },
-            metadata_not_equals={"kd_status": "pending_review"},
-        )
-        if not chunks:
-            _mark_injection_decision(inject_decisions, "user_knowledge", "skipped_empty")
-            return
-
-        body = "Accepted user knowledge:\n\n" + "\n\n".join(chunks)
-        if budget_can_afford(body):
-            messages.append({"role": "system", "content": body})
-            budget_consume("user_knowledge", body)
-            inject_chars["user_knowledge"] = len(body)
-            _mark_injection_decision(inject_decisions, "user_knowledge", "admitted")
-            yield {"type": "user_knowledge", "count": len(chunks), "similarity": sim}
-        else:
-            _mark_injection_decision(inject_decisions, "user_knowledge", "skipped_by_budget")
+        mem_root = get_memory_root(bot)
+        mem_rel = get_memory_rel_path(bot)
     except Exception:
-        logger.warning("Failed to retrieve user knowledge for bot %s", bot.id, exc_info=True)
-        _mark_injection_decision(inject_decisions, "user_knowledge", "skipped_error")
+        _mark_injection_decision(inject_decisions, "memory_reference_index", "skipped_missing")
+        return
+
+    ref_dir = os.path.join(mem_root, "reference")
+    if not os.path.isdir(ref_dir):
+        _mark_injection_decision(inject_decisions, "memory_reference_index", "skipped_missing")
+        return
+
+    ref_files = sorted(
+        f for f in os.listdir(ref_dir)
+        if f.endswith(".md") and os.path.isfile(os.path.join(ref_dir, f))
+    )
+    if not ref_files:
+        _mark_injection_decision(inject_decisions, "memory_reference_index", "skipped_empty")
+        return
+
+    ref_entries: list[str] = []
+    for rf in ref_files:
+        rf_path = os.path.join(ref_dir, rf)
+        try:
+            mtime = os.path.getmtime(rf_path)
+            rf_date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
+            line = f"  - {rf} (modified {rf_date})"
+        except Exception:
+            line = f"  - {rf}"
+        summary = _read_reference_summary(rf_path)
+        if summary:
+            line += f" — {summary}"
+        ref_entries.append(line)
+    listing = (
+        f"Reference documents in {mem_rel}/reference/ (use get_memory_file to read):\n"
+        + "\n".join(ref_entries)
+    )
+    if budget_can_afford(listing):
+        messages.append({"role": "system", "content": listing})
+        budget_consume("memory_reference_index", listing)
+        _mark_injection_decision(inject_decisions, "memory_reference_index", "admitted")
+        yield {"type": "memory_scheme_reference_index", "count": len(ref_files)}
+    else:
+        _mark_injection_decision(inject_decisions, "memory_reference_index", "skipped_by_budget")
+
+

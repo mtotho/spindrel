@@ -266,6 +266,18 @@ runtime env, use the granted e2e/machine target only when attached to the task,
 run e2e checks when relevant, and publish `publish_project_run_receipt`
 evidence.
 
+Manual and scheduled Project coding runs can optionally pin `model_override`,
+`model_provider_id_override`, and harness `harness_effort`. These are explicit
+run intent fields: when unset, runs inherit the channel/bot/runtime defaults
+and the Project coding-run preset keeps its default harness effort. When set,
+the values are stored in `project_coding_run.model_selection` or
+`project_coding_run_schedule.model_selection` for audit and copied to the
+existing task `execution_config` keys consumed by the loop and harness host.
+Scheduled runs only persist explicit selections; each fired run copies those
+pins into the concrete task. Continuations inherit the parent run's explicit
+selection so loop iterations stay on the same model/effort unless an operator
+starts a new run with a different selection.
+
 Bounded loops are an optional launch policy for exploratory or repeated repair
 work. They deliberately reuse the existing continuation primitive instead of a
 hidden orchestrator: every iteration is a normal Project coding run on the same

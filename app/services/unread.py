@@ -405,7 +405,15 @@ async def process_persisted_messages(
     bus_channel_id: uuid.UUID | None,
     records: list[Message],
 ) -> None:
-    messages = [record for record in records if _is_unread_worthy(record)]
+    record_ids = [record.id for record in records if record.id is not None]
+    if not record_ids:
+        return
+    rows = (await db.execute(
+        select(Message).where(Message.id.in_(record_ids))
+    )).scalars().all()
+    rows_by_id = {row.id: row for row in rows}
+    persisted = [rows_by_id[record_id] for record_id in record_ids if record_id in rows_by_id]
+    messages = [record for record in persisted if _is_unread_worthy(record)]
     if not messages:
         return
     session = await db.get(Session, session_id)

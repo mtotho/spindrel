@@ -15,7 +15,6 @@ from app.services.knowledge_documents import (
     read_document,
     render_frontmatter,
     update_session_binding,
-    user_knowledge_surface,
     write_document,
 )
 
@@ -29,18 +28,6 @@ def test_surface_validates_scope_combinations(tmp_path: Path):
 
     with pytest.raises(ValueError):
         KnowledgeDocumentSurface(root=str(tmp_path), kb_rel="knowledge-base", scope="user", user_id="u1", channel_id="ch-1")
-
-
-def test_user_surface_resolves_canonical_shared_workspace_path(tmp_path: Path):
-    surface = user_knowledge_surface(workspace_root=str(tmp_path), user_id="u1")
-
-    assert surface.scope == "user"
-    assert surface.documents_root == str(tmp_path / "users" / "u1" / "knowledge-base" / "notes")
-    assert surface.workspace_path_for("notes/a.md") == "users/u1/knowledge-base/notes/a.md"
-    assert surface.tool_path_for("notes/a.md") == "/workspace/users/u1/knowledge-base/notes/a.md"
-
-    with pytest.raises(ValueError):
-        user_knowledge_surface(workspace_root=str(tmp_path), user_id="../other")
 
 
 def test_frontmatter_round_trips_envelope_and_unknown_keys():

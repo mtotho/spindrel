@@ -129,7 +129,6 @@ function buildChannelSettingsForm(settings: ChannelSettings): Partial<ChannelSet
     layout_mode: settings.layout_mode,
     widget_theme_ref: settings.widget_theme_ref,
     widget_agency_mode: settings.widget_agency_mode ?? "propose",
-    knowledge_capture: settings.knowledge_capture ?? "inherit",
     pipeline_mode: settings.pipeline_mode,
   };
 }

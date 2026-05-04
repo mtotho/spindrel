@@ -401,6 +401,7 @@ Work silently during multi-step tasks; when done, say what happened in plain lan
 Your tools and skills load dynamically — not everything is in your context.
 - `get_tool_info(tool_name="...")` — look up a tool by name.
 - `get_skill(skill_id="...")` — fetch a skill from the index in your context.
+- `get_doc(id="reference/...")` — fetch internal reference manuals under `docs/` (e.g. `reference/widgets/sdk`). Use `list_docs(area="reference")` to discover them. Skills point at the right doc when they need this.
 - `run_script(...)` — preferred for multi-step tool work (for-each loops, filtering, \
 joining results across tools). Runs Python in your workspace with `tools.NAME(**args)` \
 bindings and keeps intermediate data out of context. It can run ad-hoc inline source or a \

@@ -28,6 +28,33 @@ SlackCall = Callable[[str, str, dict], Awaitable[Any]]
 BotAttribution = Callable[[str], dict]
 
 
+def _feedback_action_block() -> dict:
+    return {
+        "type": "actions",
+        "block_id": "spindrel_turn_feedback",
+        "elements": [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "👍", "emoji": True},
+                "action_id": "turn_feedback_up",
+                "value": "up",
+            },
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "👎", "emoji": True},
+                "action_id": "turn_feedback_down",
+                "value": "down",
+            },
+        ],
+    }
+
+
+def _with_feedback_actions(blocks: list[dict], *, role: str, correlation_id: str) -> list[dict]:
+    if role != "assistant" or not correlation_id:
+        return blocks
+    return [*blocks[:49], _feedback_action_block()]
+
+
 class SlackMessageDelivery:
     """Deliver durable Slack ``NEW_MESSAGE`` events."""
 
@@ -134,6 +161,16 @@ class SlackMessageDelivery:
                         *tool_blocks,
                     ]
                     tool_blocks = []
+                elif len(chunks) == 1:
+                    update_body["blocks"] = [
+                        {"type": "section", "text": {"type": "mrkdwn", "text": chunks[0]}}
+                    ]
+                if len(chunks) == 1 and update_body.get("blocks"):
+                    update_body["blocks"] = _with_feedback_actions(
+                        update_body["blocks"],
+                        role=role,
+                        correlation_id=correlation_id,
+                    )
                 update_result = await self._call_slack(
                     "chat.update", target.token, update_body
                 )
@@ -157,6 +194,14 @@ class SlackMessageDelivery:
                     *tool_blocks,
                 ]
                 tool_blocks = []
+            if is_last and role == "assistant" and correlation_id:
+                body["blocks"] = _with_feedback_actions(
+                    body.get("blocks") or [
+                        {"type": "section", "text": {"type": "mrkdwn", "text": chunk}}
+                    ],
+                    role=role,
+                    correlation_id=correlation_id,
+                )
             if target.thread_ts and target.reply_in_thread:
                 body["thread_ts"] = target.thread_ts
             result = await self._call_slack("chat.postMessage", target.token, body)

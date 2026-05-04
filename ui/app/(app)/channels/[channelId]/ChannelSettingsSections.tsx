@@ -470,12 +470,6 @@ export function AgentBehaviorSection({
         description="Allow pinned channel widgets to contribute summaries and action hints to chat context."
       />
       <Toggle
-        value={(form.knowledge_capture ?? "inherit") !== "off"}
-        onChange={(v) => patch("knowledge_capture", (v ? "inherit" : "off") as ChannelSettings["knowledge_capture"])}
-        label="Knowledge capture"
-        description="Allow opted-in bots to capture review-first user knowledge from this channel. Turn this off for sensitive or noisy rooms."
-      />
-      <Toggle
         value={form.show_message_feedback ?? true}
         onChange={(v) => patch("show_message_feedback", v as ChannelSettings["show_message_feedback"])}
         label="Show feedback votes on assistant replies"

@@ -1,11 +1,9 @@
 ---
 name: Native Session Planning
 description: >
-  Runtime procedure for Spindrel's native session plan mode: structured
-  questions, publish_plan, approval-gated execution, record_plan_progress,
-  replan recovery, and adherence review. Use when a session is in Planning,
-  Executing, Blocked, or Done plan mode, or before using ask_plan_questions,
-  publish_plan, record_plan_progress, or request_plan_replan.
+  Runtime procedure for Spindrel's native session plan mode: structured questions,
+  `publish_plan`, approval-gated execution, `record_plan_progress`, replan recovery,
+  and adherence review. Use when a session enters any plan mode.
 triggers: native planning, plan mode, publish plan, record plan progress, request replan, plan adherence, plan questions
 category: core
 ---

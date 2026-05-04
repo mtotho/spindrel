@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.models import Attachment, Channel, Message, Session, TraceEvent
 from app.dependencies import get_db, require_scopes, verify_user
-from app.schemas.messages import AttachmentBrief, MessageOut
+from app.schemas.messages import AttachmentBrief, FeedbackBlock, FeedbackTotals, MessageOut
 from app.services.compaction import run_compaction_forced
 from app.services import presence
 from app.services.machine_control import (
@@ -782,6 +782,47 @@ async def _recover_orphan_attachments(
         _logger.info("Recovered %d orphan attachment(s) in channel %s", linked, channel_id)
 
 
+async def _hydrate_turn_feedback(
+    db: AsyncSession,
+    *,
+    messages: list["Message"],
+    serialized: list[MessageOut],
+    user_id: uuid.UUID | None,
+) -> None:
+    correlation_ids = [
+        m.correlation_id for m in messages
+        if m.role == "assistant" and m.correlation_id is not None
+    ]
+    if not correlation_ids:
+        return
+
+    from app.services.turn_feedback import (
+        anchor_message_ids_for_correlations,
+        feedback_for_correlation_ids,
+    )
+
+    unique_cids = list({c for c in correlation_ids})
+    summaries = await feedback_for_correlation_ids(
+        db,
+        correlation_ids=unique_cids,
+        user_id=user_id,
+    )
+    anchor_by_cid = await anchor_message_ids_for_correlations(db, unique_cids)
+    anchor_ids = set(anchor_by_cid.values())
+
+    for message_out in serialized:
+        if message_out.id not in anchor_ids or message_out.correlation_id is None:
+            continue
+        summary = summaries.get(message_out.correlation_id)
+        if summary is None:
+            continue
+        message_out.feedback = FeedbackBlock(
+            mine=summary.mine,
+            totals=FeedbackTotals(**summary.totals),
+            comment_mine=summary.comment_mine,
+        )
+
+
 @router.get("/{session_id}/messages", response_model=MessagePage)
 async def get_session_messages(
     session_id: uuid.UUID,
@@ -844,7 +885,15 @@ async def get_session_messages(
     if session.channel_id:
         await _recover_orphan_attachments(db, session.channel_id, messages)
 
-    return MessagePage(messages=[MessageOut.from_orm(m) for m in messages], has_more=has_more)
+    out = [MessageOut.from_orm(m) for m in messages]
+    user_id = getattr(_auth, "id", None)
+    await _hydrate_turn_feedback(
+        db,
+        messages=messages,
+        serialized=out,
+        user_id=user_id,
+    )
+    return MessagePage(messages=out, has_more=has_more)
 
 
 @router.delete("/{session_id}", status_code=204)

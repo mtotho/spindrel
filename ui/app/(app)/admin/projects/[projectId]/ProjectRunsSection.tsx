@@ -9,7 +9,6 @@ import {
   RefreshCcw,
   Repeat2,
   Trash2,
-  X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -32,6 +31,8 @@ import {
   useRefreshProjectCodingRun,
   useRunProjectCodingRunScheduleNow,
   useManageSessionExecutionEnvironment,
+  type ProjectChannel,
+  type ProjectRunModelSelectionInput,
   useSessionExecutionEnvironment,
   useUpdateProjectCodingRunSchedule,
 } from "@/src/api/hooks/useProjects";
@@ -40,14 +41,7 @@ import { DateTimePicker } from "@/src/components/shared/DateTimePicker";
 import { FormRow, SelectInput } from "@/src/components/shared/FormControls";
 import { PromptEditor } from "@/src/components/shared/LlmPrompt";
 import { ActionButton, EmptyState } from "@/src/components/shared/SettingsControls";
-import type {
-  Channel,
-  Project,
-  ProjectCodingRun,
-  ProjectCodingRunReviewBatch,
-  ProjectCodingRunSchedule,
-  ProjectRunReceipt,
-} from "@/src/types/api";
+import type { Project, ProjectCodingRun, ProjectCodingRunReviewBatch, ProjectCodingRunSchedule } from "@/src/types/api";
 import {
   ExecutionAccessControl,
   executionAccessLine,
@@ -55,10 +49,21 @@ import {
   RowLink,
 } from "./ProjectRunControls";
 import { ProjectRunFeed } from "./ProjectRunFeed";
+import { ProjectRunModelControls } from "./ProjectRunModelControls";
+import {
+  DetailDrawer,
+  DetailRow,
+  InspectorPanel,
+  WORK_SURFACE_OPTIONS,
+  columnLabel,
+  compactPath,
+  modelSelectionLine,
+  sessionPathForRun,
+  sessionPathForScheduleRun,
+} from "./ProjectRunsInspectorPrimitives";
 import { ProjectRunsBoardCard, batchTitle, compactAge, scheduleNextLine } from "./ProjectRunsBoardCard";
 import {
   BOARD_COLUMNS,
-  type BoardColumnKey,
   type BoardItem,
   buildBoardItems,
   buildFeedItems,
@@ -75,85 +80,11 @@ import {
   startedTimestamp,
 } from "./ProjectRunsModel";
 
-function sessionPathForRun(run: ProjectCodingRun) {
-  return run.task.channel_id && run.task.session_id ? `/channels/${run.task.channel_id}/session/${run.task.session_id}` : null;
-}
-
-function sessionPathForScheduleRun(run?: ProjectCodingRunSchedule["last_run"] | null) {
-  return run?.channel_id && run.session_id ? `/channels/${run.channel_id}/session/${run.session_id}` : null;
-}
-
-function columnLabel(key: BoardColumnKey) {
-  if (key === "backlog") return "Backlog / ready";
-  if (key === "running") return "Running";
-  if (key === "review") return "Human review";
-  return "Closed";
-}
-
-const WORK_SURFACE_OPTIONS = [
-  { label: "Isolated worktree", value: "isolated_worktree" },
-  { label: "Fresh Project instance", value: "fresh_project_instance" },
-  { label: "Shared repo", value: "shared_repo" },
-];
-
-function DetailRow({ label, value }: { label: string; value?: React.ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-4 border-t border-surface-border/45 pt-2 text-[12px]">
-      <span className="text-text-dim">{label}</span>
-      <span className="min-w-0 text-right font-semibold text-text-muted">{value || "none"}</span>
-    </div>
-  );
-}
-
-function compactPath(value?: string | null) {
-  if (!value) return "none";
-  const parts = value.split("/").filter(Boolean);
-  return parts.length > 4 ? `.../${parts.slice(-4).join("/")}` : value;
-}
-
-function InspectorPanel({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-md bg-surface-raised/55 p-3">
-      <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-text-dim">{title}</div>
-      {children}
-    </div>
-  );
-}
-
-function DetailDrawer({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-surface/55 backdrop-blur-[1px]" role="dialog" aria-modal="true" onMouseDown={onClose}>
-      <div className="h-full w-full max-w-[560px] overflow-auto border-l border-surface-border bg-surface px-4 py-4" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="min-w-0 text-sm font-semibold text-text">{title}</div>
-          <button type="button" className="rounded-md p-1.5 text-text-muted hover:bg-surface-overlay hover:text-text" onClick={onClose} aria-label="Close details">
-            <X size={16} />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
 export function ProjectRunsSection({
   project,
   channels,
   mode = "board",
-}: {
-  project: Project;
-  channels?: Pick<Channel, "id" | "name" | "bot_id">[];
-  receipts?: ProjectRunReceipt[];
-  mode?: "board" | "feed";
-}) {
+}: { project: Project; channels?: ProjectChannel[]; receipts?: unknown[]; mode?: "board" | "feed" }) {
   const { data: runs = [] } = useProjectCodingRuns(project.id, mode === "feed" ? { limit: 100 } : undefined);
   const { data: schedules = [] } = useProjectCodingRunSchedules(project.id);
   const { data: reviewBatches = [] } = useProjectCodingRunReviewBatches(project.id);
@@ -183,6 +114,7 @@ export function ProjectRunsSection({
   const [loopEnabled, setLoopEnabled] = useState(false);
   const [loopMaxIterations, setLoopMaxIterations] = useState(3);
   const [loopStopCondition, setLoopStopCondition] = useState("Stop when the requested work is implemented, verified, and ready for human review.");
+  const [runModelSelection, setRunModelSelection] = useState<ProjectRunModelSelectionInput>({});
   const [reviewPrompt, setReviewPrompt] = useState("Review the selected PRs. Merge only accepted work to development, then mark those runs reviewed with links and blockers.");
   const [reviewMachineTargetGrant, setReviewMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
   const [changeFeedback, setChangeFeedback] = useState("");
@@ -196,6 +128,7 @@ export function ProjectRunsSection({
   const [scheduleLoopMaxIterations, setScheduleLoopMaxIterations] = useState(3);
   const [scheduleLoopStopCondition, setScheduleLoopStopCondition] = useState("Stop when the scheduled run brief is complete.");
   const [scheduleLoopContinuationPrompt, setScheduleLoopContinuationPrompt] = useState("");
+  const [scheduleModelSelection, setScheduleModelSelection] = useState<ProjectRunModelSelectionInput>({});
 
   useEffect(() => {
     if (!selectedChannelId && channels && channels.length > 0) {
@@ -204,6 +137,15 @@ export function ProjectRunsSection({
   }, [channels, selectedChannelId]);
 
   const selectedChannel = channels?.find((channel) => channel.id === selectedChannelId);
+  useEffect(() => {
+    const cleanForChannel = (selection: ProjectRunModelSelectionInput) => (
+      selectedChannel?.harness_runtime
+        ? { model_override: selection.model_override ?? null, model_provider_id_override: null, harness_effort: selection.harness_effort ?? null }
+        : { model_override: selection.model_override ?? null, model_provider_id_override: selection.model_provider_id_override ?? null, harness_effort: null }
+    );
+    setRunModelSelection((selection) => cleanForChannel(selection));
+    setScheduleModelSelection((selection) => cleanForChannel(selection));
+  }, [selectedChannel?.harness_runtime]);
   const hasBlueprintSnapshot = Boolean(project.metadata_?.blueprint_snapshot);
   const blueprintRepos = useMemo(() => {
     const raw = project.metadata_?.blueprint_snapshot?.repos;
@@ -265,6 +207,11 @@ export function ProjectRunsSection({
     setScheduleLoopMaxIterations(Number(loop.max_iterations || 3));
     setScheduleLoopStopCondition(String(loop.stop_condition || "Stop when the scheduled run brief is complete."));
     setScheduleLoopContinuationPrompt(String(loop.continuation_prompt || ""));
+    setScheduleModelSelection({
+      model_override: schedule.model_selection?.model_override ?? null,
+      model_provider_id_override: schedule.model_selection?.model_provider_id_override ?? null,
+      harness_effort: schedule.model_selection?.harness_effort ?? null,
+    });
   }, [selectedItem?.id]);
   const activeRuns = columns.running.filter((item) => item.kind === "run").length;
   const staleRuns = columns.running.filter((item) => item.kind === "run" && isStaleActive(item.run)).length;
@@ -281,6 +228,7 @@ export function ProjectRunsSection({
         repo_path: selectedRepoPath || null,
         work_surface_mode: runWorkSurfaceMode,
         machine_target_grant: runMachineTargetGrant,
+        ...runModelSelection,
         loop_policy: loopEnabled
           ? {
             enabled: true,
@@ -293,6 +241,7 @@ export function ProjectRunsSection({
         onSuccess: (run) => {
           setSelectedItemId(`run:${run.id}`);
           setRequest("");
+          setRunModelSelection({});
         },
       },
     );
@@ -310,6 +259,7 @@ export function ProjectRunsSection({
         repo_path: selectedRepoPath || null,
         work_surface_mode: scheduleWorkSurfaceMode,
         machine_target_grant: scheduleMachineTargetGrant,
+        ...scheduleModelSelection,
         loop_policy: scheduleLoopEnabled
           ? {
             enabled: true,
@@ -335,6 +285,7 @@ export function ProjectRunsSection({
       repo_path: selectedRepoPath || null,
       work_surface_mode: scheduleWorkSurfaceMode,
       machine_target_grant: scheduleMachineTargetGrant,
+      ...scheduleModelSelection,
       loop_policy: scheduleLoopEnabled
         ? {
           enabled: true,
@@ -468,6 +419,8 @@ export function ProjectRunsSection({
             setLoopMaxIterations={setLoopMaxIterations}
             loopStopCondition={loopStopCondition}
             setLoopStopCondition={setLoopStopCondition}
+            runModelSelection={runModelSelection}
+            setRunModelSelection={setRunModelSelection}
             hasBlueprintSnapshot={hasBlueprintSnapshot}
             createBlueprintPending={createBlueprint.isPending}
             onCreateBlueprint={() => createBlueprint.mutate({ apply_to_project: true })}
@@ -494,6 +447,8 @@ export function ProjectRunsSection({
             setScheduleLoopStopCondition={setScheduleLoopStopCondition}
             scheduleLoopContinuationPrompt={scheduleLoopContinuationPrompt}
             setScheduleLoopContinuationPrompt={setScheduleLoopContinuationPrompt}
+            scheduleModelSelection={scheduleModelSelection}
+            setScheduleModelSelection={setScheduleModelSelection}
             createSchedulePending={createSchedule.isPending}
             onStartSchedule={startSchedule}
             runBusy={refreshRun.isPending || markReviewed.isPending || cleanupRun.isPending || cancelRun.isPending || disableLoop.isPending || continueRun.isPending}
@@ -547,6 +502,8 @@ function Inspector({
   setLoopMaxIterations,
   loopStopCondition,
   setLoopStopCondition,
+  runModelSelection,
+  setRunModelSelection,
   hasBlueprintSnapshot,
   createBlueprintPending,
   onCreateBlueprint,
@@ -573,6 +530,8 @@ function Inspector({
   setScheduleLoopStopCondition,
   scheduleLoopContinuationPrompt,
   setScheduleLoopContinuationPrompt,
+  scheduleModelSelection,
+  setScheduleModelSelection,
   createSchedulePending,
   onStartSchedule,
   runBusy,
@@ -599,7 +558,7 @@ function Inspector({
 }: {
   project: Project;
   item?: BoardItem;
-  channels?: Pick<Channel, "id" | "name" | "bot_id">[];
+  channels?: ProjectChannel[];
   selectedChannelId: string;
   setSelectedChannelId: (value: string) => void;
   blueprintRepos: { label: string; value: string }[];
@@ -617,6 +576,8 @@ function Inspector({
   setLoopMaxIterations: (value: number) => void;
   loopStopCondition: string;
   setLoopStopCondition: (value: string) => void;
+  runModelSelection: ProjectRunModelSelectionInput;
+  setRunModelSelection: (value: ProjectRunModelSelectionInput) => void;
   hasBlueprintSnapshot: boolean;
   createBlueprintPending: boolean;
   onCreateBlueprint: () => void;
@@ -643,6 +604,8 @@ function Inspector({
   setScheduleLoopStopCondition: (value: string) => void;
   scheduleLoopContinuationPrompt: string;
   setScheduleLoopContinuationPrompt: (value: string) => void;
+  scheduleModelSelection: ProjectRunModelSelectionInput;
+  setScheduleModelSelection: (value: ProjectRunModelSelectionInput) => void;
   createSchedulePending: boolean;
   onStartSchedule: () => void;
   runBusy: boolean;
@@ -670,6 +633,7 @@ function Inspector({
   const selectedRunSessionId = item?.kind === "run" ? item.run.task.session_id : null;
   const sessionEnv = useSessionExecutionEnvironment(selectedRunSessionId);
   const manageSessionEnv = useManageSessionExecutionEnvironment(selectedRunSessionId);
+  const selectedChannel = channels?.find((channel) => channel.id === selectedChannelId) ?? null;
 
   if (!item) return <EmptyState message="No Project run items are available." />;
 
@@ -701,6 +665,7 @@ function Inspector({
             <FormRow label="Work surface">
               <SelectInput value={runWorkSurfaceMode} onChange={setRunWorkSurfaceMode} options={WORK_SURFACE_OPTIONS} />
             </FormRow>
+            <ProjectRunModelControls channel={selectedChannel} value={runModelSelection} onChange={setRunModelSelection} />
             <PromptEditor
               value={request}
               onChange={setRequest}
@@ -773,6 +738,7 @@ function Inspector({
             <FormRow label="Work surface">
               <SelectInput value={scheduleWorkSurfaceMode} onChange={setScheduleWorkSurfaceMode} options={WORK_SURFACE_OPTIONS} />
             </FormRow>
+            <ProjectRunModelControls channel={selectedChannel} value={scheduleModelSelection} onChange={setScheduleModelSelection} />
             <PromptEditor value={scheduleRequest} onChange={setScheduleRequest} label="Scheduled run prompt" rows={5} fieldType="task_prompt" generateContext={`Project: ${project.name}. Root: /${project.root_path}`} />
             <ExecutionAccessControl value={scheduleMachineTargetGrant} onChange={setScheduleMachineTargetGrant} testId="project-schedule-execution-access" />
             <label className="flex items-center gap-2 text-[12px] font-semibold text-text">
@@ -819,6 +785,7 @@ function Inspector({
             <DetailRow label="Age" value={compactAge(itemTimestamp(run) || startedTimestamp(run))} />
             <DetailRow label="Status" value={runStatus(run)} />
             <DetailRow label="Review" value={reviewStatus(run).replaceAll("_", " ")} />
+            <DetailRow label="Model" value={modelSelectionLine(run.model_selection)} />
             <DetailRow label="Session" value={run.task.session_id ? String(run.task.session_id).slice(0, 8) : "missing"} />
             <DetailRow label="Branch" value={run.branch || "none"} />
             <DetailRow label="Evidence" value={evidenceLine(run)} />
@@ -899,6 +866,7 @@ function Inspector({
             <DetailRow label="Runs" value={schedule.run_count} />
             <DetailRow label="Last run" value={schedule.last_run ? `${schedule.last_run.status || "unknown"} · ${formatRunTime(schedule.last_run.created_at)}` : "none"} />
             <DetailRow label="Work surface" value={(schedule.work_surface_mode || "isolated_worktree").replaceAll("_", " ")} />
+            <DetailRow label="Model" value={modelSelectionLine(schedule.model_selection)} />
             <DetailRow label="Execution" value={executionAccessLine(schedule.machine_target_grant) || "default"} />
             <DetailRow label="Loop" value={loopPolicy.enabled ? `${loopPolicy.max_iterations || 3} iterations · ${loopPolicy.stop_condition || "bounded"}` : "disabled"} />
           </div>
@@ -933,6 +901,7 @@ function Inspector({
             <FormRow label="Work surface">
               <SelectInput value={scheduleWorkSurfaceMode} onChange={setScheduleWorkSurfaceMode} options={WORK_SURFACE_OPTIONS} />
             </FormRow>
+            <ProjectRunModelControls channel={selectedChannel} value={scheduleModelSelection} onChange={setScheduleModelSelection} />
             <PromptEditor value={scheduleRequest} onChange={setScheduleRequest} label="Scheduled run prompt" rows={5} fieldType="task_prompt" generateContext={`Project: ${project.name}. Root: /${project.root_path}`} />
             <ExecutionAccessControl value={scheduleMachineTargetGrant} onChange={setScheduleMachineTargetGrant} testId={`project-schedule-${schedule.id}-execution-access`} />
             <label className="flex items-center gap-2 text-[12px] font-semibold text-text">

@@ -4,7 +4,7 @@ summary: First-class Project roots plus the Project Factory: repo workflow contr
 tags: [spindrel, track, projects]
 status: active
 created: 2026-04-29
-updated: 2026-05-03
+updated: 2026-05-04
 ---
 
 # Projects
@@ -58,6 +58,7 @@ Use this track to answer:
 | Project roots and WorkSurface | shipped | 2026-04-29 | Project-bound file/search/terminal/exec/harness behavior is the foundation. |
 | Blueprints and runtime readiness | shipped | 2026-04-30 | Applied snapshots, setup commands, env/secret readiness, dev targets, and dependency-stack declarations exist. |
 | Project coding runs and review | shipped | 2026-05-02 | Runs, continuations, receipts, review sessions, bounded loops, concurrency, and recovery states are live. |
+| Project run model pins | shipped | 2026-05-03 | Manual runs and schedules now persist explicit model/provider/harness-effort selection at the Project boundary, copy it into existing task execution config, inherit it through continuations, and expose capability-backed controls in Project Runs. |
 | Repo-resident source artifacts | active | 2026-05-03 | Intake and Run Packs are moving to repo files/source artifacts; bespoke IssueWorkPack DB state is gone. |
 | Workflow contract | active | 2026-05-03 | `.spindrel/WORKFLOW.md` is now the single repo-owned Project contract with parser/starter/factory-state support. |
 | Project-channel agent readiness | shipped | 2026-05-03 | Project-bound channels now receive the Project entry skill and local-tool pack by default; sessions get compact Project bootstrap pointers, not full workflow injection. |
@@ -250,6 +251,11 @@ The Runs cockpit should grow from a temporary queue into a source-aware taskboar
 - Blueprint setup observability: split clone/command run phases into clearer progress events and add rerun controls after deployed E2E validates setup-command history.
 - Agent coding runs: add rerun controls for failed review steps and optional GitHub status webhooks/polling beyond explicit refresh.
 - Project factory: add schedule-run filters once recurring review usage settles.
+- Project run review agents: include turn-level user feedback from
+  `turn_feedback` / `audit_trace_quality` in Codex and Claude review-session
+  context. Downvotes should trigger targeted inspection of the affected answer,
+  receipt, diff, tests, and comments before the reviewer accepts or requests a
+  continuation. Tracked as Agent Quality Observability Phase 10.
 - Source adapters (post-cohesion): GitHub issues -> intake, Linear -> intake. Slack mirroring already exists; intake recognition in any Slack-mirrored channel falls out of Phase 4BA.
 - Auto retry-with-backoff for transient run failures (Symphony parity, deferred from cohesion pass).
 - Symphony primitive map shipped in `docs/audits/symphony-mapping.md`; future planning should cite that audit instead of re-deriving the Spindrel↔Symphony equivalents.

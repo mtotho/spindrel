@@ -137,33 +137,6 @@ function OverviewSection({ draft, usage, logs, setGroup, readinessBotId, update 
         </div>
       </SectionFrame>
 
-      <SectionFrame title="Knowledge capture" description="Review-first user knowledge capture for owned bots. Captured entries stay pending until an admin accepts them.">
-        <SettingsControlRow
-          leading={<Brain size={14} />}
-          title={draft.integration_config?.knowledge_capture_enabled ? "Capture enabled" : "Capture disabled"}
-          description={
-            draft.user_id
-              ? "The bot may propose user-owned knowledge documents after human turns in channels that have not opted out."
-              : "Assign an owner before enabling capture; ownerless bots are ignored by the backend capture gate."
-          }
-          meta={<QuietPill label={draft.user_id ? `owner ${draft.user_id}` : "owner required"} />}
-          action={
-            <Toggle
-              value={draft.integration_config?.knowledge_capture_enabled === true}
-              onChange={(enabled) => {
-                const integration_config = { ...(draft.integration_config ?? {}) };
-                if (enabled) {
-                  integration_config.knowledge_capture_enabled = true;
-                } else {
-                  delete integration_config.knowledge_capture_enabled;
-                }
-                update({ integration_config });
-              }}
-            />
-          }
-        />
-      </SectionFrame>
-
       {(draft.workspace?.cross_workspace_access || draft.api_permissions?.length || draft.system_prompt_workspace_file || draft.persona_from_workspace) && (
         <InfoBanner variant="warning" icon={<Shield size={14} />}>
           This bot has elevated or file-backed configuration. Review workspace access, prompt/persona source files, and API scopes before sharing it broadly.

@@ -42,6 +42,11 @@ from app.services.project_coding_run_lib import (
 )
 from app.services.project_runtime import project_snapshot
 from app.services.project_run_environment_profiles import validate_project_run_environment_profile_or_raise
+from app.services.project_run_model_selection import (
+    apply_project_run_model_selection,
+    normalize_project_run_model_selection,
+    project_run_model_selection_from_config,
+)
 
 
 def _apply_work_surface_mode(task: Task, mode: str) -> None:
@@ -252,6 +257,13 @@ async def create_project_coding_run(
         raise ValueError("channel not found")
     if channel.project_id != project.id:
         raise ValueError("channel does not belong to this Project")
+    model_selection = await normalize_project_run_model_selection(
+        db,
+        channel,
+        model_override=body.model_override,
+        model_provider_id_override=body.model_provider_id_override,
+        harness_effort=body.harness_effort,
+    )
     preset = get_run_preset(PROJECT_CODING_RUN_PRESET_ID)
     if preset is None:
         raise ValueError("Project coding-run preset is not registered")
@@ -303,6 +315,7 @@ async def create_project_coding_run(
     run_cfg["run_environment_profile"] = body.run_environment_profile
     run_cfg["loop_policy"] = loop_policy
     run_cfg["loop_state"] = initial_project_run_loop_state(loop_policy)
+    apply_project_run_model_selection(task.execution_config, model_selection)
     await _attach_visible_project_run_session(
         db,
         channel=channel,
@@ -429,6 +442,10 @@ async def continue_project_coding_run(
     if isinstance(parent_ecfg.get("project_instance"), dict):
         task.execution_config["project_instance"] = dict(parent_ecfg["project_instance"])
     task.execution_config["work_surface_mode"] = work_surface_mode
+    apply_project_run_model_selection(
+        task.execution_config,
+        project_run_model_selection_from_config(parent_run_cfg.get("model_selection")),
+    )
     await _attach_visible_project_run_session(
         db,
         channel=channel,
