@@ -525,21 +525,10 @@ async def inject_channel_workspace(
         else:
             _mark_injection_decision(inject_decisions, "channel_workspace", "skipped_by_profile")
 
-        from app.services.bot_indexing import reindex_channel
-
         cw_segments = getattr(ch_row, "index_segments", None) or []
         if not context_profile.allow_channel_index_segments:
             _mark_injection_decision(inject_decisions, "channel_index_segments", "skipped_by_profile")
             return
-
-        asyncio.create_task(
-            reindex_channel(
-                ch_id,
-                bot,
-                channel_segments=cw_segments if cw_segments else None,
-                force=False,
-            )
-        )
 
         try:
             from app.agent.fs_indexer import retrieve_filesystem_context
@@ -1083,5 +1072,4 @@ async def inject_bot_memory_reference(
         yield {"type": "memory_scheme_reference_index", "count": len(ref_files)}
     else:
         _mark_injection_decision(inject_decisions, "memory_reference_index", "skipped_by_budget")
-
 

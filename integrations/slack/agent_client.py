@@ -279,6 +279,7 @@ async def submit_chat(
         f"{AGENT_BASE_URL}/chat",
         json=payload,
         headers={"Authorization": f"Bearer {API_KEY}"},
+        timeout=120,
     )
     r.raise_for_status()
     return r.json()

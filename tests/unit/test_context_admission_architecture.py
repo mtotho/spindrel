@@ -23,11 +23,10 @@ def test_context_admission_owns_static_admission_policy():
     source = CONTEXT_ADMISSION.read_text()
 
     for needle in (
-        "CHANNEL_WORKSPACE_TOOLS",
+        "channel_workspace_tools",
         "MEMORY.md",
         "build_plan_artifact_context",
         "resolve_channel_work_surface",
-        "reindex_channel",
         "retrieve_filesystem_context",
         "ConversationSection",
         "get_bot_knowledge_base_index_prefix",
@@ -86,3 +85,17 @@ def test_context_admission_is_not_a_router_or_diagnostics_module():
         "context_breakdown_response",
     ):
         assert forbidden not in source
+
+
+def test_context_admission_does_not_launch_indexing_work():
+    source = CONTEXT_ADMISSION.read_text()
+    tree = ast.parse(source)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name) and func.id == "reindex_channel":
+            raise AssertionError("context admission must not reindex during chat request handling")
+        if isinstance(func, ast.Attribute) and func.attr == "reindex_channel":
+            raise AssertionError("context admission must not reindex during chat request handling")
