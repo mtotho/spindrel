@@ -34,7 +34,7 @@ from app.db.models import (
     WorkflowRun,
 )
 from app.config import settings
-from app.dependencies import get_db, require_scopes
+from app.dependencies import get_db, release_db_read_transaction, require_scopes
 from app.schemas.channels import (
     AdminChannelOut as ChannelOut,
     ChannelDetailOut,
@@ -2488,7 +2488,9 @@ async def admin_channel_context_budget(
     """
     from app.services.context_breakdown import fetch_latest_context_budget
 
-    return await fetch_latest_context_budget(channel_id, db, session_id=session_id)
+    out = await fetch_latest_context_budget(channel_id, db, session_id=session_id)
+    await release_db_read_transaction(db)
+    return out
 
 
 @router.get("/channels/{channel_id}/context-preview")

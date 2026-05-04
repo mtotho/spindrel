@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from datetime import datetime, timezone
 from pathlib import Path
 import uuid
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ from app.db.models import Channel
 from app.services.context_breakdown import (
     _runtime_preview_categories,
     compute_context_breakdown,
+    fetch_latest_context_budget,
     invalidate_context_breakdown_cache,
 )
 
@@ -65,6 +67,52 @@ def test_runtime_preview_categories_adapt_assembled_messages(monkeypatch):
     assert _category(categories, "bot_knowledge_base").category == "rag"
     assert _category(categories, "tool_schemas").chars == 35
     assert "conversation" not in {category.key for category in categories}
+
+
+@pytest.mark.asyncio
+async def test_fetch_latest_context_budget_does_not_recompute_stale_compaction(monkeypatch):
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+
+    async def fake_latest_trace_data(db, *, scope_clause, event_type, session_id=None):
+        if event_type == "context_injection_summary":
+            return {
+                "context_budget": {
+                    "consumed_tokens": 111,
+                    "total_tokens": 1000,
+                    "utilization": 0.111,
+                },
+                "context_profile": "chat",
+            }
+        if event_type == "token_usage":
+            return {
+                "prompt_tokens": 222,
+                "current_prompt_tokens": 222,
+                "cached_prompt_tokens": 0,
+                "completion_tokens": 10,
+            }
+        return {}
+
+    async def fake_latest_trace_time(db, *, scope_clause, event_type, session_id=None):
+        if event_type == "compaction_done":
+            return datetime(2026, 5, 4, 12, 0, tzinfo=timezone.utc)
+        if event_type == "token_usage":
+            return datetime(2026, 5, 4, 11, 0, tzinfo=timezone.utc)
+        return None
+
+    async def fail_recompute(*args, **kwargs):
+        raise AssertionError("context-budget must not recompute full context on refresh")
+
+    monkeypatch.setattr("app.services.context_breakdown._latest_trace_data", fake_latest_trace_data)
+    monkeypatch.setattr("app.services.context_breakdown._latest_trace_time", fake_latest_trace_time)
+    monkeypatch.setattr("app.services.context_breakdown._fresh_budget_after_compaction", fail_recompute)
+
+    result = await fetch_latest_context_budget(channel_id, object(), session_id=session_id)
+
+    assert result["source"] == "estimate_stale_after_compaction"
+    assert result["consumed_tokens"] == 111
+    assert result["total_tokens"] == 1000
+    assert result["utilization"] == 0.111
 
 
 @pytest.mark.asyncio

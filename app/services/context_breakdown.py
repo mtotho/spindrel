@@ -333,11 +333,40 @@ async def _fresh_budget_after_compaction(
     )
 
 
+def _stale_budget_after_compaction_response(
+    snapshot: _InjectionSnapshot,
+    usage: _UsageSnapshot,
+) -> dict[str, Any]:
+    estimate_consumed = snapshot.budget.get("consumed_tokens")
+    total_tokens = snapshot.budget.get("total_tokens")
+    if estimate_consumed is not None:
+        return _budget_response(
+            snapshot,
+            source="estimate_stale_after_compaction",
+            consumed=estimate_consumed,
+            total_tokens=total_tokens,
+            current_prompt_tokens=estimate_consumed,
+            cached_prompt_tokens=None,
+            completion_tokens=None,
+            utilization=snapshot.budget.get("utilization"),
+        )
+    return _budget_response(
+        snapshot,
+        source="api_stale_after_compaction",
+        consumed=usage.gross_prompt_tokens,
+        total_tokens=total_tokens,
+        current_prompt_tokens=usage.current_prompt_tokens,
+        cached_prompt_tokens=usage.cached_prompt_tokens,
+        completion_tokens=usage.completion_tokens,
+    )
+
+
 async def fetch_latest_context_budget(
     channel_id: str | Any,
     db: AsyncSession,
     *,
     session_id: str | Any | None = None,
+    recompute_stale_after_compaction: bool = False,
 ) -> dict[str, Any]:
     """Latest context utilization for this channel — API ground truth when available.
 
@@ -348,8 +377,9 @@ async def fetch_latest_context_budget(
        ``input_tokens``). When present this is the canonical answer; the
        header and dev-panel "last turn" view both source it.
     2. If a newer ``compaction_done`` trace exists, treat any older API
-       usage snapshot as stale and recompute a fresh live estimate from the
-       compacted state.
+       usage snapshot as stale. The lightweight budget endpoint still returns
+       a saved snapshot by default; callers that need a fresh live estimate can
+       opt into the full recompute.
     3. Fall back to the most recent ``context_injection_summary``'s
        ``context_budget`` dict (pre-call estimate) when no turn has been
        sent yet, or when the model's response didn't include usage.
@@ -398,12 +428,14 @@ async def fetch_latest_context_budget(
         and latest_usage_at is not None
         and latest_usage_at <= latest_compaction_at
     ):
-        return await _fresh_budget_after_compaction(
-            channel_id,
-            db,
-            session_id=session_id,
-            snapshot=injection,
-        )
+        if recompute_stale_after_compaction:
+            return await _fresh_budget_after_compaction(
+                channel_id,
+                db,
+                session_id=session_id,
+                snapshot=injection,
+            )
+        return _stale_budget_after_compaction_response(injection, usage)
 
     estimate_consumed = injection.budget.get("consumed_tokens")
     total_tokens = injection.budget.get("total_tokens")

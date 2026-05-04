@@ -21,6 +21,7 @@ from app.dependencies import (
     get_db,
     require_admin_and_scope,
     require_scopes,
+    release_db_read_transaction,
     verify_auth_or_user,
 )
 from app.services.channels import (
@@ -1479,8 +1480,9 @@ async def get_channel_context_budget(
     await _auth_channel_context(channel_id, auth, db)
 
     from app.services.context_breakdown import fetch_latest_context_budget
+
     out = await fetch_latest_context_budget(channel_id, db, session_id=session_id)
-    await db.close()
+    await release_db_read_transaction(db)
     return out
 
 
