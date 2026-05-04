@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ApiKey, Bot as BotRow, IntegrationSetting, User
 
+_LAST_USED_UPDATE_INTERVAL_SECONDS = 300
+
 # ---------------------------------------------------------------------------
 # Scope definitions
 # ---------------------------------------------------------------------------
@@ -580,6 +582,7 @@ async def create_api_key(
 
 async def validate_api_key(db: AsyncSession, raw_key: str) -> ApiKey | None:
     """Validate a raw API key. Returns the ApiKey row if valid, None otherwise."""
+    now = datetime.now(timezone.utc)
     key_hash = hash_key(raw_key)
     result = await db.execute(
         select(ApiKey).where(ApiKey.key_hash == key_hash)
@@ -591,11 +594,14 @@ async def validate_api_key(db: AsyncSession, raw_key: str) -> ApiKey | None:
         return None
     if row.expires_at:
         exp = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=timezone.utc)
-        if exp < datetime.now(timezone.utc):
+        if exp < now:
             return None
-    # Update last_used_at
-    row.last_used_at = datetime.now(timezone.utc)
-    await db.commit()
+    last_used = row.last_used_at
+    if last_used and last_used.tzinfo is None:
+        last_used = last_used.replace(tzinfo=timezone.utc)
+    if last_used is None or (now - last_used).total_seconds() >= _LAST_USED_UPDATE_INTERVAL_SECONDS:
+        row.last_used_at = now
+        await db.commit()
     return row
 
 

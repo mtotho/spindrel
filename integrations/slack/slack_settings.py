@@ -1,4 +1,5 @@
 """Environment and YAML config for the Slack integration."""
+import asyncio
 import os
 import time
 from pathlib import Path
@@ -34,6 +35,14 @@ STATE_PATH = _DIR / "slack_state.json"
 _config_cache: dict = {}
 _config_cache_ts: float = 0.0
 _CONFIG_TTL = 60.0
+_config_refresh_lock: asyncio.Lock | None = None
+
+
+def _get_config_refresh_lock() -> asyncio.Lock:
+    global _config_refresh_lock
+    if _config_refresh_lock is None:
+        _config_refresh_lock = asyncio.Lock()
+    return _config_refresh_lock
 
 
 def _fetch_slack_config_sync() -> dict:
@@ -81,8 +90,15 @@ def _apply_fresh_config(fresh: dict) -> None:
 
 async def ensure_config_fresh() -> None:
     """Call from async contexts to refresh config without blocking the event loop."""
+    global _config_cache_ts
     now = time.monotonic()
-    if now - _config_cache_ts > _CONFIG_TTL:
+    if now - _config_cache_ts <= _CONFIG_TTL:
+        return
+
+    async with _get_config_refresh_lock():
+        now = time.monotonic()
+        if now - _config_cache_ts <= _CONFIG_TTL:
+            return
         _apply_fresh_config(await _fetch_slack_config_async())
 
 

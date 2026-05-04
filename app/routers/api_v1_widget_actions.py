@@ -74,6 +74,11 @@ async def widget_event_stream_endpoint(
         channel_id,
         required_scope="channels:read",
     )
+    # Release the pool connection BEFORE entering the long-lived stream.
+    # `Depends(get_db)`'s session would otherwise stay open for the full
+    # SSE lifetime (hours), pinning a connection in `idle in transaction`
+    # and exhausting the pool — same trap channel_events already avoids.
+    await db.close()
 
     return StreamingResponse(
         widget_event_stream(

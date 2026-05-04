@@ -105,8 +105,10 @@ async def db_session(engine):
 @pytest_asyncio.fixture
 async def client(db_session):
     from fastapi import FastAPI
+    from integrations.slack.router import _clear_slack_config_cache_for_tests
     from integrations.slack.router import router as slack_router
 
+    _clear_slack_config_cache_for_tests()
     test_app = FastAPI()
     test_app.include_router(slack_router, prefix="/integrations/slack")
 
