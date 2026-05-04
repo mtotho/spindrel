@@ -169,9 +169,9 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
 
       {/* Buttons */}
       <div className="flex flex-wrap items-center gap-2">
-        {existingSections > 0 && stats && stats.estimated_remaining > 0 && (
+        {existingSections > 0 && (
           <ActionButton
-            label={running ? "Resuming..." : "Resume Backfill"}
+            label={running ? "Recovering..." : "Resume / Recover Tail"}
             onPress={() => runBackfill(false)}
             disabled={running}
             icon={<Play size={12} />}
@@ -197,10 +197,8 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
           />
         )}
         <span className="min-w-[220px] flex-1 text-[11px] leading-snug text-text-dim">
-          {existingSections > 0 && stats && stats.estimated_remaining > 0
-            ? "Resume adds new sections for uncovered messages in the current session. Re-chunk deletes this session's sections and starts fresh."
-            : existingSections > 0
-            ? "Current session messages are covered. Re-chunk to regenerate this session with different settings."
+          {existingSections > 0
+            ? "Resume rebuilds missing tail sections from database messages after the last kept section. Re-chunk deletes this session's sections and starts fresh."
             : "Chunk the current session into navigable sections with .md transcripts."
           }
         </span>

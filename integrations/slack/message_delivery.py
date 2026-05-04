@@ -149,7 +149,7 @@ class SlackMessageDelivery:
         tool_blocks = tool_blocks[:50]
 
         correlation_id = str(getattr(msg, "correlation_id", "") or "")
-        feedback_enabled = role == "assistant" and bool(correlation_id)
+        feedback_enabled = role == "assistant"
         ctx_info = (
             slack_render_contexts.find_by_turn_id(correlation_id)
             if correlation_id else None
