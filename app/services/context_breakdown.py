@@ -1196,9 +1196,12 @@ async def compute_context_breakdown(
         session_pk=scope.session_pk,
         session=scope.session,
     )
+    await db.commit()
     _append_conversation_category(categories, stats=stats, session=scope.session)
     await _append_pruning_category(categories, db=db, scope=scope, stats=stats)
+    await db.commit()
     compaction = await _build_compaction_state(categories, db=db, scope=scope, stats=stats)
+    await db.commit()
     reranking = _build_rerank_state(categories)
     effective_settings = _effective_settings(scope.channel, scope.bot)
     total_chars = _finalize_category_metrics(categories)
@@ -1210,6 +1213,7 @@ async def compute_context_breakdown(
         forecast_total_tokens=forecast_total_tokens,
         include_budget=include_budget,
     )
+    await db.commit()
 
     # Headline total: API ground truth in last_turn mode (when available),
     # forecast otherwise.

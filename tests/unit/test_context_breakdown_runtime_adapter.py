@@ -136,7 +136,7 @@ async def test_compute_breakdown_sources_static_categories_from_runtime_preview(
     assert called["user_message"] == ""
     assert called["session_id"] is None
     assert called["db"] is None
-    db.commit.assert_awaited_once()
+    assert db.commit.await_count >= 1
     assert result.total_tokens_approx == 321
     assert result.context_profile == "chat"
     assert result.live_history_turns == 6

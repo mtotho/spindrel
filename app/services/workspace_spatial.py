@@ -790,6 +790,8 @@ async def build_canvas_bootstrap(db: AsyncSession) -> dict[str, Any]:
             setattr(node, "_spatial_project", project_map.get(node.project_id))
             setattr(node, "_spatial_project_channel_count", channel_counts.get(node.project_id, 0))
 
+    if db.in_transaction():
+        await db.commit()
     channel_ids = [n.channel_id for n in nodes if n.channel_id is not None]
     channels = []
     if channel_ids:
@@ -874,6 +876,8 @@ async def build_canvas_bootstrap(db: AsyncSession) -> dict[str, Any]:
         for member in c.get("member_bots", [])
         if member.get("bot_id")
     })
+    if db.in_transaction():
+        await db.commit()
     return {
         "nodes": [
             serialize_node_lite(
@@ -922,6 +926,8 @@ async def list_nodes(
 
         if await _sync_native_pin_envelopes(db, list(pin_rows)):
             await db.commit()
+        elif db.in_transaction():
+            await db.commit()
         pin_map = {p.id: p for p in pin_rows}
     missing_pin_nodes = [
         n
@@ -952,6 +958,8 @@ async def list_nodes(
                 continue
             setattr(node, "_spatial_project", project_map.get(node.project_id))
             setattr(node, "_spatial_project_channel_count", channel_counts.get(node.project_id, 0))
+    if db.in_transaction():
+        await db.commit()
     return [(n, pin_map.get(n.widget_pin_id) if n.widget_pin_id else None) for n in nodes]
 
 
