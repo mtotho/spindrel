@@ -9,6 +9,7 @@ import pytest
 from reaction_handlers import (
     _approval_id_from_button_value,
     _extract_approval_id,
+    _handle_feedback_menu,
     on_reaction_added_for_tests,
 )
 import reaction_handlers
@@ -213,3 +214,86 @@ class TestOnReactionAdded:
         }
         await on_reaction_added_for_tests(event, client)
         client.auth_test.assert_not_awaited()
+
+
+class TestFeedbackMenu:
+    @pytest.mark.asyncio
+    async def test_records_vote_and_marks_message(self, monkeypatch):
+        client = AsyncMock()
+        client.chat_update = AsyncMock()
+        calls: list[tuple[str, str, str, str]] = []
+
+        async def fake_feedback(channel, ts, user_id, *, vote):
+            calls.append((channel, ts, user_id, vote))
+            return True
+
+        monkeypatch.setattr(
+            reaction_handlers,
+            "_handle_feedback_reaction",
+            fake_feedback,
+        )
+
+        body = {
+            "channel": {"id": "C1"},
+            "message": {
+                "ts": "1.0",
+                "text": "Got it.",
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": "Got it."},
+                        "accessory": {
+                            "type": "overflow",
+                            "action_id": "turn_feedback_menu",
+                        },
+                    },
+                ],
+            },
+            "user": {"id": "U1"},
+            "actions": [{"selected_option": {"value": "down"}}],
+        }
+
+        await _handle_feedback_menu(body, client)
+
+        assert calls == [("C1", "1.0", "U1", "down")]
+        client.chat_update.assert_awaited_once()
+        kwargs = client.chat_update.await_args.kwargs
+        assert kwargs["channel"] == "C1"
+        assert kwargs["ts"] == "1.0"
+        assert kwargs["text"] == "Got it."
+        assert kwargs["blocks"][-1] == {
+            "type": "context",
+            "block_id": "turn_feedback_status",
+            "elements": [
+                {"type": "mrkdwn", "text": "Feedback recorded: :thumbsdown:"},
+            ],
+        }
+
+    @pytest.mark.asyncio
+    async def test_invalid_menu_value_is_ignored(self, monkeypatch):
+        client = AsyncMock()
+        called = False
+
+        async def fake_feedback(*args, **kwargs):
+            nonlocal called
+            called = True
+            return True
+
+        monkeypatch.setattr(
+            reaction_handlers,
+            "_handle_feedback_reaction",
+            fake_feedback,
+        )
+
+        await _handle_feedback_menu(
+            {
+                "channel": {"id": "C1"},
+                "message": {"ts": "1.0"},
+                "user": {"id": "U1"},
+                "actions": [{"selected_option": {"value": "other"}}],
+            },
+            client,
+        )
+
+        assert called is False
+        client.chat_update.assert_not_awaited()

@@ -96,6 +96,18 @@ def _calls_to(fake_http, method: str) -> list[dict]:
     ]
 
 
+def _feedback_accessory(call: dict) -> dict:
+    blocks = call["body"].get("blocks") or []
+    assert blocks
+    accessory = blocks[0].get("accessory") or {}
+    assert accessory.get("action_id") == "turn_feedback_menu"
+    assert [option["value"] for option in accessory.get("options") or []] == [
+        "up",
+        "down",
+    ]
+    return accessory
+
+
 def _new_message_event(
     role: str = "assistant",
     content: str = "hi",
@@ -143,14 +155,12 @@ class TestSlackMessageDelivery:
 
         assert receipt.success is True
         assert len(_calls_to(fake_http, "chat.postMessage")) == 1
-        assert [c["body"]["name"] for c in _calls_to(fake_http, "reactions.add")] == [
-            "thumbsup",
-            "thumbsdown",
-        ]
+        assert _calls_to(fake_http, "reactions.add") == []
         call = _calls_to(fake_http, "chat.postMessage")[0]
         assert call["url"] == "https://slack.com/api/chat.postMessage"
         assert call["body"]["channel"] == "C123"
         assert call["body"]["username"] == "Test Bot"
+        _feedback_accessory(call)
 
     async def test_skips_tool_role(self, fake_http):
         fake_http.set_response({"ok": True, "ts": "1700000002.1"})
@@ -196,12 +206,10 @@ class TestSlackMessageDelivery:
         assert receipt.success is True
         assert receipt.skip_reason is None
         assert len(_calls_to(fake_http, "chat.update")) == 1
-        assert [c["body"]["name"] for c in _calls_to(fake_http, "reactions.add")] == [
-            "thumbsup",
-            "thumbsdown",
-        ]
+        assert _calls_to(fake_http, "reactions.add") == []
         assert _calls_to(fake_http, "chat.update")[0]["url"] == "https://slack.com/api/chat.update"
         assert "Final answer" in _calls_to(fake_http, "chat.update")[0]["body"]["text"]
+        _feedback_accessory(_calls_to(fake_http, "chat.update")[0])
         assert slack_render_contexts.get("C123", str(turn_id)) is None
 
     async def test_assistant_no_turn_context_posts_new_message(self, fake_http):
@@ -215,11 +223,9 @@ class TestSlackMessageDelivery:
 
         assert receipt.success is True
         assert len(_calls_to(fake_http, "chat.postMessage")) == 1
-        assert [c["body"]["name"] for c in _calls_to(fake_http, "reactions.add")] == [
-            "thumbsup",
-            "thumbsdown",
-        ]
+        assert _calls_to(fake_http, "reactions.add") == []
         assert _calls_to(fake_http, "chat.postMessage")[0]["url"] == "https://slack.com/api/chat.postMessage"
+        _feedback_accessory(_calls_to(fake_http, "chat.postMessage")[0])
 
     async def test_post_failure_returns_delivery_receipt(self, fake_http):
         fake_http.set_response({}, status_code=500)
@@ -244,7 +250,8 @@ class TestSlackMessageDelivery:
 
         assert receipt.success is True
         assert len(_calls_to(fake_http, "chat.postMessage")) == 1
-        assert len(_calls_to(fake_http, "reactions.add")) == 2
+        assert _calls_to(fake_http, "reactions.add") == []
+        _feedback_accessory(_calls_to(fake_http, "chat.postMessage")[0])
 
     async def test_skips_slack_origin_user_message_echo_via_metadata(self, fake_http):
         fake_http.set_response({"ok": True, "ts": "1700000002.6"})

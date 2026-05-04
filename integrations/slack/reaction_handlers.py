@@ -132,6 +132,11 @@ def register_reaction_handlers(app) -> None:
         await ack()
         await _handle_feedback_button(body, vote="down")
 
+    @app.action("turn_feedback_menu")
+    async def on_turn_feedback_menu(ack, body, client):
+        await ack()
+        await _handle_feedback_menu(body, client)
+
 
 async def _handle_feedback_button(body: dict, *, vote: str) -> None:
     channel = (body.get("channel") or {}).get("id")
@@ -141,6 +146,51 @@ async def _handle_feedback_button(body: dict, *, vote: str) -> None:
     if not channel or not ts:
         return
     await _handle_feedback_reaction(channel, ts, user_id, vote=vote)
+
+
+async def _handle_feedback_menu(body: dict, client) -> None:
+    action = (body.get("actions") or [{}])[0]
+    selected = action.get("selected_option") or {}
+    vote = selected.get("value")
+    if vote not in {"up", "down"}:
+        return
+
+    channel = (body.get("channel") or {}).get("id")
+    message = body.get("message") or {}
+    ts = message.get("ts")
+    user_id = (body.get("user") or {}).get("id") or "unknown"
+    if not channel or not ts:
+        return
+
+    recorded = await _handle_feedback_reaction(channel, ts, user_id, vote=vote)
+    if recorded:
+        await _mark_feedback_on_message(client, channel, ts, message, vote=vote)
+
+
+async def _mark_feedback_on_message(
+    client, channel: str, ts: str, message: dict, *, vote: str,
+) -> None:
+    blocks = [
+        block for block in (message.get("blocks") or [])
+        if block.get("block_id") != "turn_feedback_status"
+    ]
+    label = ":thumbsup:" if vote == "up" else ":thumbsdown:"
+    blocks.append({
+        "type": "context",
+        "block_id": "turn_feedback_status",
+        "elements": [
+            {"type": "mrkdwn", "text": f"Feedback recorded: {label}"},
+        ],
+    })
+    try:
+        await client.chat_update(
+            channel=channel,
+            ts=ts,
+            text=message.get("text") or "",
+            blocks=blocks,
+        )
+    except Exception:
+        logger.debug("failed to mark Slack feedback state", exc_info=True)
 
 
 async def _handle_approve_reaction(
@@ -251,7 +301,7 @@ async def _decide_approval(approval_id: str, user_id: str) -> bool:
 
 async def _handle_feedback_reaction(
     channel: str, ts: str, user_id: str, *, vote: str,
-) -> None:
+) -> bool:
     """POST a feedback vote keyed by the slack ``(channel, ts)`` ref.
 
     The server resolves the ref to the owning Spindrel turn and persists
@@ -276,19 +326,21 @@ async def _handle_feedback_reaction(
             )
     except Exception:
         logger.exception("feedback reaction post failed")
-        return
+        return False
 
     if r.status_code == 404:
         logger.debug(
             "feedback reaction unmapped channel=%s ts=%s vote=%s",
             channel, ts, vote,
         )
-        return
+        return False
     if r.status_code >= 400:
         logger.warning(
             "feedback reaction returned %d: %s",
             r.status_code, r.text,
         )
+        return False
+    return True
 
 
 async def _clear_feedback_reaction(

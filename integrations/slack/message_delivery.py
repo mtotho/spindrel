@@ -28,38 +28,39 @@ SlackCall = Callable[[str, str, dict], Awaitable[Any]]
 BotAttribution = Callable[[str], dict]
 
 
-async def _seed_feedback_reactions(
-    call_slack: SlackCall,
+def _feedback_accessory() -> dict:
+    return {
+        "type": "overflow",
+        "action_id": "turn_feedback_menu",
+        "options": [
+            {
+                "text": {"type": "plain_text", "text": "👍 Useful", "emoji": True},
+                "value": "up",
+            },
+            {
+                "text": {"type": "plain_text", "text": "👎 Not useful", "emoji": True},
+                "value": "down",
+            },
+        ],
+    }
+
+
+def _message_blocks(
+    text: str,
     *,
-    token: str,
-    channel: str,
-    ts: str | None,
-    enabled: bool,
-) -> None:
-    if not enabled or not ts:
-        return
-    for name in ("thumbsup", "thumbsdown"):
-        try:
-            result = await call_slack(
-                "reactions.add",
-                token,
-                {"channel": channel, "timestamp": ts, "name": name},
-            )
-            if not getattr(result, "success", False):
-                error = getattr(result, "error", None) or (
-                    getattr(result, "data", None) or {}
-                ).get("error")
-                if error not in {"already_reacted"}:
-                    logger.warning(
-                        "failed to seed feedback reaction %s on %s/%s: %s",
-                        name, channel, ts, error,
-                    )
-        except Exception:
-            logger.debug(
-                "failed to seed feedback reaction %s on %s/%s",
-                name, channel, ts,
-                exc_info=True,
-            )
+    feedback_enabled: bool,
+    extra_blocks: list[dict] | None = None,
+) -> list[dict] | None:
+    """Build Slack blocks with feedback attached to the message body."""
+    if len(text) > 3000:
+        return None
+    section: dict = {
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": text},
+    }
+    if feedback_enabled:
+        section["accessory"] = _feedback_accessory()
+    return [section, *(extra_blocks or [])]
 
 
 class SlackMessageDelivery:
@@ -164,27 +165,25 @@ class SlackMessageDelivery:
                     **attrs,
                 }
                 if len(chunks) == 1 and tool_blocks:
-                    update_body["blocks"] = [
-                        {"type": "section", "text": {"type": "mrkdwn", "text": chunks[0]}},
-                        *tool_blocks,
-                    ]
+                    blocks = _message_blocks(
+                        chunks[0],
+                        feedback_enabled=feedback_enabled,
+                        extra_blocks=tool_blocks,
+                    )
+                    if blocks is not None:
+                        update_body["blocks"] = blocks
                     tool_blocks = []
                 elif len(chunks) == 1:
-                    update_body["blocks"] = [
-                        {"type": "section", "text": {"type": "mrkdwn", "text": chunks[0]}}
-                    ]
+                    blocks = _message_blocks(
+                        chunks[0],
+                        feedback_enabled=feedback_enabled,
+                    )
+                    if blocks is not None:
+                        update_body["blocks"] = blocks
                 update_result = await self._call_slack(
                     "chat.update", target.token, update_body
                 )
                 if update_result.success:
-                    updated_ts = (update_result.data or {}).get("ts") if update_result.data else None
-                    await _seed_feedback_reactions(
-                        self._call_slack,
-                        token=target.token,
-                        channel=ctx.thinking_channel,
-                        ts=updated_ts or ctx.thinking_ts,
-                        enabled=feedback_enabled,
-                    )
                     chunks = chunks[1:]
             slack_render_contexts.discard(ctx_channel_id, correlation_id)
 
@@ -199,11 +198,18 @@ class SlackMessageDelivery:
                 **attrs,
             }
             if is_last and tool_blocks:
-                body["blocks"] = [
-                    {"type": "section", "text": {"type": "mrkdwn", "text": chunk}},
-                    *tool_blocks,
-                ]
+                blocks = _message_blocks(
+                    chunk,
+                    feedback_enabled=feedback_enabled,
+                    extra_blocks=tool_blocks,
+                )
+                if blocks is not None:
+                    body["blocks"] = blocks
                 tool_blocks = []
+            elif is_last and feedback_enabled:
+                blocks = _message_blocks(chunk, feedback_enabled=True)
+                if blocks is not None:
+                    body["blocks"] = blocks
             if target.thread_ts and target.reply_in_thread:
                 body["thread_ts"] = target.thread_ts
             result = await self._call_slack("chat.postMessage", target.token, body)
@@ -212,14 +218,6 @@ class SlackMessageDelivery:
             ts = (result.data or {}).get("ts") if result.data else None
             if ts:
                 latest_ts = ts
-                if is_last:
-                    await _seed_feedback_reactions(
-                        self._call_slack,
-                        token=target.token,
-                        channel=target.channel_id,
-                        ts=ts,
-                        enabled=feedback_enabled,
-                    )
 
         return DeliveryReceipt.ok(external_id=latest_ts)
 
