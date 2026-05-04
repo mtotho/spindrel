@@ -64,6 +64,24 @@ def _attachments_if_loaded(msg: "Message") -> list:
         return list(getattr(msg, "attachments", None) or [])
 
 
+class FeedbackTotals(BaseModel):
+    up: int = 0
+    down: int = 0
+
+
+class FeedbackBlock(BaseModel):
+    """Per-turn feedback summary attached to the anchor message of a turn.
+
+    The anchor is the last user-visible assistant text message in the turn
+    (see ``app.services.turn_feedback.anchor_message_id_for_correlation``).
+    Only the requesting user's own vote and own comment are exposed.
+    """
+
+    mine: Optional[str] = None  # "up" | "down" | None
+    totals: FeedbackTotals = FeedbackTotals()
+    comment_mine: Optional[str] = None
+
+
 class MessageOut(BaseModel):
     id: uuid.UUID
     session_id: uuid.UUID
@@ -75,6 +93,7 @@ class MessageOut(BaseModel):
     created_at: datetime
     metadata: dict = {}
     attachments: list[AttachmentBrief] = []
+    feedback: Optional[FeedbackBlock] = None
 
     model_config = {"from_attributes": True}
 

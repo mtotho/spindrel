@@ -34,6 +34,12 @@ class Capability(StrEnum):
     REACTIONS = "reactions"
     """Emoji reactions on messages."""
 
+    MESSAGE_FEEDBACK = "message_feedback"
+    """The renderer can map external user reactions to Spindrel turn-feedback
+    votes. Slack maps :+1: / :-1: on bot messages to up/down votes. Other
+    integrations opt in by mapping their native reaction surface to the
+    canonical vote enum (`"up"` / `"down"`)."""
+
     INLINE_BUTTONS = "inline_buttons"
     """Block Kit-style interactive buttons attached to messages."""
 

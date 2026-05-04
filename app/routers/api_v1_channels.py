@@ -212,6 +212,7 @@ class ChannelConfigOut(BaseModel):
     plan_mode_control: str = "auto"
     widget_theme_ref: Optional[str] = None
     widget_agency_mode: str = "propose"
+    show_message_feedback: bool = True
     harness_auto_compaction_enabled: bool = True
     harness_auto_compaction_soft_remaining_pct: int = 60
     harness_auto_compaction_hard_remaining_pct: int = 10
@@ -288,6 +289,7 @@ class ChannelConfigUpdate(BaseModel):
     plan_mode_control: Optional[str] = None
     widget_theme_ref: Optional[str] = None
     widget_agency_mode: Optional[str] = None
+    show_message_feedback: Optional[bool] = None
     harness_auto_compaction_enabled: Optional[bool] = None
     harness_auto_compaction_soft_remaining_pct: Optional[int] = None
     harness_auto_compaction_hard_remaining_pct: Optional[int] = None
@@ -850,6 +852,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "plan_mode_control": (channel.config or {}).get("plan_mode_control", "auto"),
         "widget_theme_ref": (channel.config or {}).get("widget_theme_ref"),
         "widget_agency_mode": (channel.config or {}).get("widget_agency_mode", "propose"),
+        "show_message_feedback": channel.show_message_feedback,
         "harness_auto_compaction_enabled": ((channel.config or {}).get("harness_auto_compaction") or {}).get("enabled", True),
         "harness_auto_compaction_soft_remaining_pct": ((channel.config or {}).get("harness_auto_compaction") or {}).get("soft_remaining_pct", 60),
         "harness_auto_compaction_hard_remaining_pct": ((channel.config or {}).get("harness_auto_compaction") or {}).get("hard_remaining_pct", 10),

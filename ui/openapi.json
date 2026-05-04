@@ -447,6 +447,11 @@
             ],
             "title": "Resolved Workspace Id"
           },
+          "show_message_feedback": {
+            "default": true,
+            "title": "Show Message Feedback",
+            "type": "boolean"
+          },
           "tags": {
             "default": [],
             "items": {
@@ -6659,6 +6664,11 @@
             "title": "Require Mention",
             "type": "boolean"
           },
+          "show_message_feedback": {
+            "default": true,
+            "title": "Show Message Feedback",
+            "type": "boolean"
+          },
           "task_max_run_seconds": {
             "anyOf": [
               {
@@ -7247,6 +7257,17 @@
             ],
             "title": "Require Mention"
           },
+          "show_message_feedback": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Show Message Feedback"
+          },
           "task_max_run_seconds": {
             "anyOf": [
               {
@@ -7726,6 +7747,11 @@
             ],
             "title": "Resolved Workspace Id"
           },
+          "show_message_feedback": {
+            "default": true,
+            "title": "Show Message Feedback",
+            "type": "boolean"
+          },
           "tags": {
             "default": [],
             "items": {
@@ -7969,6 +7995,11 @@
               }
             ],
             "title": "Resolved Workspace Id"
+          },
+          "show_message_feedback": {
+            "default": true,
+            "title": "Show Message Feedback",
+            "type": "boolean"
           },
           "tags": {
             "default": [],
@@ -8860,6 +8891,11 @@
             "default": "standard",
             "title": "Server Native Context Policy Default",
             "type": "string"
+          },
+          "show_message_feedback": {
+            "default": true,
+            "title": "Show Message Feedback",
+            "type": "boolean"
           },
           "tags": {
             "default": [],
@@ -12216,6 +12252,114 @@
           "events"
         ],
         "title": "FallbackEventsListOut",
+        "type": "object"
+      },
+      "FeedbackBlock": {
+        "description": "Per-turn feedback summary attached to the anchor message of a turn.\n\nThe anchor is the last user-visible assistant text message in the turn\n(see ``app.services.turn_feedback.anchor_message_id_for_correlation``).\nOnly the requesting user's own vote and own comment are exposed.",
+        "properties": {
+          "comment_mine": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment Mine"
+          },
+          "mine": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mine"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/FeedbackTotals",
+            "default": {
+              "down": 0,
+              "up": 0
+            }
+          }
+        },
+        "title": "FeedbackBlock",
+        "type": "object"
+      },
+      "FeedbackIn": {
+        "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "vote": {
+            "description": "'up' or 'down'",
+            "title": "Vote",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vote"
+        ],
+        "title": "FeedbackIn",
+        "type": "object"
+      },
+      "FeedbackOut": {
+        "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "vote": {
+            "title": "Vote",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vote",
+          "updated_at"
+        ],
+        "title": "FeedbackOut",
+        "type": "object"
+      },
+      "FeedbackTotals": {
+        "properties": {
+          "down": {
+            "default": 0,
+            "title": "Down",
+            "type": "integer"
+          },
+          "up": {
+            "default": 0,
+            "title": "Up",
+            "type": "integer"
+          }
+        },
+        "title": "FeedbackTotals",
         "type": "object"
       },
       "FileMetadata": {
@@ -28205,6 +28349,57 @@
         "title": "SkillUpdateIn",
         "type": "object"
       },
+      "SlackReactionClearIn": {
+        "properties": {
+          "slack_channel": {
+            "title": "Slack Channel",
+            "type": "string"
+          },
+          "slack_ts": {
+            "title": "Slack Ts",
+            "type": "string"
+          },
+          "slack_user_id": {
+            "title": "Slack User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slack_ts",
+          "slack_channel",
+          "slack_user_id"
+        ],
+        "title": "SlackReactionClearIn",
+        "type": "object"
+      },
+      "SlackReactionFeedbackIn": {
+        "properties": {
+          "slack_channel": {
+            "title": "Slack Channel",
+            "type": "string"
+          },
+          "slack_ts": {
+            "title": "Slack Ts",
+            "type": "string"
+          },
+          "slack_user_id": {
+            "title": "Slack User Id",
+            "type": "string"
+          },
+          "vote": {
+            "title": "Vote",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slack_ts",
+          "slack_channel",
+          "slack_user_id",
+          "vote"
+        ],
+        "title": "SlackReactionFeedbackIn",
+        "type": "object"
+      },
       "SlashCommandExecuteRequest": {
         "properties": {
           "args": {
@@ -37872,6 +38067,16 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "feedback": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeedbackBlock"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "id": {
             "format": "uuid",
@@ -62510,6 +62715,119 @@
         ]
       }
     },
+    "/api/v1/messages/feedback/by-slack-reaction": {
+      "post": {
+        "description": "Persist a Slack `:+1:` / `:-1:` reaction as anonymous turn feedback.",
+        "operationId": "record_slack_reaction_feedback_api_v1_messages_feedback_by_slack_reaction_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlackReactionFeedbackIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Slack Reaction Feedback",
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
+    "/api/v1/messages/feedback/by-slack-reaction/clear": {
+      "post": {
+        "description": "Clear a Slack-anonymous vote (matches ``reaction_removed``).",
+        "operationId": "clear_slack_reaction_feedback_api_v1_messages_feedback_by_slack_reaction_clear_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlackReactionClearIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clear Slack Reaction Feedback",
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
     "/api/v1/messages/thread-summaries": {
       "get": {
         "description": "Return thread summaries keyed by message_id.\n\nOnly messages that have at least one thread session appear in the\nresponse. The UI calls this once per visible-message batch to decide\nwhich messages should render a ThreadAnchor card.\n\nSummary includes the first thread per message (v1 supports one thread\nper message; nesting is UI-gated but the data model allows more). If\nmultiple exist, the most-recently-updated wins.",
@@ -62630,6 +62948,113 @@
           }
         },
         "summary": "Get Thread Info",
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
+    "/api/v1/messages/{message_id}/feedback": {
+      "delete": {
+        "description": "Clear the requesting user's vote on this turn. Idempotent.",
+        "operationId": "delete_message_feedback_api_v1_messages__message_id__feedback_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": true,
+            "schema": {
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Message Feedback",
+        "tags": [
+          "Messages"
+        ]
+      },
+      "post": {
+        "description": "Record a thumbs-up / thumbs-down vote on the turn anchored at this message.\n\nThe vote is keyed at the *turn* level (Message.correlation_id), not at\nthe message level \u2014 re-voting via any message of the same turn updates\nthe same row. Comments are optional and capped at 500 chars.",
+        "operationId": "record_message_feedback_api_v1_messages__message_id__feedback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": true,
+            "schema": {
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Message Feedback",
         "tags": [
           "Messages"
         ]

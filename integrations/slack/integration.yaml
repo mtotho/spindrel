@@ -69,6 +69,7 @@ capabilities:
   - file_delete
   - streaming_edit
   - rich_tool_results
+  - message_feedback
   - approval_buttons
   - display_names
   - mentions

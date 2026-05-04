@@ -6424,6 +6424,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/messages/feedback/by-slack-reaction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Slack Reaction Feedback
+         * @description Persist a Slack `:+1:` / `:-1:` reaction as anonymous turn feedback.
+         */
+        post: operations["record_slack_reaction_feedback_api_v1_messages_feedback_by_slack_reaction_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/messages/feedback/by-slack-reaction/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clear Slack Reaction Feedback
+         * @description Clear a Slack-anonymous vote (matches ``reaction_removed``).
+         */
+        post: operations["clear_slack_reaction_feedback_api_v1_messages_feedback_by_slack_reaction_clear_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/messages/thread-summaries": {
         parameters: {
             query?: never;
@@ -6471,6 +6511,34 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/messages/{message_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Message Feedback
+         * @description Record a thumbs-up / thumbs-down vote on the turn anchored at this message.
+         *
+         *     The vote is keyed at the *turn* level (Message.correlation_id), not at
+         *     the message level — re-voting via any message of the same turn updates
+         *     the same row. Comments are optional and capped at 500 chars.
+         */
+        post: operations["record_message_feedback_api_v1_messages__message_id__feedback_post"];
+        /**
+         * Delete Message Feedback
+         * @description Clear the requesting user's vote on this turn. Idempotent.
+         */
+        delete: operations["delete_message_feedback_api_v1_messages__message_id__feedback_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -11456,6 +11524,11 @@ export interface components {
             /** Resolved Workspace Id */
             resolved_workspace_id?: string | null;
             /**
+             * Show Message Feedback
+             * @default true
+             */
+            show_message_feedback: boolean;
+            /**
              * Tags
              * @default []
              */
@@ -13540,6 +13613,11 @@ export interface components {
              * @default true
              */
             require_mention: boolean;
+            /**
+             * Show Message Feedback
+             * @default true
+             */
+            show_message_feedback: boolean;
             /** Task Max Run Seconds */
             task_max_run_seconds?: number | null;
             /**
@@ -13682,6 +13760,8 @@ export interface components {
             plan_mode_control?: string | null;
             /** Require Mention */
             require_mention?: boolean | null;
+            /** Show Message Feedback */
+            show_message_feedback?: boolean | null;
             /** Task Max Run Seconds */
             task_max_run_seconds?: number | null;
             /** Thinking Display */
@@ -13843,6 +13923,11 @@ export interface components {
             /** Resolved Workspace Id */
             resolved_workspace_id?: string | null;
             /**
+             * Show Message Feedback
+             * @default true
+             */
+            show_message_feedback: boolean;
+            /**
              * Tags
              * @default []
              */
@@ -13932,6 +14017,11 @@ export interface components {
             require_mention: boolean;
             /** Resolved Workspace Id */
             resolved_workspace_id?: string | null;
+            /**
+             * Show Message Feedback
+             * @default true
+             */
+            show_message_feedback: boolean;
             /**
              * Tags
              * @default []
@@ -14222,6 +14312,11 @@ export interface components {
              * @default standard
              */
             server_native_context_policy_default: string;
+            /**
+             * Show Message Feedback
+             * @default true
+             */
+            show_message_feedback: boolean;
             /**
              * Tags
              * @default []
@@ -15321,6 +15416,62 @@ export interface components {
         FallbackEventsListOut: {
             /** Events */
             events: components["schemas"]["FallbackEventOut"][];
+        };
+        /**
+         * FeedbackBlock
+         * @description Per-turn feedback summary attached to the anchor message of a turn.
+         *
+         *     The anchor is the last user-visible assistant text message in the turn
+         *     (see ``app.services.turn_feedback.anchor_message_id_for_correlation``).
+         *     Only the requesting user's own vote and own comment are exposed.
+         */
+        FeedbackBlock: {
+            /** Comment Mine */
+            comment_mine?: string | null;
+            /** Mine */
+            mine?: string | null;
+            /**
+             * @default {
+             *       "down": 0,
+             *       "up": 0
+             *     }
+             */
+            totals: components["schemas"]["FeedbackTotals"];
+        };
+        /** FeedbackIn */
+        FeedbackIn: {
+            /** Comment */
+            comment?: string | null;
+            /**
+             * Vote
+             * @description 'up' or 'down'
+             */
+            vote: string;
+        };
+        /** FeedbackOut */
+        FeedbackOut: {
+            /** Comment */
+            comment?: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Vote */
+            vote: string;
+        };
+        /** FeedbackTotals */
+        FeedbackTotals: {
+            /**
+             * Down
+             * @default 0
+             */
+            down: number;
+            /**
+             * Up
+             * @default 0
+             */
+            up: number;
         };
         /**
          * FileMetadata
@@ -21090,6 +21241,26 @@ export interface components {
             /** Name */
             name?: string | null;
         };
+        /** SlackReactionClearIn */
+        SlackReactionClearIn: {
+            /** Slack Channel */
+            slack_channel: string;
+            /** Slack Ts */
+            slack_ts: string;
+            /** Slack User Id */
+            slack_user_id: string;
+        };
+        /** SlackReactionFeedbackIn */
+        SlackReactionFeedbackIn: {
+            /** Slack Channel */
+            slack_channel: string;
+            /** Slack Ts */
+            slack_ts: string;
+            /** Slack User Id */
+            slack_user_id: string;
+            /** Vote */
+            vote: string;
+        };
         /** SlashCommandExecuteRequest */
         SlashCommandExecuteRequest: {
             /**
@@ -24469,6 +24640,7 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            feedback?: components["schemas"]["FeedbackBlock"] | null;
             /**
              * Id
              * Format: uuid
@@ -38360,6 +38532,74 @@ export interface operations {
             };
         };
     };
+    record_slack_reaction_feedback_api_v1_messages_feedback_by_slack_reaction_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SlackReactionFeedbackIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_slack_reaction_feedback_api_v1_messages_feedback_by_slack_reaction_clear_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SlackReactionClearIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     batched_thread_summaries_api_v1_messages_thread_summaries_get: {
         parameters: {
             query: {
@@ -38417,6 +38657,74 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ThreadInfoOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_message_feedback_api_v1_messages__message_id__feedback_post: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_message_feedback_api_v1_messages__message_id__feedback_delete: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

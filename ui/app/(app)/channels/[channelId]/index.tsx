@@ -754,7 +754,7 @@ export default function ChatScreen() {
       const turnData = turnDataForHeader(headerIdx);
       const isLatestBotMessage = item.role === "assistant" && index === 0;
       const threadSummary = threadSummaries?.[item.id] ?? null;
-      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={turnData.text} fullTurnMessages={turnData.messages} channelId={channelId} isLatestBotMessage={isLatestBotMessage} isMobile={columns === "single"} threadSummary={threadSummary} onReplyInThread={handleReplyInThread} canReplyInThread={true} chatMode={chatMode} />;
+      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={turnData.text} fullTurnMessages={turnData.messages} channelId={channelId} isLatestBotMessage={isLatestBotMessage} isMobile={columns === "single"} threadSummary={threadSummary} onReplyInThread={handleReplyInThread} canReplyInThread={true} chatMode={chatMode} showMessageFeedback={channel?.show_message_feedback ?? true} />;
       return <>{dateSep}{bubble}</>;
     },
     [invertedData, bot?.name, handleBotClick, channelId, latestAnchorByGroup, columns, threadSummaries, handleReplyInThread, chatMode, turnHeaderForIndex, turnDataForHeader]

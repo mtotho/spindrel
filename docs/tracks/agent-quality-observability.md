@@ -23,6 +23,7 @@ Spindrel should notice when an agent behaves incompetently before the operator h
 | 6. Scoped LLM judge | not started | - |
 | 7. Structural fixes from findings | active | 2026-05-03 |
 | 8. Mid-turn chat followup absorption | planned | 2026-05-03 |
+| 9. User explicit feedback (thumbs up/down) | active | 2026-05-03 |
 
 ## Phase Detail
 Phase 1 adds `app/services/agent_quality_audit.py`. It emits idempotent `agent_quality_audit` `TraceEvent` rows with `audit_version=1`. V1 detectors are intentionally narrow:
@@ -54,6 +55,18 @@ always answering through a delayed queued task. The queued-task path remains the
 fallback when no boundary occurs before turn completion. Plan:
 `docs/plans/mid-turn-chat-followup-absorption.md`.
 
+Phase 9 adds a turn-keyed user feedback affordance (thumbs up/down) on
+assistant turns. Votes persist in `turn_feedback` (correlation_id + user_id
+or anonymous source_user_ref) and emit `agent_quality_audit` trace events
+with `event_name='user_explicit_feedback'`, so existing quality consumers
+pick them up without bespoke wiring. Web UI ships first, Slack `:+1:` /
+`:-1:` reactions ride the same path, channel-level toggle controls
+visibility. Auditor surface: `audit_trace_quality` now includes a
+`user_feedback` block per result, and `list_user_feedback` is the
+discovery entry point (filter by vote/since_hours/bot_id/channel_id/
+correlation_id; comment text + anchor excerpt included). Plan:
+`docs/plans/user-message-feedback.md`.
+
 ## Spindrel Trace Contract
 - `correlation_id` is the current internal trace/run key. Future export layers may map it to W3C/OTel trace IDs without replacing existing rows.
 - `TraceEvent` remains the internal append-only event store for turn assembly, LLM routing, context admission, quality findings, and runtime diagnostics.
@@ -73,7 +86,9 @@ fallback when no boundary occurs before turn completion. Plan:
 
 ## References
 - `app/services/agent_quality_audit.py`
+- `app/services/turn_feedback.py`
 - `app/tools/local/agent_quality.py`
 - `docs/tracks/context-surface-governance.md`
 - `docs/tracks/architecture-deepening.md`
 - `docs/plans/mid-turn-chat-followup-absorption.md`
+- `docs/plans/user-message-feedback.md`

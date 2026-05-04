@@ -11,6 +11,7 @@ import { AttachmentImages } from "./AttachmentDisplay";
 import { MessageActions, TimestampActions, Avatar } from "./MessageActions";
 import { CollapsedHeartbeat, CollapsedWorkflow } from "./CollapsedMessages";
 import { ThreadAnchor } from "./ThreadAnchor";
+import { TurnFeedbackControls } from "./TurnFeedbackControls";
 import { extractDisplayText, stripLegacyIngestPrefix, resolveDisplay, terminalTranscriptRole, avatarColor } from "./messageUtils";
 import { normalizeToolCall } from "../../types/api";
 import { usePinnedWidgetsStore } from "../../stores/pinnedWidgets";
@@ -112,6 +113,10 @@ interface Props {
    *  (UI-only guard — backend permits nesting). */
   canReplyInThread?: boolean;
   chatMode?: "default" | "terminal";
+  /** Per-channel toggle from ``Channel.show_message_feedback``. Defaults
+   *  to true to match the column default; pass false to suppress the
+   *  thumbs-up/down affordance on this channel. */
+  showMessageFeedback?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -160,7 +165,7 @@ function HistoricalThinking({ text, t, chatMode = "default" }: { text: string; t
 // MessageBubble -- Slack-style flat layout
 // ---------------------------------------------------------------------------
 
-export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, fullTurnMessages, channelId, isLatestBotMessage, isMobile = false, compact: compactLayout = false, threadSummary = null, onReplyInThread, canReplyInThread = false, chatMode = "default" }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, fullTurnMessages, channelId, isLatestBotMessage, isMobile = false, compact: compactLayout = false, threadSummary = null, onReplyInThread, canReplyInThread = false, chatMode = "default", showMessageFeedback = true }: Props) {
   const t = useThemeTokens();
   const detectedMobile = useIsMobile();
   const effectiveMobile = isMobile || detectedMobile;
@@ -553,6 +558,14 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             onReplyInThread={onReplyInThread ? () => onReplyInThread(message.id) : undefined}
             t={t}
           />
+          {message.role === "assistant" && message.feedback != null && (
+            <TurnFeedbackControls
+              messageId={message.id}
+              sessionId={message.session_id}
+              feedback={message.feedback}
+              hidden={!showMessageFeedback}
+            />
+          )}
           {isMemberBot && (
             <span style={{
               fontSize: 10,

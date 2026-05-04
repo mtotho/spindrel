@@ -117,6 +117,9 @@ class Channel(Base):
         index=True,
     )
     protected: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    show_message_feedback: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
     config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
 
     metadata_: Mapped[dict] = mapped_column(
@@ -727,6 +730,58 @@ class ToolCall(Base):
             "ix_tool_calls_retryable",
             "retryable",
             postgresql_where=text("retryable IS NOT NULL"),
+        ),
+    )
+
+
+class TurnFeedback(Base):
+    """User-attributable up/down vote on an assistant turn.
+
+    Keyed at the turn level (`correlation_id`) — a single vote covers the
+    whole turn rather than individual sub-messages within it.
+    """
+    __tablename__ = "turn_feedback"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        default=uuid.uuid4, server_default=text("gen_random_uuid()"),
+    )
+    correlation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    channel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("channels.id", ondelete="CASCADE"), nullable=False,
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False,
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    source_integration: Mapped[str] = mapped_column(Text, nullable=False)
+    source_user_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    vote: Mapped[str] = mapped_column(Text, nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        CheckConstraint("vote IN ('up', 'down')", name="ck_turn_feedback_vote"),
+        Index("ix_turn_feedback_correlation_id", "correlation_id"),
+        Index("ix_turn_feedback_channel_created", "channel_id", "created_at"),
+        Index(
+            "uq_turn_feedback_user",
+            "correlation_id", "user_id",
+            unique=True,
+            postgresql_where=text("user_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_turn_feedback_anon",
+            "correlation_id", "source_integration", "source_user_ref",
+            unique=True,
+            postgresql_where=text("user_id IS NULL"),
         ),
     )
 

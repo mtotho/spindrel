@@ -333,6 +333,7 @@ export interface Channel {
   active_session_id?: string;
   require_mention: boolean;
   passive_memory: boolean;
+  show_message_feedback?: boolean;
   private: boolean;
   protected?: boolean;
   user_id?: string;
@@ -819,6 +820,7 @@ export interface ChannelSettings {
   active_session_id?: string;
   require_mention: boolean;
   passive_memory: boolean;
+  show_message_feedback?: boolean;
   private: boolean;
   protected?: boolean;
   user_id?: string | null;
@@ -1142,6 +1144,20 @@ export interface AssistantTurnBody {
   items: AssistantTurnBodyEntry[];
 }
 
+export interface FeedbackTotals {
+  up: number;
+  down: number;
+}
+
+export interface FeedbackBlock {
+  /** Current user's vote on this turn, or null if they haven't voted. */
+  mine: "up" | "down" | null;
+  totals: FeedbackTotals;
+  /** The current user's own comment on this turn (other users' comments
+   *  are intentionally NOT exposed via this API). */
+  comment_mine: string | null;
+}
+
 export interface Message {
   id: string;
   session_id: string;
@@ -1152,6 +1168,11 @@ export interface Message {
   attachments?: AttachmentBrief[];
   metadata?: Record<string, any>;
   created_at: string;
+  /** Per-turn user feedback summary. Populated only on the assistant
+   *  *anchor message* of a turn (the last user-visible assistant text
+   *  message). Other messages — including in-flight / streaming — leave
+   *  this undefined. */
+  feedback?: FeedbackBlock | null;
 }
 
 export type ToolSurface = "transcript" | "widget" | "rich_result";

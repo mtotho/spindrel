@@ -322,6 +322,11 @@ async def audit_turn_quality(
         select(TraceEvent).where(
             TraceEvent.correlation_id == correlation_id,
             TraceEvent.event_type == AGENT_QUALITY_AUDIT_EVENT,
+            # Auditor-emitted summary rows have ``event_name=NULL``. User
+            # feedback rows share ``event_type`` for routing convenience but
+            # carry their own ``event_name`` and a single-vote payload —
+            # they must not satisfy the idempotency check.
+            TraceEvent.event_name.is_(None),
         )
     )).scalars().all()
     for row in existing_rows:

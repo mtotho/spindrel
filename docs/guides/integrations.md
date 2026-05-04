@@ -117,7 +117,7 @@ One row per top-level key in `app/services/integration_manifests.py::_KNOWN_KEYS
 | `webhook` | Inbound webhook path + description. Displayed in admin UI so users configure the external service. | `router.py` owns the route | active |
 | `binding` | Per-channel channel/entity picker — `client_id_prefix`, `suggestions_endpoint`, `config_fields`. See [Channel binding model](#channel-binding-model). | `integrations/<id>/router.py` serves suggestions | active |
 | `target` | Typed dispatch target (auto-generates a frozen dataclass) or points to `target.py` for custom logic. | `integrations.discovery` | active |
-| `capabilities` | Renderer capability flags (text, rich_text, rich_tool_results, threading, reactions, attachments, streaming_edit, approval_buttons, ephemeral, modals, …). Overrides renderer ClassVar. See [Integration Depth Playbook](#capability-model). | `app/services/capability_gate.py` | active |
+| `capabilities` | Renderer capability flags (text, rich_text, rich_tool_results, threading, reactions, attachments, streaming_edit, approval_buttons, ephemeral, modals, message_feedback, …). Overrides renderer ClassVar. See [Integration Depth Playbook](#capability-model). | `app/services/capability_gate.py` | active |
 | `tool_result_rendering` | Detailed support matrix for read-only rich tool-result envelopes: supported display modes, content types, view keys, fallback behavior, placement, and platform limits. YAML wins over renderer ClassVar. | `integrations.tool_output` + renderer adapter | active |
 | `activation` | Per-channel tool/skill/MCP injection manifest. When a channel activates an integration, these surface. | `app/agent/channel_overrides.py` | active |
 | `events` | Event types the integration can emit (used by task-trigger UI). | `app.services.integration_catalog` | active |
@@ -252,6 +252,27 @@ Capabilities declare what a renderer can do. The dispatcher reads declared capab
 - **Under-declaration is a missed affordance.** Platform supports modals but you didn't declare `MODALS`? The `open_modal` tool short-circuits with `unsupported=True`.
 
 For the full list of capabilities and the Slack pilot's 5-phase depth recipe, see [`../../project-notes/Integration Depth Playbook.md`](../../project-notes/Integration%20Depth%20Playbook.md).
+
+### Message feedback
+
+`message_feedback` is the capability flag for "this renderer can map external
+user reactions to a Spindrel turn-feedback vote." Slack declares it (the
+`reaction_added` handler maps `:+1:` / `:-1:` on bot messages to up/down
+votes via `POST /api/v1/messages/feedback/by-slack-reaction`). Other
+integrations opt in by mapping their native reaction surface to the
+canonical vote enum (`"up"` / `"down"`) and posting to the same endpoint
+shape.
+
+Votes are turn-keyed: reacting to *any* message that belongs to a turn
+records or replaces a single vote on the turn's `correlation_id`. The
+voter's identity is the integration user reference (e.g. Slack `Uxxx`)
+when no Spindrel `User` mapping exists yet — those rows persist with
+`user_id=NULL` and a back-fillable `source_user_ref`.
+
+Comments are not first-class on the integration side in v1. Web sends
+optional comment text inline with the POST; integrations may ignore the
+comment field. The trace event (`event_name='user_explicit_feedback'`)
+never carries comment text — see `app/services/turn_feedback.py`.
 
 ### Rich tool results
 

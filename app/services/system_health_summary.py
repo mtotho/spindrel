@@ -112,6 +112,29 @@ async def _agent_quality_counts(db: AsyncSession, *, since: datetime) -> tuple[i
     return total, by_code
 
 
+async def _user_feedback_down_count(db: AsyncSession, *, since: datetime) -> int:
+    """Count `vote=down` user feedback events in the period.
+
+    Each `record_vote` writes a single trace row with
+    `event_name='user_explicit_feedback'` and `data.vote in {up, down, cleared}`.
+    Daily Health surfaces the down count specifically — a thumbs-down is the
+    higher-priority signal; thumbs-up live alongside it for completeness via
+    the existing `agent_quality` count when desired.
+    """
+    rows = (await db.execute(
+        select(TraceEvent.data).where(
+            TraceEvent.created_at >= since,
+            TraceEvent.event_type == AGENT_QUALITY_AUDIT_EVENT,
+            TraceEvent.event_name == "user_explicit_feedback",
+        )
+    )).scalars().all()
+    n = 0
+    for data in rows:
+        if isinstance(data, dict) and data.get("vote") == "down":
+            n += 1
+    return n
+
+
 def _quality_finding_payload(
     *,
     count: int,
@@ -207,6 +230,9 @@ async def generate_daily_summary(
         quality_count, quality_by_code = await _agent_quality_counts(session, since=period_start)
         if quality_count:
             source_counts["agent_quality"] = quality_count
+        user_feedback_down = await _user_feedback_down_count(session, since=period_start)
+        if user_feedback_down:
+            source_counts["user_feedback_down_24h"] = user_feedback_down
         attention_refs = await _matching_attention_item_ids(
             session, findings=findings, since=period_start,
         )

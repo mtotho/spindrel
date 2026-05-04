@@ -469,6 +469,12 @@ export function AgentBehaviorSection({
         label="Pinned widget context"
         description="Allow pinned channel widgets to contribute summaries and action hints to chat context."
       />
+      <Toggle
+        value={form.show_message_feedback ?? true}
+        onChange={(v) => patch("show_message_feedback", v as ChannelSettings["show_message_feedback"])}
+        label="Show feedback votes on assistant replies"
+        description="Reveals a subtle thumbs-up / thumbs-down affordance on the latest assistant reply of each turn. Votes are private to you and feed into Daily Health quality findings."
+      />
       <FormRow label="Integration thinking display" description="How intermediate thinking is shown in integrations like Slack or Discord. Web chat uses the built-in transcript layout.">
         <SelectInput
           value={form.thinking_display ?? "append"}

@@ -166,6 +166,48 @@ Recommended fixes:
 - Defer:
 ```
 
+## User Explicit Feedback
+
+Human votes (thumbs up/down) on assistant turns persist in `turn_feedback`
+and emit a `TraceEvent` with `event_type='agent_quality_audit'`,
+`event_name='user_explicit_feedback'`. Treat them as **higher-priority signal
+than the deterministic detectors** when both fire on the same correlation_id —
+the user is telling you directly that the turn was wrong; the auto-detector
+is guessing.
+
+### Tool flow
+
+1. **Discovery — `list_user_feedback`.** Start cold with a windowed pull:
+
+   ```
+   list_user_feedback(vote="down", since_hours=24, limit=50)
+   ```
+
+   Each row carries `correlation_id`, `vote`, `comment`, `bot_id`,
+   `channel_name`, `anchor_excerpt`, and identity fields. Triage by reading
+   the comment plus excerpt; rank `vote=down` rows with non-empty comments
+   first.
+
+2. **Drilldown — `audit_trace_quality`.** Pass the chosen correlation_id:
+
+   ```
+   audit_trace_quality(correlation_id="<uuid>")
+   ```
+
+   Returns the deterministic findings *and* the matching `user_feedback`
+   block on the same payload. When the deterministic finding explains the
+   user's complaint, that's a strong joint signal — file the structural
+   fix. When findings are empty but the user voted down, you're looking at
+   a quality miss the auto-detectors don't yet catch — write it up in
+   `docs/audits/` so a future detector can be added.
+
+3. **Aggregate counts** show up in Daily Health as
+   `source_counts.user_feedback_down_24h` for the last 24h period.
+
+Comment text only appears via the tools above (or direct
+`turn_feedback.comment` reads). The trace row deliberately keeps PII out
+of the trace store, so do not expect comment text in `TraceEvent.data`.
+
 ## When To Create Artifacts
 
 Follow `.spindrel/WORKFLOW.md`:

@@ -2031,12 +2031,38 @@ async def list_messages(
     session_id: uuid.UUID,
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("sessions:read")),
+    auth=Depends(verify_auth_or_user),
 ):
     """List messages for a session, most recent first."""
+    # Auth contract:
+    #   • Scoped API keys must hold sessions:read (preserves the legacy
+    #     require_scopes("sessions:read") gate when the static-key /
+    #     widget-token paths went through it).
+    #   • JWT users must own the parent channel or be admin — restoring
+    #     the channel-ownership boundary that ``assert_admin_or_channel_owner``
+    #     enforces on adjacent channel routes. Channel-less sessions
+    #     (ephemeral / threads launched outside a channel) require admin
+    #     equivalent auth.
+    from app.db.models import User as UserRow
+    from app.dependencies import assert_admin_or_channel_owner
+    if isinstance(auth, ApiKeyAuth) and not has_scope(auth, "sessions:read"):
+        raise HTTPException(status_code=403, detail="Missing scope: sessions:read")
+
     session = await db.get(Session, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    if isinstance(auth, UserRow):
+        if session.channel_id is not None:
+            channel = await db.get(Channel, session.channel_id)
+            if channel is None:
+                raise HTTPException(status_code=404, detail="Channel not found")
+            assert_admin_or_channel_owner(channel, auth)
+        elif not getattr(auth, "is_admin", False):
+            raise HTTPException(
+                status_code=403,
+                detail="Admin required for channel-less session messages",
+            )
 
     result = await db.execute(
         select(Message)
@@ -2053,7 +2079,58 @@ async def list_messages(
     if session.channel_id:
         await _recover_orphan_attachments(db, session.channel_id, messages)
 
-    return [MessageOut.from_orm(m) for m in messages]
+    out = [MessageOut.from_orm(m) for m in messages]
+
+    # Hydrate per-turn feedback onto the anchor assistant message of each turn.
+    # Anchor = last user-visible assistant text message of the turn, resolved
+    # against the FULL turn — not the visible page. A turn split by pagination
+    # would otherwise attach feedback to the wrong row (or hide it entirely
+    # when the true anchor is on a neighbouring page).
+    #
+    # Skipped when the caller is not a real user (no per-user `mine` to
+    # populate) — scoped API-key consumers don't need it.
+    user_id_for_feedback: uuid.UUID | None = None
+    if isinstance(auth, UserRow):
+        user_id_for_feedback = auth.id
+
+    correlation_ids = [
+        m.correlation_id for m in messages
+        if m.role == "assistant" and m.correlation_id is not None
+    ]
+    if correlation_ids:
+        from app.services.turn_feedback import (
+            anchor_message_ids_for_correlations,
+            feedback_for_correlation_ids,
+        )
+        from app.schemas.messages import FeedbackBlock, FeedbackTotals
+
+        unique_cids = list({c for c in correlation_ids})
+        summaries = await feedback_for_correlation_ids(
+            db,
+            correlation_ids=unique_cids,
+            user_id=user_id_for_feedback,
+        )
+        anchor_by_cid = await anchor_message_ids_for_correlations(
+            db, unique_cids,
+        )
+        anchor_ids = set(anchor_by_cid.values())
+
+        for serialized in out:
+            if serialized.id not in anchor_ids:
+                continue
+            cid = serialized.correlation_id
+            if cid is None:
+                continue
+            summary = summaries.get(cid)
+            if summary is None:
+                continue
+            serialized.feedback = FeedbackBlock(
+                mine=summary.mine,
+                totals=FeedbackTotals(**summary.totals),
+                comment_mine=summary.comment_mine,
+            )
+
+    return out
 
 
 # ---------------------------------------------------------------------------

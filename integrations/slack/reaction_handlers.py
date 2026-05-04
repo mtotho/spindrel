@@ -8,7 +8,10 @@ reaction→resource map out-of-band.
 
 Current mapping (extend as new intents land):
 
-  :+1: / :thumbsup:      → approve a pending tool / capability approval
+  :+1: / :thumbsup:      → (a) approve a pending tool / capability
+                           approval if the message *is* an approval block,
+                           else (b) record turn feedback (vote=up).
+  :-1: / :thumbsdown:    → record turn feedback (vote=down).
 
 Unknown reactions are ignored silently; logging stays at ``debug`` so
 noisy channels don't flood the bot log.
@@ -24,6 +27,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 APPROVE_REACTIONS = frozenset({"+1", "thumbsup"})
+DOWN_REACTIONS = frozenset({"-1", "thumbsdown"})
 
 # Resolved once via auth.test; we skip reactions the bot itself posts
 # (hourglass on turn start, tool-type emojis, checkmark on completion).
@@ -67,10 +71,44 @@ async def on_reaction_added_for_tests(event: dict, client) -> None:
         return
 
     if reaction in APPROVE_REACTIONS:
-        await _handle_approve_reaction(client, channel, ts, user_id)
+        # Try the approval path first — only when the message *is* an
+        # approval block does the approve semantics apply. If not, fall
+        # through and treat the :+1: as a turn-feedback vote.
+        approval_id = await _extract_approval_id(client, channel, ts)
+        if approval_id:
+            await _handle_approve_reaction(
+                client, channel, ts, user_id, approval_id=approval_id,
+            )
+            return
+        await _handle_feedback_reaction(channel, ts, user_id, vote="up")
+        return
+
+    if reaction in DOWN_REACTIONS:
+        await _handle_feedback_reaction(channel, ts, user_id, vote="down")
         return
 
     logger.debug("reaction_added unmapped: %s on %s/%s", reaction, channel, ts)
+
+
+async def on_reaction_removed_for_tests(event: dict, client) -> None:
+    """The reaction_removed dispatch — clears a Slack-side feedback vote."""
+    reaction = (event.get("reaction") or "").lower()
+    item = event.get("item") or {}
+    if item.get("type") != "message":
+        return
+    channel = item.get("channel")
+    ts = item.get("ts")
+    user_id = event.get("user") or "unknown"
+    if not channel or not ts:
+        return
+
+    own = await _resolve_own_bot_user_id(client)
+    if own and user_id == own:
+        return
+
+    if reaction in APPROVE_REACTIONS or reaction in DOWN_REACTIONS:
+        await _clear_feedback_reaction(channel, ts, user_id)
+        return
 
 
 def register_reaction_handlers(app) -> None:
@@ -80,19 +118,15 @@ def register_reaction_handlers(app) -> None:
     async def on_reaction_added(event, client):
         await on_reaction_added_for_tests(event, client)
 
+    @app.event("reaction_removed")
+    async def on_reaction_removed(event, client):
+        await on_reaction_removed_for_tests(event, client)
+
 
 async def _handle_approve_reaction(
-    client, channel: str, ts: str, user_id: str,
+    client, channel: str, ts: str, user_id: str, *, approval_id: str,
 ) -> None:
     """Approve a pending approval that this message represents."""
-    approval_id = await _extract_approval_id(client, channel, ts)
-    if not approval_id:
-        logger.debug(
-            "approve reaction on non-approval message channel=%s ts=%s",
-            channel, ts,
-        )
-        return
-
     ok = await _decide_approval(approval_id, user_id)
     if not ok:
         return
@@ -193,3 +227,74 @@ async def _decide_approval(approval_id: str, user_id: str) -> bool:
         approval_id, r.status_code, r.text,
     )
     return False
+
+
+async def _handle_feedback_reaction(
+    channel: str, ts: str, user_id: str, *, vote: str,
+) -> None:
+    """POST a feedback vote keyed by the slack ``(channel, ts)`` ref.
+
+    The server resolves the ref to the owning Spindrel turn and persists
+    an anonymous ``turn_feedback`` row (``user_id=NULL`` because there is
+    no Slack→Spindrel user mapping yet). 404 is silent — reactions on
+    non-bot messages and uncatalogued history get dropped at debug level.
+    """
+    from slack_settings import AGENT_BASE_URL, API_KEY
+
+    url = f"{AGENT_BASE_URL}/api/v1/messages/feedback/by-slack-reaction"
+    payload = {
+        "slack_ts": ts,
+        "slack_channel": channel,
+        "slack_user_id": user_id,
+        "vote": vote,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as cli:
+            r = await cli.post(
+                url, json=payload,
+                headers={"Authorization": f"Bearer {API_KEY}"},
+            )
+    except Exception:
+        logger.exception("feedback reaction post failed")
+        return
+
+    if r.status_code == 404:
+        logger.debug(
+            "feedback reaction unmapped channel=%s ts=%s vote=%s",
+            channel, ts, vote,
+        )
+        return
+    if r.status_code >= 400:
+        logger.warning(
+            "feedback reaction returned %d: %s",
+            r.status_code, r.text,
+        )
+
+
+async def _clear_feedback_reaction(
+    channel: str, ts: str, user_id: str,
+) -> None:
+    """Mirror of `_handle_feedback_reaction` for ``reaction_removed``."""
+    from slack_settings import AGENT_BASE_URL, API_KEY
+
+    url = f"{AGENT_BASE_URL}/api/v1/messages/feedback/by-slack-reaction/clear"
+    payload = {
+        "slack_ts": ts,
+        "slack_channel": channel,
+        "slack_user_id": user_id,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as cli:
+            r = await cli.post(
+                url, json=payload,
+                headers={"Authorization": f"Bearer {API_KEY}"},
+            )
+    except Exception:
+        logger.exception("clear feedback reaction post failed")
+        return
+
+    if r.status_code >= 400 and r.status_code != 204:
+        logger.debug(
+            "clear feedback reaction returned %d for channel=%s ts=%s",
+            r.status_code, channel, ts,
+        )

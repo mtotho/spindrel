@@ -51,6 +51,7 @@ class ChannelOut(BaseModel):
     active_session_id: Optional[uuid.UUID]
     require_mention: bool
     passive_memory: bool
+    show_message_feedback: bool = True
     private: bool = False
     protected: bool = False
     user_id: Optional[uuid.UUID] = None
@@ -87,6 +88,7 @@ class AdminChannelOut(BaseModel):
     active_session_id: Optional[uuid.UUID] = None
     require_mention: bool = True
     passive_memory: bool = True
+    show_message_feedback: bool = True
     private: bool = False
     protected: bool = False
     user_id: Optional[uuid.UUID] = None
@@ -145,6 +147,7 @@ class ChannelSettingsOut(BaseModel):
     active_session_id: Optional[uuid.UUID] = None
     require_mention: bool = True
     passive_memory: bool = True
+    show_message_feedback: bool = True
     private: bool = False
     protected: bool = False
     user_id: Optional[uuid.UUID] = None

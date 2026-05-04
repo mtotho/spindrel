@@ -19,20 +19,28 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, Message, Session
+from app.db.models import Channel, Message, Session, User as UserRow
 from app.domain.errors import DomainError
 from app.dependencies import (
     assert_admin_or_channel_owner,
     get_db,
     require_scopes,
     verify_auth_or_user,
+    verify_user,
 )
 from app.services.sub_sessions import SESSION_TYPE_THREAD, spawn_thread_session
+from app.services.turn_feedback import (
+    COMMENT_MAX_LEN,
+    TurnFeedbackError,
+    anchor_message_id_for_correlation,
+    clear_vote,
+    record_vote,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -393,3 +401,235 @@ async def batched_thread_summaries(
         )
 
     return out
+
+
+# ---------------------------------------------------------------------------
+# Turn feedback (thumbs up/down)
+# ---------------------------------------------------------------------------
+
+
+class FeedbackIn(BaseModel):
+    vote: str = Field(..., description="'up' or 'down'")
+    comment: Optional[str] = Field(None, max_length=COMMENT_MAX_LEN)
+
+
+class FeedbackOut(BaseModel):
+    vote: str
+    comment: Optional[str] = None
+    updated_at: datetime
+
+
+
+async def _resolve_message_for_feedback(
+    db: AsyncSession, message_id: uuid.UUID, user,
+) -> tuple[Message, Channel]:
+    """Load message → session → channel and enforce the access boundary.
+
+    Mirrors the channel-ownership check used elsewhere in this router
+    (thread creation, ``assert_admin_or_channel_owner``). A user who can
+    guess a message id must still own the channel — or be an admin —
+    to vote.
+
+    Raises 404 when the message has no correlation_id or no resolvable
+    channel (turn-less / channel-less rows are not votable in v1).
+    """
+    msg = await db.get(Message, message_id)
+    if msg is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if msg.correlation_id is None:
+        raise HTTPException(status_code=404, detail="Message has no turn correlation")
+    session = await db.get(Session, msg.session_id)
+    if session is None or session.channel_id is None:
+        raise HTTPException(
+            status_code=404, detail="Message is not bound to a channel",
+        )
+    channel = await db.get(Channel, session.channel_id)
+    if channel is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    assert_admin_or_channel_owner(channel, user)
+    return msg, channel
+
+
+@router.post(
+    "/{message_id}/feedback",
+    response_model=FeedbackOut,
+)
+async def record_message_feedback(
+    message_id: uuid.UUID,
+    body: FeedbackIn,
+    db: AsyncSession = Depends(get_db),
+    user: UserRow = Depends(verify_user),
+):
+    """Record a thumbs-up / thumbs-down vote on the turn anchored at this message.
+
+    The vote is keyed at the *turn* level (Message.correlation_id), not at
+    the message level — re-voting via any message of the same turn updates
+    the same row. Comments are optional and capped at 500 chars.
+    """
+    if body.vote not in ("up", "down"):
+        raise HTTPException(status_code=422, detail="vote must be 'up' or 'down'")
+
+    msg, _channel = await _resolve_message_for_feedback(db, message_id, user)
+
+    # Require an anchor — turn-less or tool-only turns aren't votable.
+    anchor_id = await anchor_message_id_for_correlation(db, msg.correlation_id)
+    if anchor_id is None:
+        raise HTTPException(
+            status_code=404, detail="Turn has no votable anchor message",
+        )
+
+    try:
+        row = await record_vote(
+            db,
+            message_id=message_id,
+            user_id=user.id,
+            source_integration="web",
+            source_user_ref=None,
+            vote=body.vote,
+            comment=body.comment,
+        )
+    except TurnFeedbackError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    await db.commit()
+    return FeedbackOut(
+        vote=row.vote,
+        comment=row.comment,
+        updated_at=row.updated_at,
+    )
+
+
+@router.delete(
+    "/{message_id}/feedback",
+    status_code=204,
+)
+async def delete_message_feedback(
+    message_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: UserRow = Depends(verify_user),
+):
+    """Clear the requesting user's vote on this turn. Idempotent."""
+    await _resolve_message_for_feedback(db, message_id, user)
+
+    await clear_vote(
+        db,
+        message_id=message_id,
+        user_id=user.id,
+        source_integration="web",
+        source_user_ref=None,
+    )
+    await db.commit()
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Slack-reaction → turn-feedback bridge
+#
+# Slack runs in a separate process and reaches back via HTTP. Reactions on
+# bot messages are mapped here. Only an admin-scoped credential (the
+# integration's API key) may call these endpoints — Slack ``user_id`` is
+# stored as ``source_user_ref`` with ``user_id=NULL`` because there is no
+# Slack→User mapping in the codebase yet.
+# ---------------------------------------------------------------------------
+
+
+class SlackReactionFeedbackIn(BaseModel):
+    slack_ts: str
+    slack_channel: str
+    slack_user_id: str
+    vote: str  # "up" | "down"
+
+
+class SlackReactionClearIn(BaseModel):
+    slack_ts: str
+    slack_channel: str
+    slack_user_id: str
+
+
+async def _resolve_message_for_slack_ref(
+    db: AsyncSession, *, slack_ts: str, slack_channel: str,
+) -> Message | None:
+    """Find the Spindrel ``Message`` matching a Slack ``(channel, ts)`` ref.
+
+    ``slack_ts`` and ``slack_channel`` are stamped on Message metadata at
+    delivery time by ``integrations/slack/hooks.py``. The query is JSONB
+    on Postgres; SQLAlchemy emits the ``->>`` operator for both dialects
+    via ``func.jsonb_extract_path_text`` fall-throughs, but here a simple
+    string compare against the typed string accessor is enough.
+    """
+    rows = (await db.execute(
+        select(Message).where(
+            Message.metadata_["slack_ts"].astext == slack_ts,
+            Message.metadata_["slack_channel"].astext == slack_channel,
+        ).limit(1)
+    )).scalars().all()
+    return rows[0] if rows else None
+
+
+@router.post(
+    "/feedback/by-slack-reaction",
+    response_model=FeedbackOut,
+)
+async def record_slack_reaction_feedback(
+    body: SlackReactionFeedbackIn,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    """Persist a Slack `:+1:` / `:-1:` reaction as anonymous turn feedback."""
+    if body.vote not in ("up", "down"):
+        raise HTTPException(status_code=422, detail="vote must be 'up' or 'down'")
+
+    msg = await _resolve_message_for_slack_ref(
+        db, slack_ts=body.slack_ts, slack_channel=body.slack_channel,
+    )
+    if msg is None or msg.correlation_id is None:
+        raise HTTPException(status_code=404, detail="No turn for slack ref")
+
+    anchor_id = await anchor_message_id_for_correlation(db, msg.correlation_id)
+    if anchor_id is None:
+        raise HTTPException(
+            status_code=404, detail="Turn has no votable anchor message",
+        )
+
+    try:
+        row = await record_vote(
+            db,
+            message_id=msg.id,
+            user_id=None,
+            source_integration="slack",
+            source_user_ref=body.slack_user_id,
+            vote=body.vote,
+            comment=None,
+        )
+    except TurnFeedbackError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    await db.commit()
+    return FeedbackOut(vote=row.vote, comment=row.comment, updated_at=row.updated_at)
+
+
+@router.post(
+    "/feedback/by-slack-reaction/clear",
+    status_code=204,
+)
+async def clear_slack_reaction_feedback(
+    body: SlackReactionClearIn,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    """Clear a Slack-anonymous vote (matches ``reaction_removed``)."""
+    msg = await _resolve_message_for_slack_ref(
+        db, slack_ts=body.slack_ts, slack_channel=body.slack_channel,
+    )
+    if msg is None:
+        return Response(status_code=204)
+
+    await clear_vote(
+        db,
+        message_id=msg.id,
+        user_id=None,
+        source_integration="slack",
+        source_user_ref=body.slack_user_id,
+    )
+    await db.commit()
+    return Response(status_code=204)

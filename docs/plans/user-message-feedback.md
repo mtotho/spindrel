@@ -1,11 +1,27 @@
 ---
 title: User Message Feedback (thumbs up/down)
 summary: Subtle per-turn up/down vote in the web UI, mirrored as Slack reactions, persisted as durable per-user feedback and surfaced through existing quality/audit consumers.
-status: planned
+status: executed
 tags: [spindrel, plan, agents, quality, feedback, ui, slack, integrations]
 created: 2026-05-03
 updated: 2026-05-03
 ---
+
+> **Status:** Executed 2026-05-03 — see Phase 9 of
+> `docs/tracks/agent-quality-observability.md`. Migration `295_turn_feedback`,
+> `app/services/turn_feedback.py`, `app/routers/api_v1_messages.py` (POST/DELETE
+> + Slack-reaction bridge), `MessageOut.feedback`, `Channel.show_message_feedback`,
+> `ui/src/components/chat/TurnFeedbackControls.tsx`, Slack
+> `_handle_feedback_reaction`, and the `message_feedback` SDK capability are
+> all in place. UI typecheck and targeted Slack/quality unit tests pass; DB-backed
+> service + integration tests are written and auto-skip on local Python 3.14
+> (CI runs them). Daily Health surfaces `user_feedback_down_24h`.
+>
+> **Auditor surface added 2026-05-03:** `audit_trace_quality` now returns
+> a `user_feedback` block per correlation_id, and `list_user_feedback` is
+> the new discovery tool (filter by vote / since_hours / bot_id / channel_id /
+> correlation_id; comment text and anchor excerpt included). The
+> `spindrel-conversation-quality-audit` skill doc has the recipe.
 
 # User Message Feedback
 
