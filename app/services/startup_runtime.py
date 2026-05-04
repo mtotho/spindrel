@@ -86,26 +86,21 @@ def start_boot_background_services(
 
 
 async def index_filesystems_and_start_watchers() -> None:
-    """Index workspace and legacy filesystem directories, then start watchers."""
-    from app.agent.bots import list_bots
-    from app.agent.fs_indexer import index_directory
-    from app.agent.fs_watcher import start_watchers
-    from app.services.bot_indexing import reindex_bot
+    """Start filesystem watchers without storming the DB on boot.
 
-    logger.info("Background: reindexing workspaces + memory for all bots...")
-    for bot in list_bots():
-        try:
-            await reindex_bot(bot, force=True, cleanup_orphans=True)
-        except Exception:
-            logger.exception("Failed to reindex bot %s", bot.id)
-        for cfg in bot.filesystem_indexes:
-            try:
-                stats = await index_directory(cfg.root, bot.id, cfg.patterns, force=True)
-                logger.info("Indexed %s for bot %s: %s", cfg.root, bot.id, stats)
-            except Exception:
-                logger.exception("Failed to index %s for bot %s", cfg.root, bot.id)
-    await start_watchers(list_bots())
-    logger.info("Background: filesystem indexing complete.")
+    Startup used to force-reindex every bot workspace before starting
+    watchers. On instances with shared workspaces and contextual retrieval,
+    that fan-out can open enough concurrent DB write/backfill work to exhaust
+    the SQLAlchemy pool before the first inbound chat request finishes.
+    Watchers and explicit admin/maintenance reindex paths still handle actual
+    changes; boot should not compete with chat for the whole pool.
+    """
+    from app.agent.bots import list_bots
+    from app.agent.fs_watcher import start_watchers
+
+    bots = list_bots()
+    await start_watchers(bots)
+    logger.info("Background: filesystem watchers started.")
 
     if settings.CONTEXTUAL_RETRIEVAL_ENABLED:
         try:

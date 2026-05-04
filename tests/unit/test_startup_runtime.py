@@ -88,6 +88,22 @@ def test_boot_background_services_schedule_expected_workers(monkeypatch):
     ]
 
 
+def test_boot_filesystem_worker_does_not_force_reindex_workspaces():
+    source = Path(startup_runtime.__file__).read_text()
+    node = next(
+        n
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.AsyncFunctionDef)
+        and n.name == "index_filesystems_and_start_watchers"
+    )
+    body = ast.get_source_segment(source, node) or ""
+
+    assert "start_watchers" in body
+    assert "reindex_bot" not in body
+    assert "index_directory" not in body
+    assert "force=True" not in body
+
+
 @pytest.mark.asyncio
 async def test_ready_runtime_recovers_before_launching_dependent_workers(monkeypatch):
     events: list[str] = []

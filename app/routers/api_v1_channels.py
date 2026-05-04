@@ -1258,6 +1258,7 @@ async def get_session_status(
 
     session_id = channel.active_session_id
     if not session_id:
+        await db.close()
         return SessionStatusOut(processing=False, pending_tasks=0)
 
     processing = session_locks.is_active(session_id)
@@ -1271,6 +1272,10 @@ async def get_session_status(
     )
     pending_tasks = pending_count_result.scalar() or 0
 
+    # Release the pool slot before pydantic serializes + Starlette flushes.
+    # Under HTTP/1.1 client backpressure, holding the connection through
+    # flush is what exhausts the pool on page-mount fanout.
+    await db.close()
     return SessionStatusOut(processing=processing, pending_tasks=pending_tasks)
 
 
@@ -1343,6 +1348,7 @@ async def get_channel_state(
 
     session_id = channel.active_session_id
     if not session_id:
+        await db.close()
         return ChannelStateOut(active_turns=[], pending_approvals=pending_approvals)
 
     cutoff = datetime.now(timezone.utc) - ACTIVE_TURN_WINDOW
@@ -1353,6 +1359,8 @@ async def get_channel_state(
         cutoff=cutoff,
         session_active=session_locks.is_active(session_id),
     )
+    # Release pool slot before serialize/flush — see get_session_status above.
+    await db.close()
     return ChannelStateOut(active_turns=active_turns, pending_approvals=pending_approvals)
 
 
@@ -1379,11 +1387,13 @@ async def get_channel_chat_zones(
 
     from app.services.channel_chat_zones import resolve_chat_zones
     zones = await resolve_chat_zones(db, channel_id)
-    return ChatZonesOut(
+    out = ChatZonesOut(
         rail=zones["rail"],
         header=zones["header"],
         dock=zones["dock"],
     )
+    await db.close()
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1464,7 +1474,9 @@ async def get_channel_context_budget(
     await _auth_channel_context(channel_id, auth, db)
 
     from app.services.context_breakdown import fetch_latest_context_budget
-    return await fetch_latest_context_budget(channel_id, db, session_id=session_id)
+    out = await fetch_latest_context_budget(channel_id, db, session_id=session_id)
+    await db.close()
+    return out
 
 
 @router.get("/{channel_id}/context-breakdown")

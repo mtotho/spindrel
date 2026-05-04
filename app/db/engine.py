@@ -10,11 +10,21 @@ from app.config import settings
 _pool_kwargs: dict = {}
 _connect_args: dict = {}
 if "sqlite" not in settings.DATABASE_URL:
+    # Sizing rationale: the UI fans out ~9 parallel state queries on every
+    # channel-page mount (state, session-state, summary, harness-*, etc.),
+    # POST /chat is another concurrent handler, and each Depends(get_db)
+    # session holds its pool slot until the response is fully flushed to
+    # the client. With multi-tab use + HTTP/1.1 6-conn-per-origin browser
+    # backpressure, a 10+20 pool is starved within a single page reload.
+    # Postgres comfortably handles 200+ connections; 25+75 right-sizes for
+    # the actual workload. pool_timeout=10 fails fast instead of stacking
+    # 30s waits when the pool is genuinely saturated.
     _pool_kwargs = {
-        "pool_size": 10,
-        "max_overflow": 20,
+        "pool_size": 25,
+        "max_overflow": 75,
         "pool_recycle": 1800,
         "pool_pre_ping": True,
+        "pool_timeout": 10,
     }
     # Hard safety net at the Postgres level. Any leaked transaction (a
     # session that opened a transaction and forgot to commit/rollback —

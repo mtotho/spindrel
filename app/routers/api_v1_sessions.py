@@ -934,9 +934,12 @@ async def get_session_state(
         cutoff=cutoff,
         session_active=session_locks.is_active(session_id),
     )
+    pending_approvals = await _snapshot_pending_approvals_for_session(db, session_id)
+    # Release pool slot before pydantic serializes + Starlette flushes.
+    await db.close()
     return SessionStateOut(
         active_turns=[turn.model_dump() for turn in active_turns],
-        pending_approvals=await _snapshot_pending_approvals_for_session(db, session_id),
+        pending_approvals=pending_approvals,
     )
 
 
@@ -1377,12 +1380,14 @@ async def get_harness_settings(
         raise HTTPException(status_code=404, detail="Session not found")
     await _authorize_session_read(db, session, auth)
     settings = await load_session_settings(db, session_id)
-    return HarnessSettingsOut(
+    out = HarnessSettingsOut(
         model=settings.model,
         effort=settings.effort,
         runtime_settings=dict(settings.runtime_settings),
         mode_models=dict(settings.mode_models),
     )
+    await db.close()
+    return out
 
 
 class HarnessStatusOut(BaseModel):
@@ -1640,7 +1645,7 @@ async def get_harness_status(
         workdir_source=(harness_meta or {}).get("effective_cwd_source") or harness_paths.source,
         bridge_status=bridge_status,
     )
-    return HarnessStatusOut(
+    out = HarnessStatusOut(
         runtime=runtime_name,
         harness_session_id=(harness_meta or {}).get("session_id") if harness_meta else None,
         model=settings.model,
@@ -1679,6 +1684,8 @@ async def get_harness_status(
             "native compaction events, and pending host hints for this session."
         ),
     )
+    await db.close()
+    return out
 
 
 @router.post(
@@ -1868,7 +1875,7 @@ async def get_session_summary(
         )).scalar_one_or_none()
     project_instance_payload = await _session_project_instance_out(db, session, channel=channel)
 
-    return SessionSummaryOut(
+    out = SessionSummaryOut(
         session_id=session.id,
         bot_id=session.bot_id,
         channel_id=session.channel_id,
@@ -1887,6 +1894,9 @@ async def get_session_summary(
         project_instance_status=project_instance_payload.status,
         project_root_path=project_instance_payload.root_path,
     )
+    # Release pool slot before pydantic serializes + Starlette flushes.
+    await db.close()
+    return out
 
 
 @router.post("/{session_id}/promote-to-primary", response_model=PromoteScratchSessionResponse)
@@ -2420,7 +2430,7 @@ async def session_config_overhead(
         provider_id, _ = effective_model.split("/", 1)
     context_window = get_model_context_window(effective_model, provider_id)
 
-    return {
+    out = {
         "lines": [asdict(line) for line in result.lines],
         "total_chars": result.total_chars,
         "approx_tokens": result.approx_tokens,
@@ -2428,6 +2438,8 @@ async def session_config_overhead(
         "overhead_pct": round(result.approx_tokens / context_window, 4) if context_window else None,
         "disclaimer": result.disclaimer,
     }
+    await db.close()
+    return out
 
 
 @router.get("/{session_id}/context", response_model=ContextDebugOut)
