@@ -875,6 +875,62 @@ async def cleanup_stale_roots(bot_id: str, valid_roots: list[str]) -> int:
         return result.rowcount
 
 
+async def cleanup_missing_files_by_prefix(
+    root: str,
+    bot_id: str | None,
+    prefixes: list[str],
+    *,
+    client_id: str | None = None,
+) -> int:
+    """Delete indexed chunks under path prefixes when their files are gone.
+
+    This is narrower than ``index_directory`` stale cleanup: it only considers
+    existing index rows under the supplied prefixes, so memory-only indexing can
+    purge deleted memory files without treating unrelated workspace chunks as
+    stale.
+    """
+    root_path = Path(root).resolve()
+    include_filters = _path_prefix_include_filters(prefixes)
+    if not include_filters:
+        return 0
+
+    from sqlalchemy import or_
+
+    scope_conds = [FilesystemChunk.root == str(root_path), or_(*include_filters)]
+    if bot_id is None:
+        scope_conds.append(FilesystemChunk.bot_id.is_(None))
+    else:
+        scope_conds.append(FilesystemChunk.bot_id == bot_id)
+    if client_id is None:
+        scope_conds.append(FilesystemChunk.client_id.is_(None))
+    else:
+        scope_conds.append(FilesystemChunk.client_id == client_id)
+
+    async with async_session() as db:
+        rows = (await db.execute(
+            select(FilesystemChunk.file_path)
+            .where(*scope_conds)
+            .distinct()
+        )).all()
+
+        missing = [
+            row.file_path
+            for row in rows
+            if not (root_path / row.file_path).is_file()
+        ]
+        if not missing:
+            return 0
+
+        await db.execute(
+            delete(FilesystemChunk).where(
+                *scope_conds,
+                FilesystemChunk.file_path.in_(missing),
+            )
+        )
+        await db.commit()
+        return len(missing)
+
+
 # ---------------------------------------------------------------------------
 # Retrieval
 # ---------------------------------------------------------------------------

@@ -277,6 +277,9 @@ class TestReindexBot:
             "app.agent.fs_indexer.index_directory",
             new=AsyncMock(return_value={"indexed": 3, "skipped": 0, "removed": 0, "errors": 0}),
         ) as idx_mock, patch(
+            "app.agent.fs_indexer.cleanup_missing_files_by_prefix",
+            new=AsyncMock(return_value=0),
+        ) as cleanup_mock, patch(
             "app.services.workspace.workspace_service"
         ) as mock_ws:
             mock_ws.get_workspace_root.return_value = "/data/test-bot"
@@ -284,8 +287,37 @@ class TestReindexBot:
         idx_mock.assert_awaited_once()
         _, kwargs = idx_mock.await_args
         assert kwargs["skip_stale_cleanup"] is True  # memory scope
+        cleanup_mock.assert_awaited_once_with(
+            "/data/test-bot",
+            "test-bot",
+            ["bots/test-bot/memory"],
+        )
         assert out is not None
         assert out["indexed"] == 3
+
+    @pytest.mark.asyncio
+    async def test_memory_index_removes_deleted_memory_chunks(self):
+        bot = _make_bot(enabled=True)
+        bot.memory_scheme = "workspace-files"
+        with patch(
+            "app.agent.fs_indexer.index_directory",
+            new=AsyncMock(return_value={"indexed": 0, "skipped": 2, "removed": 0, "errors": 0}),
+        ), patch(
+            "app.agent.fs_indexer.cleanup_missing_files_by_prefix",
+            new=AsyncMock(return_value=1),
+        ) as cleanup_mock, patch(
+            "app.services.workspace.workspace_service"
+        ) as mock_ws:
+            mock_ws.get_workspace_root.return_value = "/data/test-bot"
+            out = await reindex_bot(bot, include_workspace=False)
+
+        cleanup_mock.assert_awaited_once_with(
+            "/data/test-bot",
+            "test-bot",
+            ["bots/test-bot/memory"],
+        )
+        assert out is not None
+        assert out["removed"] == 1
 
     @pytest.mark.asyncio
     async def test_workspace_with_segments_indexes_each_root(self):

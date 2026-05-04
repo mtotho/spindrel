@@ -1,12 +1,13 @@
 """Tests for fs_indexer _process_file skip logic — hash, model, and version checks."""
 import asyncio
 import hashlib
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agent.fs_indexer import _process_file
+from app.agent.fs_indexer import _process_file, cleanup_missing_files_by_prefix
 
 
 @pytest.fixture
@@ -84,6 +85,7 @@ class TestProcessFileSkipLogic:
         # Should NOT be skipped — version mismatch forces re-processing
         assert result.status != "skipped"
 
+
     async def test_reindexes_when_cr_enabled_changes_version(self, tmp_file, file_hash, tmp_path):
         """Enabling contextual retrieval changes effective version → re-indexed."""
         mock_embed = AsyncMock(return_value=[[0.1] * 1536])
@@ -133,3 +135,34 @@ class TestProcessFileSkipLogic:
                 [], asyncio.Semaphore(1), None,
             )
         assert result.status != "skipped"
+
+
+class TestCleanupMissingFilesByPrefix:
+    async def test_removes_only_missing_files_under_prefix(self, tmp_path):
+        keep = tmp_path / "bots" / "test-bot" / "memory" / "keep.md"
+        keep.parent.mkdir(parents=True)
+        keep.write_text("still here")
+
+        rows = [
+            SimpleNamespace(file_path="bots/test-bot/memory/keep.md"),
+            SimpleNamespace(file_path="bots/test-bot/memory/deleted.md"),
+        ]
+        select_result = MagicMock()
+        select_result.all.return_value = rows
+
+        mock_db = AsyncMock()
+        mock_db.execute.side_effect = [select_result, MagicMock()]
+
+        with patch("app.agent.fs_indexer.async_session") as mock_session:
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            removed = await cleanup_missing_files_by_prefix(
+                str(tmp_path),
+                "test-bot",
+                ["bots/test-bot/memory"],
+            )
+
+        assert removed == 1
+        assert mock_db.execute.await_count == 2
+        mock_db.commit.assert_awaited_once()

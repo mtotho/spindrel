@@ -321,10 +321,11 @@ async def _reindex_memory(
         if plan is None:
             return None
 
-    from app.agent.fs_indexer import index_directory
-    from app.services.memory_scheme import get_memory_index_patterns
+    from app.agent.fs_indexer import cleanup_missing_files_by_prefix, index_directory
+    from app.services.memory_scheme import get_memory_index_patterns, get_memory_index_prefix
 
     patterns = get_memory_index_patterns(bot)
+    memory_prefix = get_memory_index_prefix(bot)
     results: list[dict] = []
     for root in plan.roots:
         try:
@@ -333,6 +334,20 @@ async def _reindex_memory(
                 embedding_model=plan.embedding_model,
                 skip_stale_cleanup=True,
             )
+            try:
+                removed = await cleanup_missing_files_by_prefix(
+                    root,
+                    bot.id,
+                    [memory_prefix],
+                )
+                if removed:
+                    stats = {**stats, "removed": stats.get("removed", 0) + removed}
+            except Exception:
+                logger.exception(
+                    "Failed to clean up missing memory files for bot %s root %s",
+                    bot.id,
+                    root,
+                )
             results.append(stats)
             logger.info(
                 "Memory index for bot %s root %s (model=%s): %s",
@@ -374,6 +389,7 @@ async def reindex_channel(
 
     base_prefix = None
     base_root = None
+    channel = None
     try:
         from app.db.engine import async_session
         from app.db.models import Channel
