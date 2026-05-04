@@ -113,7 +113,48 @@ def _project_repo_roots(project: Project, repo_path: str | None = None) -> list[
     return unique[:MAX_REPOS]
 
 
-def _repo_summary(root: Path, *, include_patch: bool = False) -> dict[str, Any]:
+def _verify_git_ref(root: Path, ref: str) -> str | None:
+    result = _run_git(root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
+    if result["ok"]:
+        value = str(result["stdout"] or "").strip()
+        return value or None
+    return None
+
+
+def _branch_diff_summary(root: Path, *, base_branch: str | None, include_patch: bool = False) -> dict[str, Any] | None:
+    base = (base_branch or "").strip()
+    if not base:
+        return None
+    candidates = [base]
+    if "/" not in base:
+        candidates.insert(0, f"origin/{base}")
+    base_ref = next((candidate for candidate in candidates if _verify_git_ref(root, candidate)), None)
+    if not base_ref:
+        return {"base_branch": base, "error": "base ref is not available in this worktree"}
+    merge_base_result = _run_git(root, "merge-base", base_ref, "HEAD")
+    if not merge_base_result["ok"]:
+        return {"base_branch": base, "base_ref": base_ref, "error": str(merge_base_result.get("stderr") or "merge-base failed")[:512]}
+    merge_base = str(merge_base_result.get("stdout") or "").strip()
+    if not merge_base:
+        return {"base_branch": base, "base_ref": base_ref, "error": "merge-base returned no commit"}
+    diff_range = f"{merge_base}..HEAD"
+    stat = _run_git(root, "diff", "--stat", diff_range)
+    name_status = _run_git(root, "diff", "--name-status", diff_range)
+    payload: dict[str, Any] = {
+        "base_branch": base,
+        "base_ref": base_ref,
+        "merge_base": merge_base[:12],
+        "diff_stat": str(stat.get("stdout") or "").strip(),
+        "files": [line for line in str(name_status.get("stdout") or "").splitlines() if line.strip()][:200],
+    }
+    if include_patch:
+        patch = _run_git(root, "diff", "--patch", diff_range, max_chars=MAX_PATCH_CHARS)
+        payload["patch"] = str(patch.get("stdout") or "")
+        payload["patch_truncated"] = len(str(patch.get("stdout") or "")) >= MAX_PATCH_CHARS
+    return payload
+
+
+def _repo_summary(root: Path, *, include_patch: bool = False, base_branch: str | None = None) -> dict[str, Any]:
     branch = _run_git(root, "status", "--short", "--branch")
     porcelain = _run_git(root, "status", "--porcelain=v1", "-uall")
     head = _run_git(root, "rev-parse", "--short", "HEAD")
@@ -174,11 +215,20 @@ def _repo_summary(root: Path, *, include_patch: bool = False) -> dict[str, Any]:
         payload["staged_patch"] = str(staged_patch.get("stdout") or "")
         payload["patch_truncated"] = len(str(patch.get("stdout") or "")) >= MAX_PATCH_CHARS
         payload["staged_patch_truncated"] = len(str(staged_patch.get("stdout") or "")) >= MAX_PATCH_CHARS
+    branch_diff = _branch_diff_summary(root, base_branch=base_branch, include_patch=include_patch)
+    if branch_diff is not None:
+        payload["branch_diff"] = branch_diff
     return payload
 
 
-def git_status_for_roots(roots: list[Path], *, include_patch: bool = False, scope: dict[str, Any] | None = None) -> dict[str, Any]:
-    repos = [_repo_summary(root, include_patch=include_patch) for root in roots]
+def git_status_for_roots(
+    roots: list[Path],
+    *,
+    include_patch: bool = False,
+    scope: dict[str, Any] | None = None,
+    base_branch: str | None = None,
+) -> dict[str, Any]:
+    repos = [_repo_summary(root, include_patch=include_patch, base_branch=base_branch) for root in roots]
     return {
         "scope": scope or {},
         "repo_count": len(repos),
@@ -231,12 +281,22 @@ async def project_run_git_status(
     task = await db.get(Task, task_id)
     if task is None:
         raise ValueError("coding run not found")
+    cfg = task.execution_config if isinstance(task.execution_config, dict) else {}
+    run = cfg.get("project_coding_run") if isinstance(cfg.get("project_coding_run"), dict) else {}
+    base_branch = run.get("base_branch") if isinstance(run.get("base_branch"), str) else None
     if task.session_id is not None:
+        env = await get_session_execution_environment(db, task.session_id)
+        if env is not None and env.cwd:
+            status = git_status_for_roots(
+                _discover_repo_roots(Path(env.cwd)),
+                include_patch=include_patch,
+                scope={"kind": "project_run", "session_id": str(task.session_id), "cwd": env.cwd, "task_id": str(task.id), "project_id": str(project.id)},
+                base_branch=base_branch,
+            )
+            return status
         status = await session_git_status(db, task.session_id, include_patch=include_patch)
         status["scope"] = {**dict(status.get("scope") or {}), "kind": "project_run", "task_id": str(task.id), "project_id": str(project.id)}
         return status
-    cfg = task.execution_config if isinstance(task.execution_config, dict) else {}
-    run = cfg.get("project_coding_run") if isinstance(cfg.get("project_coding_run"), dict) else {}
     return await project_git_status(db, project, repo_path=run.get("repo", {}).get("path") if isinstance(run.get("repo"), dict) else None, include_patch=include_patch)
 
 
@@ -253,6 +313,9 @@ def receipt_git_summary(status: dict[str, Any]) -> dict[str, Any]:
                 "files": list(repo.get("files") or [])[:100],
                 "diff_stat": repo.get("diff_stat"),
                 "staged_diff_stat": repo.get("staged_diff_stat"),
+                "patch": repo.get("patch"),
+                "patch_truncated": repo.get("patch_truncated"),
+                "branch_diff": repo.get("branch_diff"),
             }
             for repo in list(status.get("repos") or [])[:MAX_REPOS]
             if isinstance(repo, dict)

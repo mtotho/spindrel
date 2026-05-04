@@ -62,7 +62,7 @@ import { isTranscriptFlowComposer } from "./chatModes";
 
 import type { ChatSessionProps, ChatSource } from "./ChatSessionTypes";
 import { getDockStorageKey } from "./ChatSessionTypes";
-import { makeClientLocalId, formatSessionHeaderTimestamp, formatHeaderTurnMeta, useChatSessionPlan } from "./ChatSessionShared";
+import { makeClientLocalId, markSessionMessageQueued, formatSessionHeaderTimestamp, formatHeaderTurnMeta, useChatSessionPlan } from "./ChatSessionShared";
 
 const TerminalPanel = lazy(() =>
   import("@/src/components/terminal/TerminalPanel").then((m) => ({ default: m.TerminalPanel })),
@@ -206,6 +206,7 @@ export function FixedSessionChatSession({
         } : {}),
       });
       if (result.queued) {
+        markSessionMessageQueued(sessionId, clientLocalId, result);
         useChatStore.getState().setProcessing(
           sessionId,
           result.task_id ?? result.turn_id ?? clientLocalId,

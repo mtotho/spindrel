@@ -48,3 +48,23 @@ def test_discover_repo_roots_finds_repos_below_project_root(tmp_path: Path):
     _git(repo, "init")
 
     assert _discover_repo_roots(project_root) == [repo.resolve()]
+
+
+def test_repo_summary_captures_branch_diff_against_base(tmp_path: Path):
+    _git(tmp_path, "init", "-b", "main")
+    (tmp_path / "tracked.txt").write_text("initial\n")
+    _git(tmp_path, "add", "tracked.txt")
+    _git(tmp_path, "-c", "user.email=test@example.com", "-c", "user.name=Test User", "commit", "-m", "initial")
+    _git(tmp_path, "checkout", "-b", "feature")
+    (tmp_path / "tracked.txt").write_text("changed\n")
+    (tmp_path / "added.txt").write_text("new\n")
+    _git(tmp_path, "add", "tracked.txt", "added.txt")
+    _git(tmp_path, "-c", "user.email=test@example.com", "-c", "user.name=Test User", "commit", "-m", "feature")
+
+    summary = _repo_summary(tmp_path, include_patch=True, base_branch="main")
+
+    branch_diff = summary["branch_diff"]
+    assert branch_diff["base_branch"] == "main"
+    assert branch_diff["files"] == ["A\tadded.txt", "M\ttracked.txt"]
+    assert "tracked.txt" in branch_diff["patch"]
+    assert "added.txt" in branch_diff["patch"]

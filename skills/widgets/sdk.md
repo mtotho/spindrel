@@ -338,7 +338,7 @@ const off = window.spindrel.bus.subscribe("items_changed", () => reloadFeed());
 // call off() from teardown; iframe unload also cleans up
 ```
 
-Scope is **channel-scoped** — both widgets must be pinned on the same channel dashboard (or in the same channel chat) to see each other. User-dashboard pubsub lands when the dashboard slug threads through the iframe (Phase B). Falls back silently on browsers without `BroadcastChannel`.
+Scope is **channel-scoped** — both widgets must be pinned on the same channel dashboard (or in the same channel chat) to see each other. User-dashboard pubsub lands when the dashboard slug threads through the iframe. Falls back silently on browsers without `BroadcastChannel`.
 
 ## `spindrel.stream(kinds, filter?, cb)` — live channel events
 

@@ -76,14 +76,16 @@ async def write_pending_knowledge_document(
     _auth=Depends(require_scopes("admin")),
 ) -> dict[str, Any]:
     workspace = await _default_workspace(db)
-    root = shared_workspace_service.ensure_host_dirs(str(workspace.id))
+    workspace_id = str(workspace.id)
+    await db.rollback()
+    root = shared_workspace_service.ensure_host_dirs(workspace_id)
     doc = write_document(
         user_knowledge_surface(workspace_root=root, user_id=user_id),
         slug,
         data.content,
         data.base_hash,
     )
-    await reindex_user_knowledge_workspace(workspace_id=str(workspace.id), user_id=user_id)
+    await reindex_user_knowledge_workspace(workspace_id=workspace_id, user_id=user_id)
     return doc
 
 
@@ -95,9 +97,11 @@ async def accept_pending_knowledge_document(
     _auth=Depends(require_scopes("admin")),
 ) -> dict[str, Any]:
     workspace = await _default_workspace(db)
-    root = shared_workspace_service.ensure_host_dirs(str(workspace.id))
+    workspace_id = str(workspace.id)
+    await db.rollback()
+    root = shared_workspace_service.ensure_host_dirs(workspace_id)
     doc = set_document_status(user_knowledge_surface(workspace_root=root, user_id=user_id), slug, "accepted")
-    await reindex_user_knowledge_workspace(workspace_id=str(workspace.id), user_id=user_id)
+    await reindex_user_knowledge_workspace(workspace_id=workspace_id, user_id=user_id)
     return doc
 
 
@@ -109,7 +113,9 @@ async def reject_pending_knowledge_document(
     _auth=Depends(require_scopes("admin")),
 ) -> dict[str, Any]:
     workspace = await _default_workspace(db)
-    root = shared_workspace_service.ensure_host_dirs(str(workspace.id))
+    workspace_id = str(workspace.id)
+    await db.rollback()
+    root = shared_workspace_service.ensure_host_dirs(workspace_id)
     doc = delete_document(user_knowledge_surface(workspace_root=root, user_id=user_id), slug)
-    await delete_user_knowledge_index_entry(workspace_id=str(workspace.id), user_id=user_id, slug=slug)
+    await delete_user_knowledge_index_entry(workspace_id=workspace_id, user_id=user_id, slug=slug)
     return {"deleted": True, "document": doc}

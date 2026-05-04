@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { useSessionPlanMode } from "@/app/(app)/channels/[channelId]/useSessionPlanMode";
+import { useChatStore } from "@/src/stores/chat";
 
 export function makeClientLocalId(): string {
   const cryptoObj = globalThis.crypto as Crypto | undefined;
@@ -31,6 +32,40 @@ export function formatHeaderTurnMeta(stats: {
     bits.push(`${stats.turnsUntilCompaction} until compact`);
   }
   return bits;
+}
+
+export function markSessionMessageQueued(
+  sessionId: string,
+  clientLocalId: string,
+  result: { task_id?: string; coalesced?: boolean; queued_message_count?: number },
+) {
+  const store = useChatStore.getState();
+  const current = store.channels[sessionId]?.messages ?? [];
+  const localQueuedCount = current.filter((message) => {
+    const meta = (message.metadata ?? {}) as Record<string, unknown>;
+    return message.role === "user" && (
+      meta.client_local_id === clientLocalId ||
+      meta.local_status === "queued"
+    );
+  }).length;
+  const queuedCount = Math.max(result.queued_message_count ?? 0, localQueuedCount);
+  store.setMessages(sessionId, current.map((message) => {
+    const meta = (message.metadata ?? {}) as Record<string, any>;
+    const isQueuedLocal =
+      message.role === "user" &&
+      (meta.client_local_id === clientLocalId || meta.local_status === "queued");
+    if (!isQueuedLocal) return message;
+    return {
+      ...message,
+      metadata: {
+        ...meta,
+        local_status: "queued",
+        queued_task_id: result.task_id,
+        queued_message_count: queuedCount,
+        queued_coalesced: result.coalesced ?? queuedCount > 1,
+      },
+    };
+  }));
 }
 
 export function useChatSessionPlan(sessionId: string | null | undefined) {

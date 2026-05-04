@@ -1,7 +1,7 @@
 """Tests for ``app.tools.local.get_trace`` list mode.
 
 Focus on the ``include_user_message`` path added to support audit pipelines
-(analyze_discovery, analyze_skill_quality). The turn's first user message is
+(``analyze_discovery``). The turn's first user message is
 the evidence the LLM needs to judge whether a ranker/discovery event fired
 correctly — without it the pipeline is flying blind.
 """

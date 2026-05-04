@@ -62,7 +62,7 @@ import { isTranscriptFlowComposer } from "./chatModes";
 
 import type { ChatSessionProps, ChatSource } from "./ChatSessionTypes";
 import { getDockStorageKey } from "./ChatSessionTypes";
-import { makeClientLocalId, formatSessionHeaderTimestamp, formatHeaderTurnMeta, useChatSessionPlan } from "./ChatSessionShared";
+import { makeClientLocalId, markSessionMessageQueued, formatSessionHeaderTimestamp, formatHeaderTurnMeta, useChatSessionPlan } from "./ChatSessionShared";
 
 // ---------------------------------------------------------------------------
 // Ephemeral-mode (original EphemeralSession logic, preserved verbatim)
@@ -301,6 +301,7 @@ export function EphemeralChatSession({
           } : {}),
         });
         if (result.queued) {
+          markSessionMessageQueued(activeSessionId, clientLocalId, result);
           useChatStore.getState().setProcessing(
             activeSessionId,
             result.task_id ?? result.turn_id ?? clientLocalId,

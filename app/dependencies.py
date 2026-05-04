@@ -49,9 +49,16 @@ async def verify_auth(authorization: str = Header(...)) -> str:
 
 async def verify_user(
     authorization: str = Header(...),
-    db: AsyncSession = Depends(get_db),
 ):
-    """Validate JWT access token. Returns the User ORM object."""
+    """Validate JWT access token. Returns the User ORM object.
+
+    Owns its own short-lived DB session and closes it before returning. This
+    is critical for streaming routes (SSE): if `verify_user` depended on
+    `get_db()`, FastAPI would keep that session alive for the entire request
+    lifetime — for an SSE stream, that's hours, and Postgres reports the
+    auth-lookup transaction as `idle in transaction` the whole time, eating
+    a connection-pool slot per active stream.
+    """
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header")
     token = authorization.removeprefix("Bearer ")
@@ -71,17 +78,25 @@ async def verify_user(
         user_id = UUID(payload["sub"])
     except (TypeError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid token subject")
-    user = await get_user_by_id(db, user_id)
-    if not user or not user.is_active:
-        raise HTTPException(status_code=401, detail="User not found or deactivated")
+
+    async with async_session() as db:
+        user = await get_user_by_id(db, user_id)
+        if not user or not user.is_active:
+            raise HTTPException(status_code=401, detail="User not found or deactivated")
+        # Detach so callers can read attributes after the session closes.
+        db.expunge(user)
     return user
 
 
 async def verify_auth_or_user(
     authorization: Optional[str] = Header(None),
-    db: AsyncSession = Depends(get_db),
 ):
     """Accept API key (static or scoped), or JWT.
+
+    Owns its own short-lived DB session — see `verify_user` for why this is
+    critical for SSE routes. SSE handlers that depended on a generator-style
+    `Depends(get_db)` would pin a connection in `idle in transaction` for
+    the lifetime of the stream and exhaust the pool.
 
     Returns:
     - str: static API key (full access)
@@ -105,10 +120,11 @@ async def verify_auth_or_user(
     # Try scoped API key (ask_ prefix)
     if token.startswith("ask_"):
         from app.services.api_keys import validate_api_key
-        api_key = await validate_api_key(db, token)
-        if api_key is None:
-            raise HTTPException(status_code=401, detail="Invalid or expired API key")
-        return ApiKeyAuth(key_id=api_key.id, scopes=api_key.scopes or [], name=api_key.name)
+        async with async_session() as db:
+            api_key = await validate_api_key(db, token)
+            if api_key is None:
+                raise HTTPException(status_code=401, detail="Invalid or expired API key")
+            return ApiKeyAuth(key_id=api_key.id, scopes=api_key.scopes or [], name=api_key.name)
 
     # Try JWT
     from app.services.auth import decode_access_token, get_user_by_id
@@ -139,8 +155,9 @@ async def verify_auth_or_user(
         if jti:
             from app.services.widget_token_revocations import is_revoked
 
-            if await is_revoked(db, api_key_id=key_id, jti=jti):
-                raise HTTPException(status_code=401, detail="Widget token revoked")
+            async with async_session() as db:
+                if await is_revoked(db, api_key_id=key_id, jti=jti):
+                    raise HTTPException(status_code=401, detail="Widget token revoked")
         pin_id_raw = payload.get("pin_id")
         try:
             pin_id = UUID(pin_id_raw) if pin_id_raw else None
@@ -157,18 +174,20 @@ async def verify_auth_or_user(
         user_id = UUID(payload["sub"])
     except (TypeError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid token subject")
-    user = await get_user_by_id(db, user_id)
-    if not user or not user.is_active:
-        raise HTTPException(status_code=401, detail="User not found or deactivated")
 
-    # Eagerly resolve user's API key scopes (avoids extra DB round-trip in require_scopes)
-    if user.api_key_id:
-        from app.db.models import ApiKey
-        api_key = await db.get(ApiKey, user.api_key_id)
-        user._resolved_scopes = api_key.scopes if api_key and api_key.is_active else None
-    else:
-        user._resolved_scopes = None
+    async with async_session() as db:
+        user = await get_user_by_id(db, user_id)
+        if not user or not user.is_active:
+            raise HTTPException(status_code=401, detail="User not found or deactivated")
 
+        # Eagerly resolve user's API key scopes (avoids extra DB round-trip in require_scopes)
+        if user.api_key_id:
+            from app.db.models import ApiKey
+            api_key = await db.get(ApiKey, user.api_key_id)
+            user._resolved_scopes = api_key.scopes if api_key and api_key.is_active else None
+        else:
+            user._resolved_scopes = None
+        db.expunge(user)
     return user
 
 

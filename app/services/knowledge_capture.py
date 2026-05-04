@@ -5,6 +5,7 @@ import logging
 import json
 import re
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -289,15 +290,38 @@ async def run_knowledge_capture_for_persisted_turn(
     assistant_message = await db.get(Message, last_assistant_message_id)
     if channel is None or user_message is None or assistant_message is None:
         return []
-    metadata = dict(user_message.metadata_ or {})
+    # Do not hold the caller's pooled DB connection while the extractor talks to
+    # an LLM or while the filesystem indexer runs. Copy the fields we need, then
+    # end the read transaction before any slow external work begins.
+    channel_snapshot = SimpleNamespace(
+        id=getattr(channel, "id", None),
+        config=dict(getattr(channel, "config", None) or {}),
+        model_override=getattr(channel, "model_override", None),
+        model_provider_id_override=getattr(channel, "model_provider_id_override", None),
+    )
+    user_message_snapshot = SimpleNamespace(
+        id=getattr(user_message, "id", None),
+        content=getattr(user_message, "content", None),
+        metadata_=dict(getattr(user_message, "metadata_", None) or {}),
+    )
+    assistant_message_snapshot = SimpleNamespace(
+        id=getattr(assistant_message, "id", None),
+        content=getattr(assistant_message, "content", None),
+        metadata_=dict(getattr(assistant_message, "metadata_", None) or {}),
+    )
+    rollback = getattr(db, "rollback", None)
+    if rollback is not None:
+        await rollback()
+
+    metadata = dict(user_message_snapshot.metadata_ or {})
     if is_heartbeat:
         metadata["context_visibility"] = "background"
     decision = should_run_knowledge_capture(
         bot=bot,
-        channel=channel,
+        channel=channel_snapshot,
         message_metadata=metadata,
         run_origin=run_origin,
-        assistant_content=str(assistant_message.content or ""),
+        assistant_content=str(assistant_message_snapshot.content or ""),
     )
     if hide_messages and decision.should_run:
         decision = CaptureDecision(False, "hidden_turn")
@@ -307,13 +331,13 @@ async def run_knowledge_capture_for_persisted_turn(
 
     candidates = await extract_knowledge_candidates(
         bot=bot,
-        channel=channel,
-        user_message=user_message,
-        assistant_message=assistant_message,
+        channel=channel_snapshot,
+        user_message=user_message_snapshot,
+        assistant_message=assistant_message_snapshot,
     )
     if not candidates:
         return []
-    source_message_id = str(assistant_message.id)
+    source_message_id = str(assistant_message_snapshot.id)
     docs = await write_pending_user_knowledge_candidates(
         bot=bot,
         session_id=str(session_id),

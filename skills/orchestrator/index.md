@@ -32,7 +32,6 @@ results. Execute directly only for coordination, workspace setup, and final inte
 - Prefer delegation for domain work.
 - Keep shared specs, datasets, and handoff notes in `/workspace/common/`.
 - Make every delegated prompt self-contained.
-- Use workflows for repeatable multi-step operations.
 - Write durable decisions to workspace memory rather than keeping them only in chat.
 
 ## Quick Routing

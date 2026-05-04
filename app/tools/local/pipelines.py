@@ -67,14 +67,15 @@ async def _resolve_pipeline_id(raw: str, db) -> uuid.UUID | None:
     "function": {
         "name": "list_pipelines",
         "description": (
-            "List multi-step Pipeline definitions — system audit pipelines "
-            "(analyze_discovery, analyze_skill_quality, analyze_memory_quality, "
-            "analyze_tool_usage, analyze_costs, full_scan, deep_dive_bot) plus "
-            "any user-created Pipelines. Returns each Pipeline's slug, title, "
-            "description, required params, and whether it needs a channel/bot "
-            "at launch. To run one, pass its slug to `run_pipeline`. This is "
-            "the Pipeline-focused view of `list_tasks`; use `list_tasks` when "
-            "you also want Scheduled prompts or other Automations."
+            "List multi-step Pipeline definitions — built-in system pipelines "
+            "plus any user-created Pipelines. Call with `source=\"system\"` to "
+            "see the current built-in catalog (slugs change as the catalog "
+            "evolves; do not assume a fixed list). Returns each Pipeline's "
+            "slug, title, description, required params, and whether it needs "
+            "a channel/bot at launch. To run one, pass its slug to "
+            "`run_pipeline`. This is the Pipeline-focused view of "
+            "`list_tasks`; use `list_tasks` when you also want Scheduled "
+            "prompts or other Automations."
         ),
         "parameters": {
             "type": "object",

@@ -127,6 +127,15 @@ list → get → patch / merge → (eventually) prune
 - **`action="add_script"` / `update_script` / `delete_script`** — maintain attached reusable workflows without touching the prose body.
 - **Prune** — the hygiene loop automatically prunes skills that haven't surfaced in 30+ days. You don't need to delete manually.
 
+### Pruning vs deletion
+
+Pruning drops your enrollment row. Deletion archives the skill from the catalog for everyone. They are not interchangeable.
+
+- To stop a catalog skill from cluttering **your** working set: `prune_enrolled_skills(skill_ids=[...])`. Discovery will re-enroll it the next time a turn matches it.
+- **Do not call `manage_bot_skill(action="delete")` on catalog skills you don't own** — that archives the skill itself, not just your enrollment. Only delete skills under your own `bots/{your_id}/...` namespace.
+
+This rule is also enforced via the scheduled skill-review prompt; keep both surfaces aligned.
+
 ---
 
 ## Examples
@@ -189,3 +198,4 @@ manage_bot_skill(
 | Forgetting to author after a correction | Author IMMEDIATELY — "later" never comes |
 | Re-creating an existing skill | `action="list"` first, then `patch` or `merge` instead |
 | Burying code inside the markdown body | Store executable workflows as attached named scripts instead |
+| Calling `manage_bot_skill(action="delete")` on a catalog skill you don't own | That archives the skill for everyone. Use `prune_enrolled_skills(skill_ids=[...])` to drop just your enrollment. |

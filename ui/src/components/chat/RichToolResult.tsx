@@ -329,7 +329,7 @@ function CompactionRunRenderer({
 }: RichResultViewProps) {
   const payload = parseCompactionRunPayload(data, envelope);
   const status = resolveCompactionStatusCopy(payload);
-  const [expanded, setExpanded] = useState(payload.status === "running" || payload.status === "failed");
+  const [expanded, setExpanded] = useState(false);
   const isTerminal = mode === "terminal";
   const summaryText = payload.summary_text?.trim() ?? "";
   const accentColor = status.accent === "success"
@@ -340,39 +340,61 @@ function CompactionRunRenderer({
         ? t.danger
         : t.accent;
   const metaBits = [
-    payload.origin === "auto" ? "Auto compaction" : "Manual compaction",
-    payload.title ? `Title: ${payload.title}` : null,
+    payload.origin === "auto" ? "auto" : "manual",
+    payload.title ? payload.title : null,
     typeof payload.summary_len === "number" ? `${payload.summary_len.toLocaleString()} chars` : null,
-    payload.trigger_reason ? `Trigger: ${payload.trigger_reason}` : null,
+    payload.trigger_reason ? payload.trigger_reason : null,
   ].filter(Boolean);
 
+  useEffect(() => {
+    if (payload.status === "completed" || payload.result_kind === "noop") {
+      setExpanded(false);
+    }
+  }, [payload.result_kind, payload.status]);
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: expanded ? 8 : 4,
+        color: t.textMuted,
+        fontFamily: isTerminal ? "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace" : undefined,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
         <span
           style={{
             display: "inline-flex",
             alignItems: "center",
-            padding: isTerminal ? "0 6px" : "3px 8px",
+            gap: 5,
+            padding: isTerminal ? "0" : "1px 6px",
             borderRadius: 999,
-            border: `1px solid ${accentColor}55`,
-            background: isTerminal ? "transparent" : `${accentColor}14`,
-            color: accentColor,
-            fontSize: isTerminal ? 11 : 12,
-            fontWeight: 700,
-            letterSpacing: 0.2,
-            fontFamily: isTerminal ? "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace" : undefined,
+            border: isTerminal ? "none" : `1px solid ${t.surfaceBorder}`,
+            background: isTerminal ? "transparent" : t.overlayLight,
+            color: t.textMuted,
+            fontSize: isTerminal ? 11 : 11,
+            fontWeight: 600,
           }}
         >
+          <span
+            aria-hidden="true"
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: 999,
+              background: accentColor,
+              opacity: status.accent === "success" ? 0.7 : 0.9,
+            }}
+          />
           {status.label}
         </span>
-        {payload.detail && (
+        {payload.detail && status.accent !== "success" && (
           <span
             style={{
               color: t.textMuted,
               fontSize: isTerminal ? 12 : 13,
               lineHeight: 1.5,
-              fontFamily: isTerminal ? "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace" : undefined,
             }}
           >
             {payload.detail}
@@ -385,21 +407,20 @@ function CompactionRunRenderer({
           style={{
             display: "flex",
             flexWrap: "wrap",
-            gap: 8,
+            gap: 6,
             color: t.textDim,
             fontSize: 11,
             lineHeight: 1.45,
-            fontFamily: isTerminal ? "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace" : undefined,
           }}
         >
-          {metaBits.map((bit) => (
-            <span key={bit}>{bit}</span>
+          {metaBits.map((bit, index) => (
+            <span key={bit}>{index === 0 ? bit : `· ${bit}`}</span>
           ))}
         </div>
       )}
 
       {(summaryText || payload.error) && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <button
             type="button"
             onClick={() => setExpanded((current) => !current)}
@@ -408,14 +429,13 @@ function CompactionRunRenderer({
               padding: 0,
               border: "none",
               background: "transparent",
-              color: accentColor,
+              color: t.textDim,
               cursor: "pointer",
-              fontSize: 12,
-              fontWeight: 600,
-              fontFamily: isTerminal ? "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace" : undefined,
+              fontSize: 11,
+              fontWeight: 500,
             }}
           >
-            {expanded ? "Hide compaction summary" : "Show compaction summary"}
+            {expanded ? "Hide summary" : "Show summary"}
           </button>
           {expanded && (
             <div

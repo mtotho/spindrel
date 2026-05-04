@@ -26,7 +26,7 @@ HTML widgets can:
 - **Trigger backend tools** via `POST /api/v1/widget-actions` (run `fetch_url`, `generate_image`, whatever — the fresh result flows back as a new envelope)
 - Re-render automatically when a workspace file changes (path mode)
 - Persist state to a workspace JSON file and read it back next time
-- Run server-side Python handlers on its own SQLite DB (Phase B — see `handlers.md`)
+- Run server-side Python handlers on its own SQLite DB (see `handlers.md`)
 
 ## When to Use Which Widget
 

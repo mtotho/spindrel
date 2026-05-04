@@ -3,13 +3,14 @@ import type React from "react";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { useCancelProjectCodingRun, useContinueProjectCodingRun, useDisableProjectCodingRunLoop, useMarkProjectCodingRunReviewed, useProject, useProjectCodingRun } from "@/src/api/hooks/useProjects";
+import { useCancelProjectCodingRun, useContinueProjectCodingRun, useDisableProjectCodingRunLoop, useMarkProjectCodingRunReviewed, useProject, useProjectCodingRun, useProjectCodingRunGitStatus } from "@/src/api/hooks/useProjects";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { Section } from "@/src/components/shared/FormControls";
 import { ActionButton, EmptyState, SettingsControlRow, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { Spinner } from "@/src/components/shared/Spinner";
 import type { ProjectCodingRun } from "@/src/types/api";
 import { formatRunTime, RowLink, statusTone } from "../../ProjectRunControls";
+import { ProjectGitStatusView } from "../../ProjectGitPanel";
 
 function textValue(value: unknown, fallback = "Not reported") {
   if (value == null || value === "") return fallback;
@@ -189,6 +190,7 @@ export default function ProjectRunDetail() {
   const navigate = useNavigate();
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const { data: run, isLoading: runLoading, error } = useProjectCodingRun(projectId, taskId);
+  const gitStatusQuery = useProjectCodingRunGitStatus(projectId, taskId, { includePatch: true });
   const continueRun = useContinueProjectCodingRun(projectId);
   const cancelRun = useCancelProjectCodingRun(projectId);
   const markReviewed = useMarkProjectCodingRunReviewed(projectId);
@@ -434,6 +436,17 @@ export default function ProjectRunDetail() {
                 meta={<StatusBadge label={run.work_surface?.isolation || "unknown"} variant={run.work_surface?.active === false ? "warning" : statusTone(run.work_surface?.status || "ready")} />}
               />
             </div>
+          </Section>
+
+          <Section title="Run Git Status" description="Live Git status from this run's session work surface. Receipt metadata remains the durable close-out record.">
+            <ProjectGitStatusView
+              data={gitStatusQuery.data}
+              isLoading={gitStatusQuery.isLoading}
+              isFetching={gitStatusQuery.isFetching}
+              onRefresh={() => gitStatusQuery.refetch()}
+              title="Session worktree"
+              emptyMessage="No Git repository was detected inside this run's work surface."
+            />
           </Section>
 
           {recoverySection}

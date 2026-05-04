@@ -7,7 +7,7 @@ import { Spinner } from "@/src/components/shared/Spinner";
 import { DiffRenderer } from "@/src/components/chat/renderers/DiffRenderer";
 import { projectGitRepoDirty, projectGitRepoError, projectGitStatusLines } from "@/src/lib/projectGitStatus";
 import { useThemeTokens } from "@/src/theme/tokens";
-import type { ProjectGitRepoStatus } from "@/src/types/api";
+import type { ProjectGitRepoStatus, ProjectGitStatus } from "@/src/types/api";
 
 type GitFileChange = {
   path: string;
@@ -112,25 +112,54 @@ function statusTone(status: string): "success" | "warning" | "danger" | "info" |
 export function ProjectGitPanel({ projectId }: { projectId: string }) {
   const { data, isLoading, isFetching, refetch } = useProjectGitStatus(projectId, { includePatch: true });
 
+  return (
+    <ProjectGitStatusView
+      data={data}
+      isLoading={isLoading}
+      isFetching={isFetching}
+      onRefresh={() => refetch()}
+      className="mx-auto max-w-[1400px] px-4 py-4 sm:px-6 lg:px-8"
+      emptyMessage="No Git repositories were detected under this Project."
+    />
+  );
+}
+
+export function ProjectGitStatusView({
+  data,
+  isLoading,
+  isFetching,
+  onRefresh,
+  className = "",
+  title = "Git status",
+  emptyMessage = "No Git repositories were detected.",
+}: {
+  data?: ProjectGitStatus;
+  isLoading: boolean;
+  isFetching: boolean;
+  onRefresh: () => void;
+  className?: string;
+  title?: string;
+  emptyMessage?: string;
+}) {
   if (isLoading) {
     return <div className="flex h-full items-center justify-center"><Spinner /></div>;
   }
 
   const repos = data?.repos ?? [];
   return (
-    <div data-testid="project-git-panel" className="mx-auto flex w-full max-w-[1400px] flex-col gap-3 px-4 py-4 sm:px-6 lg:px-8">
+    <div data-testid="project-git-panel" className={`flex w-full flex-col gap-3 ${className}`}>
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-raised/35 px-3 py-2">
         <div className="min-w-0">
-          <div className="text-sm font-semibold text-text">Git status</div>
+          <div className="text-sm font-semibold text-text">{title}</div>
           <div className="text-[12px] text-text-muted">
             {repos.length} repo{repos.length === 1 ? "" : "s"} · {data?.dirty_count ?? 0} dirty
           </div>
         </div>
-        <ActionButton label={isFetching ? "Refreshing" : "Refresh"} icon={<RefreshCcw size={13} />} size="small" variant="secondary" disabled={isFetching} onPress={() => refetch()} />
+        <ActionButton label={isFetching ? "Refreshing" : "Refresh"} icon={<RefreshCcw size={13} />} size="small" variant="secondary" disabled={isFetching} onPress={onRefresh} />
       </div>
 
       {repos.length === 0 ? (
-        <EmptyState message="No Git repositories were detected under this Project." />
+        <EmptyState message={emptyMessage} />
       ) : (
         <div className="grid gap-3">
           {repos.map((repo) => <ProjectGitRepoCard key={repo.path} repo={repo} />)}

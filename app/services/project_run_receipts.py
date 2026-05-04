@@ -223,7 +223,7 @@ async def create_project_run_receipt(
 
             if task_uuid is not None:
                 normalized_metadata["git"] = receipt_git_summary(
-                    await project_run_git_status(db, await db.get(Project, project_uuid), task_uuid)
+                    await project_run_git_status(db, await db.get(Project, project_uuid), task_uuid, include_patch=True)
                 )
         except Exception as exc:
             normalized_metadata["git_error"] = str(exc)[:512]

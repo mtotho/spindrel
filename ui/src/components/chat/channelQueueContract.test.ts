@@ -35,6 +35,11 @@ test("channel chat submits follow-ups immediately and renders server queue state
   assert.match(messageArea, /follow-ups queued together/);
   assert.match(messageArea, /after this turn/);
 
+  const chatSessionShared = readProjectFile("src/components/chat/ChatSessionShared.ts");
+  assert.match(chatSessionShared, /markSessionMessageQueued/);
+  assert.match(chatSessionShared, /meta\.client_local_id === clientLocalId/);
+  assert.match(readProjectFile("src/components/chat/ChatSessionFixed.tsx"), /markSessionMessageQueued\(sessionId, clientLocalId, result\)/);
+
   assert.match(useChat, /coalesced\?: boolean/);
   assert.match(useChat, /queued_message_count\?: number/);
 });

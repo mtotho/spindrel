@@ -42,7 +42,21 @@ A skill's ID is either its filesystem path (default) or a value declared in its 
 
 ## Starter set
 
-Every bot starts with a curated minimum set defined in `STARTER_SKILL_IDS` (see `app/config.py`). Additional skills are enrolled on demand when a bot calls `get_skill` or `manage_bot_skill`.
+Every bot starts with a curated minimum set defined in `STARTER_SKILL_IDS` (see `app/config.py`). The 11 IDs:
+
+- `workspace/attachments`
+- `workspace/files`
+- `workspace/member`
+- `workspace/channel_workspaces`
+- `workspace/docker_stacks`
+- `delegation`
+- `grill_me`
+- `context_mastery`
+- `history_and_memory`
+- `prompt_injection_and_security`
+- `skill_authoring`
+
+Treat that list as the canonical baseline. If you need to know whether a baseline ID is already in your working set, consult `app/config.py:STARTER_SKILL_IDS` — that constant is the source of truth and is silently skipped for any ID missing from the catalog at enrollment time. Additional skills are enrolled on demand when a bot calls `get_skill` or `manage_bot_skill`.
 
 Runtime agents can call `list_agent_capabilities` to see `skills.recommended_now`, which points at existing built-in skills to load before procedural work. `skills.creation_candidates` is an operator/developer signal for missing built-in runtime skill coverage; it is not an instruction for the bot to create a personal skill with `manage_bot_skill` unless the user explicitly asks for that.
 

@@ -318,6 +318,51 @@ class TestSeedingPreservesLayout:
         assert "layout" not in _SYSTEM_PIPELINE_FIELDS
 
 
+class TestDemotedAuditPipelinesRemoved:
+    """The four `analyze_*` audit pipelines were demoted (2026-04-20) and
+    deleted (2026-05-03). Their YAML must not return; the configurator skill +
+    `propose_config_change` is the canonical replacement.
+    """
+
+    DEMOTED_SLUGS = (
+        "orchestrator.analyze_skill_quality",
+        "orchestrator.analyze_memory_quality",
+        "orchestrator.analyze_tool_usage",
+        "orchestrator.analyze_costs",
+    )
+
+    def test_demoted_yamls_absent_from_repo(self):
+        from app.services.task_seeding import SYSTEM_PIPELINES_DIR
+
+        for slug in self.DEMOTED_SLUGS:
+            assert not (SYSTEM_PIPELINES_DIR / f"{slug}.yaml").exists(), (
+                f"Demoted audit pipeline YAML re-introduced: {slug}.yaml"
+            )
+
+    @pytest.mark.asyncio
+    async def test_seeder_does_not_recreate_demoted_rows(
+        self, patched_session, tmp_path
+    ):
+        # Seed only the surviving discovery pipeline; confirm none of the
+        # demoted slugs leak into the DB.
+        _write_yaml(
+            tmp_path / "analyze_discovery.yaml",
+            _pipeline_yaml("orchestrator.analyze_discovery", "Analyze Discovery"),
+        )
+
+        await seed_pipelines_from_yaml(tmp_path)
+
+        async with patched_session() as db:
+            rows = (await db.execute(select(Task))).scalars().all()
+            slugs_present = {row.title for row in rows}
+            assert "Analyze Discovery" in slugs_present
+            for slug in self.DEMOTED_SLUGS:
+                derived = pipeline_uuid(slug)
+                assert await db.get(Task, derived) is None, (
+                    f"Seeder unexpectedly created a row for demoted slug {slug}"
+                )
+
+
 # ---------------------------------------------------------------------------
 # render_prompt: {{params.*}} dotted access
 # ---------------------------------------------------------------------------

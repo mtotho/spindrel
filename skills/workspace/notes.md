@@ -1,8 +1,8 @@
 ---
-title: Notes
-summary: Operate as the pinned Markdown note assistant for channel/project knowledge-base notes.
-status: active
-tags: [workspace, notes, knowledge-base, markdown, drafting]
+name: Notes
+description: Use when the user is creating, editing, organizing, reviewing, or expanding a pinned Spindrel Note in a channel or project knowledge base. Treats the active Markdown note path as binding.
+triggers: note, notes, pinned note, knowledge base note, write this down, make a note, clean this up, clarify the note, structure the note, scratch into a note, knowledge-base markdown
+category: workspace
 ---
 
 # Notes

@@ -213,7 +213,9 @@ Plan: `~/.claude/plans/cna-we-please-do-expressive-koala.md`.
 
 ## 2026-04-20 — Audit pipelines demoted; configurator skill replaces ambient surface
 
-Five featured audit pipelines (`full_scan`, `analyze_skill_quality`, `analyze_memory_quality`, `analyze_tool_usage`, `analyze_costs`) flipped to `featured: false` in their YAML. Only `orchestrator.analyze_discovery` remains featured (evidence-backed, produces apply-worthy proposals). Demoted YAMLs stay on disk — users who want a structured batch-audit run them from the Library drawer. No subscriptions were touched.
+Five featured audit pipelines (`full_scan`, `analyze_skill_quality`, `analyze_memory_quality`, `analyze_tool_usage`, `analyze_costs`) flipped to `featured: false` in their YAML. Only `orchestrator.analyze_discovery` remains featured (evidence-backed, produces apply-worthy proposals). No subscriptions were touched.
+
+**Update 2026-05-03:** the four `analyze_*` YAMLs (`analyze_skill_quality`, `analyze_memory_quality`, `analyze_tool_usage`, `analyze_costs`) were deleted outright, with a paired migration (`296_drop_demoted_audit_pipelines`) removing the seeded `Task` rows on existing instances. The single-user operator no longer wants those pipelines runnable; the configurator skill + `propose_config_change` is the canonical replacement for the ambient "fix my config" UX. `orchestrator.full_scan` and `orchestrator.deep_dive_bot` stayed on disk as opt-in batch sweeps.
 
 The driving problem: Full System Scan accumulated 18 stuck awaiting-review findings because "audit every knob in one pass" can't produce ≥2 real correlation_ids per proposal, so the foreach step either refused to emit or emitted weak proposals that the user couldn't confidently approve. Analyze Discovery works because its scope is narrow (one bot, one RAG knob, quantitative trace evidence).
 

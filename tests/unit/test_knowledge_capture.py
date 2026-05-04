@@ -216,6 +216,8 @@ async def test_run_capture_for_persisted_turn_publishes_after_write(monkeypatch)
     )
 
     class FakeDB:
+        rolled_back = False
+
         async def get(self, _model, ident):
             return {
                 channel_id: channel,
@@ -223,7 +225,11 @@ async def test_run_capture_for_persisted_turn_publishes_after_write(monkeypatch)
                 assistant_message_id: assistant_message,
             }.get(ident)
 
+        async def rollback(self):
+            self.rolled_back = True
+
     async def fake_extract(**_kwargs):
+        assert fake_db.rolled_back is True
         return [KnowledgeCandidate(title="Preference", body="# Preference\n\nUse bullets.", confidence=0.9)]
 
     async def fake_write(**_kwargs):
@@ -243,8 +249,9 @@ async def test_run_capture_for_persisted_turn_publishes_after_write(monkeypatch)
     monkeypatch.setattr("app.services.knowledge_capture.reindex_user_knowledge_documents", fake_reindex)
     monkeypatch.setattr("app.services.outbox_publish.publish_to_bus", lambda _channel_id, event: published.append(event) or 1)
 
+    fake_db = FakeDB()
     docs = await run_knowledge_capture_for_persisted_turn(
-        FakeDB(),
+        fake_db,
         bot=_bot(),
         session_id=session_id,
         channel_id=channel_id,

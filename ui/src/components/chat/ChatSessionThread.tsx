@@ -62,7 +62,7 @@ import { isTranscriptFlowComposer } from "./chatModes";
 
 import type { ChatSessionProps, ChatSource } from "./ChatSessionTypes";
 import { getDockStorageKey } from "./ChatSessionTypes";
-import { makeClientLocalId, formatSessionHeaderTimestamp, formatHeaderTurnMeta, useChatSessionPlan } from "./ChatSessionShared";
+import { makeClientLocalId, markSessionMessageQueued, formatSessionHeaderTimestamp, formatHeaderTurnMeta, useChatSessionPlan } from "./ChatSessionShared";
 
 // ---------------------------------------------------------------------------
 // Thread-mode — session pre-spawned via POST /messages/{id}/thread.
@@ -255,7 +255,7 @@ export function ThreadChatSession({
             ...(workspaceUploads.length ? { workspace_uploads: workspaceUploads } : {}),
           },
         });
-        await submitChat.mutateAsync({
+        const result = await submitChat.mutateAsync({
           message,
           bot_id: botId,
           client_id: "web",
@@ -276,6 +276,13 @@ export function ThreadChatSession({
               }
             : {}),
         });
+        if (result.queued) {
+          markSessionMessageQueued(sid, clientLocalId, result);
+          useChatStore.getState().setProcessing(
+            sid,
+            result.task_id ?? result.turn_id ?? clientLocalId,
+          );
+        }
         qc.invalidateQueries({ queryKey: ["session-messages", sid] });
         qc.invalidateQueries({ queryKey: ["thread-summaries"] });
       } catch (err) {

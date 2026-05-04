@@ -9,6 +9,12 @@ import type { ToolResultEnvelope } from "../../types/api";
 import type { OrderedTurnBodyItem } from "./toolTranscriptModel";
 import { groupAdjacentTranscriptItems } from "./orderedTranscriptGrouping";
 
+export function isTightRichEnvelope(envelope: ToolResultEnvelope | undefined) {
+  return envelope?.view_key === "compaction_run"
+    || envelope?.content_type === "application/vnd.spindrel.diff+text"
+    || envelope?.content_type === "application/vnd.spindrel.file-listing+json";
+}
+
 export function OrderedTranscript({
   items,
   t,
@@ -64,10 +70,6 @@ export function OrderedTranscript({
       },
     );
   };
-
-  const isTightRichEnvelope = (envelope: ToolResultEnvelope | undefined) =>
-    envelope?.content_type === "application/vnd.spindrel.diff+text"
-    || envelope?.content_type === "application/vnd.spindrel.file-listing+json";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
