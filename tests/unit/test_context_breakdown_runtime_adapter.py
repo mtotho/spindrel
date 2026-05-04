@@ -4,6 +4,7 @@ import ast
 from pathlib import Path
 import uuid
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -97,11 +98,15 @@ async def test_compute_breakdown_sources_static_categories_from_runtime_preview(
     )
 
     class FakeDB:
+        def __init__(self):
+            self.commit = AsyncMock()
+
         async def get(self, model, pk):
             if model is Channel:
                 return channel
             return None
 
+    db = FakeDB()
     called = {}
 
     async def fake_assemble_for_preview(actual_channel_id, *, user_message="", session_id=None, db=None):
@@ -122,7 +127,7 @@ async def test_compute_breakdown_sources_static_categories_from_runtime_preview(
 
     result = await compute_context_breakdown(
         str(channel_id),
-        FakeDB(),
+        db,
         mode="next_turn",
         include_budget=False,
     )
@@ -130,7 +135,8 @@ async def test_compute_breakdown_sources_static_categories_from_runtime_preview(
     assert called["channel_id"] == channel_id
     assert called["user_message"] == ""
     assert called["session_id"] is None
-    assert called["db"].__class__ is FakeDB
+    assert called["db"] is None
+    db.commit.assert_awaited_once()
     assert result.total_tokens_approx == 321
     assert result.context_profile == "chat"
     assert result.live_history_turns == 6

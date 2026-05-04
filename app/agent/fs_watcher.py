@@ -21,6 +21,11 @@ def _matches_patterns(rel: Path, patterns: list[str]) -> bool:
     for pat in patterns:
         if PurePosixPath(s).match(pat):
             return True
+        # ``Path.match("dir/**/*.md")`` does not match ``dir/file.md`` even
+        # though the indexer's ``Path.glob("dir/**/*.md")`` does. Watchers must
+        # use the same semantics or direct children never get indexed.
+        if "/**/" in pat and PurePosixPath(s).match(pat.replace("/**/", "/")):
+            return True
     return False
 
 
@@ -184,36 +189,154 @@ async def _watch_shared_workspace(
         return
     logger.info("Shared workspace watcher started: %s (workspace=%s)", host_root, workspace_id)
     last_change_time = 0.0
-    has_pending = False
+    pending: set[Path] = set()
+    removed: set[Path] = set()
 
     try:
         async for changes in watchfiles.awatch(str(root_path), stop_event=_stop_event):
-            for _, path_str in changes:
-                if Path(path_str).is_file() or not Path(path_str).exists():
-                    has_pending = True
-            if not has_pending:
+            for change_type, path_str in changes:
+                p = Path(path_str)
+                if p.is_file():
+                    pending.add(p)
+                    removed.discard(p)
+                elif not p.exists():
+                    removed.add(p)
+                    pending.discard(p)
+            if not pending and not removed:
                 continue
             last_change_time = time.monotonic()
 
             await asyncio.sleep(_DEBOUNCE_SECONDS)
-            if has_pending and time.monotonic() - last_change_time >= _DEBOUNCE_SECONDS:
-                has_pending = False
-                logger.info("Shared workspace watcher: changes detected in %s, re-indexing", workspace_id)
-
-                # Re-index filesystem for each bot in the workspace
-                from app.agent.bots import list_bots
-                from app.services.bot_indexing import reindex_bot
-
-                for bot in list_bots():
-                    if bot.shared_workspace_id != workspace_id:
-                        continue
-                    try:
-                        await reindex_bot(bot, force=True)
-                    except Exception:
-                        logger.exception("Shared workspace watcher: reindex failed for bot %s", bot.id)
+            if (pending or removed) and time.monotonic() - last_change_time >= _DEBOUNCE_SECONDS:
+                changed_batch = set(pending)
+                removed_batch = set(removed)
+                pending.clear()
+                removed.clear()
+                await _reindex_shared_workspace_changes(
+                    workspace_id,
+                    root_path,
+                    changed_batch,
+                    removed_batch,
+                )
     except asyncio.CancelledError:
         pass
     logger.info("Shared workspace watcher stopped: %s", host_root)
+
+
+def _matching_changed_paths(
+    root_path: Path,
+    changed: set[Path],
+    patterns: list[str],
+    *,
+    must_exist: bool,
+) -> list[Path]:
+    matches: list[Path] = []
+    for path in changed:
+        if must_exist and not path.is_file():
+            continue
+        try:
+            rel = path.relative_to(root_path)
+        except ValueError:
+            continue
+        if _matches_patterns(rel, patterns):
+            matches.append(path)
+    return matches
+
+
+async def _reindex_shared_workspace_changes(
+    workspace_id: str,
+    root_path: Path,
+    changed: set[Path],
+    removed: set[Path],
+) -> None:
+    """Re-index only the plans whose patterns match the changed files.
+
+    A shared workspace may contain many bots. A single write to
+    ``bots/<id>/memory/...`` must not fan out into ``reindex_bot(force=True)``
+    for every bot in the workspace; that was enough to exhaust the DB pool
+    during memory-tool smoke tests.
+    """
+    from app.agent.bots import list_bots
+    from app.agent.fs_indexer import index_directory
+    from app.services.bot_indexing import resolve_for
+
+    root = str(root_path.resolve())
+    indexed = 0
+    removed_count = 0
+
+    for bot in list_bots():
+        if bot.shared_workspace_id != workspace_id:
+            continue
+
+        plans = []
+        memory_plan = resolve_for(bot, scope="memory")
+        if memory_plan is not None:
+            plans.append(memory_plan)
+
+        workspace_plan = resolve_for(bot, scope="workspace")
+        if (
+            workspace_plan is not None
+            and getattr(bot.workspace, "indexing", None) is not None
+            and bot.workspace.indexing.enabled
+            and workspace_plan.watch
+            and workspace_plan.segments
+        ):
+            plans.append(workspace_plan)
+
+        for plan in plans:
+            if root not in {str(Path(plan_root).resolve()) for plan_root in plan.roots}:
+                continue
+
+            removed_matches = _matching_changed_paths(
+                root_path,
+                removed,
+                plan.patterns,
+                must_exist=False,
+            )
+            if removed_matches:
+                try:
+                    removed_count += await _remove_deleted_chunks(root_path, plan.bot_id, set(removed_matches))
+                except Exception:
+                    logger.exception(
+                        "Shared workspace watcher: failed to remove chunks for bot %s",
+                        plan.bot_id,
+                    )
+
+            changed_matches = _matching_changed_paths(
+                root_path,
+                changed,
+                plan.patterns,
+                must_exist=True,
+            )
+            if not changed_matches:
+                continue
+
+            try:
+                await index_directory(
+                    root,
+                    plan.bot_id,
+                    plan.patterns,
+                    file_paths=changed_matches,
+                    force=True,
+                    embedding_model=plan.embedding_model,
+                    segments=plan.segments,
+                    skip_stale_cleanup=plan.skip_stale_cleanup,
+                )
+                indexed += len(changed_matches)
+            except Exception:
+                logger.exception(
+                    "Shared workspace watcher: index failed for bot %s scope %s",
+                    plan.bot_id,
+                    plan.scope,
+                )
+
+    if indexed or removed_count:
+        logger.info(
+            "Shared workspace watcher: indexed %d changed file(s), removed %d stale chunk set(s) in %s",
+            indexed,
+            removed_count,
+            workspace_id,
+        )
 
 
 async def start_shared_workspace_watchers(

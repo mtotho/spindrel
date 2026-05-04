@@ -94,11 +94,14 @@ Then refresh the docs screenshots when UI output changes:
 ```bash
 SPINDREL_API_KEY=... \
 python -m scripts.screenshots.spindrel_plan_live \
-  --api-url http://10.10.30.208:8000 \
-  --ui-url http://10.10.30.208:8000 \
-  --browser-url http://10.10.30.208:8000 \
+  --api-url "$SPINDREL_API_URL" \
+  --ui-url "$SPINDREL_API_URL" \
+  --browser-url "$SPINDREL_API_URL" \
   --output-dir docs/images
 ```
+
+`SPINDREL_API_URL` points at the test server; the actual host/port is
+operator-private (see vault `Test Server Operations.md`).
 
 Close the loop with:
 

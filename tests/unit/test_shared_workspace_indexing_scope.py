@@ -385,6 +385,72 @@ class TestSharedWorkspaceWatcher:
             call_kwargs = mock_index.call_args
             assert call_kwargs.kwargs["segments"] == resolved_segments
 
+    @pytest.mark.asyncio
+    async def test_shared_watcher_memory_change_only_indexes_own_memory_file(self, tmp_path):
+        """A bot memory write must not force-reindex every bot in the shared workspace."""
+        from app.agent.fs_watcher import _reindex_shared_workspace_changes
+        from app.services.bot_indexing import BotIndexPlan
+
+        root = tmp_path / "ws"
+        memory_file = root / "bots" / "sprout" / "memory" / "note.md"
+        memory_file.parent.mkdir(parents=True)
+        memory_file.write_text("remember this")
+
+        sprout = MagicMock()
+        sprout.id = "sprout"
+        sprout.shared_workspace_id = "ws-123"
+        sprout.workspace.indexing.enabled = True
+        image_bot = MagicMock()
+        image_bot.id = "image-bot"
+        image_bot.shared_workspace_id = "ws-123"
+        image_bot.workspace.indexing.enabled = True
+
+        def _plan(bot_id: str, scope: str, patterns: list[str], segments=None):
+            return BotIndexPlan(
+                bot_id=bot_id,
+                roots=(str(root),),
+                patterns=patterns,
+                embedding_model="text-embedding-3-small",
+                similarity_threshold=0.35,
+                top_k=8,
+                watch=True,
+                cooldown_seconds=0,
+                segments=segments,
+                scope=scope,
+                shared_workspace=True,
+                skip_stale_cleanup=(scope == "memory"),
+            )
+
+        def resolve_for(bot, *, scope="workspace", **_kwargs):
+            if bot.id == "sprout" and scope == "memory":
+                return _plan("sprout", "memory", ["bots/sprout/memory/**/*.md"])
+            if bot.id == "sprout" and scope == "workspace":
+                return _plan("sprout", "workspace", ["common/**/*.md"], segments=[{"path_prefix": "common"}])
+            if bot.id == "image-bot" and scope == "memory":
+                return _plan("image-bot", "memory", ["bots/image-bot/memory/**/*.md"])
+            if bot.id == "image-bot" and scope == "workspace":
+                return _plan("image-bot", "workspace", ["common/**/*.md"], segments=[{"path_prefix": "common"}])
+            return None
+
+        mock_index = AsyncMock(return_value={"indexed": 1})
+        with (
+            patch("app.agent.bots.list_bots", return_value=[sprout, image_bot]),
+            patch("app.services.bot_indexing.resolve_for", side_effect=resolve_for),
+            patch("app.agent.fs_indexer.index_directory", new=mock_index),
+        ):
+            await _reindex_shared_workspace_changes(
+                "ws-123",
+                root,
+                {memory_file},
+                set(),
+            )
+
+        mock_index.assert_awaited_once()
+        args, kwargs = mock_index.await_args
+        assert args[1] == "sprout"
+        assert kwargs["file_paths"] == [memory_file]
+        assert kwargs["skip_stale_cleanup"] is True
+
 
 # ---------------------------------------------------------------------------
 # Test: diagnostics TSVector query uses correct root filter

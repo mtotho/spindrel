@@ -252,7 +252,7 @@ Also corrected an over-eager claim about the HA integration's widgets (wrote "ca
 
 ## Phase A — Screenshot Punch List
 
-All screenshots come from the **e2e instance** at `10.10.30.208`, not the production main instance. Stage real data before capturing. Widget dashboards need real pinned tool results; pipelines need a real run history.
+All screenshots come from the **e2e instance** (operator-private host — see vault `Test Server Operations.md`), not the production main instance. Stage real data before capturing. Widget dashboards need real pinned tool results; pipelines need a real run history.
 
 ### Flagship (must have — fresh captures)
 
@@ -437,7 +437,7 @@ One-liner per integration, pulled from each `integrations/<name>/integration.yam
 
 - **Never cite "freeze" as a scope cap.** The freeze is on new features/mechanisms/tables — not on docs accuracy.
 - **Docs-refresh is polish work and fully in-scope.**
-- **Screenshots come from the e2e instance** (`10.10.30.208`), not the production main instance. See `feedback_never_touch_main_instance.md`.
+- **Screenshots come from the e2e instance** (operator-private host — see vault `Test Server Operations.md`), not the production main instance. See `feedback_never_touch_main_instance.md`.
 - **Widget dashboards require real pinned tool results** — stage them on e2e before capturing.
 - **Pipelines require a real run history** — stage via `run_pipeline` on e2e.
 - **Slack Depth screenshots require a live Slack workspace** — can use the existing dev workspace tied to e2e.

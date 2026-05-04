@@ -24,7 +24,7 @@ This file is the index, the rule book, and the retrieval contract. Drill into `d
 
 - **Phase:** Active Product Buildout. Feature work, structural cleanup, bug fixing all in scope.
 - **Where work is happening:** see `docs/roadmap.md` for the active list with 1-line summaries; open the named track for detail.
-- **Server:** test server is at `10.10.30.208` (SSH alias `spindrel-bot`). Tests, cron, scripts run *on the server* in `/opt/thoth-server/`. Ephemeral instance for personal work is `~/spindrel-e2e/`. Credentials are operator-provided, never assumed by portable agents.
+- **Server:** the operator-managed test server runs e2e tests, cron, and scripts on the server in `/opt/thoth-server/`; the ephemeral instance for personal work is `~/spindrel-e2e/`. Connection details (host, SSH alias, credentials) are operator-private — see vault `Test Server Operations.md`. Portable agents must not assume or hardcode them.
 
 ## Where to look for what
 
@@ -33,6 +33,7 @@ This file is the index, the rule book, and the retrieval contract. Drill into `d
 | Repo-local workflow contract: what belongs in inbox, tracks, plans, audits, or receipts | `.spindrel/WORKFLOW.md` |
 | Current active work, status of named tracks | `docs/roadmap.md` |
 | Open bugs, tech debt, things to verify | `docs/inbox.md` |
+| Shipped features awaiting live/e2e verification | `docs/verify.md` |
 | Why does it work this way? | `docs/architecture-decisions.md` |
 | Subsystem map, request flow | `docs/architecture.md` |
 | Resolved bug history (one-liners) | `docs/fix-log.md` |

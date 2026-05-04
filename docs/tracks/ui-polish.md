@@ -569,7 +569,7 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 - [x] `/admin/projects` now uses the dense admin catalog pattern instead of a bordered create card plus project card grid.
 - [x] `/admin/projects/:projectId` now uses spacing-led sections, `PromptEditor`, quiet header links, and shared settings rows for root URI, Project knowledge, and attached channels.
 - [x] Channel Agent settings replaced the blue Project summary banner with a compact `SettingsControlRow` that keeps Project, file, terminal, and memory-separation affordances visible.
-- [x] E2E Project workspace screenshots were recaptured through the patched local UI against the `10.10.30.208:18000` E2E API and visually inspected: list/detail/channel-settings no longer use the boxed card/panel treatment, and the memory tool envelope remains visible.
+- [x] E2E Project workspace screenshots were recaptured through the patched local UI against the e2e API (operator-private host — see vault `Test Server Operations.md`) and visually inspected: list/detail/channel-settings no longer use the boxed card/panel treatment, and the memory tool envelope remains visible.
 
 ### Verification
 - [x] `cd /home/mtoth/personal/spindrel/ui && npx tsc --noEmit --pretty false` — clean.

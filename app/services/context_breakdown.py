@@ -715,11 +715,15 @@ async def _load_breakdown_scope(
 async def _assemble_runtime_preview(scope: _BreakdownScope, db: AsyncSession) -> Any:
     from app.agent.context_assembly import assemble_for_preview
 
+    # ``assemble_for_preview`` can perform expensive retrieval/rendering work.
+    # End the read transaction opened while loading ``scope`` before that
+    # non-DB work, otherwise Postgres can kill the idle transaction and the
+    # next DB read in this request fails with "connection is closed".
+    await db.commit()
     return await assemble_for_preview(
         scope.channel_pk,
         user_message="",
         session_id=_uuid.UUID(scope.requested_session_id) if scope.requested_session_id else None,
-        db=db,
     )
 
 

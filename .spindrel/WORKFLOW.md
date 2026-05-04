@@ -39,6 +39,64 @@ are fallback recipes; this file wins for repo-specific workflow.
   write path is the explicit starter creation for Projects that do not already
   have a `.spindrel/WORKFLOW.md`.
 
+## Work Discovery
+
+`docs/roadmap.md` is the canonical work index. An agent or operator should be
+able to answer "what's next?" without scanning every track and plan file. The
+roadmap carries four lean sections:
+
+- **`## Up Next`** — 5–8 ready-to-launch items (decision-complete plans or
+  queued track phases that someone could pick up today). One line per item,
+  link to the owning plan or track. Add an item when it becomes pickable;
+  remove it when the work starts (it moves into `## Active`) or stalls.
+- **`## Plans`** — one-line entry per `docs/plans/<slug>.md` with
+  `status: active` or `status: planned`, pointing at the file. Surfaces
+  decision-complete work that isn't yet a track.
+- **`## Active`** — in-flight tracks, one line each, link to the track.
+  Implementation detail belongs in the track, not in the row.
+- **`## Recently Completed`** plus `docs/completed-tracks.md` and
+  `docs/fix-log.md` — last few shipped items so the index also answers
+  "what just landed?".
+
+If a row needs a paragraph, the paragraph belongs in the linked artifact, not
+in the roadmap. When a row drifts into shipped milestones + queued phases +
+historical detail, fold the detail back into its track and trim the row.
+
+### Plan and track lifecycle
+
+- Plans live at `docs/plans/<slug>.md` while `status: active` or `planned`.
+  When a plan finishes (`status: executed`), move the file to
+  `docs/plans/completed/<slug>.md` in the same edit. Do not delete — completed
+  plans stay as decision history.
+- Tracks stay in `docs/tracks/` for their full lifetime. A track marked
+  `status: complete` is read-only history; if work resumes in that domain,
+  flip the status back to `active` and add a new phase rather than spawning a
+  sibling track. `docs/guides/tracks.md` is the canonical contract.
+
+### Verification Queue
+
+`docs/verify.md` is the canonical queue for shipped behavior that needs live or
+e2e proof beyond automated tests. Unit/integration tests prove code correctness;
+the verification queue tracks feature correctness against real users and real
+infrastructure.
+
+- **When to add a row.** When a plan moves to `docs/plans/completed/` or a
+  track flips to `status: complete` AND its acceptance criteria call for live
+  or manual proof, add a row to `docs/verify.md` in the same edit. If the
+  plan's "Acceptance Criteria" section explicitly says "automated tests are
+  sufficient," no row needed.
+- **Row shape.** `## <slug> — shipped YYYY-MM-DD`, then bullets for
+  `What to verify`, `Method`, `Source`, `Status`. See the file's "How to use"
+  section for the full schema and recommended methods.
+- **Lifecycle.** `queued` → `in-progress` → `verified YYYY-MM-DD` (with a
+  one-line note on what passed) OR `failed YYYY-MM-DD → inbox#…`. Failed
+  entries leave the queue as soon as a corresponding `docs/inbox.md` row is
+  filed.
+- **Pruning.** Verified entries are deleted 30 days after they pass, or moved
+  to `docs/audits/verification-archive.md` if a paper trail is wanted. The
+  queue should stay short; if it grows past ~10 entries, prune before adding
+  more.
+
 ## Artifacts
 
 Use the smallest durable artifact that fits the work:

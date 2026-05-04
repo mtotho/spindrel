@@ -324,7 +324,8 @@ fixtures. The runner creates the live Codex and Claude project-build sessions,
 then automatically captures screenshots after pytest passes.
 
 ```bash
-ssh spindrel-bot 'cd /opt/thoth-server && \
+# Test-server SSH alias is operator-private — see vault `Test Server Operations.md`.
+ssh "$TEST_SERVER_SSH" 'cd /opt/thoth-server && \
   HARNESS_PARITY_TIER=project ./scripts/run_harness_parity_live.sh \
     -k project_plan_build_and_screenshot'
 ```
@@ -364,11 +365,14 @@ Capture the matching UI artifacts with:
 ```bash
 SPINDREL_API_KEY=... \
 python -m scripts.screenshots.spindrel_plan_live \
-  --api-url http://10.10.30.208:8000 \
-  --ui-url http://10.10.30.208:8000 \
-  --browser-url http://10.10.30.208:8000 \
+  --api-url "$SPINDREL_API_URL" \
+  --ui-url "$SPINDREL_API_URL" \
+  --browser-url "$SPINDREL_API_URL" \
   --output-dir docs/images
 ```
+
+Set `SPINDREL_API_URL` to the test-server URL (operator-private; see vault
+`Test Server Operations.md`).
 
 Expected artifacts:
 

@@ -1,13 +1,23 @@
 ---
 title: Mid-Turn Chat Followup Absorption
 summary: Plan to let normal chat agents absorb user followups at the next LLM/tool boundary instead of always answering them through a delayed queued task.
-status: planned
+status: executed
 tags: [spindrel, plan, agents, chat, context, quality]
 created: 2026-05-03
-updated: 2026-05-03
+updated: 2026-05-04
 ---
 
 # Mid-Turn Chat Followup Absorption
+
+## Shipped status (2026-05-04)
+
+Slices 1 + 2 shipped: `app/services/chat_late_input.py` carries the transactional claim, `app/agent/loop_pre_llm.py` runs the drain + injects absorbed messages with `_skip_persist=True`, `app/services/sessions.py` honors `_skip_persist` during persistence. Trace events `late_chat_burst_absorbed` / `late_chat_burst_absorb_failed` emit. Unit coverage: `tests/unit/test_chat_late_input.py`, `tests/unit/test_loop_pre_llm.py` (pass).
+
+**Remaining gaps** (Slice 3 acceptance):
+- No dedicated integration test for the absorption path itself — `tests/integration/test_chat_202.py` only proves the queued/coalesce fallback. A test that drives a tool-loop turn, sends followups while it runs, and asserts one assistant answer incorporating them is not in the suite.
+- Live acceptance verification (A→B,C during tool call, then A→B,C against a no-tool turn for the fallback) is not recorded in `.spindrel/runs/` or an audit.
+
+If those gaps matter, file an inbox entry and reopen this plan; otherwise the implementation is durable.
 
 ## Summary
 
