@@ -5,7 +5,10 @@ description: "Use when editing Spindrel integrations: manifests, activation, cha
 
 # Spindrel Integration Operator
 
-This skill applies to any agent editing this checkout — local CLI on the operator's box, in-app Spindrel agent on the server, or a Project coding run. It is **not** a Spindrel runtime skill and must not be imported into app skill tables.
+This is a repo-dev skill for any agent editing this checkout: local CLI on the
+operator's box, in-app Spindrel agent on the server, or a Project coding run.
+It is not a Spindrel runtime skill and must not be imported into app skill
+tables.
 
 ## Start Here
 

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.agent.context_assembly import AssemblyLedger, _inject_bot_knowledge_base, _inject_workspace_rag
+from app.agent.context_assembly import AssemblyLedger, _inject_bot_knowledge_base, _inject_user_knowledge, _inject_workspace_rag
 
 
 def _make_bot(*, shared_workspace_id: str | None = None, auto_retrieval: bool = True):
@@ -30,6 +30,7 @@ def _make_bot(*, shared_workspace_id: str | None = None, auto_retrieval: bool = 
         _workspace_raw={"indexing": {}},
         _ws_indexing_config=None,
         local_tools=["search_bot_knowledge"],
+        user_id="user-1",
     )
 
 
@@ -71,6 +72,7 @@ async def test_bot_kb_auto_retrieval_uses_implicit_kb_segment():
         "path_prefix": "bots/bot-1/knowledge-base",
         "embedding_model": "text-embedding-3-small",
     }]
+    assert call.kwargs["include_path_prefixes"] == ["bots/bot-1/knowledge-base"]
     assert any("search_bot_knowledge" in m["content"] for m in messages)
     assert ledger.inject_chars["bot_knowledge_base"] > 0
     assert events == [{"type": "bot_knowledge_base", "count": 1, "similarity": 0.82}]
@@ -200,3 +202,53 @@ async def test_workspace_rag_excludes_dedicated_channel_and_bot_kb_chunks():
     assert len(messages) == 1
     assert "docs/runbook.md" in messages[0]["content"]
     assert ledger.inject_decisions["workspace_rag"] == "admitted"
+
+
+@pytest.mark.asyncio
+async def test_user_knowledge_retrieval_filters_by_owner_scope_and_status():
+    bot = _make_bot(shared_workspace_id="ws-1")
+    messages: list[dict] = []
+    ledger = AssemblyLedger()
+    retrieve_mock = AsyncMock(return_value=(
+        ["[File: users/user-1/knowledge-base/notes/preferences.md]\n\nPrefers concise bullets"],
+        0.79,
+    ))
+
+    with patch("app.agent.fs_indexer.retrieve_filesystem_context", new=retrieve_mock), \
+         patch("app.services.workspace_indexing.resolve_indexing", return_value={
+             "embedding_model": "text-embedding-3-small",
+             "patterns": ["**/*.md"],
+             "similarity_threshold": 0.3,
+             "top_k": 8,
+             "watch": False,
+             "cooldown_seconds": 60,
+             "include_bots": [],
+             "segments": [],
+             "segments_source": "default",
+         }), \
+         patch("app.services.workspace_indexing.get_all_roots", return_value=["/data/shared/ws-1"]):
+        events = await _collect(_inject_user_knowledge(messages, bot, "format?", ledger))
+
+    call = retrieve_mock.call_args
+    assert call.kwargs["include_path_prefixes"] == ["users/user-1/knowledge-base/notes"]
+    assert call.kwargs["metadata_equals"] == {
+        "knowledge_scope": "user",
+        "owner_user_id": "user-1",
+    }
+    assert call.kwargs["metadata_not_equals"] == {"kd_status": "pending_review"}
+    assert events == [{"type": "user_knowledge", "count": 1, "similarity": 0.79}]
+    assert "Accepted user knowledge" in messages[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_user_knowledge_skips_ownerless_bot():
+    bot = _make_bot(shared_workspace_id="ws-1")
+    bot.user_id = None
+    ledger = AssemblyLedger()
+
+    with patch("app.agent.fs_indexer.retrieve_filesystem_context", new=AsyncMock()) as retrieve_mock:
+        events = await _collect(_inject_user_knowledge([], bot, "query", ledger))
+
+    retrieve_mock.assert_not_called()
+    assert events == []
+    assert ledger.inject_decisions["user_knowledge"] == "skipped_ownerless"

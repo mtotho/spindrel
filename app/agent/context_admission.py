@@ -879,6 +879,7 @@ async def inject_bot_knowledge_base(
             top_k=plan.top_k,
             embedding_model=plan.embedding_model,
             segments=kb_segments,
+            include_path_prefixes=[kb_prefix],
         )
         if not chunks:
             _mark_injection_decision(inject_decisions, "bot_knowledge_base", "skipped_empty")
@@ -902,3 +903,63 @@ async def inject_bot_knowledge_base(
     except Exception:
         logger.warning("Failed to retrieve bot knowledge-base for bot %s", bot.id, exc_info=True)
         _mark_injection_decision(inject_decisions, "bot_knowledge_base", "skipped_error")
+
+
+async def inject_user_knowledge(
+    messages: list[dict],
+    bot: BotConfig,
+    user_message: str,
+    ledger: Any,
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Inject accepted user-scope Knowledge Documents for the bot owner."""
+    inject_chars = ledger.inject_chars
+    budget_consume = ledger.consume
+    budget_can_afford = ledger.can_afford
+    inject_decisions = ledger.inject_decisions
+    owner_user_id = getattr(bot, "user_id", None)
+    if not owner_user_id:
+        _mark_injection_decision(inject_decisions, "user_knowledge", "skipped_ownerless")
+        return
+    if not bot.workspace.enabled or not bot.workspace.indexing.enabled or not bot.shared_workspace_id:
+        _mark_injection_decision(inject_decisions, "user_knowledge", "skipped_missing")
+        return
+
+    try:
+        from app.agent.fs_indexer import retrieve_filesystem_context
+        from app.services.bot_indexing import resolve_for
+
+        plan = resolve_for(bot, scope="workspace")
+        if plan is None:
+            _mark_injection_decision(inject_decisions, "user_knowledge", "skipped_missing")
+            return
+        prefix = f"users/{owner_user_id}/knowledge-base/notes"
+        chunks, sim = await retrieve_filesystem_context(
+            user_message,
+            bot.id,
+            roots=list(plan.roots),
+            threshold=plan.similarity_threshold,
+            top_k=plan.top_k,
+            embedding_model=plan.embedding_model,
+            include_path_prefixes=[prefix],
+            metadata_equals={
+                "knowledge_scope": "user",
+                "owner_user_id": str(owner_user_id),
+            },
+            metadata_not_equals={"kd_status": "pending_review"},
+        )
+        if not chunks:
+            _mark_injection_decision(inject_decisions, "user_knowledge", "skipped_empty")
+            return
+
+        body = "Accepted user knowledge:\n\n" + "\n\n".join(chunks)
+        if budget_can_afford(body):
+            messages.append({"role": "system", "content": body})
+            budget_consume("user_knowledge", body)
+            inject_chars["user_knowledge"] = len(body)
+            _mark_injection_decision(inject_decisions, "user_knowledge", "admitted")
+            yield {"type": "user_knowledge", "count": len(chunks), "similarity": sim}
+        else:
+            _mark_injection_decision(inject_decisions, "user_knowledge", "skipped_by_budget")
+    except Exception:
+        logger.warning("Failed to retrieve user knowledge for bot %s", bot.id, exc_info=True)
+        _mark_injection_decision(inject_decisions, "user_knowledge", "skipped_error")

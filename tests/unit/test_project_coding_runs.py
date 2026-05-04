@@ -1458,6 +1458,128 @@ async def test_project_coding_run_manual_schedule_round_trips_and_runs_now(db_se
     assert run.recurrence is None
     rows = await list_project_coding_run_schedules(db_session, project)
     assert rows[0]["run_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_repeated_project_run_preflight_blocker_downgrades_schedule_to_needs_review(db_session):
+    from app.services.project_run_environment_profiles import record_project_run_preflight_failure
+
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    schedule_id = uuid.uuid4()
+    previous_task_id = uuid.uuid4()
+    current_task_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel-preflight-loop",
+        root_path="common/projects/spindrel",
+        metadata_=_factory_meta(),
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    schedule = Task(
+        id=schedule_id,
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        prompt="Run the scheduled project coding loop.",
+        title="Nightly review",
+        status="active",
+        task_type="scheduled",
+        execution_config={
+            "run_preset_id": "project_coding_run_schedule",
+            "project_coding_run_schedule": {
+                "project_id": str(project_id),
+                "request": "Run the scheduled project coding loop.",
+                "repo_path": "spindrel",
+                "run_environment_profile": "setup",
+            },
+        },
+    )
+    previous_task = Task(
+        id=previous_task_id,
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        parent_task_id=schedule_id,
+        prompt="previous run",
+        status="failed",
+        task_type="agent",
+        execution_config={"run_preset_id": "project_coding_run", "project_coding_run": {}},
+        created_at=datetime(2026, 5, 3, 10, tzinfo=timezone.utc),
+    )
+    current_task = Task(
+        id=current_task_id,
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        parent_task_id=schedule_id,
+        prompt="current run",
+        status="pending",
+        task_type="agent",
+        execution_config={
+            "run_preset_id": "project_coding_run",
+            "project_coding_run": {
+                "branch": "spindrel/project-current",
+                "base_branch": "development",
+                "loop_state": {"state": "running"},
+            },
+        },
+        created_at=datetime(2026, 5, 3, 11, tzinfo=timezone.utc),
+    )
+    summary = {
+        "configured": True,
+        "ok": False,
+        "status": "failed",
+        "profile_id": "setup",
+        "source_layer": "blueprint_snapshot",
+        "error": "run environment command failed: install exited 7",
+        "commands": [{"name": "install", "exit_code": 7, "stdout": "", "stderr": "missing package"}],
+    }
+    db_session.add_all([
+        project,
+        channel,
+        schedule,
+        previous_task,
+        current_task,
+        ProjectRunReceipt(
+            project_id=project_id,
+            task_id=previous_task_id,
+            status="blocked",
+            summary="Project coding run blocked before agent start: install failed",
+            metadata_={"category": "run_environment_preflight", "preflight": summary},
+        ),
+    ])
+    await db_session.commit()
+
+    await record_project_run_preflight_failure(
+        db_session,
+        task=current_task,
+        project=project,
+        summary=summary,
+    )
+    await db_session.commit()
+
+    refreshed_schedule = await db_session.get(Task, schedule_id)
+    assert refreshed_schedule.status == "needs_review"
+    assert refreshed_schedule.execution_config["project_coding_run_schedule"]["review_reason"] == "repeated_preflight_blocker"
+    receipts = list((await db_session.execute(
+        select(ProjectRunReceipt).where(ProjectRunReceipt.task_id == current_task_id)
+    )).scalars().all())
+    loop_stop = [item for item in receipts if item.metadata_.get("category") == "run_environment_loop_stop"]
+    assert len(loop_stop) == 1
+    assert loop_stop[0].status == "needs_review"
+    assert loop_stop[0].metadata_["previous_task_id"] == str(previous_task_id)
+
     assert rows[0]["last_run"]["task_id"] == str(run.id)
 
 

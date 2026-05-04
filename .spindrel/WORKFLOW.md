@@ -131,6 +131,15 @@ remaining work. Mark the run `done` when the stop condition is met,
 `needs_review` when the next useful work changes scope, and `blocked` when
 access or dependencies are unavailable.
 
+Loop continuations get a new task/session. In `isolated_worktree` mode that
+also means a newly prepared session worktree and private Docker daemon; in
+`shared_repo` mode the continuation stays on the shared Project root. The
+handoff does not reset: reuse the same logical work branch, PR/handoff,
+Project source context, dependency contract, and receipt lineage. The next
+iteration should prepare or fast-forward the existing handoff branch and add
+one focused commit. If the branch/PR cannot be reused, stop with
+`needs_review` or `blocked` instead of opening a replacement PR.
+
 Run Packs are optional published batches of Run Briefs. Use them when the user
 needs to review or launch multiple PR-sized slices together. Do not require a
 Run Pack file for a single flexible run from a track or plan.
@@ -226,6 +235,9 @@ Use `validate_project_run_environment_profile` (or the matching admin API) to
 check profile source, trust/approval state, schema, and work-surface
 compatibility before scheduling unattended work. Schedule create/update rejects
 profile selections that the validator knows would block.
+If two consecutive scheduled runs hit the same preflight blocker identity, the
+schedule stops with `status=needs_review` and records a
+`run_environment_loop_stop` receipt linking the two failed runs.
 
 ## Runtime Skills Boundary
 

@@ -61,7 +61,7 @@ Use this track to answer:
 | Repo-resident source artifacts | active | 2026-05-03 | Intake and Run Packs are moving to repo files/source artifacts; bespoke IssueWorkPack DB state is gone. |
 | Workflow contract | active | 2026-05-03 | `.spindrel/WORKFLOW.md` is now the single repo-owned Project contract with parser/starter/factory-state support. |
 | Project-channel agent readiness | shipped | 2026-05-03 | Project-bound channels now receive the Project entry skill and local-tool pack by default; sessions get compact Project bootstrap pointers, not full workflow injection. |
-| Run environment preflight | active | 2026-05-03 | V1 backend pre-agent profile execution now supports Blueprint/repo-file definitions, trust/approved-hash gating with an admin approval API, validator API/tool, schedule-time validation, async setup/readiness execution, secret-safe evidence, shared-repo preservation, and run-row visibility. Remaining: repeated-blocker schedule downgrade, dogfood profile, and repo-agent skill audit. |
+| Run environment preflight | active | 2026-05-03 | V1 backend pre-agent profile execution now supports Blueprint/repo-file definitions, trust/approved-hash gating with an admin approval API, validator API/tool, schedule-time validation, repeated-blocker schedule downgrade, async setup/readiness execution, secret-safe evidence, shared-repo preservation, run-row visibility, repo-agent skill audit gates, and explicit loop continuation handoff guidance. Remaining: dogfood profile and final UI affordances. |
 | Runs cockpit/taskboard | planned | 2026-05-03 | Next UI shape should group active runs by source artifact, schedule, status, and review need without making the track itself a board. |
 | Symphony parity map | shipped | 2026-05-03 | Native equivalence documented in `docs/audits/symphony-mapping.md`; strict Symphony compatibility is not the target. |
 
@@ -98,7 +98,10 @@ environment preflight boundary. The shipped backend slice prepares trusted
 Blueprint/repo-file profiles before model launch, validates manual and
 scheduled profile selections up front, preserves `shared_repo` semantics,
 exposes `run_environment_preflight`, and redacts Project runtime secrets from
-evidence. Remaining work is tracked in the implementation plan:
+evidence. Repo-dev skills now have manifest/runtime-boundary portability gates,
+and loop docs now make the continuation contract explicit: new task/session
+and fresh isolated work surface when requested, same branch/PR/handoff lineage.
+Remaining work is tracked in the implementation plan:
 [`docs/plans/project-run-environment-preflight.md`](../plans/project-run-environment-preflight.md).
 
 ## Phase Log

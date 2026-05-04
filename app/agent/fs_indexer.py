@@ -49,6 +49,98 @@ _AUTO_INJECTED_PATTERNS: list[tuple[str, ...]] = [
 ]
 
 
+def _normalize_path_prefix(prefix: str) -> tuple[str, str]:
+    """Return (directory prefix with trailing slash, exact path without slash)."""
+    exact = prefix.rstrip("/")
+    return (prefix if prefix.endswith("/") else prefix + "/", exact)
+
+
+def _path_prefix_include_filters(prefixes: list[str] | None) -> list[Any]:
+    """Build SQLAlchemy filters matching paths under or exactly equal to prefixes."""
+    if not prefixes:
+        return []
+    from sqlalchemy import or_
+
+    filters = []
+    for prefix in dict.fromkeys(p for p in prefixes if p):
+        normalized, exact = _normalize_path_prefix(prefix)
+        filters.append(
+            or_(
+                FilesystemChunk.file_path.startswith(normalized),
+                FilesystemChunk.file_path == exact,
+            )
+        )
+    return filters
+
+
+def _path_prefix_exclude_filters(prefixes: list[str] | None) -> list[Any]:
+    """Build SQLAlchemy filters excluding paths under or exactly equal to prefixes."""
+    if not prefixes:
+        return []
+    filters = []
+    for prefix in dict.fromkeys(p for p in prefixes if p):
+        normalized, exact = _normalize_path_prefix(prefix)
+        filters.append(~FilesystemChunk.file_path.startswith(normalized))
+        filters.append(FilesystemChunk.file_path != exact)
+    return filters
+
+
+def _knowledge_document_chunk_metadata(rel_path: str, file_text: str) -> dict[str, Any]:
+    """Return indexed metadata for Knowledge Document markdown files."""
+    normalized = rel_path.replace("\\", "/").strip("/")
+    scope: str | None = None
+    owner_user_id: str | None = None
+    owner_bot_id: str | None = None
+    channel_id: str | None = None
+    project_scoped = False
+
+    parts = normalized.split("/")
+    if len(parts) >= 5 and parts[0] == "users" and parts[2:4] == ["knowledge-base", "notes"]:
+        scope = "user"
+        owner_user_id = parts[1]
+    elif len(parts) >= 5 and parts[0] == "bots" and parts[2:4] == ["knowledge-base", "notes"]:
+        scope = "bot"
+        owner_bot_id = parts[1]
+    elif len(parts) >= 5 and parts[0] == "channels" and parts[2:4] == ["knowledge-base", "notes"]:
+        scope = "channel"
+        channel_id = parts[1]
+    elif len(parts) >= 4 and parts[:3] == [".spindrel", "knowledge-base", "notes"]:
+        scope = "project"
+        project_scoped = True
+
+    if scope is None:
+        return {}
+
+    try:
+        from app.services.knowledge_documents import parse_frontmatter
+
+        frontmatter, _body = parse_frontmatter(file_text)
+    except Exception:
+        frontmatter = {}
+
+    metadata: dict[str, Any] = {
+        "knowledge_scope": scope,
+        "kd_status": str(frontmatter.get("status") or "accepted"),
+    }
+    if frontmatter.get("entry_id"):
+        metadata["entry_id"] = str(frontmatter["entry_id"])
+    if owner_user_id:
+        metadata["owner_user_id"] = owner_user_id
+    elif frontmatter.get("user_id"):
+        metadata["owner_user_id"] = str(frontmatter["user_id"])
+    if owner_bot_id:
+        metadata["owner_bot_id"] = owner_bot_id
+    elif frontmatter.get("bot_id"):
+        metadata["owner_bot_id"] = str(frontmatter["bot_id"])
+    if channel_id:
+        metadata["channel_id"] = channel_id
+    elif frontmatter.get("channel_id"):
+        metadata["channel_id"] = str(frontmatter["channel_id"])
+    if project_scoped and frontmatter.get("project_id"):
+        metadata["project_id"] = str(frontmatter["project_id"])
+    return metadata
+
+
 def _split_patterns(patterns: list[str]) -> tuple[list[str], list[str]]:
     """Split patterns into (include, exclude) lists.
 
@@ -447,6 +539,7 @@ async def _process_file(
         if result is None:
             # Write to DB
             try:
+                kd_metadata = _knowledge_document_chunk_metadata(rel, file_text)
                 async with async_session() as db:
                     await db.execute(
                         delete(FilesystemChunk).where(
@@ -455,7 +548,7 @@ async def _process_file(
                         )
                     )
                     for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
-                        chunk_meta = {"chunking_version": effective_version}
+                        chunk_meta = {"chunking_version": effective_version, **kd_metadata}
                         if cr_descriptions[i]:
                             chunk_meta["contextual_description"] = cr_descriptions[i]
                         db.add(FilesystemChunk(
@@ -811,8 +904,11 @@ async def _fs_bm25_search(
     client_id: str | None,
     abs_roots: list[str] | None,
     top_k: int,
+    included_prefixes: list[str] | None = None,
     excluded_prefixes: list[str] | None = None,
     excluded_paths: list[str] | None = None,
+    metadata_equals: dict[str, Any] | None = None,
+    metadata_not_equals: dict[str, Any] | None = None,
 ) -> list[tuple[str, str, str | None, int | None, int | None, float]]:
     """BM25 full-text search on filesystem_chunks. Returns [] on SQLite or error."""
     try:
@@ -842,19 +938,42 @@ async def _fs_bm25_search(
                 wheres.append("root = ANY(:roots)")
                 params["roots"] = abs_roots
 
+            if included_prefixes:
+                include_terms: list[str] = []
+                for i, prefix in enumerate(dict.fromkeys(p for p in included_prefixes if p)):
+                    normalized, exact = _normalize_path_prefix(prefix)
+                    param_name = f"incl_{i}"
+                    include_terms.append(f"(file_path LIKE :{param_name} OR file_path = :{param_name}_exact)")
+                    params[param_name] = normalized + "%"
+                    params[f"{param_name}_exact"] = exact
+                if include_terms:
+                    wheres.append(f"({' OR '.join(include_terms)})")
+
             # Apply channel-gated segment exclusion
             if excluded_prefixes:
                 for i, prefix in enumerate(excluded_prefixes):
-                    normalized = prefix if prefix.endswith("/") else prefix + "/"
+                    normalized, exact = _normalize_path_prefix(prefix)
                     param_name = f"excl_{i}"
                     wheres.append(f"NOT (file_path LIKE :{param_name} OR file_path = :{param_name}_exact)")
                     params[param_name] = normalized + "%"
-                    params[f"{param_name}_exact"] = prefix.rstrip("/")
+                    params[f"{param_name}_exact"] = exact
             if excluded_paths:
                 for i, path in enumerate(excluded_paths):
                     param_name = f"expath_{i}"
                     wheres.append(f"file_path != :{param_name}")
                     params[param_name] = path
+            for i, (key, value) in enumerate((metadata_equals or {}).items()):
+                key_param = f"meta_eq_key_{i}"
+                value_param = f"meta_eq_val_{i}"
+                wheres.append(f"(metadata_ ->> :{key_param}) = :{value_param}")
+                params[key_param] = str(key)
+                params[value_param] = str(value)
+            for i, (key, value) in enumerate((metadata_not_equals or {}).items()):
+                key_param = f"meta_ne_key_{i}"
+                value_param = f"meta_ne_val_{i}"
+                wheres.append(f"((metadata_ ->> :{key_param}) IS NULL OR (metadata_ ->> :{key_param}) != :{value_param})")
+                params[key_param] = str(key)
+                params[value_param] = str(value)
 
             sql = _sa_text(f"""
                 SELECT content, file_path, symbol, start_line, end_line,
@@ -885,8 +1004,11 @@ async def retrieve_filesystem_context(
     embedding_model: str | None = None,
     segments: list[dict] | None = None,
     channel_id: str | None = None,
+    include_path_prefixes: list[str] | None = None,
     exclude_path_prefixes: list[str] | None = None,
     exclude_paths: list[str] | None = None,
+    metadata_equals: dict[str, Any] | None = None,
+    metadata_not_equals: dict[str, Any] | None = None,
 ) -> tuple[list[str], float]:
     """Embed query, cosine-search filesystem_chunks, return (formatted_chunks, best_similarity).
 
@@ -897,7 +1019,9 @@ async def retrieve_filesystem_context(
     - bot_id: returns chunks where chunk.bot_id == bot_id OR chunk.bot_id IS NULL
     - client_id: returns chunks where chunk.client_id == client_id OR chunk.client_id IS NULL
     - channel_id: segments with a channel_id are skipped unless the active channel matches
+    - include_path_prefixes: optional positive path filter; only matching chunks are retrieved
     - exclude_path_prefixes / exclude_paths: retrieval-time path filters applied before formatting
+    - metadata_equals / metadata_not_equals: JSON metadata filters applied before ranking
     """
     top_k = top_k or settings.FS_INDEX_TOP_K
     threshold = threshold if threshold is not None else settings.FS_INDEX_SIMILARITY_THRESHOLD
@@ -929,16 +1053,17 @@ async def retrieve_filesystem_context(
     )
     abs_roots = [str(Path(r).resolve()) for r in roots] if roots else None
 
-    # Build path-prefix exclusion filters for channel-gated segments
-    _path_excl_filters = []
-    for prefix in _excl:
-        normalized = prefix if prefix.endswith("/") else prefix + "/"
-        _path_excl_filters.append(~FilesystemChunk.file_path.startswith(normalized))
-        # Also exclude exact match (e.g. file_path == prefix without trailing slash)
-        _path_excl_filters.append(FilesystemChunk.file_path != prefix.rstrip("/"))
+    _path_include_filters = _path_prefix_include_filters(include_path_prefixes)
+    _path_excl_filters = _path_prefix_exclude_filters(_excl)
     if exclude_paths:
         for path in exclude_paths:
             _path_excl_filters.append(FilesystemChunk.file_path != path)
+    _metadata_filters = []
+    for key, value in (metadata_equals or {}).items():
+        _metadata_filters.append(FilesystemChunk.metadata_[str(key)].as_string() == str(value))
+    for key, value in (metadata_not_equals or {}).items():
+        expr = FilesystemChunk.metadata_[str(key)].as_string()
+        _metadata_filters.append(or_(expr.is_(None), expr != str(value)))
 
     # Fetch more results when hybrid search will fuse them
     vector_limit = top_k * 2 if settings.HYBRID_SEARCH_ENABLED else top_k
@@ -968,7 +1093,7 @@ async def retrieve_filesystem_context(
                 FilesystemChunk.end_line,
                 distance_expr.label("distance"),
             )
-            .where(bot_filter, client_filter, model_filter, *_path_excl_filters)
+            .where(bot_filter, client_filter, model_filter, *_path_include_filters, *_path_excl_filters, *_metadata_filters)
             .order_by(distance_expr)
             .limit(vector_limit)
         )
@@ -989,8 +1114,11 @@ async def retrieve_filesystem_context(
                 client_id,
                 abs_roots,
                 top_k,
+                included_prefixes=include_path_prefixes,
                 excluded_prefixes=_excl or None,
                 excluded_paths=exclude_paths,
+                metadata_equals=metadata_equals,
+                metadata_not_equals=metadata_not_equals,
             )
             if bm25_rows:
                 return _format_hybrid_fs_results(rows, bm25_rows, threshold, top_k, query)
@@ -1022,7 +1150,7 @@ async def retrieve_filesystem_context(
                 FilesystemChunk.end_line,
                 distance_expr.label("distance"),
             )
-            .where(bot_filter, client_filter, model_filter, *_path_excl_filters)
+            .where(bot_filter, client_filter, model_filter, *_path_include_filters, *_path_excl_filters, *_metadata_filters)
             .order_by(distance_expr)
             .limit(vector_limit)
         )
@@ -1047,8 +1175,11 @@ async def retrieve_filesystem_context(
             client_id,
             abs_roots,
             top_k,
+            included_prefixes=include_path_prefixes,
             excluded_prefixes=_excl or None,
             excluded_paths=exclude_paths,
+            metadata_equals=metadata_equals,
+            metadata_not_equals=metadata_not_equals,
         )
         if bm25_rows:
             return _format_hybrid_fs_results(all_rows, bm25_rows, threshold, top_k, query)

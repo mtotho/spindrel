@@ -5,7 +5,7 @@ description: "Use when the user asks to audit Spindrel's security posture, revie
 
 # Spindrel Security Audit
 
-Repo-dev skill for surfacing **security findings** in Spindrel's self-hosted agent runtime and shipping fixes with same-edit doc + audit-signal updates. The bar is fail-closed mechanical boundaries + observable operator-equivalent capabilities (per `docs/guides/security.md`); the threat surface is agentic AI plus a normal Python web codebase.
+Repo-dev skill for surfacing **security findings** in Spindrel's self-hosted agent runtime and shipping fixes with same-edit doc + audit-signal updates. It must not be imported into app skill tables. The bar is fail-closed mechanical boundaries + observable operator-equivalent capabilities (per `docs/guides/security.md`); the threat surface is agentic AI plus a normal Python web codebase.
 
 ## Frame — what to look for
 
@@ -65,7 +65,7 @@ Read these first; do not re-litigate.
 
 ### Interactive mode (operator-driven review)
 
-1. **Explore.** Read the bindings table. Use `subagent_type=Explore` to walk the codebase. For each agentic risk class above, grep for new instances since the last audit pass — new integration callbacks, new tools without `safety_tier`, new outbound HTTP, new widget handlers, new subprocess spawns, new untrusted-content sinks, new admin routes.
+1. **Explore.** Read the bindings table. Use a bounded explorer delegate when available to walk the codebase. For each agentic risk class above, grep for new instances since the last audit pass — new integration callbacks, new tools without `safety_tier`, new outbound HTTP, new widget handlers, new subprocess spawns, new untrusted-content sinks, new admin routes.
 2. **Drift sweep — same explore pass.** For each `manifest_hash_drift` / `worksurface_*` / `prompt_injection_*` / `run_script_*` / `widget_*` audit signal in `app/services/security_audit.py`, spot-check whether the seam still holds. Flag drifted seams as `_drift: <date> shipped fix_`.
 3. **Present findings.** Numbered list with **Risk class / Files / Threat / Mitigation / Severity (critical/high/medium/low/hygiene)**. Reference OWASP Agentic / LLM Top 10 categories where relevant. Mark items that contradict an entry in `docs/architecture-decisions.md` only when friction is real enough to revisit.
 4. **Pick one.** Ask: "Which would you like to land?" Don't propose code yet.
@@ -103,7 +103,7 @@ pip-audit -r requirements.lock --strict --disable-pip
 ( cd ui && npm audit --omit=dev --audit-level=high )
 ```
 
-Per `AGENTS.md`: do NOT run pytest in Docker. Async-SQLite tests may auto-skip on local Python 3.14 — that's expected. The `RunSecurityAudit` orchestrator test has a known local fixture hang under Python 3.14 — run it in the supported Docker/Python 3.12 runtime if its assertions are needed.
+Per `AGENTS.md`: do NOT run pytest in Docker. Async-SQLite tests may auto-skip on local Python 3.14 — that's expected. The `RunSecurityAudit` orchestrator test has a known local fixture hang under Python 3.14 — run it in a supported native Python 3.12 venv if its assertions are needed.
 
 ## Completion Standard
 
@@ -134,7 +134,7 @@ When in doubt, prefer the higher tier. The track will downgrade explicitly if ne
 - **Don't fold cross-cutting reviews into one Run Brief.** Each finding gets its own track row, its own audit signal, its own test.
 - **Don't grant a new ambient capability without an explicit setting + audit signal.** Net-new outbound HTTP, net-new subprocess spawn, net-new self-mutation lane all need named env-var opt-ins (e.g. `MCP_ALLOW_LOOPBACK`, `SCRIPT_NETNS_SANDBOX`, `ENCRYPTION_STRICT`).
 - **Don't re-litigate the deployment-tier model.** Internet-exposed remains out-of-scope until `_check_deployment_tier_readiness` says otherwise.
-- **Don't treat `tests/unit/test_security_audit.py::TestRunSecurityAudit` failures on local Python 3.14 as real findings.** That orchestrator slice has a known fixture hang — run in Docker/Python 3.12.
+- **Don't treat `tests/unit/test_security_audit.py::TestRunSecurityAudit` failures on local Python 3.14 as real findings.** That orchestrator slice has a known fixture hang — run it in a supported native Python 3.12 venv.
 
 ## Pairing with the architecture-deepening skill
 

@@ -11,6 +11,7 @@ from app.services.notes import (
     list_notes,
     parse_frontmatter,
     read_note,
+    update_note_session_binding,
     write_note,
 )
 
@@ -64,6 +65,49 @@ def test_write_note_requires_current_hash_and_creates_backup(tmp_path: Path):
     backups = list((note_path.parent / ".versions").glob("safe-note.md.*.bak"))
     assert len(backups) == 1
     assert "Original" in backups[0].read_text()
+
+
+def test_note_frontmatter_preserves_knowledge_document_envelope_keys(tmp_path: Path):
+    surface = _surface(tmp_path)
+    note = create_note(
+        surface,
+        title="Envelope Note",
+        content=(
+            "---\n"
+            "entry_id: entry-123\n"
+            "status: pending_review\n"
+            "session_binding:\n"
+            "  mode: inline\n"
+            "  session_id: session-123\n"
+            "extra:\n"
+            "  source: capture\n"
+            "---\n\n"
+            "# Envelope Note\n\nBody"
+        ),
+    )
+
+    loaded = read_note(surface, note["slug"])
+    meta, _ = parse_frontmatter(loaded["content"])
+    assert meta["entry_id"] == "entry-123"
+    assert meta["status"] == "pending_review"
+    assert meta["session_binding"] == {"mode": "inline", "session_id": "session-123"}
+    assert meta["extra"] == {"source": "capture"}
+
+    updated = write_note(surface, note["slug"], loaded["content"].replace("Body", "Updated"), loaded["content_hash"])
+    updated_meta, _ = parse_frontmatter(updated["content"])
+    assert updated_meta["entry_id"] == "entry-123"
+    assert updated_meta["extra"] == {"source": "capture"}
+
+
+def test_note_session_binding_can_switch_modes(tmp_path: Path):
+    surface = _surface(tmp_path)
+    note = create_note(surface, title="Binding Note")
+
+    updated = update_note_session_binding(surface, note["slug"], {"mode": "attached", "session_id": "session-456"})
+
+    assert updated["session_binding"] == {"mode": "attached", "session_id": "session-456"}
+    meta, _ = parse_frontmatter(updated["content"])
+    assert meta["session_binding"] == {"mode": "attached", "session_id": "session-456"}
 
 
 def test_assist_fallback_produces_structured_markdown_for_minimal_selection():

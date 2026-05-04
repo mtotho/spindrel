@@ -207,6 +207,10 @@ and update calls also run this validator and reject profiles that would clearly
 block, such as malformed schema, missing definitions, unapproved repo-file
 hashes, or mutating commands in `shared_repo` without opt-in.
 
+If two consecutive scheduled runs hit the same preflight blocker identity, the
+schedule stops with `status=needs_review` and records a
+`run_environment_loop_stop` receipt that links the two failed runs.
+
 ## Fresh Instances
 
 Project Instances are temporary roots created from a Project's frozen Blueprint
@@ -265,8 +269,15 @@ evidence.
 Bounded loops are an optional launch policy for exploratory or repeated repair
 work. They deliberately reuse the existing continuation primitive instead of a
 hidden orchestrator: every iteration is a normal Project coding run on the same
-lineage, branch, PR/handoff, Project instance, dependency stack, and receipt
-trail. The implementation agent controls the loop with receipt fields:
+lineage, logical work branch, PR/handoff, Project source context, dependency
+contract, and receipt trail. Each continuation gets its own task/session; in
+`isolated_worktree` mode that means a freshly prepared session worktree and
+private Docker daemon, while `shared_repo` mode deliberately stays on the
+shared Project root. That execution isolation is not a new review artifact:
+the next iteration prepares/reuses the existing handoff branch, commits on top
+of it, and updates the same PR/handoff. If branch or PR reuse is impossible,
+the run stops with `needs_review` or `blocked` instead of silently opening a
+replacement PR. The implementation agent controls the loop with receipt fields:
 `loop_decision=continue` starts the next continuation while budget remains,
 `done` stops as review-ready, `needs_review` stops for human decision, and
 `blocked` stops with the recorded blocker. Missing receipts or missing loop

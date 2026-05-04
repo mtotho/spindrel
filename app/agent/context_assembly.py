@@ -1888,6 +1888,19 @@ async def _inject_bot_knowledge_base(
         yield event
 
 
+async def _inject_user_knowledge(
+    messages: list[dict],
+    bot: BotConfig,
+    user_message: str,
+    ledger: AssemblyLedger,
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Compatibility wrapper for user Knowledge Document context admission."""
+    from app.agent.context_admission import inject_user_knowledge
+
+    async for event in inject_user_knowledge(messages, bot, user_message, ledger):
+        yield event
+
+
 async def assemble_context(
     messages: list[dict],
     bot: BotConfig,
@@ -2123,6 +2136,8 @@ async def assemble_context(
         _workspace_rag_excluded_prefixes.add(
             "bots/" + bot.id + "/knowledge-base" if bot.shared_workspace_id else "knowledge-base"
         )
+    if bot.shared_workspace_id:
+        _workspace_rag_excluded_prefixes.add("users")
 
     # --- bot knowledge-base retrieval ---
     async for evt in _inject_bot_knowledge_base(
@@ -2131,6 +2146,15 @@ async def assemble_context(
         user_message,
         ledger,
         context_profile,
+    ):
+        yield evt
+
+    # --- accepted user Knowledge Documents ---
+    async for evt in _inject_user_knowledge(
+        messages,
+        bot,
+        user_message,
+        ledger,
     ):
         yield evt
 

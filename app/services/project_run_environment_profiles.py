@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
 import re
 import signal
@@ -953,6 +954,191 @@ async def cleanup_project_run_environment_background_processes(db: AsyncSession,
     return cleanup
 
 
+def _preflight_log_hash(*parts: Any) -> str | None:
+    text = "\n".join(str(part or "") for part in parts).strip()
+    if not text:
+        return None
+    return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
+
+
+def preflight_blocker_identity(summary: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the stable identity used to stop repeated schedule preflight loops."""
+    base: dict[str, Any] = {
+        "profile_id": summary.get("profile_id") or None,
+        "source_layer": summary.get("source_layer") or None,
+        "status": summary.get("status") or "failed",
+    }
+    if summary.get("status") == "needs_review":
+        return {
+            **base,
+            "step_type": "profile_hash",
+            "step_name": summary.get("profile_path") or summary.get("profile_id") or "profile",
+            "command_or_check_id": summary.get("current_hash") or summary.get("profile_path") or summary.get("profile_id"),
+            "exit_code_or_status": "needs_review",
+            "error": summary.get("error") or None,
+        }
+    for item in summary.get("background_processes") or []:
+        if isinstance(item, dict) and item.get("error"):
+            return {
+                **base,
+                "step_type": "background_process",
+                "step_name": item.get("name") or "background_process",
+                "command_or_check_id": item.get("name") or item.get("command"),
+                "exit_code_or_status": "start_failed",
+                "error": summary.get("error") or item.get("error"),
+                "log_hash": _preflight_log_hash(item.get("error")),
+            }
+    for item in summary.get("commands") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("timed_out") or item.get("exit_code") not in (0, "0", None):
+            status = "timeout" if item.get("timed_out") else f"exit:{item.get('exit_code')}"
+            return {
+                **base,
+                "step_type": "command",
+                "step_name": item.get("name") or "command",
+                "command_or_check_id": item.get("name") or item.get("command"),
+                "exit_code_or_status": status,
+                "error": summary.get("error") or None,
+                "log_hash": _preflight_log_hash(item.get("stdout"), item.get("stderr")),
+            }
+    for item in summary.get("readiness_checks") or []:
+        if not isinstance(item, dict) or item.get("ok"):
+            continue
+        status = item.get("status_code")
+        if status is None:
+            status = "timeout" if item.get("timed_out") else item.get("exit_code")
+        if status is None:
+            status = item.get("error") or "failed"
+        return {
+            **base,
+            "step_type": "readiness_check",
+            "step_name": item.get("name") or "readiness_check",
+            "command_or_check_id": item.get("name") or item.get("url") or item.get("command"),
+            "exit_code_or_status": str(status),
+            "error": summary.get("error") or item.get("error"),
+            "log_hash": _preflight_log_hash(item.get("stdout"), item.get("stderr"), item.get("error")),
+        }
+    for item in summary.get("artifacts") or []:
+        if isinstance(item, dict) and not item.get("exists"):
+            return {
+                **base,
+                "step_type": "artifact",
+                "step_name": item.get("path") or "artifact",
+                "command_or_check_id": item.get("path"),
+                "exit_code_or_status": item.get("error") or "missing",
+                "error": summary.get("error") or item.get("error"),
+            }
+    return {
+        **base,
+        "step_type": "preflight",
+        "step_name": "preflight",
+        "command_or_check_id": summary.get("error") or "unknown",
+        "exit_code_or_status": summary.get("status") or "failed",
+        "error": summary.get("error") or None,
+    }
+
+
+def _identity_digest(identity: Mapping[str, Any]) -> str:
+    raw = json.dumps(identity, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+async def _maybe_downgrade_repeated_preflight_blocker(
+    db: AsyncSession,
+    *,
+    task: Task,
+    project: Project,
+    summary: dict[str, Any],
+    branch: str | None,
+    base_branch: str | None,
+) -> None:
+    if task.parent_task_id is None:
+        return
+    schedule = await db.get(Task, task.parent_task_id)
+    if schedule is None or schedule.status != "active":
+        return
+    current_identity = preflight_blocker_identity(summary)
+    previous_tasks = list((await db.execute(
+        select(Task)
+        .where(Task.parent_task_id == schedule.id)
+        .where(Task.id != task.id)
+        .order_by(Task.created_at.desc())
+        .limit(3)
+    )).scalars().all())
+    previous_receipt: ProjectRunReceipt | None = None
+    previous_preflight: dict[str, Any] | None = None
+    for previous_task in previous_tasks:
+        receipts = list((await db.execute(
+            select(ProjectRunReceipt)
+            .where(ProjectRunReceipt.task_id == previous_task.id)
+            .order_by(ProjectRunReceipt.created_at.desc())
+        )).scalars().all())
+        for receipt in receipts:
+            metadata = receipt.metadata_ if isinstance(receipt.metadata_, dict) else {}
+            if metadata.get("category") != "run_environment_preflight":
+                continue
+            preflight = metadata.get("preflight")
+            if isinstance(preflight, dict):
+                previous_receipt = receipt
+                previous_preflight = preflight
+                break
+        if previous_receipt is not None:
+            break
+    if previous_receipt is None or previous_preflight is None:
+        return
+    previous_identity = preflight_blocker_identity(previous_preflight)
+    if previous_identity != current_identity:
+        return
+
+    identity_hash = _identity_digest(current_identity)
+    loop_stop_key = f"project-run-preflight-loop-stop:{schedule.id}:{task.id}:{identity_hash}"
+    existing = (await db.execute(
+        select(ProjectRunReceipt.id)
+        .where(ProjectRunReceipt.project_id == project.id)
+        .where(ProjectRunReceipt.idempotency_key == loop_stop_key)
+        .limit(1)
+    )).scalar_one_or_none()
+    if existing is None:
+        db.add(ProjectRunReceipt(
+            project_id=project.id,
+            task_id=task.id,
+            session_id=task.session_id,
+            bot_id=task.bot_id,
+            idempotency_key=loop_stop_key,
+            status="needs_review",
+            summary="Project coding-run schedule stopped after repeated identical preflight blocker.",
+            branch=str(branch) if branch else None,
+            base_branch=str(base_branch) if base_branch else None,
+            metadata_={
+                "category": "run_environment_loop_stop",
+                "reason": "repeated_preflight_blocker",
+                "blocker_identity": current_identity,
+                "blocker_identity_hash": identity_hash,
+                "current_task_id": str(task.id),
+                "previous_task_id": str(previous_receipt.task_id) if previous_receipt.task_id else None,
+                "previous_receipt_id": str(previous_receipt.id),
+                "schedule_task_id": str(schedule.id),
+            },
+        ))
+
+    cfg = dict(schedule.execution_config or {})
+    schedule_cfg = dict(cfg.get("project_coding_run_schedule") or {})
+    schedule_cfg["review_state"] = "needs_review"
+    schedule_cfg["review_reason"] = "repeated_preflight_blocker"
+    schedule_cfg["latest_preflight_blocker"] = {
+        "identity": current_identity,
+        "identity_hash": identity_hash,
+        "current_task_id": str(task.id),
+        "previous_task_id": str(previous_receipt.task_id) if previous_receipt.task_id else None,
+        "updated_at": _utcnow().isoformat(),
+    }
+    cfg["project_coding_run_schedule"] = schedule_cfg
+    schedule.execution_config = cfg
+    schedule.status = "needs_review"
+    schedule.error = "Repeated identical Project run environment preflight blocker; operator review required."
+
+
 async def record_project_run_preflight_failure(
     db: AsyncSession,
     *,
@@ -1048,6 +1234,14 @@ async def record_project_run_preflight_failure(
             })
             run_cfg["loop_state"] = loop_state
         task.execution_config = {**task.execution_config, "project_coding_run": run_cfg}
+    await _maybe_downgrade_repeated_preflight_blocker(
+        db,
+        task=task,
+        project=project,
+        summary=summary,
+        branch=branch,
+        base_branch=base_branch,
+    )
 
 
 async def record_project_run_preflight_success(

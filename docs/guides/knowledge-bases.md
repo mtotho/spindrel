@@ -2,7 +2,14 @@
 
 ![Memory & Knowledge admin — Knowledge Library inventory of indexed bot and channel knowledge-base folders](../images/kb-detail.png)
 
-Spindrel has two curated knowledge layers plus one short-form memory layer:
+Spindrel has a unified Knowledge Document primitive underneath the visible Notes
+feature, plus curated knowledge folders and one short-form memory layer:
+
+- Knowledge Documents
+  - Markdown files with preserving frontmatter (`entry_id`, `status`, `type`, `session_binding`, `extra`, provenance)
+  - stored in `knowledge-base/notes/` for channel/project notes today
+  - also supports user and bot scope for the User Knowledge Graph rollout
+  - existing Notes are a channel/project scope-binding of this primitive
 
 - `channels/<channel_id>/knowledge-base/`
   - room or project facts
@@ -14,6 +21,15 @@ Spindrel has two curated knowledge layers plus one short-form memory layer:
   - short behavioral notes and preferences
 
 ## Runtime model
+
+Knowledge Documents:
+
+- are normal Markdown files, so the filesystem indexer can chunk and retrieve them
+- carry chunk metadata when indexed: `knowledge_scope`, `owner_user_id`, `kd_status`, and `entry_id` when available
+- use frontmatter `status` for review state (`pending_review` vs `accepted`) instead of a separate review directory
+- bind editing sessions through frontmatter `session_binding` with `dedicated`, `inline`, or `attached` modes
+
+Channel/project Notes currently keep their existing dedicated session behavior by default.
 
 Channel knowledge base:
 
@@ -81,6 +97,8 @@ The folder names are fixed conventions:
 - channel: `channels/<channel_id>/knowledge-base/`
 - standalone bot: `knowledge-base/`
 - shared-workspace bot: `bots/<bot_id>/knowledge-base/`
+- user knowledge documents: `users/<user_id>/knowledge-base/notes/`
+- project knowledge documents: `.spindrel/knowledge-base/notes/`
 
 Subfolders are only organizational. Indexing is recursive.
 

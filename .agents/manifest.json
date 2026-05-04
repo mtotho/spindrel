@@ -129,14 +129,13 @@
     {
       "id": "spindrel-docs-operator",
       "path": ".agents/skills/spindrel-docs-operator",
-      "description": "Documentation and project-state workflow for canonical guides, vault tracks, roadmap notes, and session logs.",
+      "description": "Documentation and project-state workflow for canonical guides, roadmap rows, track notes, and project-state updates.",
       "triggers": [
         "docs",
         "guide",
         "roadmap",
-        "vault",
         "track note",
-        "session log"
+        "project state"
       ],
       "canonical_guides": [
         "CLAUDE.md",
@@ -225,6 +224,170 @@
         "docs/guides/api.md",
         "docs/guides/development-process.md",
         "docs/tracks/agent-quality-observability.md"
+      ],
+      "verification_commands": [
+        "PYTHONPATH=. pytest tests/unit/test_repo_agent_skills.py -q",
+        "git diff --check"
+      ]
+    },
+    {
+      "id": "improve-codebase-architecture",
+      "path": ".agents/skills/improve-codebase-architecture",
+      "description": "Repo-dev workflow for architecture-deepening candidates, bounded refactors, and deepening-log updates.",
+      "triggers": [
+        "architecture deepening",
+        "refactor",
+        "shallow module",
+        "deepen architecture",
+        "deletion test"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        "docs/guides/development-process.md",
+        "docs/guides/tracks.md",
+        "docs/guides/ubiquitous-language.md",
+        "docs/tracks/architecture-deepening.md",
+        "docs/deepening-log.md"
+      ],
+      "verification_commands": [
+        "PYTHONPATH=. pytest tests/unit/test_repo_agent_skills.py -q",
+        "git diff --check"
+      ]
+    },
+    {
+      "id": "spindrel-dev-retro",
+      "path": ".agents/skills/spindrel-dev-retro",
+      "description": "Repo-dev retrospective workflow over recent commits, tracks, inbox, fix-log, and Project run outcomes.",
+      "triggers": [
+        "retro",
+        "retrospective",
+        "how is the work going",
+        "weekly review",
+        "sprint review"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        ".spindrel/WORKFLOW.md",
+        "docs/guides/development-process.md",
+        "docs/guides/tracks.md",
+        "docs/roadmap.md",
+        "docs/inbox.md",
+        "docs/fix-log.md"
+      ],
+      "verification_commands": [
+        "PYTHONPATH=. pytest tests/unit/test_repo_agent_skills.py -q",
+        "git diff --check"
+      ]
+    },
+    {
+      "id": "spindrel-e2e-development",
+      "path": ".agents/skills/spindrel-e2e-development",
+      "description": "Repo-dev workflow for local e2e stacks, provider auth, harness mounts, screenshots, and Project coding-run evidence.",
+      "triggers": [
+        "e2e",
+        "browser screenshot",
+        "provider auth",
+        "harness auth",
+        "Project coding-run evidence",
+        "dev server"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        ".spindrel/WORKFLOW.md",
+        "docs/guides/development-process.md",
+        "docs/guides/projects.md"
+      ],
+      "verification_commands": [
+        "PYTHONPATH=. pytest tests/unit/test_repo_agent_skills.py -q",
+        "git diff --check"
+      ]
+    },
+    {
+      "id": "spindrel-harness-parity-loop",
+      "path": ".agents/skills/spindrel-harness-parity-loop",
+      "description": "Repo-dev supervised loop for Codex/Claude harness parity, one fix per iteration, with prepared Project run environment.",
+      "triggers": [
+        "harness parity",
+        "parity loop",
+        "Codex match terminal",
+        "Claude match CLI",
+        "harness sweep"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        ".spindrel/WORKFLOW.md",
+        "docs/guides/projects.md",
+        "docs/guides/agent-harnesses.md",
+        "docs/plans/project-run-environment-preflight.md"
+      ],
+      "verification_commands": [
+        "PYTHONPATH=. pytest tests/unit/test_repo_agent_skills.py -q",
+        "git diff --check"
+      ]
+    },
+    {
+      "id": "spindrel-project-run-review",
+      "path": ".agents/skills/spindrel-project-run-review",
+      "description": "Repo-dev workflow for investigating Project coding-run failures, blocked outcomes, receipts, and traces.",
+      "triggers": [
+        "Project run review",
+        "coding-run failure",
+        "blocked run",
+        "needs_review run",
+        "run receipt",
+        "agent trace"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        ".spindrel/WORKFLOW.md",
+        "docs/guides/projects.md",
+        "docs/guides/development-process.md"
+      ],
+      "verification_commands": [
+        "PYTHONPATH=. pytest tests/unit/test_repo_agent_skills.py -q",
+        "git diff --check"
+      ]
+    },
+    {
+      "id": "spindrel-security-audit",
+      "path": ".agents/skills/spindrel-security-audit",
+      "description": "Repo-dev security-audit workflow for Spindrel's agentic-AI and Python web-codebase risk surfaces.",
+      "triggers": [
+        "security audit",
+        "security review",
+        "nightly security",
+        "agentic risk",
+        "threat model"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        "SECURITY.md",
+        "docs/guides/security.md",
+        "docs/guides/development-process.md",
+        "docs/tracks/security.md",
+        "docs/audits/security-deep-review-2026-05.md"
+      ],
+      "verification_commands": [
+        "PYTHONPATH=. pytest tests/unit/test_repo_agent_skills.py -q",
+        "git diff --check"
+      ]
+    },
+    {
+      "id": "spindrel-supervised-loop",
+      "path": ".agents/skills/spindrel-supervised-loop",
+      "description": "Repo-dev recipe for bounded supervised loops that run a suite, land one fix per iteration, and stop on green or budget.",
+      "triggers": [
+        "supervised loop",
+        "keep iterating",
+        "repair until passing",
+        "bounded loop",
+        "fix one per iteration"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        ".spindrel/WORKFLOW.md",
+        "docs/guides/development-process.md",
+        "docs/guides/projects.md"
       ],
       "verification_commands": [
         "PYTHONPATH=. pytest tests/unit/test_repo_agent_skills.py -q",

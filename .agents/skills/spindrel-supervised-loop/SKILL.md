@@ -5,6 +5,9 @@ description: "Use when the user asks to keep iterating until green, run a bounde
 
 # Project Supervised Loop Iteration
 
+This is a repo-dev skill. It is not a Spindrel runtime skill and must not be
+imported into app skill tables.
+
 Use this when the user wants a long-running, bounded, mostly autonomous loop
 that runs a verification suite, fixes one regression at a time, and stops when
 the suite is green or the budget runs out. Concrete loops (`project/loops/harness_parity`,
@@ -15,6 +18,13 @@ Every loop starts from a Run Brief. The brief can come from the user prompt or
 from the child skill, but the iteration agent must be able to name the source
 document, mission, stop condition, stay-inside boundary, evidence, update
 target, and review handoff before editing.
+
+Project loop continuations get a new task/session. In `isolated_worktree`
+mode, Spindrel prepares a fresh session worktree and private Docker daemon for
+that continuation; in `shared_repo` mode, the continuation uses the shared
+Project root. That execution surface reset does not mean a new handoff. The
+loop reuses the same logical work branch, PR/handoff, Project source context,
+dependency contract, and receipt lineage until the Run Brief stops.
 
 ## The contract a child skill must declare
 
@@ -63,6 +73,10 @@ review-heavy gate, because there green tests can pass while the UX is wrong.
    `concurrency.headroom > 0`. If `concurrency.saturated`, stop with
    `decision: stop, reason: concurrency_saturated` so the user can clear
    in-flight work first.
+   For continuation iterations, prepare or fast-forward the existing handoff
+   branch and add one focused commit on top of the same PR/handoff. If the
+   handoff branch or PR cannot be reused, stop with `needs_review` or
+   `blocked` instead of creating a replacement branch/PR.
 4. **Run the suite** via `run_script`, using whatever command the child
    skill's `suite_runner` declares. Wait for the run to complete. Read the
    gap-report path the script printed on stdout.
@@ -87,8 +101,9 @@ review-heavy gate, because there green tests can pass while the UX is wrong.
       visual-feedback contract for this Project) and attach the artifact
       paths to the receipt's `evidence` field. Continue without human
       approval; the artifact lets a human sample-review the morning batch.
-10. **Commit + push** with a tight message: `<scope>: fix <test_id>` (or the
-   equivalent slug for non-test failures). One commit per iteration.
+10. **Commit + push** to the loop's existing work branch with a tight message:
+   `<scope>: fix <test_id>` (or the equivalent slug for non-test failures).
+   One commit per iteration; update the existing PR/handoff when available.
 11. **Publish loop receipt** `{decision: "continue", fixed: <test_id>,
     remaining: <count>, mode: <mode>, evidence: {...}}`. The existing
     `check_project_coding_run_loop_continuation` policy fires the next

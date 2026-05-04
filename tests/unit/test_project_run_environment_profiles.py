@@ -7,6 +7,7 @@ import pytest
 from app.db.models import Project
 from app.services.project_run_environment_profiles import (
     approve_run_environment_profile_hash,
+    preflight_blocker_identity,
     validate_project_run_environment_profile_or_raise,
     validate_project_run_environment_profile_selection,
     validate_run_environment_profile,
@@ -110,6 +111,31 @@ def test_approve_run_environment_profile_hash_rejects_invalid_digest():
             sha256="not-a-hash",
             approved_by="admin",
         )
+
+
+def test_preflight_blocker_identity_matches_same_failed_command_and_changes_on_exit_code():
+    first = {
+        "status": "failed",
+        "profile_id": "setup",
+        "source_layer": "blueprint_snapshot",
+        "error": "run environment command failed: install exited 7",
+        "commands": [{"name": "install", "exit_code": 7, "stdout": "", "stderr": "missing package"}],
+    }
+    second = {
+        "status": "failed",
+        "profile_id": "setup",
+        "source_layer": "blueprint_snapshot",
+        "error": "run environment command failed: install exited 7",
+        "commands": [{"name": "install", "exit_code": 7, "stdout": "", "stderr": "missing package"}],
+    }
+    transient = {
+        **first,
+        "error": "run environment command failed: install exited 8",
+        "commands": [{"name": "install", "exit_code": 8, "stdout": "", "stderr": "missing package"}],
+    }
+
+    assert preflight_blocker_identity(first) == preflight_blocker_identity(second)
+    assert preflight_blocker_identity(first) != preflight_blocker_identity(transient)
 
 
 @pytest.mark.asyncio

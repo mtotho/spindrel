@@ -19,6 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import Channel, Message, Session
+from app.services.knowledge_documents import (
+    default_session_binding,
+    new_entry_id,
+    parse_frontmatter as parse_document_frontmatter,
+    render_frontmatter as render_document_frontmatter,
+    update_session_binding as update_document_session_binding,
+)
 from app.services.file_versions import save_file_backup
 
 logger = logging.getLogger(__name__)
@@ -38,6 +45,10 @@ class NotesSurface:
     scope: str
     channel_id: str | None = None
     project_id: str | None = None
+
+    @property
+    def documents_root(self) -> str:
+        return self.notes_root
 
     @property
     def notes_root(self) -> str:
@@ -73,61 +84,24 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _parse_scalar(value: str) -> Any:
-    raw = value.strip()
-    if raw == "[]":
-        return []
-    if raw.startswith("[") and raw.endswith("]"):
-        return [part.strip().strip('"').strip("'") for part in raw[1:-1].split(",") if part.strip()]
-    if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
-        return raw[1:-1]
-    return raw
-
-
 def parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
-    if not content.startswith("---\n"):
-        return {}, content
-    end = content.find("\n---", 4)
-    if end < 0:
-        return {}, content
-    raw = content[4:end]
-    body_start = end + len("\n---")
-    while content[body_start:body_start + 1] in {"\r", "\n"}:
-        body_start += 1
-    meta: dict[str, Any] = {}
-    for line in raw.splitlines():
-        if not line.strip() or line.lstrip().startswith("#") or ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        meta[key.strip()] = _parse_scalar(value)
-    return meta, content[body_start:]
+    return parse_document_frontmatter(content)
 
 
 def render_frontmatter(meta: dict[str, Any]) -> str:
-    lines = ["---"]
-    for key in ("spindrel_kind", "title", "category", "summary", "tags", "created_at", "updated_at"):
-        if key not in meta or meta[key] in (None, ""):
-            continue
-        value = meta[key]
-        if isinstance(value, list):
-            escaped = ", ".join(json.dumps(str(item)) for item in value)
-            lines.append(f"{key}: [{escaped}]")
-        else:
-            text = str(value).replace("\n", " ").strip()
-            if ":" in text or text.startswith(("[", "{", "#", "-", "*")):
-                lines.append(f"{key}: {json.dumps(text)}")
-            else:
-                lines.append(f"{key}: {text}")
-    lines.append("---")
-    return "\n".join(lines) + "\n\n"
+    return render_document_frontmatter(meta)
 
 
 def ensure_note_frontmatter(content: str, *, title: str | None = None) -> str:
     meta, body = parse_frontmatter(content)
     now = _utc_now()
     meta.setdefault("spindrel_kind", NOTE_KIND)
+    meta.setdefault("entry_id", new_entry_id())
+    meta.setdefault("type", "note")
+    meta.setdefault("status", "accepted")
     meta.setdefault("title", title or _title_from_body(body) or "Untitled note")
     meta.setdefault("tags", [])
+    meta.setdefault("session_binding", default_session_binding("dedicated"))
     meta.setdefault("created_at", now)
     meta["updated_at"] = now
     return render_frontmatter(meta) + body.lstrip("\n")
@@ -209,10 +183,15 @@ def serialize_note(surface: NotesSurface, abs_path: str) -> dict[str, Any]:
         "workspace_path": surface.workspace_path_for(rel),
         "tool_path": surface.tool_path_for(rel),
         "title": title,
+        "entry_id": meta.get("entry_id"),
+        "type": meta.get("type") or "note",
+        "status": meta.get("status") or "accepted",
         "summary": meta.get("summary") or "",
         "excerpt": _excerpt(body),
         "category": meta.get("category") or "",
         "tags": tags,
+        "session_binding": meta.get("session_binding") if isinstance(meta.get("session_binding"), dict) else default_session_binding("dedicated"),
+        "frontmatter": meta,
         "word_count": _word_count(body),
         "bytes": stat.st_size,
         "modified_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -268,6 +247,11 @@ def write_note(surface: NotesSurface, slug: str, content: str, base_hash: str | 
     save_file_backup(abs_path)
     Path(abs_path).write_text(next_content, encoding="utf-8")
     return {**serialize_note(surface, abs_path), "content": next_content, "content_hash": content_hash(next_content)}
+
+
+def update_note_session_binding(surface: NotesSurface, slug: str, binding: dict[str, Any]) -> dict[str, Any]:
+    """Switch a note's Knowledge Document session binding mode."""
+    return update_document_session_binding(surface, slug, binding)
 
 
 def build_assist_proposal(

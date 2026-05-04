@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.bots import get_bot
 from app.db.models import Channel
 from app.dependencies import get_db, require_scopes
+from app.services.knowledge_documents import authorize_knowledge_document
 from app.services.notes import (
     append_note_assist_exchange,
     build_ai_assist_proposal,
@@ -19,6 +20,7 @@ from app.services.notes import (
     list_notes,
     read_note,
     resolve_notes_surface,
+    update_note_session_binding,
     write_note,
 )
 
@@ -34,6 +36,11 @@ class NoteCreateBody(BaseModel):
 class NoteWriteBody(BaseModel):
     content: str
     base_hash: str | None = None
+
+
+class NoteSessionBindingBody(BaseModel):
+    mode: str
+    session_id: str | None = None
 
 
 class NoteSelection(BaseModel):
@@ -68,10 +75,11 @@ def _schedule_reindex(channel_id: str, bot):
 async def list_channel_notes(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:read")),
+    auth=Depends(require_scopes("channels:read")),
 ):
     channel, bot = await _require_channel(channel_id, db)
     surface = await resolve_notes_surface(db, channel, bot)
+    authorize_knowledge_document(auth, surface, "list")
     return {
         "surface": {"scope": surface.scope, "kb_path": surface.kb_rel, "notes_path": f"{surface.kb_rel}/notes"},
         "notes": list_notes(surface),
@@ -83,10 +91,11 @@ async def create_channel_note(
     channel_id: uuid.UUID,
     body: NoteCreateBody,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:write")),
+    auth=Depends(require_scopes("channels:write")),
 ):
     channel, bot = await _require_channel(channel_id, db)
     surface = await resolve_notes_surface(db, channel, bot)
+    authorize_knowledge_document(auth, surface, "write")
     note = create_note(surface, title=body.title, slug=body.slug, content=body.content)
     _schedule_reindex(str(channel_id), bot)
     return note
@@ -97,10 +106,11 @@ async def get_channel_note(
     channel_id: uuid.UUID,
     slug: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:read")),
+    auth=Depends(require_scopes("channels:read")),
 ):
     channel, bot = await _require_channel(channel_id, db)
     surface = await resolve_notes_surface(db, channel, bot)
+    authorize_knowledge_document(auth, surface, "read")
     note = read_note(surface, slug)
     session = await get_or_create_note_session(
         db,
@@ -121,11 +131,28 @@ async def put_channel_note(
     slug: str,
     body: NoteWriteBody,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:write")),
+    auth=Depends(require_scopes("channels:write")),
 ):
     channel, bot = await _require_channel(channel_id, db)
     surface = await resolve_notes_surface(db, channel, bot)
+    authorize_knowledge_document(auth, surface, "write")
     note = write_note(surface, slug, body.content, body.base_hash)
+    _schedule_reindex(str(channel_id), bot)
+    return note
+
+
+@router.put("/{slug}/session-binding")
+async def put_channel_note_session_binding(
+    channel_id: uuid.UUID,
+    slug: str,
+    body: NoteSessionBindingBody,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(require_scopes("channels:write")),
+):
+    channel, bot = await _require_channel(channel_id, db)
+    surface = await resolve_notes_surface(db, channel, bot)
+    authorize_knowledge_document(auth, surface, "session_binding")
+    note = update_note_session_binding(surface, slug, {"mode": body.mode, "session_id": body.session_id})
     _schedule_reindex(str(channel_id), bot)
     return note
 
@@ -136,10 +163,11 @@ async def assist_channel_note(
     slug: str,
     body: NoteAssistBody,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:read")),
+    auth=Depends(require_scopes("channels:read")),
 ):
     channel, bot = await _require_channel(channel_id, db)
     surface = await resolve_notes_surface(db, channel, bot)
+    authorize_knowledge_document(auth, surface, "assist")
     note = read_note(surface, slug)
     if body.base_hash and body.base_hash != note["content_hash"]:
         raise HTTPException(status_code=409, detail={"message": "Note changed on disk", "content_hash": note["content_hash"], "content": note["content"]})

@@ -1107,3 +1107,18 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 - The existing SharedWorkspace is the runtime environment/container boundary; overloading it for project folders would reintroduce multi-workspace confusion.
 - A folder-root Project supports multi-repo workspaces and later templates/ephemeral instances without forcing a Git-repo-shaped model too early.
 - Separating memory from cwd prevents Project-bound turns from writing durable bot memory into whichever Project is currently active.
+
+### Knowledge Documents are the unified Notes primitive
+**Decided 2026-05-03.** Notes are a scope-binding of a generic Knowledge Document primitive, not a separate substrate.
+
+**What this means.**
+- Knowledge Documents are Markdown files with preserving YAML frontmatter. The envelope includes `entry_id`, free-form `type`, `status`, `session_binding`, provenance, and `extra` fields without dropping unknown keys.
+- Existing channel/project Notes keep their current API and default dedicated session behavior, but their frontmatter/session metadata now follows the Knowledge Document contract.
+- User and bot scopes resolve through the same primitive. User-scope documents live under `users/<user_id>/knowledge-base/notes/` in the shared workspace layout.
+- Authorization flows through `authorize_knowledge_document(actor, surface, action)` so user-scope ownership is enforced in one place when mixed-scope surfaces arrive.
+- Indexed chunks for Knowledge Documents carry metadata (`knowledge_scope`, `owner_user_id`, `kd_status`, `entry_id`) so retrieval can filter by ownership and review status before ranking.
+
+**Why.**
+- Building capture as a parallel Notes-like system would split the UI and retrieval contract.
+- Review-first capture needs status and provenance in frontmatter, while retrieval needs the same facts indexed as query-time metadata.
+- Per-user knowledge is a security boundary; path shape and `bot_id = NULL` are useful conventions but not sufficient authorization or retrieval filters.

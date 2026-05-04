@@ -5,10 +5,20 @@ description: "Use when the user asks to fix harness parity, run the parity loop,
 
 # Harness Parity Loop
 
+This is a repo-dev skill. It is not a Spindrel runtime skill and must not be
+imported into app skill tables.
+
 This skill runs inside a normal Project coding-run session. The session should
 already have its isolated work surface and private Docker daemon prepared by
 Spindrel before the first turn starts. Do not bootstrap or restart the host
 Spindrel API from inside the iteration agent.
+
+For continuation iterations, expect a new Project task/session and a newly
+prepared isolated worktree/private Docker daemon. Reuse the same logical work
+branch and existing PR/handoff from the loop lineage: prepare or fast-forward
+that branch, make one focused commit, and update the same PR. If branch or PR
+reuse is impossible, publish `needs_review` or `blocked` instead of creating a
+replacement PR.
 
 For scheduled Project runs, the run should select the `harness-parity` run
 environment profile. That profile owns `prepare-harness-parity`, writes

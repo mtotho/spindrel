@@ -5,7 +5,7 @@ description: "Use when the user asks to deepen Spindrel's architecture, find ref
 
 # Improve Codebase Architecture (Spindrel)
 
-Repo-dev skill for surfacing **deepening opportunities** — refactors that turn shallow modules into deep ones — and shipping them with same-edit doc updates. The architectural method is Ousterhout-style; the Spindrel bindings tie it to the track, the log, and the project's domain glossary.
+Repo-dev skill for surfacing **deepening opportunities** — refactors that turn shallow modules into deep ones — and shipping them with same-edit doc updates. It must not be imported into app skill tables. The architectural method is Ousterhout-style; the Spindrel bindings tie it to the track, the log, and the project's domain glossary.
 
 <!--
 Adapted from mattpocock/skills/improve-codebase-architecture
@@ -55,7 +55,7 @@ This skill runs in two modes. Pick by context:
 
 Use when a human is in the loop and wants to pick the next candidate.
 
-1. **Explore.** Read the bindings table. Use the Agent tool with `subagent_type=Explore` to walk the codebase organically — note shallow modules, missing locality, leaky seams, untested-or-untestable interfaces. Apply the deletion test.
+1. **Explore.** Read the bindings table. Use a bounded explorer delegate when available to walk the codebase organically — note shallow modules, missing locality, leaky seams, untested-or-untestable interfaces. Apply the deletion test.
 2. **Drift sweep — same explore pass.** For each entry in `docs/deepening-log.md`, spot-check the seam. Drifted seams are first-class candidates; flag them as `_drift: <date> deepening_`.
 3. **Present candidates.** Numbered list with **Files / Problem / Solution / Benefits / Drift?**. Use `docs/guides/ubiquitous-language.md` for domain names and [LANGUAGE.md](LANGUAGE.md) for architecture vocabulary. Do NOT propose interfaces yet. Ask: "Which would you like to explore?"
 4. **Grilling loop.** Once picked, walk the design tree with the user. See [DEEPENING.md](DEEPENING.md) for the dependency-category framework that determines test strategy and [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md) for alternatives.

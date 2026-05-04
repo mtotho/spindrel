@@ -5,7 +5,7 @@ description: "Use when the user asks for a retrospective on the Spindrel project
 
 # Spindrel Dev Retro
 
-Repo-dev retrospective for the Spindrel project itself. Synthesizes signals across the recent window into themed findings the operator can act on. Pairs with `spindrel-project-run-review`, which owns per-run failure classification — this skill consumes that skill's output instead of duplicating it.
+Repo-dev retrospective for the Spindrel project itself. It must not be imported into app skill tables. Synthesizes signals across the recent window into themed findings the operator can act on. Pairs with `spindrel-project-run-review`, which owns per-run failure classification — this skill consumes that skill's output instead of duplicating it.
 
 The retro is a deliberate "stop and look back" — not a cron, not auto-fired, not part of any other loop. The operator invokes it at end-of-week or when something feels off.
 

@@ -193,6 +193,13 @@ observability.
 
 9. Audit `.agents/skills/` for unattended-run correctness (gating, not
    polish).
+   - **Shipped 2026-05-03:** manifest coverage and repo-dev boundary checks
+     now enforce the gates below. The empty `spindrel-session-environment-operator`
+     folder was removed. The meta-audit skills stay separate for now because
+     they have distinct triggers: feature-placement readiness, conversation
+     quality, run-review diagnosis, security, retrospectives, and
+     architecture-deepening. Consolidation can happen later if usage proves
+     overlap, but it is no longer a preflight blocker.
    - Treat the skill audit as a hard prerequisite for the dogfood proof in
      item 6 (and the live harness-parity dogfood in the Test Plan): a skill
      that quietly assumes operator vault paths, an interactive terminal, a
@@ -218,11 +225,12 @@ observability.
      - No skill depends on `~/personal/`, `~/.claude/`, vault session logs,
        or the operator's laptop for paths or evidence. Evidence comes from
        repo, API, or run receipts.
-     - Decide whether the four meta-audit skills (`agentic-readiness`,
+     - The four meta-audit skills (`agentic-readiness`,
        `spindrel-conversation-quality-audit`, `spindrel-project-run-review`,
-       `spindrel-security-audit`) and `improve-codebase-architecture` stay
-       separate or consolidate; document the decision so the manifest does
-       not keep growing overlapping triggers.
+       `spindrel-security-audit`) plus `spindrel-dev-retro` and
+       `improve-codebase-architecture` stay separate until usage evidence
+       shows overlapping triggers. Manifest coverage keeps that split visible
+       instead of letting unindexed skills accumulate.
 
 10. Add a profile validator / dry-run path.
     - `validate_run_environment_profile(project, profile_id)` resolves the
@@ -339,7 +347,6 @@ gaps are closed or explicitly deferred.
 | P1 | Profile placement is still an implicit metadata convention; the current loader only reads `Project.metadata_["run_environment_profiles"]` / blueprint snapshot. | Per Implementation Plan items 2 and 2b: land `.spindrel/profiles/<id>.yaml` as the authoritative profile definition home with Blueprint snapshot as fallback only. Project metadata cannot define profile bodies in V1. Gate repo-file loading on a per-Project `trust_repo_environment_profiles` flag, restrict the resolved branch to the run's worktree, require operator approval against a recorded content hash, and enforce path/symlink/size/schema constraints before any command renders. |
 | P1 | Schedule/tool surfaces do not yet expose the new profile field consistently. The local `schedule_project_coding_run` tool cannot select a profile, and UI types are stale. | Thread `run_environment_profile` through agent-facing scheduling tools and UI form state after the backend contract is stable. |
 | P1 | There is no integration or live dogfood proof that a generic scheduled isolated run prepares deps/dev/artifacts and then launches the agent without spending a failed model turn. | Add a generic fixture integration test and one live Spindrel `harness-parity` dogfood run after the profile is configured on the actual Project/Blueprint. |
-| P0 | The repo-dev skill audit is **gating for unattended runs**, not polish. A skill that quietly assumes operator vault paths, an interactive terminal, or a particular harness's tool surface can break a Project coding run even when runtime preflight is green. Today: 18 directories under `.agents/skills/` (excluding `_shared`), of which `spindrel-session-environment-operator` is an empty folder with no `SKILL.md` and should either be removed or populated. Of the 17 functional skill folders, 10 are indexed in `.agents/manifest.json`; 7 are unindexed (`improve-codebase-architecture`, `spindrel-dev-retro`, `spindrel-e2e-development`, `spindrel-harness-parity-loop`, `spindrel-project-run-review`, `spindrel-security-audit`, `spindrel-supervised-loop`). `tests/unit/test_repo_agent_skills.py::test_new_repo_agent_skills_keep_runtime_boundary_explicit` currently fails because 6 indexed skills lack the enforced "repo-dev skill" boundary phrase (`spindrel-backend-operator`, `spindrel-harness-operator`, `spindrel-integration-operator`, `spindrel-ui-operator`, `spindrel-visual-feedback-loop`, `spindrel-widget-operator`); the assertion reports whichever the test's set iteration hits first, so the named skill varies between runs. `spindrel-security-audit/SKILL.md` directs Docker/Python 3.12 fallback for unit tests, contradicting `AGENTS.md`; `improve-codebase-architecture` and `spindrel-security-audit` use Claude-specific `subagent_type=Explore` wording; `spindrel-docs-operator`, `spindrel-dev-retro`, `spindrel-project-run-review` reference `~/personal/`/vault session logs. | Per Implementation Plan item 9: remove or populate the empty `spindrel-session-environment-operator` folder; index or intentionally exclude every remaining skill folder; normalize the runtime-boundary phrase across all 6 missing skills (the test's failure name varies, so fixing one is not enough); remove the Docker contradiction; replace harness-specific delegation wording with portable phrasing; drop vault/laptop assumptions; and decide on consolidation of the four meta-audit skills + `improve-codebase-architecture`. Land before the dogfood proof — a wrong skill silently breaks unattended runs. |
 
 ## Implementation Progress - 2026-05-03
 
@@ -366,6 +373,10 @@ Shipped in the backend V1 slice:
   the agent-facing `validate_project_run_environment_profile` tool.
 - Manual coding-run launch and schedule create/update validate selected
   profiles up front and reject blockers before a run is queued.
+- Consecutive scheduled runs with the same preflight blocker identity now stop
+  the schedule with `status=needs_review` and emit a
+  `run_environment_loop_stop` receipt linking the current and previous failed
+  runs.
 - Profile file loading enforces `.spindrel/profiles/<id>.yaml|yml|toml`, a
   safe id character set, repo-root path containment, 64 KiB file cap, and V1
   field/schema validation.
@@ -378,15 +389,24 @@ Shipped in the backend V1 slice:
   use Project runtime value-aware redaction.
 - HTTP readiness defaults to 2xx and supports `expected_status`.
 - Focused regressions cover shared-repo preservation, repo-file
-  trust/approval, changed-profile blocking, validator blocking, Project-channel
-  tool enrollment, successful profile execution, setup failure blocking, and
-  Project-secret redaction.
+  trust/approval, changed-profile blocking, validator blocking, repeated
+  preflight-loop downgrade, Project-channel tool enrollment, successful profile
+  execution, setup failure blocking, and Project-secret redaction.
+- Repo-dev skill audit gates now cover unattended-run portability: every
+  functional `.agents/skills/*/SKILL.md` is indexed in `.agents/manifest.json`,
+  the empty session-environment skill folder was removed, runtime-boundary
+  wording is enforced across indexed repo-dev skills, and the audit test blocks
+  harness-specific delegation wording plus Docker/Python-version fallback
+  instructions that contradict `AGENTS.md`.
+- Loop guidance now distinguishes execution isolation from review handoff
+  continuity: each continuation gets a new task/session, isolated runs get a
+  fresh session worktree/private Docker daemon, and iterations still reuse the
+  same logical branch, PR/handoff, Project source context, dependency contract,
+  and receipt lineage.
 
 Still open from this plan:
 
-- Repeated identical preflight blocker schedule downgrade to `needs_review`.
 - Full live/dogfood proof with `.spindrel/profiles/harness-parity.yaml`.
-- Repo-dev skill audit gates in item 9.
 - Threading profile selection into any remaining UI form affordances beyond
   the backend/API/tool fields already present.
 
@@ -435,22 +455,14 @@ Roadmap (ordered for unattended-run correctness):
    selection through schedule API, agent-facing tools, and UI. Authoring
    `harness-parity` against an unsettled contract just buys migration
    churn.
-4. **In parallel with steps 2–3, complete the repo-dev skill correctness
-   audit (escalated to P0 above).** A wrong skill is indistinguishable from a
-   wrong profile from the unattended run's perspective: the model gets bad
-   instructions and produces garbage evidence even on a perfectly prepared
-   surface. Index every `.agents/skills/*/SKILL.md`, normalize the
-   runtime-boundary phrase, remove the AGENTS.md Docker contradiction, drop
-   harness-specific delegation wording, drop vault/laptop dependencies, and
-   resolve the meta-audit skill consolidation question.
-5. Configure the real Spindrel `.spindrel/profiles/harness-parity.yaml`
+4. Configure the real Spindrel `.spindrel/profiles/harness-parity.yaml`
    profile in this repo. The profile prepares `scratch/agent-e2e/harness-parity.env`
    and any dev target before the parity-loop agent starts. Generic Project
    runtime stays repo-agnostic.
-6. Prove the generic behavior with tests and dogfood: a fixture scheduled
+5. Prove the generic behavior with tests and dogfood: a fixture scheduled
    isolated Project run that starts deps/dev/artifacts before the model, plus
    a live harness-parity scheduled run on the real Spindrel Project once the
-   profile is checked in. Both proofs depend on items 3 and 4 being green.
+   profile is checked in.
 
 Review ask for the next reviewer:
 

@@ -33,7 +33,6 @@ NEW_SKILL_IDS = {
     "spindrel-harness-operator",
     "spindrel-docs-operator",
 }
-EXPECTED_SKILL_IDS = NEW_SKILL_IDS | {"spindrel-visual-feedback-loop"}
 AGENTIC_READINESS_ID = "agentic-readiness"
 LIVE_HEALTH_TRIAGE_ID = "spindrel-live-health-triage"
 
@@ -58,6 +57,14 @@ def _agent_guidance_files() -> list[Path]:
     return files
 
 
+def _repo_skill_ids_on_disk() -> set[str]:
+    return {
+        path.parent.name
+        for path in (ROOT / ".agents" / "skills").glob("*/SKILL.md")
+        if path.parent.name != "_shared"
+    }
+
+
 def test_repo_agent_manifest_is_repo_dev_only() -> None:
     manifest = _load_manifest()
 
@@ -71,7 +78,13 @@ def test_repo_agent_manifest_indexes_each_skill_folder() -> None:
     manifest = _load_manifest()
     skills = {entry["id"]: entry for entry in manifest["skills"]}
 
-    assert (EXPECTED_SKILL_IDS | {AGENTIC_READINESS_ID, LIVE_HEALTH_TRIAGE_ID}).issubset(skills)
+    assert set(skills) == _repo_skill_ids_on_disk()
+    empty_skill_dirs = [
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / ".agents" / "skills").iterdir()
+        if path.is_dir() and path.name != "_shared" and not (path / "SKILL.md").exists()
+    ]
+    assert empty_skill_dirs == []
 
     for skill_id, entry in skills.items():
         skill_dir = ROOT / entry["path"]
@@ -111,12 +124,28 @@ def test_new_repo_agent_skills_keep_runtime_boundary_explicit() -> None:
     manifest = _load_manifest()
     skills = {entry["id"]: entry for entry in manifest["skills"]}
 
-    for skill_id in NEW_SKILL_IDS:
+    for skill_id in skills:
         body = (ROOT / skills[skill_id]["path"] / "SKILL.md").read_text().lower()
 
         assert "repo-dev skill" in body
         assert "not a spindrel runtime skill" in body
-        assert "must not be imported into app skill tables" in body
+        assert re.search(r"must\s+not\s+be\s+imported\s+into\s+app\s+skill\s+tables", body)
+
+
+def test_repo_agent_skills_do_not_use_harness_specific_delegation_or_docker_test_fallback() -> None:
+    offenders: list[str] = []
+    for path in (ROOT / ".agents" / "skills").rglob("*.md"):
+        rel = path.relative_to(ROOT)
+        text = path.read_text(errors="ignore")
+        for pattern in (
+            re.compile(r"subagent_type=Explore"),
+            re.compile(r"run (it )?in Docker/Python 3\.12", re.IGNORECASE),
+        ):
+            for match in pattern.finditer(text):
+                line_no = text.count("\n", 0, match.start()) + 1
+                offenders.append(f"{rel}:{line_no}: {match.group(0)!r}")
+
+    assert offenders == []
 
 
 def test_agent_facing_guidance_does_not_reintroduce_docker_unit_test_runner() -> None:

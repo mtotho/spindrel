@@ -5,12 +5,15 @@ description: Run Spindrel browser screenshot scenarios as a tight UI feedback lo
 
 # Spindrel Visual Feedback Loop
 
+This is a repo-dev skill. It is not a Spindrel runtime skill and must not be
+imported into app skill tables.
+
 Use this skill to make UI work visible before calling it done. Passing
 typechecks or DOM assertions is not enough for canvas, Starboard, hub, or mobile
 UX changes. Run the browser scenario, capture screenshots, inspect the images,
 then record what changed and what still looks wrong.
 
-This is Project-local guidance, not a Spindrel runtime skill. If you are
+This is Project-local guidance, not a runtime skill. If you are
 inside Spindrel working on this repository as a Project, treat this file as
 selected Project-local guidance for ad hoc UI work. For a formal coding/review
 run, use `project/runs/implement` first. Use this skill only for the

@@ -5,7 +5,7 @@ description: "Use when the user asks to investigate Project coding-run failures,
 
 # Spindrel Project Run Review
 
-Repo-dev skill for reviewing **Project coding-run** outcomes — the scheduled or ad-hoc Codex/Claude sessions that the Project Factory launches. The job is to investigate run history + receipts + traces, identify failure patterns (repeated blocks, missing tools, capability gaps, unexpected agent output, loop dropouts), and either fix the underlying gap or file a precise inbox/track entry for it.
+Repo-dev skill for reviewing **Project coding-run** outcomes — the scheduled or ad-hoc Codex/Claude sessions that the Project Factory launches. It must not be imported into app skill tables. The job is to investigate run history + receipts + traces, identify failure patterns (repeated blocks, missing tools, capability gaps, unexpected agent output, loop dropouts), and either fix the underlying gap or file a precise inbox/track entry for it.
 
 This skill assumes it runs **on the same server as Spindrel** (or against it via API). It does not depend on the operator's laptop, vault, or personal Claude memory.
 

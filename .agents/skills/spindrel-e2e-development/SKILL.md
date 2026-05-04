@@ -5,7 +5,8 @@ description: Use when developing Spindrel features that need local fresh e2e sta
 
 # Spindrel E2E Development
 
-This is a repo-dev skill. It is not imported into Spindrel runtime skills.
+This is a repo-dev skill. It is not a Spindrel runtime skill and must not be
+imported into app skill tables.
 If you are reading this from inside Spindrel while working on this repository
 as a Project, treat it as Project-local guidance only. For ad hoc development,
 use the Project root normally and ask the user to attach relevant files with

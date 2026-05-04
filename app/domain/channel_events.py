@@ -30,6 +30,7 @@ from app.domain.payloads import (
     DeliveryFailedPayload,
     EphemeralMessagePayload,
     HeartbeatTickPayload,
+    KnowledgeCapturedPayload,
     LlmStatusPayload,
     MemorySchemeBootstrapPayload,
     MessagePayload,
@@ -79,6 +80,7 @@ class ChannelEventKind(StrEnum):
     MODAL_SUBMITTED = "modal_submitted"
     WIDGET_RELOAD = "widget_reload"
     SESSION_PLAN_UPDATED = "session_plan_updated"
+    KNOWLEDGE_CAPTURED = "knowledge_captured"
 
     def required_capabilities(self) -> frozenset[Capability]:
         """The capability set a renderer must declare to receive this kind.
@@ -155,6 +157,7 @@ _REQUIRED_CAPS: dict[ChannelEventKind, frozenset[Capability]] = {
     # No integration renderer cares about it.
     ChannelEventKind.WIDGET_RELOAD: frozenset(),
     ChannelEventKind.SESSION_PLAN_UPDATED: frozenset(),
+    ChannelEventKind.KNOWLEDGE_CAPTURED: frozenset({Capability.TEXT}),
 }
 
 
@@ -194,6 +197,7 @@ _KIND_PAYLOAD: dict[ChannelEventKind, type] = {
     ChannelEventKind.MODAL_SUBMITTED: ModalSubmittedPayload,
     ChannelEventKind.WIDGET_RELOAD: WidgetReloadPayload,
     ChannelEventKind.SESSION_PLAN_UPDATED: SessionPlanUpdatedPayload,
+    ChannelEventKind.KNOWLEDGE_CAPTURED: KnowledgeCapturedPayload,
 }
 
 
