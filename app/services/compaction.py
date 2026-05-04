@@ -2295,6 +2295,7 @@ async def _drain_backfill(
     provider_id: str | None,
     history_mode: str | None,
     clear_existing: bool = False,
+    reprocess_last_sections: int = 0,
 ) -> None:
     """Run backfill_sections in the background, tracking progress in _BACKFILL_JOBS."""
     state: dict = {"status": "running", "sections_created": 0, "total_chunks": 0, "error": None}
@@ -2304,6 +2305,7 @@ async def _drain_backfill(
             channel_id, chunk_size=chunk_size, model=model,
             provider_id=provider_id, history_mode=history_mode,
             clear_existing=clear_existing,
+            reprocess_last_sections=reprocess_last_sections,
         ):
             if event["type"] == "backfill_progress":
                 state.update(
@@ -2315,6 +2317,7 @@ async def _drain_backfill(
                 state.update(
                     status="complete",
                     sections_created=event["sections_created"],
+                    sections_deleted=event.get("sections_deleted", 0),
                     executive_summary=event.get("executive_summary"),
                 )
     except Exception as e:
@@ -2329,6 +2332,7 @@ async def backfill_sections(
     provider_id: str | None = None,
     history_mode: str | None = None,
     clear_existing: bool = False,
+    reprocess_last_sections: int = 0,
 ) -> AsyncGenerator[dict, None]:
     """Retroactively chunk the channel's active session into ConversationSection rows.
 
@@ -2336,8 +2340,15 @@ async def backfill_sections(
     active session at or before that session's watermark (summary_message_id).
 
     If clear_existing=True, deletes existing sections for the active session first.
+    If reprocess_last_sections>0, deletes only the newest N existing sections and
+    resumes from the first deleted section's sequence.
     """
     from app.agent.bots import get_bot
+
+    if reprocess_last_sections < 0:
+        raise ValueError("reprocess_last_sections must be >= 0")
+    if clear_existing and reprocess_last_sections:
+        raise ValueError("clear_existing and reprocess_last_sections are mutually exclusive")
 
     # 1. Load channel + active session, resolve history_mode
     async with async_session() as db:
@@ -2422,6 +2433,7 @@ async def backfill_sections(
             shutil.rmtree(history_dir)
             os.makedirs(history_dir, exist_ok=True)
         start_seq = 1
+        sections_deleted = deleted.rowcount or 0
     else:
         # Resume: query existing sections to find how many messages are already covered
         async with async_session() as db:
@@ -2431,9 +2443,40 @@ async def backfill_sections(
                 .order_by(ConversationSection.sequence)
             )).scalars().all()
 
+        sections_deleted = 0
+        if reprocess_last_sections and not existing:
+            raise ValueError("No existing sections to reprocess")
+
+        if reprocess_last_sections and existing:
+            keep_count = max(0, len(existing) - reprocess_last_sections)
+            keep_sections = existing[:keep_count]
+            sections_to_reprocess = existing[keep_count:]
+            start_seq = sections_to_reprocess[0].sequence
+            sections_deleted = len(sections_to_reprocess)
+
+            for sec in sections_to_reprocess:
+                _delete_section_file(sec, bot)
+
+            async with async_session() as db:
+                for sec in sections_to_reprocess:
+                    db_sec = await db.get(ConversationSection, sec.id)
+                    if db_sec is not None:
+                        await db.delete(db_sec)
+                await db.commit()
+
+            logger.info(
+                "Backfill tail reprocess: deleted %d section(s), keeping %d, start_seq=%d for channel %s",
+                sections_deleted,
+                len(keep_sections),
+                start_seq,
+                channel_id,
+            )
+            existing = keep_sections
+
         if existing:
             covered_ua = sum(s.message_count for s in existing)
-            start_seq = existing[-1].sequence + 1
+            if not reprocess_last_sections:
+                start_seq = existing[-1].sequence + 1
 
             # Count actual user+assistant messages in conversation (post-filter)
             total_ua_in_conversation = sum(
@@ -2566,6 +2609,7 @@ async def backfill_sections(
     yield {
         "type": "backfill_done",
         "sections_created": sections_created,
+        "sections_deleted": sections_deleted,
         "executive_summary": exec_summary,
     }
 
@@ -2735,12 +2779,22 @@ def _delete_section_file(sec: ConversationSection, bot: BotConfig | None = None)
     if not sec.transcript_path:
         return
     try:
-        # transcript_path is relative to workspace root
-        ws_root = _get_workspace_root(bot) if bot else None
-        if ws_root:
-            full_path = os.path.join(ws_root, sec.transcript_path)
-        else:
+        if os.path.isabs(sec.transcript_path):
             full_path = sec.transcript_path
+        else:
+            # Channel history paths are relative to the shared channel-workspace root.
+            ws_root = None
+            if bot:
+                ws_root = (
+                    _get_channel_ws_root(bot)
+                    if sec.transcript_path.startswith("channels/")
+                    else _get_workspace_root(bot)
+                )
+            full_path = (
+                os.path.join(ws_root, sec.transcript_path)
+                if ws_root
+                else sec.transcript_path
+            )
         if os.path.isfile(full_path):
             os.remove(full_path)
     except Exception:

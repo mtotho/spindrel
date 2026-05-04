@@ -533,13 +533,18 @@ test("mobile chat transcript uses full-width content instead of avatar gutter", 
   const messageBubble = readChatFile("MessageBubble.tsx");
   const streamingIndicator = readChatFile("StreamingIndicator.tsx");
   const chatMessageArea = readChatFile("ChatMessageArea.tsx");
+  const chatRowLayout = readChatFile("chatRowLayout.ts");
 
   assert.match(messageBubble, /const detectedMobile = useIsMobile\(\);/);
   assert.match(messageBubble, /const effectiveMobile = isMobile \|\| detectedMobile;/);
   assert.match(messageBubble, /const narrow = effectiveMobile \|\| compactLayout;/);
+  assert.match(messageBubble, /CHAT_ROW_CONTENT_INDENT/);
+  assert.match(messageBubble, /CHAT_ROW_NARROW_X_PADDING/);
   assert.match(streamingIndicator, /const isMobile = useIsMobile\(\);/);
   assert.match(streamingIndicator, /const narrow = isMobile \|\| compact;/);
   assert.match(streamingIndicator, /!\s*isTerminalMode && !narrow/);
+  assert.match(streamingIndicator, /CHAT_ROW_NARROW_X_PADDING/);
+  assert.match(chatRowLayout, /CHAT_ROW_CONTENT_INDENT = CHAT_ROW_X_PADDING \+ CHAT_ROW_AVATAR_SIZE \+ CHAT_ROW_GAP/);
   assert.match(chatMessageArea, /compact=\{compactMessages\}/);
   assert.match(chatMessageArea, /const contentHorizontalPadding = contentHorizontalPaddingOverride \?\? \(isMobile \? 4 : 16\);/);
   assert.doesNotMatch(chatMessageArea, /className="w-full mx-auto px-4"/);

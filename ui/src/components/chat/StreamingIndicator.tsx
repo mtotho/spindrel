@@ -8,6 +8,12 @@ import type { AssistantTurnBody } from "../../types/api";
 import type { ToolCall as LiveToolCall } from "../../stores/chat";
 import { OrderedTranscript } from "./OrderedTranscript";
 import { buildAssistantTurnBodyItems } from "./toolTranscriptModel";
+import {
+  CHAT_ROW_GAP,
+  CHAT_ROW_NARROW_X_PADDING,
+  CHAT_ROW_TERMINAL_X_PADDING,
+  CHAT_ROW_X_PADDING,
+} from "./chatRowLayout";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
 // Always throttle streaming markdown re-render. The previous 8KB gate let
@@ -223,8 +229,12 @@ export function ProcessingIndicator({ botName, chatMode = "default", compact = f
       style={{
         display: "flex",
         flexDirection: narrow ? "column" : "row",
-        gap: narrow ? 0 : 12,
-        padding: isTerminalMode ? "10px 12px 6px" : narrow ? "10px 8px 4px" : "10px 20px 4px",
+        gap: narrow ? 0 : CHAT_ROW_GAP,
+        padding: isTerminalMode
+          ? `10px ${CHAT_ROW_TERMINAL_X_PADDING}px 6px`
+          : narrow
+            ? `10px ${CHAT_ROW_NARROW_X_PADDING}px 4px`
+            : `10px ${CHAT_ROW_X_PADDING}px 4px`,
         alignSelf: "stretch",
       }}
     >
@@ -437,7 +447,19 @@ export function StreamingIndicator({
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: narrow ? "column" : "row", gap: narrow ? 0 : 12, padding: isTerminalMode ? "10px 12px 6px" : narrow ? "10px 8px 4px" : "10px 20px 4px", alignSelf: "stretch" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: narrow ? "column" : "row",
+        gap: narrow ? 0 : CHAT_ROW_GAP,
+        padding: isTerminalMode
+          ? `10px ${CHAT_ROW_TERMINAL_X_PADDING}px 6px`
+          : narrow
+            ? `10px ${CHAT_ROW_NARROW_X_PADDING}px 4px`
+            : `10px ${CHAT_ROW_X_PADDING}px 4px`,
+        alignSelf: "stretch",
+      }}
+    >
       {!isTerminalMode && !narrow && (
         <div style={{ paddingTop: 2 }}>
           <Avatar name={name} isUser={false} />

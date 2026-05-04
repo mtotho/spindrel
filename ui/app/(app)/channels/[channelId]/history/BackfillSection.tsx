@@ -3,6 +3,7 @@ import { AlertTriangle, Play, RotateCw } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
+import { TextInput } from "@/src/components/shared/FormControls";
 import { ActionButton, InfoBanner, SaveStatusPill, SettingsStatGrid } from "@/src/components/shared/SettingsControls";
 
 export type SectionsStats = {
@@ -24,7 +25,8 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
   const [repairing, setRepairing] = useState(false);
   const [repairResult, setRepairResult] = useState<{ repaired: number } | null>(null);
   const [progress, setProgress] = useState<{ section: number; total: number; title?: string } | null>(null);
-  const [result, setResult] = useState<{ sections: number; error?: string } | null>(null);
+  const [result, setResult] = useState<{ sections: number; deleted?: number; error?: string } | null>(null);
+  const [tailCount, setTailCount] = useState("3");
   const queryClient = useQueryClient();
   const { data: sectionsData } = useQuery({
     queryKey: ["channel-sections", channelId, "current"],
@@ -34,8 +36,9 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
   const stats = sectionsData?.stats;
 
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showTailConfirm, setShowTailConfirm] = useState(false);
 
-  const doRunBackfill = useCallback(async (clearExisting: boolean) => {
+  const doRunBackfill = useCallback(async (clearExisting: boolean, reprocessLastSections = 0) => {
 
     setRunning(true);
     setProgress(null);
@@ -46,6 +49,7 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
         { method: "POST", body: JSON.stringify({
           history_mode: historyMode,
           clear_existing: clearExisting,
+          reprocess_last_sections: reprocessLastSections,
         }) },
       );
 
@@ -54,13 +58,13 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
         await new Promise((r) => setTimeout(r, 2000));
         const job = await apiFetch<{
           status: string; sections_created: number; total_chunks: number;
-          current_title?: string; error?: string;
+          current_title?: string; sections_deleted?: number; error?: string;
         }>(`/api/v1/admin/channels/${channelId}/backfill-status/${task_id}`);
 
         if (job.status === "running") {
           setProgress({ section: job.sections_created, total: job.total_chunks, title: job.current_title });
         } else if (job.status === "complete") {
-          setResult({ sections: job.sections_created });
+          setResult({ sections: job.sections_created, deleted: job.sections_deleted });
           break;
         } else if (job.status === "failed") {
           setResult({ sections: job.sections_created, error: job.error || "Backfill failed" });
@@ -82,6 +86,13 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
     }
     doRunBackfill(clearExisting);
   }, [doRunBackfill, existingSections]);
+
+  const parsedTailCount = Math.max(1, Math.min(existingSections || 1, parseInt(tailCount, 10) || 1));
+
+  const runTailReprocess = useCallback(() => {
+    if (existingSections <= 0) return;
+    setShowTailConfirm(true);
+  }, [existingSections]);
 
   const runRepairPeriods = useCallback(async () => {
     setRepairing(true);
@@ -194,6 +205,31 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
           }
         </span>
       </div>
+      {existingSections > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="w-20">
+            <TextInput
+              value={tailCount}
+              onChangeText={setTailCount}
+              type="number"
+              min={1}
+              placeholder="3"
+              disabled={running}
+            />
+          </div>
+          <ActionButton
+            label={running ? "Re-sectioning..." : "Re-section Last"}
+            onPress={runTailReprocess}
+            disabled={running}
+            icon={<RotateCw size={12} />}
+            variant="secondary"
+            size="small"
+          />
+          <span className="min-w-[220px] flex-1 text-[11px] leading-snug text-text-dim">
+            Deletes and rebuilds only the newest N sections, preserving older section numbers and transcripts.
+          </span>
+        </div>
+      )}
 
       {/* Progress bar during backfill */}
       {progress && progress.total > 0 && (
@@ -207,7 +243,7 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
         </div>
       )}
       {result && !result.error && (
-        <SaveStatusPill tone="saved" label={`Done - ${result.sections} section${result.sections !== 1 ? "s" : ""} created`} />
+        <SaveStatusPill tone="saved" label={`Done - ${result.deleted ? `${result.deleted} replaced, ` : ""}${result.sections} section${result.sections !== 1 ? "s" : ""} created`} />
       )}
       {result?.error && (
         <InfoBanner variant="danger">{result.error}</InfoBanner>
@@ -220,6 +256,15 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
         variant="warning"
         onConfirm={() => { setShowClearConfirm(false); doRunBackfill(true); }}
         onCancel={() => setShowClearConfirm(false)}
+      />
+      <ConfirmDialog
+        open={showTailConfirm}
+        title="Re-section Tail"
+        message={`This will delete and rebuild the newest ${parsedTailCount} section${parsedTailCount !== 1 ? "s" : ""} for the current session. Older sections will be kept. Continue?`}
+        confirmLabel="Re-section"
+        variant="warning"
+        onConfirm={() => { setShowTailConfirm(false); doRunBackfill(false, parsedTailCount); }}
+        onCancel={() => setShowTailConfirm(false)}
       />
     </div>
   );

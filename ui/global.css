@@ -257,6 +257,11 @@ textarea::placeholder {
     visibility: visible;
     pointer-events: auto;
   }
+  .msg-hover:focus-within .msg-actions {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
 }
 
 /* Blinking cursor for streaming */

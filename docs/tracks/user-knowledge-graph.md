@@ -2,7 +2,7 @@
 title: User Knowledge Graph
 summary: Close Olivia's "the bot isn't learning" gap. The bots already maintain rich memory/reference/ libraries via memory_hygiene; the bug is they're not retrieved into context. Plan adds semantic auto-retrieval on memory/reference, tightens hygiene cadence, deletes the parallel per-turn capture store that shipped as Phase 1.
 tags: [spindrel, track, knowledge, memory, retrieval]
-status: active
+status: complete
 created: 2026-05-03
 updated: 2026-05-04
 ---
@@ -24,7 +24,7 @@ When Olivia teaches Sprout something today, Sprout reliably uses it tomorrow —
 | Phase 1 (per-turn extractor) | Originally shipped. **Replaced by P4 cleanup.** Per-turn extraction is the wrong unit and competes with the hygiene-curated `memory/reference/` system. | shipped, removing |
 | Phase 2 / 3 (per-user contract, scope-invisible UI) | Deferred indefinitely. Single-user reality doesn't justify the ceremony. | deferred |
 | **P1** | Semantic auto-retrieval on `memory/reference/`. New `inject_bot_memory_reference()` mirroring `inject_bot_knowledge_base()`. New `bot_memory_reference_auto_retrieval` flag, default on, surfaced in the bot config UI Memory section. Per-chunk trace (file path + similarity) added so audits can tell relevant from noise. | shipped 2026-05-04 — load-bearing fix |
-| **P2** | Section-finalize hygiene microbursts. Hook `_persist_section_and_summary` to enqueue a narrow `memory_hygiene` Task scoped to the just-persisted section. Daily hygiene stays. | not started |
+| **P2** | ~~Section-finalize hygiene microbursts.~~ **Superseded 2026-05-04** — audit of `compaction.py` showed memory flush already runs at every compaction with full tools; daily memory hygiene runs as the deeper periodic pass. Adding a third "narrow microburst Task" would duplicate that work. Replaced by sharpening the flush prompt + clarifying the channel-settings UI (effective state, banner explaining how compaction + flush + daily hygiene fit together). Shipped 2026-05-04. | shipped (reframed) |
 | **P3** | Reference-file frontmatter `summary:` field. Hygiene skill writes one-liner summaries; existing reference-index injection surfaces them next to filename + mtime. Backfill via one hygiene pass per bot. | shipped 2026-05-04 (skill prompt + index renderer); backfill = first hygiene run per bot |
 | **P4** | Cleanup the parallel store: `knowledge_capture.py`, `inject_user_knowledge`, `users/<user_id>/knowledge-base/notes/` capture path, `/admin/knowledge/review`, `KNOWLEDGE_CAPTURED` event, `bots.knowledge_capture_*` columns, `user_knowledge_surface()` helper. Channel/project Notes + the `KnowledgeDocument` primitive stay. | shipped 2026-05-04 — see `docs/fix-log.md` |
 | P5 (later) | File-mode conversation section recall (was original Phase 4). | deferred |
@@ -35,7 +35,7 @@ When Olivia teaches Sprout something today, Sprout reliably uses it tomorrow —
 1. ~~**P4 first** — delete the parallel store. Frees naming, removes confusion, smaller surface than P1.~~ Shipped 2026-05-04.
 2. ~~**P1** — the load-bearing fix.~~ Shipped 2026-05-04.
 3. ~~**P3** — small follow-up (prompt + index renderer).~~ Shipped 2026-05-04.
-4. **P2** — last; hygiene microbursts benefit from P1 already being live. **Pre-design check needed:** there are already compaction-time triggers (section finalize + memory flush). P2 adding a third hook risks redundancy — see the open question below.
+4. ~~**P2** — section-finalize microbursts.~~ **Reframed and shipped 2026-05-04**: instead of adding a third compaction hook, sharpened the existing memory flush prompt and clarified the channel-settings UI (effective state, relationship banner). Compaction order is now visible to operators: memory flush → section archival → replay continues; daily hygiene is the periodic deeper pass.
 
 ## Why this plan and not the prior revisions
 

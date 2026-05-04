@@ -25,6 +25,13 @@ import {
 } from "./toolTranscriptModel";
 import { OrderedTranscript } from "./OrderedTranscript";
 import { isHarnessQuestionMessage } from "./harnessQuestionMessages";
+import {
+  CHAT_ROW_CONTENT_INDENT,
+  CHAT_ROW_GAP,
+  CHAT_ROW_NARROW_X_PADDING,
+  CHAT_ROW_TERMINAL_X_PADDING,
+  CHAT_ROW_X_PADDING,
+} from "./chatRowLayout";
 
 // Re-export for external consumers
 export { extractDisplayText } from "./messageUtils";
@@ -254,6 +261,15 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     const anchor = [...(fullTurnMessages ?? [message])].reverse().find(isFeedbackEligibleAssistantMessage);
     return anchor?.id === message.id;
   }, [fullTurnMessages, message]);
+  const feedbackControls = isFeedbackAnchor ? (
+    <TurnFeedbackControls
+      messageId={message.id}
+      sessionId={message.session_id}
+      feedback={message.feedback ?? EMPTY_FEEDBACK}
+      hidden={!showMessageFeedback}
+      variant="actionBar"
+    />
+  ) : undefined;
   const trigger = meta.trigger as string | undefined;
   const localStatus = meta.local_status as string | undefined;
   const turnCancelled = meta.turn_cancelled === true;
@@ -451,8 +467,8 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         <div
           className="msg-hover"
           style={{
-            paddingLeft: isTerminalMode ? 0 : narrow ? 12 : 20,
-            paddingRight: isTerminalMode ? 0 : narrow ? 12 : 20,
+            paddingLeft: isTerminalMode ? 0 : narrow ? CHAT_ROW_NARROW_X_PADDING : CHAT_ROW_X_PADDING,
+            paddingRight: isTerminalMode ? 0 : narrow ? CHAT_ROW_NARROW_X_PADDING : CHAT_ROW_X_PADDING,
             paddingTop: isTerminalMode ? 9 : 14,
             paddingBottom: isTerminalMode ? 9 : 8,
             borderRadius: 4,
@@ -485,15 +501,15 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         <div
           className="msg-hover"
           style={{
-            paddingLeft: isTerminalMode ? 12 : narrow ? 12 : 68,
-            paddingRight: isTerminalMode ? 12 : narrow ? 12 : 20,
+            paddingLeft: isTerminalMode ? CHAT_ROW_TERMINAL_X_PADDING : narrow ? CHAT_ROW_NARROW_X_PADDING : CHAT_ROW_CONTENT_INDENT,
+            paddingRight: isTerminalMode ? CHAT_ROW_TERMINAL_X_PADDING : narrow ? CHAT_ROW_NARROW_X_PADDING : CHAT_ROW_X_PADDING,
             paddingTop: isTerminalMode ? 3 : 1,
             paddingBottom: isTerminalMode ? 3 : 1,
             borderRadius: 4,
           }}
         >
           {groupedMessageContent}
-          {(displayContent.length > 0 || !!fullTurnMessages?.length) && <MessageActions text={displayContent} fullTurnText={fullTurnText} fullTurnMessages={fullTurnMessages} correlationId={message.correlation_id} t={t} canReplyInThread={canReplyInThread && !!onReplyInThread} onReplyInThread={onReplyInThread ? () => onReplyInThread(message.id) : undefined} />}
+          {(displayContent.length > 0 || !!fullTurnMessages?.length || feedbackControls) && <MessageActions text={displayContent} fullTurnText={fullTurnText} fullTurnMessages={fullTurnMessages} correlationId={message.correlation_id} feedbackControls={feedbackControls} t={t} canReplyInThread={canReplyInThread && !!onReplyInThread} onReplyInThread={onReplyInThread ? () => onReplyInThread(message.id) : undefined} />}
         </div>
         {threadAnchorEl}
       </>
@@ -515,9 +531,9 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       style={{
         display: "flex",
         flexDirection: narrow ? "column" : "row",
-        gap: narrow ? 0 : 12,
-        paddingLeft: isTerminalMode ? 12 : narrow ? 12 : 20,
-        paddingRight: narrow ? 12 : 20,
+        gap: narrow ? 0 : CHAT_ROW_GAP,
+        paddingLeft: isTerminalMode ? CHAT_ROW_TERMINAL_X_PADDING : narrow ? CHAT_ROW_NARROW_X_PADDING : CHAT_ROW_X_PADDING,
+        paddingRight: narrow ? CHAT_ROW_NARROW_X_PADDING : CHAT_ROW_X_PADDING,
         paddingTop: isTerminalMode ? 9 : 14,
         paddingBottom: isTerminalMode ? 9 : 6,
         borderRadius: 4,
@@ -573,14 +589,6 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             onReplyInThread={onReplyInThread ? () => onReplyInThread(message.id) : undefined}
             t={t}
           />
-          {isFeedbackAnchor && (
-            <TurnFeedbackControls
-              messageId={message.id}
-              sessionId={message.session_id}
-              feedback={message.feedback ?? EMPTY_FEEDBACK}
-              hidden={!showMessageFeedback}
-            />
-          )}
           {isMemberBot && (
             <span style={{
               fontSize: 10,
@@ -669,7 +677,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         </div>
       </div>
 
-      {(displayContent.length > 0 || !!fullTurnMessages?.length) && <MessageActions text={displayContent} fullTurnText={fullTurnText} fullTurnMessages={fullTurnMessages} correlationId={message.correlation_id} t={t} canReplyInThread={canReplyInThread && !!onReplyInThread} onReplyInThread={onReplyInThread ? () => onReplyInThread(message.id) : undefined} />}
+      {(displayContent.length > 0 || !!fullTurnMessages?.length || feedbackControls) && <MessageActions text={displayContent} fullTurnText={fullTurnText} fullTurnMessages={fullTurnMessages} correlationId={message.correlation_id} feedbackControls={feedbackControls} t={t} canReplyInThread={canReplyInThread && !!onReplyInThread} onReplyInThread={onReplyInThread ? () => onReplyInThread(message.id) : undefined} />}
     </div>
     {threadAnchorEl}
     </>

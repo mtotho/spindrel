@@ -138,6 +138,17 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
               : "File mode archives older turns into titled sections. Normal chat still replays recent raw turns by token budget; archived sections remain searchable on demand with read_conversation_history."}
           </div>
 
+          <InfoBanner variant="info">
+            <strong className="text-text">How compaction, memory flush, and daily hygiene fit together.</strong>{" "}
+            When this channel hits the compaction threshold, three things happen in order: <strong>(1) memory flush</strong> —
+            the bot gets one agent turn with full tools to save anything durable (MEMORY.md updates, daily-log entries,
+            reference-file edits, new skills). <strong>(2) section archival</strong> — a deterministic pass writes a
+            ConversationSection (title + summary + transcript) and prunes older raw messages. <strong>(3) replay</strong>{" "}
+            continues against the smaller live window. Separately, a <strong>daily memory hygiene Task</strong> sweeps every
+            channel later: pruning, merging, archiving old logs. Memory flush is the hot-path "save before we lose context";
+            daily hygiene is the periodic deeper curation. Section finalize is structural — you don't configure it directly.
+          </InfoBanner>
+
           <Row stack={isMobile}>
             <Col minWidth={isMobile ? 0 : 200}>
               <FormRow label="Archive every (user turns)" description="Normal cadence for creating archived sections. Lower values create smaller, more frequent sections.">
@@ -175,18 +186,27 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
 
           {/* Memory Flush */}
           <Toggle
-            value={!!form.memory_flush_enabled}
-            onChange={(v) => patch("memory_flush_enabled", v || undefined)}
+            value={form.effective_memory_flush_enabled ?? form.memory_flush_enabled ?? form.server_memory_flush_enabled_default ?? true}
+            onChange={(v) => {
+              const serverDefault = form.server_memory_flush_enabled_default ?? true;
+              // Clear the channel override when the choice matches the server default; otherwise persist as override.
+              patch("memory_flush_enabled", v === serverDefault ? undefined : v);
+            }}
             label="Memory flush before compaction"
           />
           <div className="-mt-1 mb-1 text-[10px] text-text-dim">
             {memoryScheme === "workspace-files"
-              ? "Before archiving, the bot gets one pass to save important context — updating MEMORY.md, daily logs, and reference files via the file tool."
-              : "Before archiving, the bot gets one pass to save important context using its configured memory tools."
-            }
+              ? "Step 1 of compaction. The bot gets one agent turn with full tools to update MEMORY.md, append today's daily log, edit memory/reference/<topic>.md files in place, and promote durable patterns to skills — before older messages are archived."
+              : "Step 1 of compaction. The bot gets one agent turn with its configured memory tools to save anything durable before older messages are archived."}{" "}
+            <span className="text-text-muted">
+              Server default: <strong>{form.server_memory_flush_enabled_default === false ? "off" : "on"}</strong>
+              {form.memory_flush_enabled === undefined || form.memory_flush_enabled === null
+                ? " (channel inherits the server default)."
+                : ` — channel currently overrides to ${form.memory_flush_enabled ? "on" : "off"}.`}
+            </span>
           </div>
 
-          {form.memory_flush_enabled && (
+          {(form.effective_memory_flush_enabled ?? form.server_memory_flush_enabled_default ?? true) && (
             <>
               <LlmModelDropdown
                 label="Memory Flush Model"
@@ -228,7 +248,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
           )}
 
           {/* Legacy heartbeat trigger (hidden if memory flush is enabled) */}
-          {!form.memory_flush_enabled && (
+          {!(form.effective_memory_flush_enabled ?? form.server_memory_flush_enabled_default ?? true) && (
             <>
               <Toggle
                 value={!!form.trigger_heartbeat_before_compaction}
@@ -323,18 +343,26 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
 
               {/* Memory Flush */}
               <Toggle
-                value={!!form.memory_flush_enabled}
-                onChange={(v) => patch("memory_flush_enabled", v || undefined)}
+                value={form.effective_memory_flush_enabled ?? form.memory_flush_enabled ?? form.server_memory_flush_enabled_default ?? true}
+                onChange={(v) => {
+                  const serverDefault = form.server_memory_flush_enabled_default ?? true;
+                  patch("memory_flush_enabled", v === serverDefault ? undefined : v);
+                }}
                 label="Memory flush before compaction"
               />
               <div className="-mt-1 mb-1 text-[10px] text-text-dim">
                 {memoryScheme === "workspace-files"
-                  ? "Before summarizing, the bot gets one pass to save important context — updating MEMORY.md, daily logs, and reference files via exec_command."
-                  : "Before summarizing, the bot gets one pass to save important context using its configured memory tools."
-                }
+                  ? "Step 1 of compaction. The bot gets one agent turn with full tools to update MEMORY.md, append today's daily log, edit memory/reference/<topic>.md files in place, and promote durable patterns to skills — before older messages are summarized."
+                  : "Step 1 of compaction. The bot gets one agent turn with its configured memory tools to save anything durable before older messages are summarized."}{" "}
+                <span className="text-text-muted">
+                  Server default: <strong>{form.server_memory_flush_enabled_default === false ? "off" : "on"}</strong>
+                  {form.memory_flush_enabled === undefined || form.memory_flush_enabled === null
+                    ? " (channel inherits the server default)."
+                    : ` — channel currently overrides to ${form.memory_flush_enabled ? "on" : "off"}.`}
+                </span>
               </div>
 
-              {form.memory_flush_enabled && (
+              {(form.effective_memory_flush_enabled ?? form.server_memory_flush_enabled_default ?? true) && (
                 <>
                   <LlmModelDropdown
                     label="Memory Flush Model"
@@ -373,7 +401,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
               )}
 
               {/* Legacy heartbeat trigger (hidden if memory flush is enabled) */}
-              {!form.memory_flush_enabled && (
+              {!(form.effective_memory_flush_enabled ?? form.server_memory_flush_enabled_default ?? true) && (
                 <>
                   <Toggle
                     value={!!form.trigger_heartbeat_before_compaction}

@@ -1,4 +1,9 @@
 // Secret check types
+
+
+// TYPE CAN BE GENERATED USING OPENAPI TYPE GENERATOR. IF YOU ARE MANUALLY EDITING THIS FILE, 
+// YOU HAVE FAILED
+
 import type { components as ApiSchemas } from "./api.generated";
 
 export type ProjectGitRepoStatus = ApiSchemas["schemas"]["ProjectGitRepoStatusOut"];
@@ -850,6 +855,10 @@ export interface ChannelSettings {
   harness_auto_compaction_hard_remaining_pct?: number;
   // Memory flush (dedicated pre-compaction memory save)
   memory_flush_enabled?: boolean | null;
+  /** Server-wide MEMORY_FLUSH_ENABLED default — used when memory_flush_enabled is null. */
+  server_memory_flush_enabled_default?: boolean;
+  /** Resolved effective state: channel override → server default. Read-only. */
+  effective_memory_flush_enabled?: boolean;
   memory_flush_model?: string | null;
   memory_flush_model_provider_id?: string | null;
   memory_flush_prompt?: string | null;

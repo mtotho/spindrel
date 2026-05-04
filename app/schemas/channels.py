@@ -172,6 +172,12 @@ class ChannelSettingsOut(BaseModel):
     compaction_model_provider_id: Optional[str] = None
     trigger_heartbeat_before_compaction: Optional[bool] = None
     memory_flush_enabled: Optional[bool] = None
+    # Server-wide MEMORY_FLUSH_ENABLED default plus the resolved effective
+    # state for this channel (channel override → server default). Surfaces
+    # the actual run-time behavior so UIs stop conflating "no override" with
+    # "off"; the raw override stays in ``memory_flush_enabled`` for editing.
+    server_memory_flush_enabled_default: bool = True
+    effective_memory_flush_enabled: bool = True
     memory_flush_model: Optional[str] = None
     memory_flush_model_provider_id: Optional[str] = None
     memory_flush_prompt: Optional[str] = None

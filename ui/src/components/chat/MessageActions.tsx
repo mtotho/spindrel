@@ -12,6 +12,7 @@ import type { ThemeTokens } from "../../theme/tokens";
 import type { Message } from "../../types/api";
 import { stringifyMessagesForJsonCopy } from "./messageJsonCopy";
 import { openTraceInspector } from "@/src/stores/traceInspector";
+import { CHAT_ROW_AVATAR_SIZE } from "./chatRowLayout";
 
 // ---------------------------------------------------------------------------
 // Copy + trace buttons -- appears on hover (web only)
@@ -22,6 +23,7 @@ export function MessageActions({
   fullTurnText,
   fullTurnMessages,
   correlationId,
+  feedbackControls,
   t,
   canReplyInThread,
   onReplyInThread,
@@ -31,6 +33,7 @@ export function MessageActions({
   fullTurnText?: string;
   fullTurnMessages?: Message[];
   correlationId?: string;
+  feedbackControls?: React.ReactNode;
   t: ThemeTokens;
   /** Show the Reply-in-thread button. Callers gate this to false inside
    *  thread / ephemeral views (UI-only nested-thread guard). */
@@ -68,6 +71,7 @@ export function MessageActions({
 
   return (
     <div className="msg-actions" style={{ userSelect: "none" }}>
+      {feedbackControls}
       {canReplyInThread && onReplyInThread && (
         <button
           onClick={(e) => {
@@ -371,7 +375,7 @@ function MenuItem({
 // Avatar
 // ---------------------------------------------------------------------------
 
-export function Avatar({ name, isUser, onClick, size = 36 }: { name: string; isUser: boolean; onClick?: () => void; size?: number }) {
+export function Avatar({ name, isUser, onClick, size = CHAT_ROW_AVATAR_SIZE }: { name: string; isUser: boolean; onClick?: () => void; size?: number }) {
   const bg = isUser ? "#4b5563" : avatarColorLocal(name);
   const letter = isUser ? "U" : (name[0] || "B").toUpperCase();
   const clickable = !isUser && !!onClick;

@@ -1884,6 +1884,12 @@ class BackfillRequest(BaseModel):
     provider_id: Optional[str] = None
     history_mode: Optional[str] = None  # "file" or "structured"; default: resolve from channel/bot
     clear_existing: bool = False  # delete all existing sections before backfilling
+    reprocess_last_sections: int = Field(
+        0,
+        ge=0,
+        le=500,
+        description="Delete and rebuild only the newest N existing sections for the active session",
+    )
 
 
 @router.post("/channels/{channel_id}/backfill-sections")
@@ -1905,6 +1911,7 @@ async def admin_channel_backfill_sections(
         provider_id=body.provider_id,
         history_mode=body.history_mode,
         clear_existing=body.clear_existing,
+        reprocess_last_sections=body.reprocess_last_sections,
     ))
     return {"task_id": task_id}
 

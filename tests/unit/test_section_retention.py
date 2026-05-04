@@ -164,6 +164,21 @@ class TestDeleteSectionFile:
         _delete_section_file(sec, bot=None)
         assert not f.exists()
 
+    def test_deletes_channel_history_file_from_channel_workspace_root(self, tmp_path):
+        from app.services.compaction import _delete_section_file
+
+        rel_path = "channels/channel-1/.history/section_001.md"
+        f = tmp_path / rel_path
+        f.parent.mkdir(parents=True)
+        f.write_text("transcript content")
+
+        sec = _make_section(1, transcript_path=rel_path)
+        bot = MagicMock()
+        with patch("app.services.compaction._get_channel_ws_root", return_value=str(tmp_path)):
+            _delete_section_file(sec, bot=bot)
+
+        assert not f.exists()
+
     def test_missing_file_does_not_raise(self):
         from app.services.compaction import _delete_section_file
 

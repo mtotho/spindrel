@@ -92,6 +92,8 @@ function buildChannelSettingsForm(settings: ChannelSettings): Partial<ChannelSet
     compaction_model_provider_id: settings.compaction_model_provider_id,
     trigger_heartbeat_before_compaction: settings.trigger_heartbeat_before_compaction,
     memory_flush_enabled: settings.memory_flush_enabled,
+    effective_memory_flush_enabled: settings.effective_memory_flush_enabled,
+    server_memory_flush_enabled_default: settings.server_memory_flush_enabled_default,
     memory_flush_model: settings.memory_flush_model,
     memory_flush_model_provider_id: settings.memory_flush_model_provider_id,
     memory_flush_prompt: settings.memory_flush_prompt,

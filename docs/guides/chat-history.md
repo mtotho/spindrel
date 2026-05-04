@@ -174,6 +174,7 @@ Two modes:
 
 - **Resume** — only processes messages not yet covered by sections
 - **Re-chunk** — deletes all existing sections and starts fresh
+- **Re-section last N** — deletes and rebuilds only the newest N sections, keeping older section numbers and transcripts intact
 
 Each chunk costs approximately one LLM call. Large channels may take a few minutes and accrue provider costs.
 

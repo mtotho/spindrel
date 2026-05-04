@@ -15,6 +15,7 @@ interface Props {
   /** Hide the affordance entirely. The channel toggle
    *  ``show_message_feedback === false`` flows in here. */
   hidden?: boolean;
+  variant?: "inline" | "actionBar";
 }
 
 /** Subtle hover-revealed thumbs up/down affordance.
@@ -28,6 +29,7 @@ export const TurnFeedbackControls = memo(function TurnFeedbackControls({
   sessionId,
   feedback,
   hidden = false,
+  variant = "inline",
 }: Props) {
   const t = useThemeTokens();
   const [optimistic, setOptimistic] = useState<FeedbackVote | null | undefined>(undefined);
@@ -96,6 +98,7 @@ export const TurnFeedbackControls = memo(function TurnFeedbackControls({
 
   const baseColor = t.textMuted;
   const activeColor = t.text;
+  const isActionBar = variant === "actionBar";
 
   const iconButton = (vote: FeedbackVote) => {
     const Icon = vote === "up" ? ThumbsUp : ThumbsDown;
@@ -114,17 +117,19 @@ export const TurnFeedbackControls = memo(function TurnFeedbackControls({
         }}
         className="inline-flex items-center justify-center rounded-sm transition-colors"
         style={{
-          width: 18,
-          height: 18,
+          width: isActionBar ? 28 : 18,
+          height: isActionBar ? 28 : 18,
           color: isActive ? activeColor : baseColor,
-          background: "transparent",
-          border: "none",
+          background: isActionBar ? t.surfaceRaised : "transparent",
+          border: isActionBar ? `1px solid ${t.surfaceBorder}` : "none",
+          boxShadow: isActionBar ? "0 1px 4px rgba(0,0,0,0.15)" : undefined,
           cursor: "pointer",
           opacity: isActive ? 1 : undefined,
+          borderRadius: isActionBar ? 6 : 2,
         }}
       >
         <Icon
-          size={12}
+          size={isActionBar ? 14 : 12}
           fill={isActive ? "currentColor" : "transparent"}
           strokeWidth={isActive ? 2 : 1.75}
         />
@@ -139,7 +144,7 @@ export const TurnFeedbackControls = memo(function TurnFeedbackControls({
       className="turn-feedback-controls inline-flex items-center"
       onClick={(e) => e.stopPropagation()}
     >
-      <span className="inline-flex items-center gap-0.5">
+      <span className="inline-flex items-center gap-1">
         {iconButton("up")}
         {iconButton("down")}
       </span>

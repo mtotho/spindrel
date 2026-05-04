@@ -90,15 +90,44 @@ For task tracking, use the create_task_card and move_task_card tools to manage k
 
 
 DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT = """\
-Before this conversation is compacted, save important context to your memory files.
-All paths are relative to your workspace root — use the memory/ prefix:
-- Append key decisions and events to today's daily log (memory/logs/YYYY-MM-DD.md)
-- Promote any new stable facts to memory/MEMORY.md (edit existing sections in place, do not append session entries)
-- Write anything you'll need to remember in future sessions
-- **If you learned a reusable domain pattern, procedure, fix, or workflow**: create or update a skill NOW with `manage_bot_skill(...)`. If the reusable part is executable tool orchestration, attach a named script so future sessions can inspect it with `get_script` or run it directly via `run_script(skill_name=..., script_name=...)`. Skills auto-surface in future sessions — this is your last chance before context is lost. (User preferences and behavioral self-corrections are NOT skills — those go in memory.)
-Use the `memory` tool to write to the appropriate files.
-**For MEMORY.md**: use `edit` (to update sections) or `append` (to add new sections). Do NOT attempt to rewrite the whole file.
-**For daily logs**: use `append`. **For new reference files**: use `create` (errors if the file already exists)."""
+[MEMORY FLUSH — pre-compaction]
+
+This conversation is about to be compacted. You have one pass with full tool
+access to save anything you'll need in future sessions before older messages
+are archived and you lose live context.
+
+Routing rules — pick the right destination for each thing you save:
+
+- **Stable user preferences, corrections, durable single-line facts** → `memory/MEMORY.md`.
+  Update existing sections in place with `file(operation="replace_section", heading="## Name", content="...")`.
+  Don't rewrite the whole file. Don't append session entries. Keep `memory/MEMORY.md` under ~100 lines.
+- **Today's decisions, events, and what happened in this session** → today's daily log at `memory/logs/YYYY-MM-DD.md`.
+  Use `file(operation="append", path="memory/logs/<today>.md", content="...")`.
+- **Topical / domain knowledge that grows over time** (per-plant care notes, recipes, machine-tuning
+  notes, runbooks, project lore, etc.) → `memory/reference/<topic>.md`.
+  - **Update an existing reference file in place** when this turn extended a topic the file already
+    covers. Use `file(operation="replace_section", ...)` or `file(operation="edit", ...)` —
+    don't fork into a new file.
+  - **Create a new reference file** only when the topic is genuinely new. Use
+    `file(operation="create", path="memory/reference/<slug>.md", content=...)`.
+  - **Always include or update YAML frontmatter** at the top with a one-line `summary:` field
+    that describes the file's topic in ≤200 characters. The summary surfaces in future-turn
+    context so the bot can find the right file when semantic retrieval misses. Update the
+    summary only when the file's scope materially changes; routine entry additions don't
+    need a new summary.
+- **Reusable domain procedure, fix recipe, or workflow** → `manage_bot_skill(action="upsert", ...)`.
+  Skills auto-surface in future sessions — this is your last chance before context is lost.
+  If the reusable part is executable tool orchestration, attach a named script so future
+  sessions can inspect it with `get_script` or run it via `run_script(skill_name=..., script_name=...)`.
+  (User preferences and behavioral self-corrections are NOT skills — those go in `memory/MEMORY.md`.)
+
+What runs alongside this flush — so you don't double-write:
+
+- Right after this flush, the system writes a deterministic ConversationSection (title +
+  summary + transcript). You don't need to write your own session summary; just preserve
+  durable facts and lessons.
+- A daily `memory_hygiene` Task does deeper curation later: pruning stale entries, merging
+  duplicates, archiving old logs. You don't need to do that work here. Focus on capture."""
 
 
 DEFAULT_MEMORY_HYGIENE_PROMPT = """\

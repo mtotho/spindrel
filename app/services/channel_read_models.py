@@ -285,6 +285,12 @@ async def build_admin_channel_settings_out(
     out.widget_theme_ref = cfg.get("widget_theme_ref")
     out.widget_agency_mode = cfg.get("widget_agency_mode") or "propose"
     out.pinned_widget_context_enabled = cfg.get("pinned_widget_context_enabled", True)
+    server_memory_flush_default = bool(getattr(settings, "MEMORY_FLUSH_ENABLED", True))
+    out.server_memory_flush_enabled_default = server_memory_flush_default
+    if channel.memory_flush_enabled is None:
+        out.effective_memory_flush_enabled = server_memory_flush_default
+    else:
+        out.effective_memory_flush_enabled = bool(channel.memory_flush_enabled)
     await fill_channel_project_settings(db, out, channel, get_bot_fn=get_bot_fn)
     return out
 
