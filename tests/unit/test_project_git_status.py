@@ -1,7 +1,7 @@
 from pathlib import Path
 import subprocess
 
-from app.services.project_git_status import _repo_summary
+from app.services.project_git_status import _discover_repo_roots, _repo_summary
 
 
 def _git(cwd: Path, *args: str) -> None:
@@ -28,3 +28,23 @@ def test_repo_summary_exposes_ui_git_status_contract(tmp_path: Path):
     assert summary["error"] is None
     assert isinstance(summary["head"], str)
     assert summary["patch"]
+
+
+def test_discover_repo_roots_does_not_escape_project_root_to_parent_repo(tmp_path: Path):
+    _git(tmp_path, "init")
+    (tmp_path / "tracked.txt").write_text("initial\n")
+    _git(tmp_path, "add", "tracked.txt")
+    _git(tmp_path, "-c", "user.email=test@example.com", "-c", "user.name=Test User", "commit", "-m", "initial")
+    project_root = tmp_path / "common" / "projects"
+    project_root.mkdir(parents=True)
+
+    assert _discover_repo_roots(project_root) == []
+
+
+def test_discover_repo_roots_finds_repos_below_project_root(tmp_path: Path):
+    project_root = tmp_path / "common" / "projects"
+    repo = project_root / "spindrel"
+    repo.mkdir(parents=True)
+    _git(repo, "init")
+
+    assert _discover_repo_roots(project_root) == [repo.resolve()]

@@ -53,7 +53,7 @@ def _git_toplevel(path: Path) -> Path | None:
 def _discover_repo_roots(root: Path) -> list[Path]:
     root = root.resolve()
     top = _git_toplevel(root)
-    if top is not None:
+    if top is not None and top == root:
         return [top]
     repos: list[Path] = []
     if not root.exists():

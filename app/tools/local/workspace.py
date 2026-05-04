@@ -97,6 +97,7 @@ async def search_workspace(query: str, top_k: int | None = None) -> str:
         threshold=plan.similarity_threshold,
         embedding_model=plan.embedding_model,
         segments=plan.segments,
+        exclude_path_prefixes=["users"],
     )
     if not chunks:
         return json.dumps({"count": 0, "results": [], "message": "No relevant results found."}, ensure_ascii=False)

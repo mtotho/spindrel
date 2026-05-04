@@ -36,8 +36,8 @@ A non-AI user gets a personal context engine for free: their bot conversations p
 | Phase | Description | Status |
 |---|---|---|
 | 0 | Fix KB retrieval prefix scoping in `retrieve_filesystem_context`. Standalone bug fix + `fix-log.md` entry. | done |
-| 0.5 | Knowledge Document primitive: lift Notes infrastructure into a unified service supporting multiple scopes + multi-mode session binding. Refactor Notes to consume it. No end-user behavior change. | in progress - backend substrate landed |
-| 1 | Auto-capture pass (review-first, generic types) writing through the unified primitive at user scope. Includes indexing/retrieval, bus event, admin review queue, cross-user leak test. | in progress - event, skip rules, writer, accepted retrieval landed |
+| 0.5 | Knowledge Document primitive: lift Notes infrastructure into a unified service supporting multiple scopes + multi-mode session binding. Refactor Notes to consume it. No end-user behavior change. | in progress - backend substrate and note editor session-binding controls landed |
+| 1 | Auto-capture pass (review-first, generic types) writing through the unified primitive at user scope. Includes indexing/retrieval, bus event, admin review queue, cross-user leak test. | done - backend pipeline, editable admin review surface, opt-in controls/model override, retrieval isolation, workspace-search exclusion, and cross-user leak contract landed |
 | 2 | Per-user scope contract (design section, ships inside Phase 1). | not started |
 | 3 | Unified scope-invisible knowledge UI. Renames Notes UI to Knowledge UI, hides scope vocabulary, ships session-binding mode switcher, accept/reject affordances. UI string lint gates merge. | not started |
 | 4 | File-mode conversation section recall (semantic + recency, parity with structured mode). | not started |
@@ -46,7 +46,7 @@ A non-AI user gets a personal context engine for free: their bot conversations p
 ## Active gaps / next work
 
 - Finish Phase 0.5 UI/editor lift: rename/wrap `NoteWorkspacePage` as `KnowledgeDocumentEditor`, expose session-binding controls, and keep the existing Notes visual behavior unchanged.
-- Continue Phase 1: wire the post-persist capture runner, add the LLM extractor prompt, trigger immediate user-scope reindex, and ship the admin review queue.
+- Start Phase 3 after the remaining Phase 0.5 rename/wrap: unified scope-invisible knowledge UI and capture chip rendering.
 - Confirm whether file-mode compaction populates `ConversationSection.embedding` (Phase 4 first task).
 - Final naming for the unified primitive (`KnowledgeDocument` working name) and the user-facing surface ("Knowledge" working name) decided at implementation; defer to `docs/guides/ubiquitous-language.md`.
 - No skill-pack consumer of the Phase 3 view-registration seam exists yet; follow-up plan owner, not a blocker for this track.

@@ -440,7 +440,7 @@ export function SettingsControlRow({
           {title && <div className="min-w-0 truncate text-[12px] font-semibold text-text">{title}</div>}
           {meta && <div className="shrink-0 text-[10px] text-text-dim">{meta}</div>}
         </div>
-        {description && <div className="mt-0.5 text-[11px] leading-snug text-text-dim">{description}</div>}
+        {description && <div className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-text-dim">{description}</div>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
     </div>

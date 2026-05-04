@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { CalendarClock, CheckCircle2, GitBranch, GitMerge } from "lucide-react";
+import { useMemo } from "react";
 
 import type { ProjectCodingRunSchedule } from "@/src/types/api";
 import { EmptyState, StatusBadge } from "@/src/components/shared/SettingsControls";
@@ -89,6 +90,17 @@ export function ProjectRunFeed({
   projectId: string;
   onSelectSchedule: (schedule: ProjectCodingRunSchedule) => void;
 }) {
+  const groups = useMemo(() => {
+    const upcoming = items.filter((item) => item.kind === "schedule");
+    const active = items.filter((item) => item.kind === "run" && item.group === "active");
+    const history = items.filter((item) => item.kind === "run" && item.group === "history");
+    return [
+      { key: "upcoming", label: "Upcoming schedules", items: upcoming },
+      { key: "active", label: "Needs action", items: active },
+      { key: "history", label: "Closed history", items: history },
+    ].filter((group) => group.items.length > 0);
+  }, [items]);
+
   if (items.length === 0) {
     return (
       <div data-testid="project-workspace-feed" className="px-3 py-3">
@@ -98,13 +110,17 @@ export function ProjectRunFeed({
   }
 
   return (
-    <div data-testid="project-workspace-feed" className="flex min-h-full flex-col gap-1.5 px-3 py-3">
-      <div className="flex items-center gap-2 px-1 pb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-text-dim/80">
-        <span>Chronological</span>
-        <span className="text-text-dim">{items.length}</span>
-      </div>
-      {items.map((item) => (
-        <RunFeedRow key={item.id} item={item} projectId={projectId} onSelectSchedule={onSelectSchedule} />
+    <div data-testid="project-workspace-feed" className="flex min-h-full flex-col gap-4 px-3 py-3">
+      {groups.map((group) => (
+        <section key={group.key} className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2 px-1 pb-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-text-dim/80">
+            <span>{group.label}</span>
+            <span className="text-text-dim">{group.items.length}</span>
+          </div>
+          {group.items.map((item) => (
+            <RunFeedRow key={item.id} item={item} projectId={projectId} onSelectSchedule={onSelectSchedule} />
+          ))}
+        </section>
       ))}
     </div>
   );

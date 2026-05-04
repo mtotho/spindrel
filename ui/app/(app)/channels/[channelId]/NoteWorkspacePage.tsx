@@ -18,6 +18,7 @@ import {
   useChannel,
   useChannelNote,
   useChannelWorkspaceFileVersions,
+  useUpdateChannelNoteSessionBinding,
   useWriteChannelNote,
 } from "@/src/api/hooks/useChannels";
 import { MarkdownViewer } from "@/src/components/workspace/MarkdownViewer";
@@ -39,6 +40,7 @@ export default function NoteWorkspacePage() {
   const channelQuery = useChannel(channelId);
   const noteQuery = useChannelNote(channelId, slug ?? null);
   const writeNote = useWriteChannelNote(channelId ?? "");
+  const updateSessionBinding = useUpdateChannelNoteSessionBinding(channelId ?? "");
   const assistNote = useAssistChannelNote(channelId ?? "");
   const note = noteQuery.data ?? null;
   const versionsQuery = useChannelWorkspaceFileVersions(channelId, note?.workspace_path ?? note?.path ?? null, !!note);
@@ -55,6 +57,7 @@ export default function NoteWorkspacePage() {
   const [aiFlash, setAiFlash] = useState(false);
   const [assistModel, setAssistModel] = useState("");
   const [assistProviderId, setAssistProviderId] = useState<string | null>(null);
+  const [attachedSessionId, setAttachedSessionId] = useState("");
   const [appliedNotice, setAppliedNotice] = useState<AppliedNotice | null>(null);
   const [selectionRequest, setSelectionRequest] = useState<SelectionRequest | null>(null);
   const [autoSaveState, setAutoSaveState] = useState<AutoSaveState>("idle");
@@ -79,6 +82,7 @@ export default function NoteWorkspacePage() {
     setAppliedNotice(null);
     setSelectionRequest(null);
     setSelection({ start: 0, end: 0, text: "" });
+    setAttachedSessionId(String(note.session_binding?.session_id ?? note.session_id ?? ""));
   }, [note]);
 
   const fullDraft = useMemo(
@@ -252,6 +256,12 @@ export default function NoteWorkspacePage() {
   const botId = channelQuery.data?.bot_id;
   const effectiveDefaultModel = channelQuery.data?.model_override || botQuery.data?.model || "default";
   const targetLabel = selectedText ? `${selectedText.length} selected chars` : "Whole note";
+  const sessionBindingMode = note.session_binding?.mode ?? "dedicated";
+  const sessionBindingBusy = updateSessionBinding.isPending;
+  const updateBinding = (mode: "dedicated" | "inline" | "attached", sessionId?: string | null) => {
+    if (!slug) return;
+    updateSessionBinding.mutate({ slug, mode, session_id: sessionId ?? null });
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
@@ -312,6 +322,39 @@ export default function NoteWorkspacePage() {
         <span>{versionsQuery.data?.versions.length ?? 0} revisions</span>
         <span>{targetLabel}</span>
         <Link to={`/channels/${encodeURIComponent(channelId)}`} className="text-accent hover:underline">Channel</Link>
+      </div>
+
+      <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pb-3 text-[11px] text-text-dim sm:px-6 lg:px-8">
+        <span className="font-medium text-text-muted">Session binding</span>
+        <BindingButton
+          label="Dedicated"
+          active={sessionBindingMode === "dedicated"}
+          disabled={sessionBindingBusy}
+          onClick={() => updateBinding("dedicated", null)}
+        />
+        <BindingButton
+          label="Inline"
+          active={sessionBindingMode === "inline"}
+          disabled={sessionBindingBusy}
+          onClick={() => updateBinding("inline", channelQuery.data?.active_session_id ?? note.session_id ?? null)}
+        />
+        <div className={`flex items-center gap-1 rounded-md border px-1.5 py-1 ${sessionBindingMode === "attached" ? "border-accent bg-accent/10" : "border-surface-border bg-surface-overlay/50"}`}>
+          <button
+            type="button"
+            disabled={sessionBindingBusy || !attachedSessionId.trim()}
+            onClick={() => updateBinding("attached", attachedSessionId.trim())}
+            className="text-[11px] font-medium text-text-muted disabled:opacity-50"
+          >
+            Attached
+          </button>
+          <input
+            value={attachedSessionId}
+            onChange={(event) => setAttachedSessionId(event.target.value)}
+            placeholder="session id"
+            className="h-5 w-44 bg-transparent text-[11px] text-text outline-none placeholder:text-text-dim"
+          />
+        </div>
+        {updateSessionBinding.isError && <span className="text-danger">Binding update failed</span>}
       </div>
 
       <main className="min-h-0 flex-1 overflow-hidden px-4 pb-4 sm:px-6 lg:px-8">
@@ -417,6 +460,33 @@ export default function NoteWorkspacePage() {
         />
       )}
     </div>
+  );
+}
+
+function BindingButton({
+  label,
+  active,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`rounded-md border px-2 py-1 text-[11px] font-medium disabled:opacity-50 ${
+        active
+          ? "border-accent bg-accent/10 text-accent"
+          : "border-surface-border bg-surface-overlay/50 text-text-muted hover:bg-surface-overlay"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 

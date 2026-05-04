@@ -67,12 +67,17 @@ export function ProjectRunsBoardCard({
 
   if (item.kind === "run") {
     const run = item.run;
+    const closed = isClosedRun(run);
+    const review = reviewStatus(run);
+    const status = runStatus(run);
+    const needsAction = !closed && (isStaleActive(run) || ["blocked", "changes_requested"].includes(review));
+    const stateLabel = closed ? (run.review?.reviewed ? "reviewed" : status === "failed" ? "failed" : "closed") : review || status || "run";
     title = runTitle(run);
     meta = item.column === "running" ? `${runMetaLine(run)} · ${evidenceLine(run)}` : `${formatRunTime(itemTimestamp(run))} · ${evidenceLine(run)}`;
-    age = isActiveRun(run) ? compactAge(itemTimestamp(run) || startedTimestamp(run)) : reviewStatus(run).replaceAll("_", " ") || runStatus(run);
-    urgent = isStaleActive(run) || ["blocked", "changes_requested"].includes(reviewStatus(run));
+    age = isActiveRun(run) ? compactAge(itemTimestamp(run) || startedTimestamp(run)) : stateLabel.replaceAll("_", " ");
+    urgent = needsAction;
     tokens = [
-      urgent ? { label: isStaleActive(run) ? "stale" : reviewStatus(run).replaceAll("_", " "), tone: "red" } : { label: runStatus(run) || "run", tone: isClosedRun(run) ? "green" : undefined },
+      urgent ? { label: isStaleActive(run) ? "stale" : stateLabel.replaceAll("_", " "), tone: "red" } : { label: stateLabel.replaceAll("_", " "), tone: closed ? "green" : undefined },
       run.receipt ? { label: "receipt", tone: "green" } : { label: "no receipt" },
       run.task.session_id ? { label: "session", tone: "blue" } : { label: "no session" },
     ];

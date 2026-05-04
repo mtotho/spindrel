@@ -916,6 +916,8 @@ export interface ChannelSettings {
   widget_theme_ref?: string | null;
   /** Bot agency policy for channel dashboard widgets. */
   widget_agency_mode?: "propose" | "propose_and_fix";
+  /** Review-first user knowledge capture policy. "inherit" follows bot opt-in; "off" disables capture in this channel. */
+  knowledge_capture?: "inherit" | "off";
 }
 
 export interface WidgetTheme {

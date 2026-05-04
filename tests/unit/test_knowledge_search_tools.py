@@ -35,6 +35,38 @@ class _FakeResult:
 
 
 # ---------------------------------------------------------------------------
+# search_workspace
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_search_workspace_excludes_user_knowledge_prefix():
+    """Generic workspace search must not expose user-scope Knowledge Documents."""
+    from app.agent.context import current_bot_id
+    from app.tools.local.workspace import search_workspace
+
+    bot = _make_bot(shared_workspace_id="ws-1")
+    retrieve_mock = AsyncMock(return_value=([], 0.0))
+
+    tok = current_bot_id.set("bot-1")
+    try:
+        with patch("app.agent.bots.get_bot", return_value=bot), \
+             patch("app.services.bot_indexing.resolve_for", return_value=SimpleNamespace(
+                 roots=["/data/shared/ws-1"],
+                 top_k=10,
+                 similarity_threshold=0.3,
+                 embedding_model="text-embedding-3-small",
+                 segments=[],
+             )), \
+             patch("app.agent.fs_indexer.retrieve_filesystem_context", new=retrieve_mock):
+            await search_workspace("preferences")
+    finally:
+        current_bot_id.reset(tok)
+
+    retrieve_mock.assert_awaited_once()
+    assert retrieve_mock.call_args.kwargs["exclude_path_prefixes"] == ["users"]
+
+
+# ---------------------------------------------------------------------------
 # search_channel_knowledge
 # ---------------------------------------------------------------------------
 
@@ -52,15 +84,10 @@ async def test_search_channel_knowledge_scopes_to_kb_prefix():
     tok_b = current_bot_id.set("bot-1")
     tok_c = current_channel_id.set("ch-7")
     try:
-        with patch("app.agent.bots.get_bot", return_value=bot), \
-             patch("app.services.channel_workspace._get_ws_root", return_value="/ws"), \
-             patch("app.services.workspace_indexing.resolve_indexing", return_value={
-                 "embedding_model": "text-embedding-3-small", "top_k": 10,
-                 "similarity_threshold": 0.3, "patterns": ["**/*.md"], "watch": False,
-                 "cooldown_seconds": 60, "include_bots": [], "segments": [],
-                 "segments_source": "default",
-             }), \
-             patch("app.services.memory_search.hybrid_memory_search", new=hybrid_mock):
+        with patch(
+            "app.tools.local.channel_workspace._get_bot_and_roots",
+            new=AsyncMock(return_value=(bot, "ch-7", "/ws", "text-embedding-3-small", None, None)),
+        ), patch("app.services.memory_search.hybrid_memory_search", new=hybrid_mock):
             result = await search_channel_knowledge("what about oranges?")
     finally:
         current_bot_id.reset(tok_b)
@@ -79,17 +106,14 @@ async def test_search_channel_knowledge_empty_query():
     from app.tools.local.channel_workspace import search_channel_knowledge
     from app.agent.context import current_bot_id, current_channel_id
 
+    bot = _make_bot()
     tok_b = current_bot_id.set("bot-1")
     tok_c = current_channel_id.set("ch-7")
     try:
-        with patch("app.agent.bots.get_bot", return_value=_make_bot()), \
-             patch("app.services.channel_workspace._get_ws_root", return_value="/ws"), \
-             patch("app.services.workspace_indexing.resolve_indexing", return_value={
-                 "embedding_model": "text-embedding-3-small", "top_k": 10,
-                 "similarity_threshold": 0.3, "patterns": [], "watch": False,
-                 "cooldown_seconds": 60, "include_bots": [], "segments": [],
-                 "segments_source": "default",
-             }):
+        with patch(
+            "app.tools.local.channel_workspace._get_bot_and_roots",
+            new=AsyncMock(return_value=(bot, "ch-7", "/ws", "text-embedding-3-small", None, None)),
+        ):
             out = await search_channel_knowledge("   ")
     finally:
         current_bot_id.reset(tok_b)

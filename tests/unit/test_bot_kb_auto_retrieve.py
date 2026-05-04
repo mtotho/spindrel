@@ -241,6 +241,36 @@ async def test_user_knowledge_retrieval_filters_by_owner_scope_and_status():
 
 
 @pytest.mark.asyncio
+async def test_user_knowledge_retrieval_uses_current_bot_owner_not_other_users():
+    bot = _make_bot(shared_workspace_id="ws-1")
+    bot.user_id = "user-2"
+    ledger = AssemblyLedger()
+    retrieve_mock = AsyncMock(return_value=([], 0.0))
+
+    with patch("app.agent.fs_indexer.retrieve_filesystem_context", new=retrieve_mock), \
+         patch("app.services.workspace_indexing.resolve_indexing", return_value={
+             "embedding_model": "text-embedding-3-small",
+             "patterns": ["**/*.md"],
+             "similarity_threshold": 0.3,
+             "top_k": 8,
+             "watch": False,
+             "cooldown_seconds": 60,
+             "include_bots": [],
+             "segments": [],
+             "segments_source": "default",
+         }), \
+         patch("app.services.workspace_indexing.get_all_roots", return_value=["/data/shared/ws-1"]):
+        events = await _collect(_inject_user_knowledge([], bot, "query", ledger))
+
+    call = retrieve_mock.call_args
+    assert call.kwargs["include_path_prefixes"] == ["users/user-2/knowledge-base/notes"]
+    assert call.kwargs["metadata_equals"]["owner_user_id"] == "user-2"
+    assert "user-1" not in call.kwargs["include_path_prefixes"][0]
+    assert events == []
+    assert ledger.inject_decisions["user_knowledge"] == "skipped_empty"
+
+
+@pytest.mark.asyncio
 async def test_user_knowledge_skips_ownerless_bot():
     bot = _make_bot(shared_workspace_id="ws-1")
     bot.user_id = None

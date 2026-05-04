@@ -9,6 +9,7 @@ from app.services.knowledge_documents import (
     authorize_knowledge_document,
     create_document,
     default_session_binding,
+    delete_document,
     list_documents,
     parse_frontmatter,
     read_document,
@@ -37,6 +38,9 @@ def test_user_surface_resolves_canonical_shared_workspace_path(tmp_path: Path):
     assert surface.documents_root == str(tmp_path / "users" / "u1" / "knowledge-base" / "notes")
     assert surface.workspace_path_for("notes/a.md") == "users/u1/knowledge-base/notes/a.md"
     assert surface.tool_path_for("notes/a.md") == "/workspace/users/u1/knowledge-base/notes/a.md"
+
+    with pytest.raises(ValueError):
+        user_knowledge_surface(workspace_root=str(tmp_path), user_id="../other")
 
 
 def test_frontmatter_round_trips_envelope_and_unknown_keys():
@@ -91,6 +95,16 @@ def test_update_session_binding_modes(tmp_path: Path):
 
     attached = update_session_binding(surface, doc["slug"], {"mode": "attached", "session_id": "s2"})
     assert attached["session_binding"] == {"mode": "attached", "session_id": "s2"}
+
+
+def test_delete_document_removes_file_and_returns_prior_document(tmp_path: Path):
+    surface = KnowledgeDocumentSurface(root=str(tmp_path), kb_rel="knowledge-base", scope="channel", channel_id="ch-1")
+    doc = create_document(surface, title="Delete Me")
+
+    deleted = delete_document(surface, doc["slug"])
+
+    assert deleted["title"] == "Delete Me"
+    assert not (tmp_path / "knowledge-base" / "notes" / "delete-me.md").exists()
 
 
 def test_authorize_user_scope_rejects_cross_user():

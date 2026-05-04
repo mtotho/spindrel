@@ -104,12 +104,13 @@ function BotSourceBadges({ bot }: { bot: BotConfig }) {
   );
 }
 
-function OverviewSection({ draft, usage, logs, setGroup, readinessBotId }: {
+function OverviewSection({ draft, usage, logs, setGroup, readinessBotId, update }: {
   draft: BotConfig;
   usage: ReturnType<typeof useUsageSummary>["data"];
   logs: ReturnType<typeof useUsageLogs>["data"];
   setGroup: (group: BotGroupKey) => void;
   readinessBotId?: string;
+  update: (patch: Partial<BotConfig>) => void;
 }) {
   const toolCount = (draft.local_tools?.length ?? 0) + (draft.client_tools?.length ?? 0) + (draft.pinned_tools?.length ?? 0);
   const delegateCount = (draft.delegation_config?.delegate_bots as string[] | undefined)?.length ?? draft.delegate_bots?.length ?? 0;
@@ -134,6 +135,33 @@ function OverviewSection({ draft, usage, logs, setGroup, readinessBotId }: {
           <SettingsControlRow leading={<Wrench size={15} />} title={`${toolCount} tools, ${draft.skills?.length ?? 0} skills`} description={`${draft.mcp_servers?.length ?? 0} MCP servers · ${delegateCount} delegates`} action={<ActionButton label="Edit" variant="secondary" size="small" onPress={() => setGroup("tools")} />} />
           <SettingsControlRow leading={<Brain size={15} />} title={draft.memory_scheme === "workspace-files" ? "Workspace-files memory" : draft.memory?.enabled ? "Memory enabled" : "Memory not enabled"} description={draft.shared_workspace_id ? `Workspace ${draft.shared_workspace_id}` : "Default shared workspace after save"} action={<ActionButton label="Edit" variant="secondary" size="small" onPress={() => setGroup("memory")} />} />
         </div>
+      </SectionFrame>
+
+      <SectionFrame title="Knowledge capture" description="Review-first user knowledge capture for owned bots. Captured entries stay pending until an admin accepts them.">
+        <SettingsControlRow
+          leading={<Brain size={14} />}
+          title={draft.integration_config?.knowledge_capture_enabled ? "Capture enabled" : "Capture disabled"}
+          description={
+            draft.user_id
+              ? "The bot may propose user-owned knowledge documents after human turns in channels that have not opted out."
+              : "Assign an owner before enabling capture; ownerless bots are ignored by the backend capture gate."
+          }
+          meta={<QuietPill label={draft.user_id ? `owner ${draft.user_id}` : "owner required"} />}
+          action={
+            <Toggle
+              value={draft.integration_config?.knowledge_capture_enabled === true}
+              onChange={(enabled) => {
+                const integration_config = { ...(draft.integration_config ?? {}) };
+                if (enabled) {
+                  integration_config.knowledge_capture_enabled = true;
+                } else {
+                  delete integration_config.knowledge_capture_enabled;
+                }
+                update({ integration_config });
+              }}
+            />
+          }
+        />
       </SectionFrame>
 
       {(draft.workspace?.cross_workspace_access || draft.api_permissions?.length || draft.system_prompt_workspace_file || draft.persona_from_workspace) && (
@@ -708,7 +736,7 @@ export default function BotEditorScreen() {
         {!isMobile && <SectionNav active={activeGroup} onSelect={setActiveGroup} filter={filter} matchingSections={matchingGroups} isMobile={false} visibleGroups={visibleGroups} />}
         <main className="min-w-0 flex-1 overflow-y-auto">
           <div className="mx-auto flex w-full max-w-5xl flex-col gap-7 px-4 py-5 md:px-6">
-            {activeGroup === "overview" && <OverviewSection draft={draft} usage={usageSummary} logs={usageLogs} setGroup={setActiveGroup} readinessBotId={isNew ? undefined : draft.id} />}
+            {activeGroup === "overview" && <OverviewSection draft={draft} usage={usageSummary} logs={usageLogs} setGroup={setActiveGroup} readinessBotId={isNew ? undefined : draft.id} update={update} />}
             {activeGroup === "identity" && <IdentitySection draft={draft} editorData={editorData} isNew={isNew} update={update} />}
             {activeGroup === "prompt" && <PromptPersonaSection draft={draft} editorData={editorData} botId={botId} update={update} />}
             {activeGroup === "tools" && <ToolsSkillsSection editorData={editorData} draft={draft} update={update} setGroup={setActiveGroup} />}

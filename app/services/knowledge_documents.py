@@ -102,6 +102,7 @@ class KnowledgeDocumentSurface:
 
 
 def user_knowledge_surface(*, workspace_root: str, user_id: str) -> KnowledgeDocumentSurface:
+    _validate_scope_id(user_id, "user_id")
     return KnowledgeDocumentSurface(
         root=os.path.realpath(workspace_root),
         kb_rel=f"users/{user_id}/knowledge-base",
@@ -111,6 +112,7 @@ def user_knowledge_surface(*, workspace_root: str, user_id: str) -> KnowledgeDoc
 
 
 def bot_knowledge_surface(*, workspace_root: str, bot_id: str) -> KnowledgeDocumentSurface:
+    _validate_scope_id(bot_id, "bot_id")
     return KnowledgeDocumentSurface(
         root=os.path.realpath(workspace_root),
         kb_rel=f"bots/{bot_id}/knowledge-base",
@@ -124,6 +126,11 @@ def slugify_document_title(title: str) -> str:
     base = re.sub(r"\s+", "-", base)
     base = _SLUG_RE.sub("-", base).strip("-._")
     return (base or "untitled-note")[:80]
+
+
+def _validate_scope_id(value: str, label: str) -> None:
+    if not value or value in {".", ".."} or "/" in value or "\\" in value:
+        raise ValueError(f"invalid {label}")
 
 
 def document_path_for_slug(slug: str) -> str:
@@ -330,6 +337,14 @@ def set_document_status(surface: KnowledgeDocumentSurface, slug: str, status: st
     meta["status"] = status
     content = render_frontmatter(meta) + body.lstrip("\n")
     return write_document(surface, slug, content, doc["content_hash"])
+
+
+def delete_document(surface: KnowledgeDocumentSurface, slug: str) -> dict[str, Any]:
+    doc = read_document(surface, slug)
+    abs_path, _rel = resolve_document_abs_path(surface, slug)
+    save_file_backup(abs_path)
+    os.remove(abs_path)
+    return doc
 
 
 def update_session_binding(surface: KnowledgeDocumentSurface, slug: str, binding: dict[str, Any]) -> dict[str, Any]:

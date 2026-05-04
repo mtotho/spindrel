@@ -531,6 +531,10 @@ export interface ChannelNoteSummary {
 export interface ChannelNote extends ChannelNoteSummary {
   content: string;
   session_id?: string;
+  session_binding?: {
+    mode?: "dedicated" | "inline" | "attached";
+    session_id?: string | null;
+  };
 }
 
 export interface ChannelNotesResponse {
@@ -594,6 +598,21 @@ export function useWriteChannelNote(channelId: string) {
       queryClient.invalidateQueries({ queryKey: ["channel-note", channelId, data.slug] });
       queryClient.invalidateQueries({ queryKey: ["channel-workspace-file-versions", channelId, data.workspace_path ?? data.path] });
       queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
+    },
+  });
+}
+
+export function useUpdateChannelNoteSessionBinding(channelId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ slug, mode, session_id }: { slug: string; mode: "dedicated" | "inline" | "attached"; session_id?: string | null }) =>
+      apiFetch<ChannelNote>(`/api/v1/channels/${channelId}/notes/${encodeURIComponent(slug)}/session-binding`, {
+        method: "PUT",
+        body: JSON.stringify({ mode, session_id }),
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["channel-notes", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channel-note", channelId, data.slug] });
     },
   });
 }

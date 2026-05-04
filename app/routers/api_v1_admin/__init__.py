@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 
 from app.dependencies import verify_admin_auth
 
-from . import api_keys, attachments, bot_grants, bots, channel_pipelines, channels, config_state, diagnostics, docker_stacks, docs, fallbacks, harnesses, health, install_cache, integrations, learning, limits, logs, machines, manifest_trust, mcp_servers, models, notification_targets, openai_oauth, operations, prompts, providers, run_presets, secret_values, security_audit, settings, skills, spike_alerts, stats, storage, tasks, tools, turns, upcoming, usage, webhooks, widget_packages, widget_themes, widget_tokens, workflows
+from . import api_keys, attachments, bot_grants, bots, channel_pipelines, channels, config_state, diagnostics, docker_stacks, docs, fallbacks, harnesses, health, install_cache, integrations, knowledge_review, learning, limits, logs, machines, manifest_trust, mcp_servers, models, notification_targets, openai_oauth, operations, prompts, providers, run_presets, secret_values, security_audit, settings, skills, spike_alerts, stats, storage, tasks, tools, turns, upcoming, usage, webhooks, widget_packages, widget_themes, widget_tokens, workflows
 
 router = APIRouter(prefix="/admin", tags=["Admin API"], dependencies=[Depends(verify_admin_auth)])
 
@@ -39,6 +39,7 @@ router.include_router(diagnostics.router)
 router.include_router(integrations.router)
 router.include_router(machines.router)
 router.include_router(learning.router)
+router.include_router(knowledge_review.router)
 router.include_router(fallbacks.router)
 router.include_router(logs.router)
 router.include_router(turns.router)

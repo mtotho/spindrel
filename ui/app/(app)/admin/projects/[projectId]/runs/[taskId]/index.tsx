@@ -321,7 +321,7 @@ export default function ProjectRunDetail() {
                   {terminalReviewed && <StatusBadge label="reviewed" variant="success" />}
                 </div>
                 <h1 className="mt-3 text-xl font-semibold leading-7 tracking-normal text-text">{problemTitle(run)}</h1>
-                <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-text-muted">{problemSummary(run)}</p>
+                <p className="mt-3 line-clamp-4 whitespace-pre-wrap text-sm leading-6 text-text-muted">{problemSummary(run)}</p>
                 <div className="mt-3 text-xs text-text-dim">{sourceLine(run)}</div>
               </div>
               {run.source_artifact?.path && (
@@ -334,7 +334,7 @@ export default function ProjectRunDetail() {
                 </div>
               )}
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-overlay/25 px-3 py-2">
-                <div className="text-xs leading-5 text-text-muted">
+                <div className="line-clamp-2 min-w-0 text-xs leading-5 text-text-muted">
                   {terminalReviewed
                     ? `Closed on our side${run.review?.reviewed_at ? ` · ${formatRunTime(run.review.reviewed_at)}` : ""}${run.review?.review_summary ? ` · ${run.review.review_summary}` : ""}`
                     : prMerged
