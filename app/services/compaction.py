@@ -2481,6 +2481,8 @@ async def backfill_sections(
             )
 
             last_period_end = getattr(existing[-1], "period_end", None)
+            if not isinstance(last_period_end, datetime):
+                last_period_end = None
             if last_period_end is not None:
                 skip_idx = len(active_timestamps)
                 for idx, ts in enumerate(active_timestamps):
