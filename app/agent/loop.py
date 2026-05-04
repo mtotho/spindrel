@@ -227,13 +227,20 @@ async def run_agent_tool_loop(
                 continue
 
             _llm_done: LoopLlmIterationDone | None = None
+            iteration_tool_choice = tool_choice
+            if (
+                _run_control.policy.get("force_initial_tool_call")
+                and tools_param is not None
+                and not state.tool_calls_made
+            ):
+                iteration_tool_choice = "required"
             async for _llm_event in stream_loop_llm_iteration(
                 ctx=ctx,
                 state=state,
                 iteration=iteration,
                 model=model,
                 tools_param=tools_param,
-                tool_choice=tool_choice,
+                tool_choice=iteration_tool_choice,
                 effective_provider_id=effective_provider_id,
                 model_params=_effective_model_params,
                 fallback_models=fallback_models,

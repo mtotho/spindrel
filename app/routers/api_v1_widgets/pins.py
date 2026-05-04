@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db, require_scopes
+from app.dependencies import get_db, release_db_read_transaction, require_scopes
 from app.services.dashboard_pins import (
     DEFAULT_DASHBOARD_KEY,
     apply_dashboard_pin_config_patch,
@@ -127,6 +127,7 @@ async def get_dashboard_pins(
                 pin["widget_health"] = health
     except Exception:
         logger.debug("Failed to attach latest widget health summaries", exc_info=True)
+    await release_db_read_transaction(db, context="dashboard pin list")
     return {"pins": serialized}
 
 
@@ -181,6 +182,7 @@ async def get_dashboard_pin(
             data["widget_health"] = health
     except Exception:
         logger.debug("Failed to attach latest widget health summary", exc_info=True)
+    await release_db_read_transaction(db, context="dashboard pin detail")
     return data
 
 

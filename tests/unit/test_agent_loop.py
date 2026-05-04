@@ -578,7 +578,8 @@ class TestRunAgentToolLoop:
              patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
              patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
              patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
-             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.tool_dispatch._start_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.tool_dispatch._complete_tool_call", new_callable=AsyncMock, return_value=None), \
              patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None), \
              patch("app.agent.loop.settings") as mock_settings:
             mock_settings.AGENT_MAX_ITERATIONS = 3
@@ -646,7 +647,8 @@ class TestRunAgentToolLoop:
              patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
              patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
              patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
-             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.tool_dispatch._start_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.tool_dispatch._complete_tool_call", new_callable=AsyncMock, return_value=None), \
              patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None), \
              patch("app.agent.loop.settings") as mock_settings:
             mock_settings.AGENT_MAX_ITERATIONS = 10
@@ -708,6 +710,71 @@ class TestRunAgentToolLoop:
 
             # Forced retry should have been called
             mock_llm_call.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_run_control_can_force_only_initial_tool_call(self):
+        """Memory flush runs must not accept prose before at least one tool call."""
+        from app.agent.loop import run_agent_tool_loop
+
+        tool_call = _mock_tool_call(
+            name="file",
+            args=json.dumps({
+                "operation": "append",
+                "path": "memory/logs/2026-05-04.md",
+                "content": "- saved",
+            }),
+        )
+        acc_tool = _mock_accumulated(content="", tool_calls=[tool_call])
+        acc_final = _mock_accumulated(content="Saved.")
+        bot = _make_bot(local_tools=["file"])
+        schema = {
+            "type": "function",
+            "function": {
+                "name": "file",
+                "description": "Write a workspace file.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+        tool_choices = []
+
+        async def _stream(model, messages, tools_param, tool_choice, **kwargs):
+            tool_choices.append(tool_choice)
+            idx = len(tool_choices)
+            yield acc_tool if idx == 1 else acc_final
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_stream), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[schema]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
+             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
+             patch("app.agent.tool_dispatch._start_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.tool_dispatch._complete_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop.settings") as mock_settings:
+            mock_settings.AGENT_MAX_ITERATIONS = 10
+            mock_settings.AGENT_TRACE = False
+            mock_settings.TOOL_RESULT_SUMMARIZE_ENABLED = False
+            mock_settings.TOOL_RESULT_SUMMARIZE_THRESHOLD = 99999
+            mock_settings.TOOL_RESULT_SUMMARIZE_MODEL = ""
+            mock_settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS = 500
+            mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+            mock_settings.IN_LOOP_PRUNING_ENABLED = False
+            mock_settings.TOOL_LOOP_DETECTION_ENABLED = False
+            mock_settings.SKILL_NUDGE_AFTER_ITERATIONS = 0
+
+            events = []
+            async for event in run_agent_tool_loop(
+                [{"role": "user", "content": "save memory"}],
+                bot,
+                run_control_policy={"force_initial_tool_call": True},
+            ):
+                events.append(event)
+
+        assert tool_choices == ["required", "auto"]
+        assert [event["type"] for event in events if event["type"] == "response"] == ["response"]
 
     @pytest.mark.asyncio
     async def test_zero_completion_tokens_triggers_retry_despite_tool_calls(self):

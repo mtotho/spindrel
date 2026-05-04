@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const CHAT_DIR = resolve(process.cwd(), "src/components/chat");
+const CHANNEL_SCREEN = resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx");
 const CHAT_SESSION_SOURCE_FILES = [
   "ChatSessionChannel.tsx",
   "ChatSessionFixed.tsx",
@@ -13,6 +14,10 @@ const CHAT_SESSION_SOURCE_FILES = [
 
 function readChatFile(name: string): string {
   return readFileSync(resolve(CHAT_DIR, name), "utf8");
+}
+
+function readChannelScreen(): string {
+  return readFileSync(CHANNEL_SCREEN, "utf8");
 }
 
 function readChatSessionSourceModes(): string {
@@ -456,6 +461,14 @@ test("MessageInput delegates draft files and submit decision policy", () => {
   assert.match(planControl, /ListTodo/);
   assert.match(planControl, /ChevronDown/);
   assert.match(approvalModeControl, /getHarnessApprovalModeControlState/);
+});
+
+test("main channel composer separates inherited bot model from channel override", () => {
+  const channelScreen = readChannelScreen();
+
+  assert.match(channelScreen, /modelOverride:\s*turnModelOverride/);
+  assert.match(channelScreen, /defaultModel:\s*bot\?\.model/);
+  assert.doesNotMatch(channelScreen, /defaultModel:\s*channel\?\.model_override\s*\|\|\s*bot\?\.model/);
 });
 
 test("Tiptap slash picker re-runs when the server command catalog hydrates", () => {

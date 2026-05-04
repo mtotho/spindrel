@@ -8,6 +8,7 @@ from uuid import UUID
 from typing import Optional
 
 from fastapi import Depends, HTTPException, Header
+from sqlalchemy.exc import DBAPIError, InterfaceError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -32,9 +33,62 @@ class ApiKeyAuth:
     pin_id: UUID | None = None
 
 
-async def get_db() -> AsyncGenerator[AsyncSession]:
-    async with async_session() as session:
+def _is_closed_connection_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return (
+        "underlying connection is closed" in text
+        or "connection is closed" in text
+        or "connection was closed" in text
+    )
+
+
+async def _invalidate_after_closed_connection(session: AsyncSession, exc: BaseException) -> None:
+    logger.warning(
+        "DB session cleanup hit an already-closed connection; invalidating session",
+        exc_info=exc,
+    )
+    try:
+        await session.invalidate()
+    except Exception:
+        logger.debug("DB session invalidation after closed connection failed", exc_info=True)
+
+
+async def release_db_read_transaction(session: AsyncSession, *, context: str) -> None:
+    """End a request read transaction before response serialization/streaming.
+
+    SQLAlchemy autobegins a transaction for SELECTs. Leaving that transaction
+    open until FastAPI's dependency cleanup can trip Postgres'
+    idle-in-transaction timeout on large or backpressured responses.
+    """
+    if not session.in_transaction():
+        return
+    try:
+        await session.rollback()
+    except (InterfaceError, DBAPIError) as exc:
+        if _is_closed_connection_error(exc):
+            logger.warning(
+                "DB read transaction rollback failed after %s because the connection "
+                "was already closed",
+                context,
+                exc_info=exc,
+            )
+            await _invalidate_after_closed_connection(session, exc)
+            return
+        raise
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    session = async_session()
+    try:
         yield session
+    finally:
+        try:
+            await session.close()
+        except (InterfaceError, DBAPIError) as exc:
+            if _is_closed_connection_error(exc):
+                await _invalidate_after_closed_connection(session, exc)
+            else:
+                raise
 
 
 async def verify_auth(authorization: str = Header(...)) -> str:

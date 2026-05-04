@@ -620,7 +620,10 @@ async def _run_memory_flush(
             task_mode=True,
             compaction=True,
             context_profile_name="memory_flush",
-            run_control_policy={"tool_surface": "strict"},
+            run_control_policy={
+                "tool_surface": "strict",
+                "force_initial_tool_call": True,
+            },
         )
         logger.info("Memory flush complete for channel %s", channel.id)
         return result.response

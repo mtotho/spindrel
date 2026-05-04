@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db, require_scopes
+from app.dependencies import get_db, release_db_read_transaction, require_scopes
 from app.services.dashboard_pins import serialize_pin
 from app.services.dashboard_rail import (
     resolved_rail_state,
@@ -72,11 +72,13 @@ async def list_all_dashboards(
     rail_by_slug = await resolved_rail_state_bulk(
         db, [r.slug for r in rows], user_id,
     )
+    dashboards = [
+        serialize_dashboard(r, rail=rail_by_slug.get(r.slug))
+        for r in rows
+    ]
+    await release_db_read_transaction(db, context="dashboard list")
     return {
-        "dashboards": [
-            serialize_dashboard(r, rail=rail_by_slug.get(r.slug))
-            for r in rows
-        ],
+        "dashboards": dashboards,
     }
 
 
@@ -85,7 +87,9 @@ async def list_all_dashboards(
     dependencies=[Depends(require_scopes("channels:read"))],
 )
 async def get_redirect_target(db: AsyncSession = Depends(get_db)):
-    return {"slug": await redirect_target_slug(db)}
+    slug = await redirect_target_slug(db)
+    await release_db_read_transaction(db, context="dashboard redirect target")
+    return {"slug": slug}
 
 
 @router.get(
@@ -144,6 +148,7 @@ async def list_channel_dashboard_pins(db: AsyncSession = Depends(get_db)):
     # guard defensively) and sort by channel name for stable display.
     out = [g for g in groups.values() if g["pins"]]
     out.sort(key=lambda g: (g["channel_name"].lower(), g["dashboard_slug"]))
+    await release_db_read_transaction(db, context="channel dashboard pin list")
     return {"channels": out}
 
 
@@ -165,7 +170,9 @@ async def get_single_dashboard(
     row = await get_dashboard(db, slug)
     user_id, _ = auth_identity(auth)
     rail = await resolved_rail_state(db, row.slug, user_id)
-    return serialize_dashboard(row, rail=rail)
+    data = serialize_dashboard(row, rail=rail)
+    await release_db_read_transaction(db, context="dashboard detail")
+    return data
 
 
 @router.post("/dashboards")

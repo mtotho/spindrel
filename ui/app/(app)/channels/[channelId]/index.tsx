@@ -968,7 +968,7 @@ export default function ChatScreen() {
     modelOverride: turnModelOverride,
     modelProviderIdOverride: turnProviderIdOverride,
     onModelOverrideChange: handleModelOverrideChange,
-    defaultModel: channel?.model_override || bot?.model,
+    defaultModel: bot?.model,
     // Phase 4: drop the harness gate. Composer pill now swaps to a
     // harness-aware picker when bot.harness_runtime is set (writes go to
     // POST /sessions/{id}/harness-settings instead of channel.model_override).
