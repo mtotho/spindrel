@@ -425,6 +425,78 @@ class TestBackfillSections:
         assert added_sections[0].sequence == 4
 
     @pytest.mark.asyncio
+    async def test_resume_prefers_last_section_period_over_bad_message_counts(self):
+        """Resume should rebuild after the last kept timestamp even when message_count overstates coverage."""
+        channel_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+        channel = _make_channel(
+            id=channel_id, active_session_id=session_id, history_mode="file"
+        )
+        session = _make_session(
+            id=session_id, channel_id=channel_id, summary_message_id=None
+        )
+
+        base_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        messages = []
+        for i in range(6):
+            role = "user" if i % 2 == 0 else "assistant"
+            messages.append(_make_message(
+                role=role,
+                content=f"msg {i}",
+                created_at=base_time + timedelta(minutes=i),
+                session_id=session_id,
+            ))
+
+        existing_sections = [
+            MagicMock(
+                sequence=1,
+                message_count=999,
+                chunk_size=2,
+                period_end=base_time + timedelta(minutes=1),
+            ),
+        ]
+
+        async def mock_get(cls, id_val):
+            if id_val == channel_id:
+                return channel
+            if id_val == session_id:
+                return session
+            return None
+
+        async def mock_execute(stmt):
+            result = MagicMock()
+            stmt_str = str(stmt)
+            if "conversation_sections" in stmt_str.lower():
+                result.scalars.return_value.all.return_value = existing_sections
+                return result
+            result.scalars.return_value.all.return_value = messages
+            return result
+
+        added_sections = []
+        mock_db = AsyncMock()
+        mock_db.get = mock_get
+        mock_db.execute = mock_execute
+        mock_db.add = lambda s: added_sections.append(s)
+        mock_db.commit = AsyncMock()
+
+        async def mock_generate_section(chunk, *args, **kwargs):
+            transcript = "\n".join(m["content"] for m in chunk)
+            return ("Tail", "Summary.", transcript, [], {})
+
+        with patch("app.services.compaction.async_session") as mock_session, \
+             patch("app.agent.bots.get_bot", return_value=_make_bot()), \
+             patch("app.services.compaction._generate_section", side_effect=mock_generate_section), \
+             patch("app.services.compaction._regenerate_executive_summary", new_callable=AsyncMock, return_value="Exec"):
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            async for _ in backfill_sections(channel_id, chunk_size=2):
+                pass
+
+        assert [s.sequence for s in added_sections] == [2, 3]
+        assert added_sections[0].transcript == "msg 2\nmsg 3"
+
+    @pytest.mark.asyncio
     async def test_reprocess_last_sections_deletes_tail_and_reuses_sequences(self):
         """Tail re-section should preserve older sections and rebuild from the first deleted sequence."""
         channel_id = uuid.uuid4()
@@ -503,6 +575,149 @@ class TestBackfillSections:
         done = [e for e in events if e["type"] == "backfill_done"]
         assert done[0]["sections_deleted"] == 2
         assert done[0]["sections_created"] == 3
+
+    @pytest.mark.asyncio
+    async def test_reprocess_last_sections_does_not_delete_when_no_chunks(self):
+        """Tail re-section must prove there is rebuildable source text before deleting sections."""
+        channel_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+        channel = _make_channel(
+            id=channel_id, active_session_id=session_id, history_mode="file"
+        )
+        session = _make_session(
+            id=session_id, channel_id=channel_id, summary_message_id=None
+        )
+
+        base_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        messages = []
+        for i in range(4):
+            role = "user" if i % 2 == 0 else "assistant"
+            messages.append(_make_message(
+                role=role,
+                content=f"msg {i}",
+                created_at=base_time + timedelta(minutes=i),
+                session_id=session_id,
+            ))
+
+        existing_sections = [
+            MagicMock(id=uuid.uuid4(), sequence=1, message_count=2, chunk_size=2),
+            MagicMock(id=uuid.uuid4(), sequence=2, message_count=2, chunk_size=2),
+            MagicMock(id=uuid.uuid4(), sequence=3, message_count=2, chunk_size=2),
+        ]
+        existing_by_id = {s.id: s for s in existing_sections}
+
+        async def mock_get(cls, id_val):
+            if id_val == channel_id:
+                return channel
+            if id_val == session_id:
+                return session
+            return existing_by_id.get(id_val)
+
+        async def mock_execute(stmt):
+            result = MagicMock()
+            stmt_str = str(stmt)
+            if "conversation_sections" in stmt_str.lower():
+                result.scalars.return_value.all.return_value = existing_sections
+                return result
+            result.scalars.return_value.all.return_value = messages
+            return result
+
+        mock_db = AsyncMock()
+        mock_db.get = mock_get
+        mock_db.execute = mock_execute
+        mock_db.add = MagicMock()
+        mock_db.delete = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        with patch("app.services.compaction.async_session") as mock_session, \
+             patch("app.agent.bots.get_bot", return_value=_make_bot()), \
+             patch("app.services.compaction._delete_section_file") as delete_file:
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            with pytest.raises(ValueError, match="Nothing was deleted"):
+                async for _ in backfill_sections(
+                    channel_id,
+                    chunk_size=2,
+                    reprocess_last_sections=1,
+                ):
+                    pass
+
+        mock_db.delete.assert_not_called()
+        delete_file.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_reprocess_last_sections_does_not_delete_when_generation_fails(self):
+        """Tail re-section must not delete old DB rows until replacements are generated."""
+        channel_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+        channel = _make_channel(
+            id=channel_id, active_session_id=session_id, history_mode="file"
+        )
+        session = _make_session(
+            id=session_id, channel_id=channel_id, summary_message_id=None
+        )
+
+        base_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        messages = []
+        for i in range(6):
+            role = "user" if i % 2 == 0 else "assistant"
+            messages.append(_make_message(
+                role=role,
+                content=f"msg {i}",
+                created_at=base_time + timedelta(minutes=i),
+                session_id=session_id,
+            ))
+
+        existing_sections = [
+            MagicMock(id=uuid.uuid4(), sequence=1, message_count=2, chunk_size=2),
+            MagicMock(id=uuid.uuid4(), sequence=2, message_count=2, chunk_size=2),
+        ]
+        existing_by_id = {s.id: s for s in existing_sections}
+
+        async def mock_get(cls, id_val):
+            if id_val == channel_id:
+                return channel
+            if id_val == session_id:
+                return session
+            return existing_by_id.get(id_val)
+
+        async def mock_execute(stmt):
+            result = MagicMock()
+            stmt_str = str(stmt)
+            if "conversation_sections" in stmt_str.lower():
+                result.scalars.return_value.all.return_value = existing_sections
+                return result
+            result.scalars.return_value.all.return_value = messages
+            return result
+
+        mock_db = AsyncMock()
+        mock_db.get = mock_get
+        mock_db.execute = mock_execute
+        mock_db.add = MagicMock()
+        mock_db.delete = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        async def fail_generate(*args, **kwargs):
+            raise RuntimeError("provider failed")
+
+        with patch("app.services.compaction.async_session") as mock_session, \
+             patch("app.agent.bots.get_bot", return_value=_make_bot()), \
+             patch("app.services.compaction._generate_section", side_effect=fail_generate), \
+             patch("app.services.compaction._delete_section_file") as delete_file:
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            with pytest.raises(RuntimeError, match="provider failed"):
+                async for _ in backfill_sections(
+                    channel_id,
+                    chunk_size=2,
+                    reprocess_last_sections=1,
+                ):
+                    pass
+
+        mock_db.delete.assert_not_called()
+        delete_file.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_watermark_filtering(self):

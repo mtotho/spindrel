@@ -16,15 +16,15 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, Message, Session, User as UserRow
+from app.db.models import Channel, Message, Session, TurnFeedback, User as UserRow
 from app.domain.errors import DomainError
 from app.dependencies import (
     assert_admin_or_channel_owner,
@@ -417,6 +417,123 @@ class FeedbackOut(BaseModel):
     vote: str
     comment: Optional[str] = None
     updated_at: datetime
+
+
+class FeedbackReviewRow(BaseModel):
+    correlation_id: uuid.UUID
+    channel_id: uuid.UUID
+    channel_name: Optional[str] = None
+    session_id: uuid.UUID
+    bot_id: Optional[str] = None
+    vote: str
+    comment: Optional[str] = None
+    source_integration: str
+    source_user_ref: Optional[str] = None
+    anonymous: bool
+    user_id: Optional[uuid.UUID] = None
+    anchor_excerpt: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class FeedbackReviewOut(BaseModel):
+    row_count: int
+    rows: list[FeedbackReviewRow]
+
+
+_FEEDBACK_REVIEW_EXCERPT_LEN = 240
+
+
+@router.get("/feedback", response_model=FeedbackReviewOut)
+async def list_message_feedback(
+    vote: Optional[str] = Query(None, pattern="^(up|down)$"),
+    since_hours: int = Query(168, ge=1, le=720),
+    bot_id: Optional[str] = None,
+    channel_id: Optional[uuid.UUID] = None,
+    correlation_id: Optional[uuid.UUID] = None,
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    """Admin review surface for explicit user feedback."""
+    stmt = select(TurnFeedback).order_by(desc(TurnFeedback.created_at)).limit(limit)
+    if correlation_id is not None:
+        stmt = stmt.where(TurnFeedback.correlation_id == correlation_id)
+    else:
+        since = datetime.now(timezone.utc) - timedelta(hours=since_hours)
+        stmt = stmt.where(TurnFeedback.created_at >= since)
+    if vote is not None:
+        stmt = stmt.where(TurnFeedback.vote == vote)
+    if channel_id is not None:
+        stmt = stmt.where(TurnFeedback.channel_id == channel_id)
+
+    rows = (await db.execute(stmt)).scalars().all()
+
+    session_ids = {r.session_id for r in rows}
+    sessions: dict[uuid.UUID, Session] = {}
+    if session_ids:
+        session_rows = (await db.execute(
+            select(Session).where(Session.id.in_(session_ids))
+        )).scalars().all()
+        sessions = {s.id: s for s in session_rows}
+
+    if bot_id:
+        rows = [
+            r for r in rows
+            if sessions.get(r.session_id) and sessions[r.session_id].bot_id == bot_id
+        ]
+
+    channel_ids = {r.channel_id for r in rows}
+    channels: dict[uuid.UUID, Channel] = {}
+    if channel_ids:
+        channel_rows = (await db.execute(
+            select(Channel).where(Channel.id.in_(channel_ids))
+        )).scalars().all()
+        channels = {c.id: c for c in channel_rows}
+
+    correlation_ids = list({r.correlation_id for r in rows})
+    excerpts: dict[uuid.UUID, str] = {}
+    if correlation_ids:
+        anchor_rows = (await db.execute(
+            select(Message)
+            .where(
+                Message.correlation_id.in_(correlation_ids),
+                Message.role == "assistant",
+                Message.content.isnot(None),
+                Message.tool_call_id.is_(None),
+            )
+            .order_by(desc(Message.created_at))
+        )).scalars().all()
+        for message in anchor_rows:
+            if message.correlation_id in excerpts:
+                continue
+            if isinstance(message.tool_calls, list) and message.tool_calls:
+                continue
+            content = (message.content or "").strip().replace("\n", " ")
+            excerpts[message.correlation_id] = content[:_FEEDBACK_REVIEW_EXCERPT_LEN]
+
+    out_rows = []
+    for row in rows:
+        session = sessions.get(row.session_id)
+        channel = channels.get(row.channel_id)
+        out_rows.append(FeedbackReviewRow(
+            correlation_id=row.correlation_id,
+            channel_id=row.channel_id,
+            channel_name=channel.name if channel else None,
+            session_id=row.session_id,
+            bot_id=session.bot_id if session else None,
+            vote=row.vote,
+            comment=row.comment,
+            source_integration=row.source_integration,
+            source_user_ref=row.source_user_ref,
+            anonymous=row.user_id is None,
+            user_id=row.user_id,
+            anchor_excerpt=excerpts.get(row.correlation_id),
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        ))
+
+    return FeedbackReviewOut(row_count=len(out_rows), rows=out_rows)
 
 
 

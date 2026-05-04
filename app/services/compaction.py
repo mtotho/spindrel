@@ -2444,6 +2444,7 @@ async def backfill_sections(
             )).scalars().all()
 
         sections_deleted = 0
+        sections_to_reprocess = []
         if reprocess_last_sections and not existing:
             raise ValueError("No existing sections to reprocess")
 
@@ -2452,21 +2453,10 @@ async def backfill_sections(
             keep_sections = existing[:keep_count]
             sections_to_reprocess = existing[keep_count:]
             start_seq = sections_to_reprocess[0].sequence
-            sections_deleted = len(sections_to_reprocess)
-
-            for sec in sections_to_reprocess:
-                _delete_section_file(sec, bot)
-
-            async with async_session() as db:
-                for sec in sections_to_reprocess:
-                    db_sec = await db.get(ConversationSection, sec.id)
-                    if db_sec is not None:
-                        await db.delete(db_sec)
-                await db.commit()
 
             logger.info(
-                "Backfill tail reprocess: deleted %d section(s), keeping %d, start_seq=%d for channel %s",
-                sections_deleted,
+                "Backfill tail reprocess: planning %d section(s), keeping %d, start_seq=%d for channel %s",
+                len(sections_to_reprocess),
                 len(keep_sections),
                 start_seq,
                 channel_id,
@@ -2490,17 +2480,30 @@ async def backfill_sections(
                 min(covered_ua, total_ua_in_conversation), start_seq,
             )
 
-            # Skip covered_ua user+assistant messages in the conversation
-            skipped = 0
-            skip_idx = len(conversation)  # default: skip everything if covered_ua >= total
-            for idx, m in enumerate(conversation):
-                if m.get("role") in ("user", "assistant"):
-                    skipped += 1
-                if skipped >= covered_ua:
-                    skip_idx = idx + 1
-                    break
+            last_period_end = getattr(existing[-1], "period_end", None)
+            if last_period_end is not None:
+                skip_idx = len(active_timestamps)
+                for idx, ts in enumerate(active_timestamps):
+                    if ts > last_period_end:
+                        skip_idx = idx
+                        break
+                logger.info(
+                    "Backfill resume: using last section period_end=%s, skipping %d timestamp-aligned messages",
+                    last_period_end,
+                    skip_idx,
+                )
+            else:
+                # Legacy fallback: skip covered user+assistant messages by count.
+                skipped = 0
+                skip_idx = len(conversation)  # default: skip everything if covered_ua >= total
+                for idx, m in enumerate(conversation):
+                    if m.get("role") in ("user", "assistant"):
+                        skipped += 1
+                    if skipped >= covered_ua:
+                        skip_idx = idx + 1
+                        break
             conversation = conversation[skip_idx:]
-            active_timestamps = active_timestamps[min(covered_ua, len(active_timestamps)):]
+            active_timestamps = active_timestamps[skip_idx:]
         else:
             start_seq = 1
 
@@ -2520,9 +2523,14 @@ async def backfill_sections(
         chunks.append(current_chunk)
 
     total_chunks = len(chunks)
+    if reprocess_last_sections and not chunks:
+        raise ValueError(
+            "No rebuildable messages found after the kept sections. Nothing was deleted. "
+            "The active-session watermark may be older than the sections you tried to re-section."
+        )
 
-    # 6. Process each chunk
-    sections_created = 0
+    # 6. Generate replacement section payloads before deleting any old rows.
+    staged_sections: list[dict[str, Any]] = []
     for i, chunk in enumerate(chunks):
         seq = start_seq + i
         title, summary, transcript, tags, _usage = await _generate_section(
@@ -2551,6 +2559,50 @@ async def backfill_sections(
         except Exception:
             logger.warning("Failed to embed section for backfill chunk %d", seq, exc_info=True)
 
+        staged_sections.append({
+            "sequence": seq,
+            "title": title,
+            "summary": summary,
+            "transcript": transcript,
+            "message_count": msg_count,
+            "period_start": period_start,
+            "period_end": period_end,
+            "embedding": embedding,
+            "tags": tags or None,
+        })
+
+        yield {
+            "type": "backfill_progress",
+            "section": len(staged_sections),
+            "total_chunks": total_chunks,
+            "title": title,
+        }
+
+    if not clear_existing and reprocess_last_sections:
+        for sec in sections_to_reprocess:
+            _delete_section_file(sec, bot)
+
+        async with async_session() as db:
+            for sec in sections_to_reprocess:
+                db_sec = await db.get(ConversationSection, sec.id)
+                if db_sec is not None:
+                    await db.delete(db_sec)
+            await db.commit()
+
+        sections_deleted = len(sections_to_reprocess)
+        logger.info(
+            "Backfill tail reprocess: deleted %d section(s), start_seq=%d for channel %s",
+            sections_deleted,
+            start_seq,
+            channel_id,
+        )
+
+    # 7. Persist staged sections
+    sections_created = 0
+    for staged in staged_sections:
+        seq = staged["sequence"]
+        tags = staged["tags"] or []
+
         # Write transcript to filesystem (optional) and DB (always)
         transcript_path = None
         history_dir = _get_history_dir(bot, channel)
@@ -2558,9 +2610,9 @@ async def backfill_sections(
         if settings.HISTORY_WRITE_FILES and history_dir and ws_root:
             try:
                 transcript_path = _write_section_file(
-                    history_dir, seq, title, summary, transcript,
-                    period_start, period_end, msg_count,
-                    tags or [], ws_root,
+                    history_dir, seq, staged["title"], staged["summary"], staged["transcript"],
+                    staged["period_start"], staged["period_end"], staged["message_count"],
+                    tags, ws_root,
                 )
             except Exception:
                 logger.warning("Failed to write section file for backfill chunk %d", seq, exc_info=True)
@@ -2570,29 +2622,23 @@ async def backfill_sections(
                 channel_id=channel_id,
                 session_id=session.id,
                 sequence=seq,
-                title=title,
-                summary=summary,
-                transcript=transcript,
+                title=staged["title"],
+                summary=staged["summary"],
+                transcript=staged["transcript"],
                 transcript_path=transcript_path,
-                message_count=msg_count,
+                message_count=staged["message_count"],
                 chunk_size=chunk_size,
-                period_start=period_start,
-                period_end=period_end,
-                embedding=embedding,
-                tags=tags or None,
+                period_start=staged["period_start"],
+                period_end=staged["period_end"],
+                embedding=staged["embedding"],
+                tags=staged["tags"],
             )
             db.add(section)
             await db.commit()
 
         sections_created += 1
-        yield {
-            "type": "backfill_progress",
-            "section": sections_created,
-            "total_chunks": total_chunks,
-            "title": title,
-        }
 
-    # 7. Regenerate executive summary
+    # 8. Regenerate executive summary
     exec_summary = await _regenerate_executive_summary(
         session.id, effective_model, provider_id=effective_provider,
     )

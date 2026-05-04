@@ -82,6 +82,7 @@ const AdminDelegations = lazy(() => import("@/app/(app)/admin/delegations"));
 const AdminDiagnostics = lazy(() => import("@/app/(app)/admin/diagnostics/index"));
 const AdminDockerStacks = lazy(() => import("@/app/(app)/admin/docker-stacks/index"));
 const AdminDockerStackDetail = lazy(() => import("@/app/(app)/admin/docker-stacks/[stackId]"));
+const AdminFeedback = lazy(() => import("@/app/(app)/admin/feedback"));
 const AdminHarnesses = lazy(() => import("@/app/(app)/admin/harnesses/index"));
 const AdminIntegrationsIndex = lazy(() => import("@/app/(app)/admin/integrations/index"));
 const AdminIntegrationDetail = lazy(() => import("@/app/(app)/admin/integrations/[integrationId]/index"));
@@ -242,6 +243,7 @@ export const router = createBrowserRouter([
               { path: "diagnostics", element: <AdminDiagnostics /> },
               { path: "docker-stacks", element: <AdminDockerStacks /> },
               { path: "docker-stacks/:stackId", element: <AdminDockerStackDetail /> },
+              { path: "feedback", element: <AdminFeedback /> },
               { path: "harnesses", element: <AdminHarnesses /> },
               { path: "integrations", element: <AdminIntegrationsIndex /> },
               { path: "integrations/:integrationId", element: <AdminIntegrationDetail /> },

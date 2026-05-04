@@ -38,7 +38,7 @@ async def _seed_feedback_reactions(
 ) -> None:
     if not enabled or not ts:
         return
-    for name in ("+1", "-1"):
+    for name in ("thumbsup", "thumbsdown"):
         try:
             result = await call_slack(
                 "reactions.add",
@@ -46,9 +46,11 @@ async def _seed_feedback_reactions(
                 {"channel": channel, "timestamp": ts, "name": name},
             )
             if not getattr(result, "success", False):
-                error = (getattr(result, "data", None) or {}).get("error")
+                error = getattr(result, "error", None) or (
+                    getattr(result, "data", None) or {}
+                ).get("error")
                 if error not in {"already_reacted"}:
-                    logger.debug(
+                    logger.warning(
                         "failed to seed feedback reaction %s on %s/%s: %s",
                         name, channel, ts, error,
                     )
