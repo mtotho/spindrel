@@ -601,7 +601,11 @@ async def validate_api_key(db: AsyncSession, raw_key: str) -> ApiKey | None:
         last_used = last_used.replace(tzinfo=timezone.utc)
     if last_used is None or (now - last_used).total_seconds() >= _LAST_USED_UPDATE_INTERVAL_SECONDS:
         row.last_used_at = now
-        await db.commit()
+    # Successful validation historically ended the auth transaction on every
+    # call. Keep that property even when the throttled last_used_at write is
+    # skipped; otherwise callers with request-scoped sessions can sit in
+    # "idle in transaction" until the response fully finishes.
+    await db.commit()
     return row
 
 
