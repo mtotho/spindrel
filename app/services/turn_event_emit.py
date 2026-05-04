@@ -323,6 +323,9 @@ def _build_skill_auto_inject_event(event: dict, ctx: _EmitContext) -> ChannelEve
 
 
 def _typed_event_from_run_stream_event(event: dict, ctx: _EmitContext) -> ChannelEvent | None:
+    if event.get("compaction") is True:
+        return None
+
     etype = event.get("type")
     if etype == "text_delta":
         return _build_text_delta_event(event, ctx)

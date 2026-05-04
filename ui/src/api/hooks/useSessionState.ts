@@ -24,7 +24,9 @@ export function useSessionState(sessionId: string | undefined, primaryBotId?: st
     if (bots) {
       for (const b of bots) botName[b.id] = b.name ?? b.id;
     }
+    const snapshotTurnIds = new Set<string>();
     for (const turn of query.data.active_turns) {
+      snapshotTurnIds.add(turn.turn_id);
       const toolCalls = turn.tool_calls.map((tc) => ({
         id: `${turn.turn_id}:snapshot:${tc.id}`,
         name: tc.tool_name,
@@ -53,6 +55,17 @@ export function useSessionState(sessionId: string | undefined, primaryBotId?: st
         toolCalls,
         skills,
       );
+    }
+
+    const GHOST_GRACE_MS = 3000;
+    const SSE_QUIET_MS = 180_000;
+    const now = Date.now();
+    const ch = store.getChannel(sessionId);
+    for (const [turnId, turn] of Object.entries(ch.turns)) {
+      if (snapshotTurnIds.has(turnId)) continue;
+      if (now - turn.startedAt < GHOST_GRACE_MS) continue;
+      if (now - turn.lastEventAt < SSE_QUIET_MS) continue;
+      store.discardTurn(sessionId, turnId);
     }
   }, [sessionId, query.data, bots, primaryBotId]);
 

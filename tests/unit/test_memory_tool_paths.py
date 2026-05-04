@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -38,6 +38,7 @@ async def test_memory_replace_section_emits_tool_result_envelope(tmp_path):
             patch("app.services.workspace.workspace_service.get_workspace_root", return_value=str(tmp_path)),
             patch("app.services.memory_scheme.get_memory_root", return_value=str(memory_root)),
             patch("app.services.bot_hooks.schedule_after_write", MagicMock()) as schedule_after_write,
+            patch("app.tools.local.memory_files._schedule_memory_reindex", MagicMock()) as schedule_reindex,
         ):
             result = await memory_files.memory(
                 operation="replace_section",
@@ -61,6 +62,7 @@ async def test_memory_replace_section_emits_tool_result_envelope(tmp_path):
     assert "+++ b/memory/MEMORY.md" in data["_envelope"]["body"]
     assert "## Project\nShared Project workspace facts." in (memory_root / "MEMORY.md").read_text()
     schedule_after_write.assert_called_once_with("bot-1", "memory/MEMORY.md")
+    schedule_reindex.assert_called_once_with(bot)
 
 
 @pytest.mark.asyncio
@@ -77,6 +79,7 @@ async def test_memory_append_emits_diff_envelope(tmp_path):
             patch("app.services.workspace.workspace_service.get_workspace_root", return_value=str(tmp_path)),
             patch("app.services.memory_scheme.get_memory_root", return_value=str(memory_root)),
             patch("app.services.bot_hooks.schedule_after_write", MagicMock()) as schedule_after_write,
+            patch("app.tools.local.memory_files._schedule_memory_reindex", MagicMock()) as schedule_reindex,
         ):
             result = await memory_files.memory(
                 operation="append",
@@ -93,6 +96,7 @@ async def test_memory_append_emits_diff_envelope(tmp_path):
     assert data["_envelope"]["plain_body"] == "Append memory/logs/2026-04-30.md: +1 -0 lines"
     assert "+- Walk Clarence at 4." in data["_envelope"]["body"]
     schedule_after_write.assert_called_once_with("bot-1", "memory/logs/2026-04-30.md")
+    schedule_reindex.assert_called_once_with(bot)
 
 
 @pytest.mark.asyncio
@@ -110,6 +114,7 @@ async def test_memory_append_rejects_leaked_tool_call_transcript(tmp_path):
             patch("app.services.workspace.workspace_service.get_workspace_root", return_value=str(tmp_path)),
             patch("app.services.memory_scheme.get_memory_root", return_value=str(memory_root)),
             patch("app.services.bot_hooks.schedule_after_write", MagicMock()) as schedule_after_write,
+            patch("app.tools.local.memory_files._schedule_memory_reindex", MagicMock()) as schedule_reindex,
         ):
             result = await memory_files.memory(
                 operation="append",
@@ -127,6 +132,22 @@ async def test_memory_append_rejects_leaked_tool_call_transcript(tmp_path):
     assert "tool-call transcript" in data["error"]
     assert target.read_text() == "# Log\n"
     schedule_after_write.assert_not_called()
+    schedule_reindex.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_memory_write_reindexes_only_current_bot_memory(tmp_path):
+    bot = SimpleNamespace(id="bot-1", memory_scheme="workspace-files")
+
+    with patch("app.services.bot_indexing.reindex_bot", new_callable=AsyncMock) as reindex_bot:
+        await memory_files._reindex_bot_memory_after_write(bot)
+
+    reindex_bot.assert_called_once_with(
+        bot,
+        include_workspace=False,
+        include_memory=True,
+        force=True,
+    )
 
 
 @pytest.mark.asyncio

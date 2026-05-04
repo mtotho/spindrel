@@ -124,6 +124,8 @@ interface ChatState {
   ) => void;
   /** Apply an event to the matching turn slot. */
   handleTurnEvent: (channelId: string, turnId: string, event: SSEEvent) => void;
+  /** Remove a stale turn slot without materializing its partial tool output. */
+  discardTurn: (channelId: string, turnId: string) => void;
   /** Finalize a turn — materialize as a synthetic message and remove the slot. */
   finishTurn: (channelId: string, turnId: string) => void;
   clearProcessing: (channelId: string) => void;
@@ -584,6 +586,22 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           [channelId]: {
             ...ch,
             turns: { ...ch.turns, [turnId]: stamped },
+          },
+        },
+      };
+    }),
+
+  discardTurn: (channelId, turnId) =>
+    set((s) => {
+      const ch = s.channels[channelId] ?? emptyChannel;
+      if (!ch.turns[turnId]) return s;
+      const { [turnId]: _removed, ...remaining } = ch.turns;
+      return {
+        channels: {
+          ...s.channels,
+          [channelId]: {
+            ...ch,
+            turns: remaining,
           },
         },
       };

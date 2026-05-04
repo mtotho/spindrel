@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import difflib
+import asyncio
 import json
 import logging
 import os
@@ -349,6 +350,28 @@ def _memory_diff_stats(diff_text: str) -> tuple[int, int]:
     return additions, deletions
 
 
+async def _reindex_bot_memory_after_write(bot) -> None:
+    """Refresh only the writing bot's memory index after a memory-tool mutation."""
+    try:
+        from app.services.bot_indexing import reindex_bot
+
+        await reindex_bot(
+            bot,
+            include_workspace=False,
+            include_memory=True,
+            force=True,
+        )
+    except Exception:
+        logger.exception("Memory auto-reindex failed for bot %s", getattr(bot, "id", "<unknown>"))
+
+
+def _schedule_memory_reindex(bot) -> None:
+    try:
+        asyncio.create_task(_reindex_bot_memory_after_write(bot))
+    except RuntimeError:
+        logger.debug("No running loop; skipping memory auto-reindex for bot %s", getattr(bot, "id", "<unknown>"))
+
+
 @register({
     "type": "function",
     "function": {
@@ -550,6 +573,7 @@ async def memory(
 
         from app.services.bot_hooks import schedule_after_write
         schedule_after_write(bot_id, f"memory/{rel}")
+        _schedule_memory_reindex(bot)
         if operation in {"create", "overwrite", "append", "edit", "replace_section", "delete"}:
             after_text = Path(resolved).read_text() if os.path.isfile(resolved) else ""
             diff_text = _memory_diff(before_text, after_text, rel)

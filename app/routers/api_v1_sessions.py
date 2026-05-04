@@ -26,6 +26,7 @@ from app.services.machine_control import (
     grant_session_lease,
 )
 from app.services.channel_sessions import RecentSessionListOut, build_recent_session_rows
+from app.services.injected_messages import build_injected_message_metadata
 from app.services.sessions import store_passive_message
 from app.services.tool_result_envelopes import normalize_tool_result_envelope_ids
 from app.schemas.messages import FeedbackBlock
@@ -1997,7 +1998,11 @@ async def inject_message(
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    metadata = {"source": body.source} if body.source else {}
+    metadata = build_injected_message_metadata(
+        role=body.role,
+        source=body.source,
+        bot_id=session.bot_id,
+    )
     await store_passive_message(db, session_id, body.content, metadata, channel_id=session.channel_id, role=body.role)
 
     # Retrieve the stored message id
@@ -2059,7 +2064,7 @@ async def list_messages(
     """
     from app.db.models import User as UserRow
     from app.dependencies import assert_admin_or_channel_owner
-    if isinstance(auth, ApiKeyAuth) and not has_scope(auth, "sessions:read"):
+    if isinstance(auth, ApiKeyAuth) and not has_scope(auth.scopes, "sessions:read"):
         raise HTTPException(status_code=403, detail="Missing scope: sessions:read")
 
     user_id_for_feedback: uuid.UUID | None = None

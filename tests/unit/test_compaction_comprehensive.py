@@ -906,6 +906,43 @@ class TestRunCompactionForced:
             assert session.summary_message_id is not None
 
     @pytest.mark.asyncio
+    async def test_forced_compaction_releases_db_connection_around_memory_flush(self, factory):
+        """Memory flush may outlive idle-in-transaction timeout; forced compaction must not."""
+        from app.db.models import Channel
+
+        bot = _make_bot(compaction_interval=3, compaction_keep_turns=1)
+        channel_id = uuid.uuid4()
+        async with factory() as db:
+            db.add(Channel(
+                id=channel_id,
+                name="test-channel",
+                bot_id="test",
+                context_compaction=True,
+                compaction_keep_turns=1,
+            ))
+            await db.commit()
+        sid = await _create_session_with_messages(
+            factory, num_user=5, num_assistant=5, channel_id=channel_id,
+        )
+
+        async with factory() as db:
+            original_close = db.close
+            db.close = AsyncMock(wraps=original_close)
+            from app.services.compaction import run_compaction_forced
+            with (
+                patch("app.services.compaction._run_memory_flush_phase", new_callable=AsyncMock, return_value=(True, "flushed")) as flush,
+                patch("app.services.compaction._generate_summary", new_callable=AsyncMock, return_value=("Forced Title", "Forced summary", {"tier": "normal"})),
+                patch("app.services.compaction._record_trace_event", new_callable=AsyncMock),
+                patch("app.services.compaction._record_compaction_completion"),
+            ):
+                title, summary = await run_compaction_forced(sid, bot, db)
+
+        assert title == "Forced Title"
+        assert summary == "Forced summary"
+        flush.assert_awaited_once()
+        assert db.close.await_count >= 2
+
+    @pytest.mark.asyncio
     async def test_all_in_keep_window_raises(self, factory):
         """If all messages are within keep window, raises ValueError."""
         bot = _make_bot(compaction_interval=3, compaction_keep_turns=100)

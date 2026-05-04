@@ -50,6 +50,7 @@ from app.services.channel_sessions import (
     build_session_search_rows,
     search_channel_session_rows,
 )
+from app.services.injected_messages import build_injected_message_metadata
 from app.services.heartbeat_policy import normalize_heartbeat_execution_policy
 from app.tools.local.search_history import _build_query, _serialize_messages
 
@@ -970,7 +971,11 @@ async def inject_channel_message(
     session_id = await ensure_active_session(db, channel)
     await db.commit()
 
-    metadata = {"source": body.source} if body.source else {}
+    metadata = build_injected_message_metadata(
+        role=body.role,
+        source=body.source,
+        bot_id=channel.bot_id,
+    )
     await store_passive_message(db, session_id, body.content, metadata, channel_id=channel_id, role=body.role)
 
     result = await db.execute(

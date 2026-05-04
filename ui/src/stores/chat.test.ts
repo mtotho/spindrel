@@ -83,6 +83,44 @@ test("processing ack arriving after turn start does not leave a stale background
   assert.equal(ch.queuedTaskId, null);
 });
 
+test("discardTurn removes stale tool streams without materializing a message", () => {
+  useChatStore.setState({ channels: {} });
+  const store = useChatStore.getState();
+
+  store.startTurn("session-1", "turn-1", "dev_bot", "Dev Bot", false);
+  store.handleTurnEvent("session-1", "turn-1", {
+    event: "tool_start",
+    data: {
+      tool: "memory",
+      tool_call_id: "call-memory-1",
+      args: "{\"operation\":\"append\",\"path\":\"memory/reference/qa-memory-codes.md\"}",
+      surface: "rich_result",
+    },
+  });
+  store.handleTurnEvent("session-1", "turn-1", {
+    event: "tool_result",
+    data: {
+      tool: "memory",
+      tool_call_id: "call-memory-1",
+      surface: "rich_result",
+      envelope: {
+        content_type: "text/markdown",
+        body: "Created memory/reference/qa-memory-codes.md",
+        plain_body: "Created memory/reference/qa-memory-codes.md",
+        display: "inline",
+        truncated: false,
+        byte_size: 42,
+      },
+    },
+  });
+
+  store.discardTurn("session-1", "turn-1");
+
+  const ch = useChatStore.getState().getChannel("session-1");
+  assert.equal(Object.keys(ch.turns).length, 0);
+  assert.equal(ch.messages.length, 0);
+});
+
 test("finishTurn materializes the canonical assistant turn body", () => {
   useChatStore.setState({ channels: {} });
   const store = useChatStore.getState();

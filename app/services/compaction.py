@@ -2139,6 +2139,7 @@ async def run_compaction_forced(
         channel = await db.get(Channel, session.channel_id)
 
     client_id = session.client_id
+    channel_id = session.channel_id
     existing_summary = session.summary
     prev_watermark_id = session.summary_message_id
     correlation_id = uuid.uuid4()
@@ -2164,10 +2165,20 @@ async def run_compaction_forced(
     if not conversation:
         raise ValueError("No conversation content to summarize")
 
+    # Memory flush can spend tens of seconds in model/tool work. Do not hold
+    # the request DB connection idle across that wait; Postgres may close it
+    # via idle-in-transaction timeout, which would break the later watermark
+    # and section writes.
+    await db.close()
     memory_flush_ran, flush_result = await _run_memory_flush_phase(
         channel=channel, bot=bot, session_id=session_id,
         messages=conversation, correlation_id=correlation_id,
     )
+    await db.close()
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise ValueError("Session not found")
+    channel = await db.get(Channel, channel_id) if channel_id else None
 
     _t0 = _time.monotonic()
     model = _get_compaction_model(bot, channel)
